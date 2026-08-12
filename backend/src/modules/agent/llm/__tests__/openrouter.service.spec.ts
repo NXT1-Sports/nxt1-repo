@@ -188,6 +188,7 @@ describe('OpenRouterService', () => {
   it('should use Anthropic max-token reasoning when thinking mode is enabled', async () => {
     await service.complete([{ role: 'user', content: 'test' }], {
       modelOverride: '~anthropic/claude-sonnet-latest',
+      maxTokens: 12000,
       enableThinking: true,
       reasoningEffort: 'high',
       thinkingBudgetTokens: 8000,
@@ -196,6 +197,21 @@ describe('OpenRouterService', () => {
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.model).toBe('~anthropic/claude-sonnet-latest');
     expect(body.reasoning).toEqual({ max_tokens: 8000 });
+  });
+
+  it('should cap Anthropic thinking tokens below the completion budget', async () => {
+    await service.complete([{ role: 'user', content: 'test' }], {
+      modelOverride: '~anthropic/claude-sonnet-latest',
+      maxTokens: 8192,
+      enableThinking: true,
+      reasoningEffort: 'high',
+      thinkingBudgetTokens: 10000,
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
+    expect(body.model).toBe('~anthropic/claude-sonnet-latest');
+    expect(body.max_tokens).toBe(8192);
+    expect(body.reasoning).toEqual({ max_tokens: 6144 });
   });
 
   it('should use effort-only reasoning for non-Anthropic thinking models', async () => {
@@ -913,6 +929,68 @@ describe('OpenRouterService', () => {
     expect(result.finishReason).toBe('stop');
     expect(result.usage.inputTokens).toBe(10);
     expect(result.usage.outputTokens).toBe(5);
+  });
+
+  it('strips provider-emitted DSML tool markup from streamed assistant content', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      createSseResponse([
+        `data: ${JSON.stringify({
+          model: 'deepseek/deepseek-v4-pro',
+          choices: [
+            {
+              index: 0,
+              delta: { content: 'Your PDF is ready. <｜DSM' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: {
+                content:
+                  'L｜tool_calls>\n<｜DSML｜invoke name="dynamic_export">\n<｜DSML｜parameter name="format" string="true">pdf</｜DSML｜parameter>',
+              },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              index: 0,
+              delta: { content: ' Download it from https://nxt1sports.com/team/demo.' },
+              finish_reason: null,
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          choices: [{ index: 0, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_cost: 0.001 },
+        })}`,
+        'data: [DONE]',
+      ])
+    );
+
+    const streamedText: string[] = [];
+
+    const result = await service.completeStream(
+      [{ role: 'user', content: 'Create a PDF.' }],
+      { modelOverride: 'deepseek/deepseek-v4-pro' },
+      (delta) => {
+        if (delta.content) streamedText.push(delta.content);
+      }
+    );
+
+    const streamed = streamedText.join('');
+    expect(streamed).toContain('Your PDF is ready.');
+    expect(streamed).toContain('Download it from https://nxt1sports.com/team/demo.');
+    expect(streamed).not.toContain('<｜DSML｜');
+    expect(streamed).not.toContain('dynamic_export');
+    expect(result.content).toBe(streamed);
+    expect(result.content).not.toContain('<｜DSML｜');
+    expect(result.content).not.toContain('dynamic_export');
   });
 
   it('should not double emit reasoning_details when reasoning is present in the same stream chunk', async () => {

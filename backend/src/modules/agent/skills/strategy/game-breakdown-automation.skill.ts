@@ -138,6 +138,7 @@ When complete:
 - Plays with HIGH/MEDIUM/LOW confidence breakdown
 - Any plays requiring coach review
 - Tag schema populated: confirm all fields (ODK, hash, formation, etc.) are filled per sport standard
+- If the completed rows produce verified structured metrics across multiple plays, call \`generate_chart_visualization\` before the final summary for the most useful coach visual: confidence distribution, play-type/result distribution, efficiency by situation, or phase-by-phase trend. Skip charts when there are too few rows or the metric would rely on guessed tags.
 - Ready for coach to review in film review tool
 
 ### Critical Rules
@@ -168,6 +169,7 @@ Tags: ODK=I-Form Edge / Hash=Right / Personnel=4-Wide / Motion=LT→Slot / PlayT
 ### Tools Used
 - \`analyze_video\` — Analyze play-specific time ranges with sport context
 - \`update_film_review_source_breakdown\` — Write breakdown rows to film review
+- \`generate_chart_visualization\` — Create a coach-facing chart from verified multi-play breakdown metrics when available
 - \`dynamic_export\` — (Optional) Generate summary table of all breakdowns when done`;
   }
 }

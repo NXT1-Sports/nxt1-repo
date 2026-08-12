@@ -10,6 +10,7 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
+import type { UserRole } from '@nxt1/core';
 import type { UserV2Document } from '../../../routes/auth/shared.js';
 import { logger } from '../../../utils/logger.js';
 import {
@@ -19,6 +20,7 @@ import {
   type NotionProperties,
   updateNotionSignupDashboardPage,
 } from '../integrations/notion/notion-client.service.js';
+import { sendUsageStartedEmail } from '../email/campaigns/usage-started/usage-started-email.service.js';
 import {
   buildB2BPartnerLookupContext,
   queryExistingB2BPartnerPage,
@@ -222,6 +224,10 @@ async function reserveUsageStartedSignal(input: RecordUsageStartedNotionDashboar
         userRef,
         {
           lifecycle: {
+            drip: {
+              hasAgentXActivity: true,
+              usageStartedAt: new Date().toISOString(),
+            },
             usage: {
               notionDashboard: nextState,
             },
@@ -288,6 +294,34 @@ export async function recordUsageStartedNotionDashboardEntry(
   const organizationHints = input.organizationId
     ? await resolveB2BOrganizationNameHints(input.db, input.organizationId)
     : {};
+
+  // Trigger outbound Usage Started email idempotently
+  if (user.email) {
+    const prefs = user.preferences as Record<string, unknown> | undefined;
+    const marketingEnabled =
+      typeof prefs?.['marketingEmailsEnabled'] === 'boolean'
+        ? Boolean(prefs['marketingEmailsEnabled'])
+        : true;
+    const sports = (user as unknown as Record<string, unknown>)['sports'];
+    const primarySport =
+      Array.isArray(sports) && sports.length > 0 ? String(sports[0]?.sport ?? '') : undefined;
+
+    await sendUsageStartedEmail({
+      userId: input.userId,
+      email: user.email,
+      firstName: user.firstName,
+      role: (user.role ?? 'athlete') as UserRole,
+      environment: input.environment || 'production',
+      primarySport,
+      organizationName: organizationHints.organizationName,
+      marketingEnabled,
+    }).catch((err: unknown) => {
+      logger.warn('[UsageStartedNotionDashboard] Failed to send usage started email', {
+        userId: input.userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
   const lookupContext = buildB2BPartnerLookupContext({
     user,
     organizationName: organizationHints.organizationName,

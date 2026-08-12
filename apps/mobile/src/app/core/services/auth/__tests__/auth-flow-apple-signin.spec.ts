@@ -4,7 +4,6 @@ import { FirebaseAuthService } from '../firebase-auth.service';
 import { AuthApiService } from '../auth-api.service';
 import { ProfileService } from '../../state/profile.service';
 import { ProfileLiveUpdateService } from '@nxt1/ui/profile';
-import { of } from 'rxjs';
 
 const authMocks = vi.hoisted(() => {
   const { of } = require('rxjs');
@@ -339,7 +338,9 @@ describe('AuthFlowService - Apple Sign-In', () => {
 
   describe('OAuth interaction guard', () => {
     it('should ignore a second Microsoft sign-in while the first chooser is still open', async () => {
-      let resolveFirstAttempt: (value: null) => void = () => {};
+      let resolveFirstAttempt: (value: null) => void = (_v: null) => {
+        /* replaced on Promise construction */
+      };
       const firstAttempt = new Promise<null>((resolve) => {
         resolveFirstAttempt = resolve;
       });

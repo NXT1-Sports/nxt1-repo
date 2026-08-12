@@ -71,6 +71,20 @@ export async function createMarketingEmailDispatch(
   });
 }
 
+export async function hasSentMarketingEmailCampaign(input: {
+  readonly campaignKey: string;
+  readonly userId: string;
+}): Promise<boolean> {
+  const existing = await MarketingEmailDispatchModel.exists({
+    environment: getRuntimeEnvironment(),
+    campaignKey: input.campaignKey,
+    userId: input.userId,
+    sendStatus: { $in: ['sent', 'delivered'] },
+  });
+
+  return Boolean(existing);
+}
+
 export async function markMarketingEmailDispatchSent(
   input: MarkMarketingEmailDispatchSentInput
 ): Promise<void> {

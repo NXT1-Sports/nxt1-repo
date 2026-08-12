@@ -15,7 +15,7 @@ export class FfmpegMergeVideosTool extends BaseTool {
     'Do not use concat_demuxer as a fallback for professional reels; audio-less intro graphics are supported and should stay in the reel. ' +
     'For branded highlight reels with a Runway/graphic intro as the first input, set maxIntroSeconds to 4 so the opener cannot freeze past the intended timeline. ' +
     'For branded reels, the generated intro-card image is the canonical poster/thumbnail for the merged video. ' +
-    'After merging, still call ffmpeg_generate_thumbnail on the output for playback validation and as a fallback poster frame. ' +
+    'Playback validation and thumbnail extraction occur automatically during merge. Do not call ffmpeg_generate_thumbnail after merge unless the user explicitly requested a separate screenshot or frame grab. ' +
     'Use poster/thumbnail images as metadata for the merged video (do not present them as separate deliverables unless requested).';
   readonly parameters = MergeVideosInputSchema;
 
@@ -61,12 +61,14 @@ export class FfmpegMergeVideosTool extends BaseTool {
 
     try {
       const mergeInput = {
-        ...parsed.data,
+        inputPaths: parsed.data.inputPaths,
+        outputPath: parsed.data.outputPath,
+        maxIntroSeconds: parsed.data.maxIntroSeconds,
         method: 'concat_filter' as const,
       };
       const result = await this.bridge.mergeVideos(mergeInput, context);
       const outputUrl = assertReadyFfmpegOutputUrl(result, this.name);
-      const thumbnailUrl = await generateVideoThumbnail({
+      const validationThumbnailUrl = await generateVideoThumbnail({
         bridge: this.bridge,
         videoUrl: outputUrl,
         outputPath: parsed.data.outputPath,
@@ -74,8 +76,9 @@ export class FfmpegMergeVideosTool extends BaseTool {
         context,
         logScope: 'FfmpegMergeVideosTool',
         time: '1',
-        required: true,
+        required: false,
       });
+      const posterUrl = parsed.data.posterUrl?.trim() || validationThumbnailUrl;
 
       logger.info('[FfmpegMergeVideosTool] Merge output ready', {
         operationId: context?.operationId,
@@ -83,7 +86,8 @@ export class FfmpegMergeVideosTool extends BaseTool {
         userId: context?.userId,
         inputCount: parsed.data.inputPaths.length,
         outputUrlPresent: true,
-        thumbnailUrlPresent: Boolean(thumbnailUrl),
+        thumbnailUrlPresent: Boolean(validationThumbnailUrl),
+        posterUrlPresent: Boolean(parsed.data.posterUrl),
         filesMerged: parsed.data.inputPaths.length,
         storagePathPresent: Boolean(result['storagePath']),
         sizeBytes: typeof result['sizeBytes'] === 'number' ? result['sizeBytes'] : undefined,
@@ -94,7 +98,9 @@ export class FfmpegMergeVideosTool extends BaseTool {
         data: {
           outputUrl,
           videoUrl: outputUrl,
-          thumbnailUrl,
+          thumbnailUrl: posterUrl,
+          posterUrl,
+          validationThumbnailUrl,
           filesMerged: parsed.data.inputPaths.length,
           ...(typeof result['storagePath'] === 'string'
             ? { storagePath: result['storagePath'] }

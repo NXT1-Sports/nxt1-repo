@@ -31,9 +31,11 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
   activityId: 'activity-failure-1',
   notificationId: 'notification-failure-1',
 });
+const mockDeriveBodyFromResult = vi.fn().mockReturnValue('Drafted 5 recruiting emails');
 const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
 const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
 const mockUpsertTeamFileFromAttachment = vi.fn().mockResolvedValue('promoted-export-file-1');
+const mockAttachExportAssetToUniversalDocument = vi.fn().mockResolvedValue(true);
 const mockPublishAgentDeliverableGeneratedDomainEvent = vi.fn().mockResolvedValue({
   domainEventType: 'agent.deliverable_generated',
   projections: [
@@ -59,7 +61,7 @@ vi.mock('../../../billing/budget.service.js', () => ({
 vi.mock('../../services/agent-activity.service.js', () => ({
   logAgentTaskCompletion: mockLogAgentTaskCompletion,
   logAgentTaskFailure: mockLogAgentTaskFailure,
-  deriveBodyFromResult: vi.fn().mockReturnValue('Drafted 5 recruiting emails'),
+  deriveBodyFromResult: mockDeriveBodyFromResult,
 }));
 
 vi.mock('../../services/weekly-recap-email.service.js', () => ({
@@ -69,6 +71,7 @@ vi.mock('../../services/weekly-recap-email.service.js', () => ({
 
 vi.mock('../../../../services/team/team-files-index.service.js', () => ({
   upsertTeamFileFromAttachment: mockUpsertTeamFileFromAttachment,
+  attachExportAssetToUniversalDocument: mockAttachExportAssetToUniversalDocument,
 }));
 
 vi.mock('../../../../services/domain-events/domain-events.service.js', () => ({
@@ -286,9 +289,11 @@ describe('AgentWorker', () => {
       activityId: 'activity-failure-1',
       notificationId: 'notification-failure-1',
     });
+    mockDeriveBodyFromResult.mockReturnValue('Drafted 5 recruiting emails');
     mockProcessRecapForUser.mockResolvedValue(undefined);
     mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
     mockUpsertTeamFileFromAttachment.mockResolvedValue('promoted-export-file-1');
+    mockAttachExportAssetToUniversalDocument.mockResolvedValue(true);
     mockPublishAgentDeliverableGeneratedDomainEvent.mockResolvedValue({
       domainEventType: 'agent.deliverable_generated',
       projections: [
@@ -404,6 +409,87 @@ describe('AgentWorker', () => {
     expect(mockChatService.generateOperationTitle).not.toHaveBeenCalled();
     expect(mockChatService.applyGeneratedThreadTitle).not.toHaveBeenCalled();
     expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
+  });
+
+  it('persists data.response as the durable completion summary when result summary is blank', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-highlight-response-123' },
+      intent: 'Create me a gunslinger wild west highlight reel',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: '',
+      data: {
+        response: 'Your Gunslinger Wild West highlight reel is ready.',
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.objectContaining({
+        summary: 'Your Gunslinger Wild West highlight reel is ready.',
+      })
+    );
+  });
+
+  it('persists streamed assistant text as durable summary when structured summary is blank', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-highlight-streamed-123' },
+      intent: 'Create me a gunslinger wild west highlight reel',
+    });
+    const job = makeMockJob(payload);
+    mockDeriveBodyFromResult.mockReturnValueOnce('');
+
+    mockRouter.run.mockImplementationOnce(async (_payload, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent?.({
+        type: 'delta',
+        agentId: 'brand_coordinator',
+        text: 'Your Gunslinger Wild West highlight reel is locked and loaded.',
+      });
+      return {
+        summary: '',
+        data: {},
+      } satisfies AgentOperationResult;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.objectContaining({
+        summary: 'Your Gunslinger Wild West highlight reel is locked and loaded.',
+      })
+    );
+  });
+
+  it('completes a recovered final-turn deliverable without treating it as max-iteration failure', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-completed-at-limit-123' },
+      intent: 'Create a gunslinger highlight reel',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Your gunslinger highlight reel is ready.',
+      success: true,
+      data: {
+        completedAtIterationLimit: true,
+        videoUrl: 'https://cdn.example.com/gunslinger-reel.mp4',
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      payload.operationId,
+      expect.objectContaining({
+        summary: 'Your gunslinger highlight reel is ready.',
+      })
+    );
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalled();
   });
 
   it('persists delegated coordinator image artifacts as attachments', async () => {
@@ -642,10 +728,327 @@ describe('AgentWorker', () => {
           expect.objectContaining({
             artifactRole: 'export',
             artifactGroupId: 'op-worker-test',
+            relatedDocumentId: 'doc-callsheet-1',
             name: 'Test2 Starter Callsheet.xlsx',
             type: 'doc',
           }),
         ],
+      })
+    );
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-callsheet-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-callsheet-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-callsheet-1',
+          artifactGroupId: 'op-worker-test',
+          storagePath: 'Users/user-abc/threads/thread-callsheet-123/exports/callsheet.xlsx',
+          name: 'Test2 Starter Callsheet.xlsx',
+        }),
+      })
+    );
+  });
+
+  it('indexes delegated coordinator exports against nested created Files documents', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-practice-script-123' },
+      intent: 'Create me a practice script and save as a new document please',
+    });
+    const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Practice script generated and saved.',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          downloadUrl: 'https://cdn.example.com/Fall-Camp-Practice-Script.xlsx',
+          storagePath:
+            'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
+          fileName: 'Fall Camp Practice Script.xlsx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          sizeBytes: 8192,
+        },
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation: 'Practice script completed successfully.',
+              coordinator_tool_call_records: [
+                {
+                  toolName: 'create_universal_team_document',
+                  status: 'success',
+                  output: {
+                    data: {
+                      document: {
+                        id: 'doc-practice-script-1',
+                        teamId: 'team-77',
+                        folderId: 'folder-practice',
+                        organizationId: 'org-1',
+                        sport: 'football',
+                        readAccessKeys: ['team:team-77'],
+                        writeAccessKeys: ['team:team-77'],
+                      },
+                    },
+                  },
+                },
+                {
+                  toolName: 'dynamic_export',
+                  status: 'success',
+                  input: {},
+                  output: {
+                    data: {
+                      downloadUrl: 'https://cdn.example.com/Fall-Camp-Practice-Script.xlsx',
+                      storagePath:
+                        'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
+                      fileName: 'Fall Camp Practice Script.xlsx',
+                      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                      format: 'xlsx',
+                      sizeBytes: 8192,
+                    },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            toolName: 'create_universal_team_document',
+            status: 'success',
+            input: {},
+            output: {
+              data: {
+                document: {
+                  id: 'doc-created-after-export-1',
+                  title: 'Duplicate Practice Script Matrix',
+                },
+              },
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-practice-script-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-practice-script-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-practice-script-1',
+          artifactGroupId: 'op-worker-test',
+          storagePath:
+            'Users/user-abc/threads/thread-practice-script-123/exports/practice-script.xlsx',
+          name: 'Fall Camp Practice Script.xlsx',
+        }),
+      })
+    );
+  });
+
+  it('attaches delegated PDF exports to the document created by Strategy Coordinator', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-program-game-plan-123' },
+      intent: 'Create program game-planning standards and export them as a PDF',
+    });
+    const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Program game-planning standards saved and exported.',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          downloadUrl: 'https://cdn.example.com/Program-Game-Planning-Standards.pdf',
+          storagePath:
+            'Users/user-abc/threads/thread-program-game-plan-123/exports/program-game-plan.pdf',
+          fileName: 'Program Game Planning Standards.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 16384,
+        },
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation: 'Program game plan completed successfully.',
+              coordinator_tool_call_records: [
+                {
+                  toolName: 'create_universal_team_document',
+                  status: 'success',
+                  output: {
+                    data: {
+                      document: {
+                        id: 'doc-program-game-plan-1',
+                        teamId: 'team-77',
+                        folderId: 'folder-game-plans',
+                        organizationId: 'org-1',
+                        sport: 'football',
+                        readAccessKeys: ['team:team-77'],
+                        writeAccessKeys: ['team:team-77'],
+                      },
+                    },
+                  },
+                },
+                {
+                  toolName: 'dynamic_export',
+                  status: 'success',
+                  input: {
+                    format: 'pdf',
+                    relatedDocumentId: 'doc-program-game-plan-1',
+                  },
+                  output: {
+                    data: {
+                      downloadUrl: 'https://cdn.example.com/Program-Game-Planning-Standards.pdf',
+                      storagePath:
+                        'Users/user-abc/threads/thread-program-game-plan-123/exports/program-game-plan.pdf',
+                      fileName: 'Program Game Planning Standards.pdf',
+                      mimeType: 'application/pdf',
+                      format: 'pdf',
+                      sizeBytes: 16384,
+                      artifactRole: 'export',
+                      relatedDocumentId: 'doc-program-game-plan-1',
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            name: 'Program Game Planning Standards.pdf',
+            mimeType: 'application/pdf',
+            type: 'pdf',
+            relatedDocumentId: 'doc-program-game-plan-1',
+          }),
+        ],
+      })
+    );
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-program-game-plan-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-program-game-plan-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-program-game-plan-1',
+          artifactGroupId: 'op-worker-test',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          storagePath:
+            'Users/user-abc/threads/thread-program-game-plan-123/exports/program-game-plan.pdf',
+          name: 'Program Game Planning Standards.pdf',
+        }),
+      })
+    );
+  });
+
+  it('attaches direct PDF exports to the immediately preceding created Files document', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-direct-test-pdf-123' },
+      intent: 'create me a quick test pdf and save as a document please',
+    });
+    const job = makeMockJob(payload);
+    const pdfUrl = 'https://cdn.example.com/Test_PDF_Document.pdf';
+    const storagePath = 'Users/user-abc/threads/thread-direct-test-pdf-123/exports/test.pdf';
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'All done. Here is your test PDF.',
+      data: {
+        attachments: [
+          {
+            url: pdfUrl,
+            storagePath,
+            name: 'Test_PDF_Document.pdf',
+            mimeType: 'application/pdf',
+            type: 'doc',
+            sizeBytes: 19044,
+            artifactRole: 'export',
+          },
+        ],
+        toolCallRecords: [
+          {
+            toolName: 'create_universal_team_document',
+            status: 'success',
+            input: { title: 'Test PDF Document' },
+            output: {
+              document: {
+                id: 'doc-direct-test-pdf-1',
+                title: 'Test PDF Document',
+              },
+            },
+          },
+          {
+            toolName: 'dynamic_export',
+            status: 'success',
+            input: {
+              format: 'pdf',
+              fileName: 'Test_PDF_Document',
+            },
+            output: {
+              downloadUrl: pdfUrl,
+              storagePath,
+              fileName: 'Test_PDF_Document.pdf',
+              mimeType: 'application/pdf',
+              format: 'pdf',
+              sizeBytes: 19044,
+              artifactRole: 'export',
+              attachments: [
+                {
+                  url: pdfUrl,
+                  storagePath,
+                  name: 'Test_PDF_Document.pdf',
+                  mimeType: 'application/pdf',
+                  type: 'doc',
+                  sizeBytes: 19044,
+                  artifactRole: 'export',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-direct-test-pdf-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-direct-test-pdf-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-direct-test-pdf-1',
+          artifactGroupId: 'op-worker-test',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          storagePath,
+          name: 'Test_PDF_Document.pdf',
+        }),
       })
     );
   });
@@ -1294,7 +1697,7 @@ describe('AgentWorker', () => {
     const job = makeMockJob(payload);
 
     // Override router.run to invoke the onUpdate callback
-    mockRouter.run.mockImplementation(async (_p: unknown, onUpdate: (u: unknown) => void) => {
+    mockRouter.run.mockImplementationOnce(async (_p: unknown, onUpdate: (u: unknown) => void) => {
       onUpdate({
         operationId: 'op-worker-test',
         status: 'acting',
@@ -1341,7 +1744,7 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    mockRouter.run.mockRejectedValue(new Error('LLM timeout'));
+    mockRouter.run.mockRejectedValueOnce(new Error('LLM timeout'));
 
     await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
   });
@@ -1354,7 +1757,7 @@ describe('AgentWorker', () => {
     });
     const job = makeMockJob(payload);
 
-    mockRouter.run.mockRejectedValue(new Error('Agent job timed out after 120 minutes'));
+    mockRouter.run.mockRejectedValueOnce(new Error('Agent job timed out after 120 minutes'));
 
     const result = (await capturedProcessor!(job)) as Record<string, unknown>;
 
@@ -1405,7 +1808,7 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    mockRouter.run.mockResolvedValue({
+    mockRouter.run.mockResolvedValueOnce({
       summary: 'Execution plan failed. Task 1 (performance_coordinator) failed: LLM timeout',
       data: {
         operationStatus: 'failed',
@@ -1434,7 +1837,7 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    mockRouter.run.mockResolvedValue({
+    mockRouter.run.mockResolvedValueOnce({
       summary: 'Your graphic is ready.',
       success: false,
       errorMessage: 'analytics event failed',
@@ -1463,6 +1866,7 @@ describe('AgentWorker', () => {
       context: { threadId: 'thread-paused-1' },
     });
     const job = makeMockJob(payload);
+    mockRouter.run.mockResolvedValueOnce(mockRouterResult);
 
     mockJobRepo.getById.mockResolvedValueOnce(null).mockResolvedValueOnce({
       operationId: payload.operationId,
@@ -1476,10 +1880,164 @@ describe('AgentWorker', () => {
 
     expect(outcome.result?.summary).toBe('Operation paused. Resume whenever you are ready.');
     expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
-    expect(mockChatService.addMessage).not.toHaveBeenCalled();
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-1',
+        semanticPhase: 'assistant_partial',
+        content: 'Drafted 5 recruiting emails',
+      })
+    );
 
     const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
     expect(finalProgress.status).toBe('paused');
+  });
+
+  it('persists streamed content when pause wins the post-run completion race', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-after-result-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'delta',
+        agentId: 'brand_coordinator',
+        text: 'Your gunslinger highlight reel is ready.',
+      });
+      return {
+        summary: 'Your gunslinger highlight reel is ready.',
+        data: {
+          videoUrl: 'https://cdn.example.com/gunslinger-reel.mp4',
+          thumbnailUrl: 'https://cdn.example.com/gunslinger-poster.jpg',
+          toolCallRecords: [
+            {
+              toolName: 'ffmpeg_merge_videos',
+              status: 'success',
+              output: {
+                videoUrl: 'https://cdn.example.com/gunslinger-reel.mp4',
+                thumbnailUrl: 'https://cdn.example.com/gunslinger-poster.jpg',
+              },
+            },
+          ],
+        },
+      } satisfies AgentOperationResult;
+    });
+    mockJobRepo.getById.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      operationId: payload.operationId,
+      status: 'paused',
+      yieldState: {
+        pendingToolCall: { toolName: 'resume_paused_operation' },
+      },
+    });
+
+    const outcome = (await capturedProcessor!(job)) as { result?: { summary?: string } };
+
+    expect(outcome.result?.summary).toBe('Operation paused. Resume whenever you are ready.');
+    expect(mockJobRepo.markCompleted).not.toHaveBeenCalled();
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-after-result-1',
+        operationId: payload.operationId,
+        semanticPhase: 'assistant_partial',
+        idempotencyKey: `${payload.operationId}:assistant_partial`,
+        content: 'Your gunslinger highlight reel is ready.',
+        attachments: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'video',
+            url: 'https://cdn.example.com/gunslinger-reel.mp4',
+            thumbnailUrl: 'https://cdn.example.com/gunslinger-poster.jpg',
+          }),
+        ]),
+        resultData: expect.objectContaining({
+          videoUrl: 'https://cdn.example.com/gunslinger-reel.mp4',
+        }),
+        toolCalls: expect.arrayContaining([
+          expect.objectContaining({
+            toolName: 'ffmpeg_merge_videos',
+            status: 'success',
+          }),
+        ]),
+      })
+    );
+  });
+
+  it('retries a transient MongoDB failure while persisting a post-run paused snapshot', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-persist-retry-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent({
+        type: 'delta',
+        agentId: 'brand_coordinator',
+        text: 'Your finished reel is ready.',
+      });
+      return mockRouterResult;
+    });
+    mockJobRepo.getById.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      operationId: payload.operationId,
+      status: 'paused',
+      yieldState: {
+        pendingToolCall: { toolName: 'resume_paused_operation' },
+      },
+    });
+    mockChatService.addMessage
+      .mockRejectedValueOnce(new Error('temporary MongoDB outage'))
+      .mockResolvedValueOnce({ id: 'msg-paused-retry' });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledTimes(2);
+    expect(mockChatService.addMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-persist-retry-1',
+        semanticPhase: 'assistant_partial',
+        content: 'Your finished reel is ready.',
+      })
+    );
+  });
+
+  it('persists generated video metadata when a post-run pause has no streamed text', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-paused-metadata-only-1' },
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: '',
+      data: {
+        videoUrl: 'https://cdn.example.com/metadata-only-reel.mp4',
+        thumbnailUrl: 'https://cdn.example.com/metadata-only-poster.jpg',
+      },
+    } satisfies AgentOperationResult);
+    mockJobRepo.getById.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      operationId: payload.operationId,
+      status: 'paused',
+      yieldState: {
+        pendingToolCall: { toolName: 'resume_paused_operation' },
+      },
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-paused-metadata-only-1',
+        semanticPhase: 'assistant_partial',
+        content: 'Drafted 5 recruiting emails',
+        attachments: expect.arrayContaining([
+          expect.objectContaining({
+            type: 'video',
+            url: 'https://cdn.example.com/metadata-only-reel.mp4',
+            thumbnailUrl: 'https://cdn.example.com/metadata-only-poster.jpg',
+          }),
+        ]),
+        resultData: expect.objectContaining({
+          videoUrl: 'https://cdn.example.com/metadata-only-reel.mp4',
+        }),
+      })
+    );
   });
 
   it('treats AbortError as controlled pause when persisted state is paused', async () => {
@@ -1618,7 +2176,7 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    mockRouter.run.mockResolvedValue({
+    mockRouter.run.mockResolvedValueOnce({
       summary: 'Task completed.',
       success: false,
       errorMessage: 'Media production did not produce a final video URL.',

@@ -6,7 +6,7 @@
  * PDF generation (valid PDF buffer output).
  */
 
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 import { ExportService } from '../export.service.js';
 import type {
@@ -510,6 +510,28 @@ describe('ExportService', () => {
       const header = result.subarray(0, 5).toString('ascii');
       expect(header).toBe('%PDF-');
       expect(result.length).toBeGreaterThan(100);
+      expect(result.toString('latin1')).toContain('/Subtype /Image');
+    });
+
+    it('should embed top-level image URLs into section-based PDFs', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          sections: [
+            {
+              title: 'Play Call Distribution',
+              bodyParagraphs: ['Run/pass tendency notes.'],
+            },
+          ],
+          imageUrls: [TINY_PNG_DATA_URL],
+        })
+      );
+
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.toString('latin1')).toContain('/Subtype /Image');
     });
 
     it('should use custom footer text when provided', async () => {
@@ -577,6 +599,75 @@ describe('ExportService', () => {
       const header = result.subarray(0, 5).toString('ascii');
       expect(header).toBe('%PDF-');
       expect(result.length).toBeGreaterThan(100);
+    });
+
+    it('should use a neutral fallback palette when no organization brand color is supplied', async () => {
+      const renderSpy = vi
+        .spyOn(service as never, 'renderPdfToBuffer' as never)
+        .mockResolvedValue(Buffer.from('%PDF-test'));
+
+      await service.generatePdf(
+        pdfOpts({
+          brandPrimaryColor: undefined,
+          organizationName: undefined,
+          logoUrl: undefined,
+          watermarkText: undefined,
+        })
+      );
+
+      const docDefinition = renderSpy.mock.calls[0]?.[0] as {
+        styles?: Record<string, { color?: string; fillColor?: string }>;
+        watermark?: unknown;
+      };
+
+      expect(docDefinition.styles?.['title']?.color).toBe('#111111');
+      expect(docDefinition.styles?.['sectionTitle']?.color).toBe('#111111');
+      expect(docDefinition.styles?.['tableHeader']?.fillColor).toBe('#111111');
+      expect(docDefinition.watermark).toBeUndefined();
+
+      renderSpy.mockRestore();
+    });
+
+    it('should preserve explicit organization branding colors when supplied', async () => {
+      const renderSpy = vi
+        .spyOn(service as never, 'renderPdfToBuffer' as never)
+        .mockResolvedValue(Buffer.from('%PDF-test'));
+
+      await service.generatePdf(
+        pdfOpts({
+          brandPrimaryColor: '#CCFF00',
+          organizationName: 'Crestview Rebels Football',
+        })
+      );
+
+      const docDefinition = renderSpy.mock.calls[0]?.[0] as {
+        styles?: Record<string, { color?: string; fillColor?: string }>;
+      };
+
+      expect(docDefinition.styles?.['title']?.color).toBe('#CCFF00');
+      expect(docDefinition.styles?.['tableHeader']?.fillColor).toBe('#CCFF00');
+
+      renderSpy.mockRestore();
+    });
+
+    it('should ignore watermarkText even when provided', async () => {
+      const renderSpy = vi
+        .spyOn(service as never, 'renderPdfToBuffer' as never)
+        .mockResolvedValue(Buffer.from('%PDF-test'));
+
+      await service.generatePdf(
+        pdfOpts({
+          watermarkText: 'DRAFT',
+        })
+      );
+
+      const docDefinition = renderSpy.mock.calls[0]?.[0] as {
+        watermark?: unknown;
+      };
+
+      expect(docDefinition.watermark).toBeUndefined();
+
+      renderSpy.mockRestore();
     });
 
     it('should generate landscape PDF exports without crashing on background rendering', async () => {

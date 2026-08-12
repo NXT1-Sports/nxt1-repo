@@ -94,15 +94,9 @@ function resolvePdfJsCanvasBindings(): CanvasBindings {
 function ensurePdfJsNodeGlobals(canvasBindings: CanvasBindings): void {
   const globalScope = globalThis as Record<string, unknown>;
 
-  if (typeof globalScope['DOMMatrix'] === 'undefined') {
-    globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
-  }
-  if (typeof globalScope['ImageData'] === 'undefined') {
-    globalScope['ImageData'] = canvasBindings.ImageData as unknown;
-  }
-  if (typeof globalScope['Path2D'] === 'undefined') {
-    globalScope['Path2D'] = canvasBindings.Path2D as unknown;
-  }
+  globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
+  globalScope['ImageData'] = canvasBindings.ImageData as unknown;
+  globalScope['Path2D'] = canvasBindings.Path2D as unknown;
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -215,8 +209,8 @@ class NodeCanvasFactory {
 export class EnrichDocumentNotesTool extends BaseTool {
   readonly name = 'enrich_document_notes';
   readonly description =
-    'Generate page-by-page AI notes for an uploaded Team Files PDF and save them back onto the same UniversalFiles record. ' +
-    'Use this for Generate Notes actions on large PDFs, playbooks, scout packets, reports, decks, or any document where every page needs review.';
+    'Generate full page-by-page AI notes (including visual multi-modal analysis of play diagrams, drawings, formations, charts, and text) for an uploaded Team Files PDF and save them back onto the record. ' +
+    'Use this for reviewing, analyzing, summarizing, or generating notes for PDFs, playbooks, scout packets, decks, or drawing/diagram-heavy documents.';
 
   readonly parameters = EnrichDocumentNotesInputSchema;
   readonly isMutation = true;
@@ -302,7 +296,6 @@ export class EnrichDocumentNotesTool extends BaseTool {
       const loadingTask = pdfjs.getDocument({
         data: new Uint8Array(pdfSource.buffer),
         useWorkerFetch: false,
-        isEvalSupported: false,
         disableFontFace: true,
         useSystemFonts: true,
       });

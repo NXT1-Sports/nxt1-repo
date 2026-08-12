@@ -44,14 +44,14 @@ type StatusBarStyle = 'dark' | 'light' | 'default';
 type AppLifecycleEvent = 'pause' | 'resume' | 'backButton';
 
 /** Lifecycle handler type */
-interface AppLifecycleHandler {
+interface _AppLifecycleHandler {
   onPause?: () => void;
   onResume?: () => void;
   onBackButton?: () => boolean | void; // Return true to prevent default behavior
 }
 
 /** Status bar configuration */
-interface StatusBarConfig {
+interface _StatusBarConfig {
   style: StatusBarStyle;
   color: string;
 }

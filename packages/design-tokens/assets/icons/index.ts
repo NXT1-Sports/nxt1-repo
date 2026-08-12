@@ -127,6 +127,17 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Attachment / paperclip icon */
+  attachment: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      {
+        d: 'M16.5 6v11.5c0 2.21-1.79 4-4 4s-4-1.79-4-4V5c0-1.38 1.12-2.5 2.5-2.5s2.5 1.12 2.5 2.5v10.5c0 .55-.45 1-1 1s-1-.45-1-1V6H10v9.5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V5c0-2.21-1.79-4-4-4S7 2.79 7 5v12.5c0 3.04 2.46 5.5 5.5 5.5s5.5-2.46 5.5-5.5V6h-1.5z',
+      },
+    ],
+  },
+
   /** Lock/Password icon */
   lock: {
     viewBox: '0 0 24 24',
@@ -915,6 +926,24 @@ export const UI_ICONS = {
     paths: [
       { d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z' },
       { d: 'M3 9h18' },
+    ],
+  },
+
+  /** Archive/ZIP icon (outline) - for compressed file uploads */
+  archive: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      {
+        d: 'M5 4.5A1.5 1.5 0 0 1 6.5 3h8.88L20 7.62V19.5A1.5 1.5 0 0 1 18.5 21h-12A1.5 1.5 0 0 1 5 19.5z',
+      },
+      { d: 'M15 3v5h5' },
+      { d: 'M10 8h4' },
+      { d: 'M10 11h4' },
+      { d: 'M10 14h4' },
+      { d: 'M12 8v9' },
+      { d: 'M10.5 17h3' },
     ],
   },
 
@@ -2239,6 +2268,7 @@ export const ALIAS_ICONS = {
   // ---- Content ----
   'document-text-outline': UI_ICONS.documentText,
   'document-outline': UI_ICONS.documentText,
+  'archive-outline': UI_ICONS.archive,
   'newspaper-outline': UI_ICONS.newspaper,
   'flag-outline': UI_ICONS.flag,
   'bookmark-outline': UI_ICONS.bookmark,

@@ -10,6 +10,7 @@ type MockFile = {
   exists?: ReturnType<typeof vi.fn>;
   getMetadata?: ReturnType<typeof vi.fn>;
   getSignedUrl?: ReturnType<typeof vi.fn>;
+  save?: ReturnType<typeof vi.fn>;
   setMetadata?: ReturnType<typeof vi.fn>;
 };
 
@@ -24,12 +25,9 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
   it('returns a Firebase download-token URL for generated graphics', async () => {
     const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
     const file = {
-      exists: vi.fn().mockResolvedValue([true]),
-      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
-      setMetadata: vi.fn().mockResolvedValue(undefined),
+      save: vi.fn().mockResolvedValue(undefined),
     };
     const bucket = createBucket({ [storagePath]: file });
-    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
 
     const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
       bucket,
@@ -39,19 +37,16 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
       cacheControl: 'public, max-age=31536000, immutable',
     });
 
-    expect(file.getSignedUrl).toHaveBeenCalledOnce();
-    expect(file.getSignedUrl).toHaveBeenCalledWith({
-      version: 'v4',
-      action: 'write',
-      expires: expect.any(Number),
-      contentType: 'image/png',
-    });
-    expect(file.setMetadata).toHaveBeenCalledWith({
-      cacheControl: 'public, max-age=31536000, immutable',
+    expect(file.save).toHaveBeenCalledWith(Buffer.from('image-bytes'), {
+      resumable: false,
       metadata: {
-        firebaseStorageDownloadTokens: expect.stringMatching(
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-        ),
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: {
+          firebaseStorageDownloadTokens: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+          ),
+        },
       },
     });
     expect(result).toMatchObject({
@@ -66,87 +61,20 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
     expect(result.expiresAt).toBeUndefined();
   });
 
-  it('accepts the known parse-error response when metadata was actually applied', async () => {
+  it('falls back to signed PUT when direct generated graphic upload fails integrity checks', async () => {
     const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
     const file = {
-      exists: vi.fn().mockResolvedValue([true]),
-      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
-      setMetadata: vi.fn().mockRejectedValue(new Error('Parse Error')),
-      getMetadata: vi.fn().mockImplementation(async () => {
-        const latestMetadata = file.setMetadata.mock.calls.at(-1)?.[0];
-        return [
-          {
-            metadata: {
-              firebaseStorageDownloadTokens:
-                latestMetadata?.metadata?.firebaseStorageDownloadTokens ?? '',
-            },
-          },
-        ];
-      }),
-    };
-    const bucket = createBucket({ [storagePath]: file });
-    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
-
-    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
-      bucket,
-      storagePath,
-      buffer: Buffer.from('image-bytes'),
-      mimeType: 'image/png',
-      cacheControl: 'public, max-age=31536000, immutable',
-    });
-
-    expect(file.setMetadata).toHaveBeenCalledTimes(1);
-    expect(file.getMetadata).toHaveBeenCalledTimes(1);
-    expect(result).toMatchObject({
-      storagePath,
-      kind: 'firebase-download-token',
-      durable: true,
-    });
-    expect(result.url).toContain('?alt=media&token=');
-  });
-
-  it('retries metadata application after an unverifiable parse-error response', async () => {
-    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
-    const file = {
-      exists: vi.fn().mockResolvedValue([true]),
-      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
-      setMetadata: vi
+      save: vi
         .fn()
-        .mockRejectedValueOnce(new Error('Parse Error'))
-        .mockResolvedValueOnce(undefined),
-      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
-    };
-    const bucket = createBucket({ [storagePath]: file });
-    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
-
-    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
-      bucket,
-      storagePath,
-      buffer: Buffer.from('image-bytes'),
-      mimeType: 'image/png',
-      cacheControl: 'public, max-age=31536000, immutable',
-    });
-
-    expect(file.getMetadata).toHaveBeenCalledTimes(1);
-    expect(file.setMetadata).toHaveBeenCalledTimes(2);
-    expect(result).toMatchObject({
-      storagePath,
-      kind: 'firebase-download-token',
-      durable: true,
-    });
-    expect(result.url).toContain('?alt=media&token=');
-  });
-
-  it('falls back to a signed read URL when download-token metadata keeps failing with parse errors', async () => {
-    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
-    const file = {
+        .mockRejectedValue(
+          new Error(
+            'The uploaded data did not match the data from the server. As a precaution, the file has been deleted.'
+          )
+        ),
+      getSignedUrl: vi.fn().mockResolvedValueOnce(['https://signed.example/file.png?upload=1']),
       exists: vi.fn().mockResolvedValue([true]),
-      getSignedUrl: vi
-        .fn()
-        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
-        .mockResolvedValueOnce(['https://signed.example/file.png?read=1']),
-      setMetadata: vi.fn().mockRejectedValue(new Error('Parse Error')),
       getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
     };
     const bucket = createBucket({ [storagePath]: file });
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
@@ -159,44 +87,37 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
       cacheControl: 'public, max-age=31536000, immutable',
     });
 
-    expect(file.setMetadata).toHaveBeenCalledTimes(2);
-    expect(file.getMetadata).toHaveBeenCalledTimes(2);
-    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
+    expect(file.save).toHaveBeenCalledTimes(2);
+    expect(file.getSignedUrl).toHaveBeenCalledWith({
       version: 'v4',
-      action: 'read',
+      action: 'write',
       expires: expect.any(Number),
+      contentType: 'image/png',
+    });
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/file.png?upload=1', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+      body: new Uint8Array(Buffer.from('image-bytes')),
+    });
+    expect(file.setMetadata).toHaveBeenCalledWith({
+      cacheControl: AgentMediaLifecycleService.POST_MEDIA_CACHE_CONTROL,
+      metadata: {
+        firebaseStorageDownloadTokens: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        ),
+      },
     });
     expect(result).toMatchObject({
-      url: 'https://signed.example/file.png?read=1',
       storagePath,
-      kind: 'gcs-signed-read-fallback',
-      durable: false,
-      expiresAt: expect.any(Number),
+      kind: 'firebase-download-token',
+      durable: true,
     });
-    expect(result.expiresAt).toBeGreaterThan(Date.now() + 6 * 24 * 60 * 60 * 1000);
-  });
-
-  it('still fails on unexpected metadata errors', async () => {
-    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
-    const file = {
-      exists: vi.fn().mockResolvedValue([true]),
-      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/file.png?upload=1']),
-      setMetadata: vi.fn().mockRejectedValue(new Error('Permission denied')),
-    };
-    const bucket = createBucket({ [storagePath]: file });
-    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
-
-    await expect(
-      AgentMediaLifecycleService.saveBufferAndMakePublic({
-        bucket,
-        storagePath,
-        buffer: Buffer.from('image-bytes'),
-        mimeType: 'image/png',
-        cacheControl: 'public, max-age=31536000, immutable',
-      })
-    ).rejects.toThrow('Permission denied');
-
-    expect(file.setMetadata).toHaveBeenCalledTimes(1);
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain(encodeURIComponent(storagePath));
+    expect(result.url).toContain('?alt=media&token=');
   });
 });
 
@@ -216,16 +137,65 @@ describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
 
     expect(storagePath).toBe('Users/user-1/threads/thread-1/exports/game-report.pdf');
   });
+
+  it('recognizes only Firebase download-token URLs as durable access URLs', () => {
+    const storagePath = 'Organizations/org-1/logo';
+    const tokenUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media&token=download-token';
+
+    expect(AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(tokenUrl, storagePath)).toBe(true);
+    expect(
+      AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media',
+        storagePath
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(
+        'https://storage.googleapis.com/test-bucket/Organizations/org-1/logo',
+        storagePath
+      )
+    ).toBe(false);
+  });
+
+  it('accepts only canonical tokenized organization and team logo URLs', () => {
+    const organizationLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media&token=organization-token';
+    const teamLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Fupload.png?alt=media&token=team-token';
+
+    expect(AgentMediaLifecycleService.isCanonicalBrandLogoUrl(organizationLogoUrl)).toBe(true);
+    expect(AgentMediaLifecycleService.isCanonicalBrandLogoUrl(teamLogoUrl)).toBe(true);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Ftmp%2Fimage%2Flogo.png?alt=media&token=thread-token'
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(
+        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg-1%2Flogo?alt=media'
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(
+        'https://storage.googleapis.com/test-bucket/Organizations/org-1/logo?X-Goog-Algorithm=GOOG4-RSA-SHA256'
+      )
+    ).toBe(false);
+    expect(
+      AgentMediaLifecycleService.isCanonicalBrandLogoUrl('https://cdn.example.com/logo.png')
+    ).toBe(false);
+  });
 });
 
 describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
-  it('uploads buffers with signed puts before signing reads', async () => {
+  it('uploads buffers with signed puts before returning durable token URL', async () => {
     const storagePath = 'Users/user-1/uploads/image/unbound/123_graphic.png';
     const file = {
-      getSignedUrl: vi
-        .fn()
-        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
-        .mockResolvedValueOnce(['https://signed.example/file.png']),
+      save: vi.fn().mockRejectedValue(new Error('url is required')),
+      getSignedUrl: vi.fn().mockResolvedValueOnce(['https://signed.example/file.png?upload=1']),
+      exists: vi.fn().mockResolvedValue([true]),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
     };
     const bucket = createBucket({ [storagePath]: file });
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
@@ -247,16 +217,12 @@ describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
       method: 'PUT',
       headers: {
         'Content-Type': 'image/png',
-        'Cache-Control': 'private, max-age=0',
+        'Cache-Control': AgentMediaLifecycleService.POST_MEDIA_CACHE_CONTROL,
       },
       body: new Uint8Array(Buffer.from('image-bytes')),
     });
-    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
-      version: 'v4',
-      action: 'read',
-      expires: expect.any(Number),
-    });
-    expect(result.url).toBe('https://signed.example/file.png');
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain('?alt=media&token=');
     expect(result.expiresAt).toBeGreaterThan(Date.now());
   });
 });

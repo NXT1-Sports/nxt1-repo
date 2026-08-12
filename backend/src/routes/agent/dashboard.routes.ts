@@ -372,20 +372,43 @@ function normalizeImportedBreakdownTimelineForTests(
     return { timeline: parsedTimeline, warnings: parsedWarnings };
   }
 
-  const timeline = review.sources.map((source, index) => {
-    const sourceId = String(source['id'] ?? '').trim();
+  const sourceGroups = Array.from(
+    review.sources
+      .reduce((groups, source, index) => {
+        const angleGroupId = String(source['angleGroupId'] ?? '').trim();
+        const sourceId = String(source['id'] ?? '').trim();
+        const groupKey = angleGroupId || sourceId || `source-index:${index}`;
+        const group = groups.get(groupKey) ?? [];
+        group.push(source);
+        groups.set(groupKey, group);
+        return groups;
+      }, new Map<string, Record<string, unknown>[]>())
+      .values()
+  );
+
+  const timeline = sourceGroups.map((sources, index) => {
+    const primarySource =
+      sources.find((source) => String(source['cameraAngle'] ?? '').trim() === 'wide') ??
+      (sources[0] as Record<string, unknown>);
+    const sourceId = String(primarySource['id'] ?? '').trim();
+    const sourceIds = [
+      ...new Set(sources.map((source) => String(source['id'] ?? '').trim())),
+    ].filter((value) => value.length > 0);
     const imported = parsedTimeline[index] ?? null;
-    const sourceDuration = Number(source['durationSec'] ?? 1);
-    const fallbackDuration = Number.isFinite(sourceDuration) ? Math.max(1, sourceDuration) : 1;
+    const sourceDurations = sources
+      .map((source) => Number(source['durationSec'] ?? Number.NaN))
+      .filter((value) => Number.isFinite(value));
+    const fallbackDuration = Math.max(1, ...sourceDurations, 1);
 
     if (!imported) {
       return {
         id: `play-${sourceId || index + 1}`,
         number: index + 1,
-        label: String(source['title'] ?? `Clip ${index + 1}`),
+        label: String(primarySource['title'] ?? `Clip ${index + 1}`),
         startSec: 0,
         endSec: fallbackDuration,
         sourceId,
+        sourceIds,
       };
     }
 
@@ -396,6 +419,7 @@ function normalizeImportedBreakdownTimelineForTests(
       startSec: 0,
       endSec: fallbackDuration,
       sourceId,
+      sourceIds,
     };
   });
 
@@ -2108,7 +2132,7 @@ router.post(
         zone: 'media',
       });
 
-      const { url: signedUrl, expiresAt } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+      const { url: durableUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
         buffer: normalizedFile.buffer,
@@ -2121,7 +2145,7 @@ router.post(
         mimeType: normalizedFile.mimeType,
         sizeBytes: normalizedFile.sizeBytes,
         storagePath,
-        signedUrlExpires: new Date(expiresAt).toISOString(),
+        urlKind: 'firebase-download-token',
       });
 
       if (teamId) {
@@ -2136,7 +2160,7 @@ router.post(
             id: createHash('sha1')
               .update(`${storagePath}:${normalizedFile.sizeBytes}:${normalizedFile.mimeType}`)
               .digest('hex'),
-            url: signedUrl,
+            url: durableUrl,
             storagePath,
             name: normalizedFile.originalName,
             mimeType: normalizedFile.mimeType,
@@ -2157,7 +2181,7 @@ router.post(
       res.json({
         success: true,
         data: {
-          url: signedUrl,
+          url: durableUrl,
           storagePath,
           name: normalizedFile.originalName,
           mimeType: normalizedFile.mimeType,
@@ -2208,7 +2232,7 @@ router.post(
         zone: 'tmp',
       });
 
-      const { url: signedUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
+      const { url: durableUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
         buffer: normalizedFile.buffer,
@@ -2221,12 +2245,13 @@ router.post(
         mimeType: normalizedFile.mimeType,
         sizeBytes: normalizedFile.sizeBytes,
         storagePath,
+        urlKind: 'firebase-download-token',
       });
 
       res.json({
         success: true,
         data: {
-          url: signedUrl,
+          url: durableUrl,
           storagePath,
           name: normalizedFile.originalName,
           mimeType: normalizedFile.mimeType,
@@ -2427,7 +2452,10 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
     };
 
     const uploadExpiresAtMs = Date.now() + resolveVideoUploadUrlTtlMs(fileSize);
-    const readExpiresAtMs = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
+    // Read URL is a temporary signed URL valid for 7 days — long enough for any
+    // downstream processing. The client should call /upload/promote after the
+    // upload completes to obtain a permanent Firebase download-token URL.
+    const readExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
     const [uploadUrl, readUrl] = await Promise.all([
       getSignedUrlWithTimeout(() =>

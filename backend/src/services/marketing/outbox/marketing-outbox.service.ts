@@ -17,6 +17,7 @@ import { recordB2CUsersAccountStartedEntry } from '../lifecycle/b2c-users.servic
 import { recordB2CUsersClosedWonEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersExpansionPricingEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersOrganizationModeEntry } from '../lifecycle/b2c-users.service.js';
+import { recordB2CUsersTrialCreditsFinishedEntry } from '../lifecycle/b2c-users.service.js';
 import { recordB2CUsersUsageStartedEntry } from '../lifecycle/b2c-users.service.js';
 import { recordChurnedNotionDashboardEntry } from '../lifecycle/churned-notion-dashboard.service.js';
 import { recordClosedWonNotionDashboardEntry } from '../lifecycle/closed-won-notion-dashboard.service.js';
@@ -144,7 +145,8 @@ export interface EnqueueTrialCreditsFinishedMarketingOutboxInput {
   readonly db: Firestore;
   readonly environment: RuntimeEnvironment;
   readonly userId: string;
-  readonly organizationId: string;
+  readonly billingOwnerType: 'organization' | 'individual';
+  readonly organizationId?: string;
   readonly operationId: string;
   readonly feature: string;
   readonly baselineCents: number;
@@ -204,7 +206,7 @@ function normalizeLimit(limit: number | undefined): number {
 }
 
 function assertB2CUsersLifecycleNotFailed(
-  result: { status: 'created' | 'existing' | 'skipped' | 'failed'; reason?: string },
+  result: { status: 'created' | 'existing' | 'skipped' | 'failed' | 'queued'; reason?: string },
   eventType: MarketingOutboxEventType,
   eventKey: string
 ): void {
@@ -487,7 +489,7 @@ async function processMarketingOutboxRecord(input: {
 
     case 'signup.completed': {
       const payload = record.payload as Record<string, unknown>;
-      await processCompletedSignupLifecycle({
+      const completedSignupResult = await processCompletedSignupLifecycle({
         db: input.db,
         userId: String(payload['userId'] ?? ''),
         environment: (payload['environment'] as RuntimeEnvironment) ?? 'production',
@@ -515,6 +517,11 @@ async function processMarketingOutboxRecord(input: {
         notionDashboardAlreadySynced: Boolean(payload['notionDashboardAlreadySynced'] ?? false),
         b2cUsersAlreadySynced: Boolean(payload['b2cUsersAlreadySynced'] ?? false),
       });
+      assertB2CUsersLifecycleNotFailed(
+        completedSignupResult.b2cUsersEntry,
+        record.eventType,
+        record.eventKey
+      );
       return;
     }
 
@@ -557,15 +564,33 @@ async function processMarketingOutboxRecord(input: {
 
     case 'billing.trial_credits_finished': {
       const payload = record.payload as Record<string, unknown>;
-      await recordTrialCreditsFinishedNotionDashboardEntry({
+      const billingOwnerType =
+        payload['billingOwnerType'] === 'organization' ? 'organization' : 'individual';
+
+      if (billingOwnerType === 'organization') {
+        const result = await recordTrialCreditsFinishedNotionDashboardEntry({
+          db: input.db,
+          userId: String(payload['userId'] ?? ''),
+          organizationId: compactText(payload['organizationId'] as string | null | undefined),
+          operationId: String(payload['operationId'] ?? ''),
+          feature: String(payload['feature'] ?? ''),
+          baselineCents: Number(payload['baselineCents'] ?? 0),
+          newBalanceCents: Number(payload['newBalanceCents'] ?? 0),
+        });
+        assertB2BNotionLifecycleCreated(result, record.eventType, record.eventKey);
+        return;
+      }
+
+      const b2cUsersResult = await recordB2CUsersTrialCreditsFinishedEntry({
         db: input.db,
         userId: String(payload['userId'] ?? ''),
-        organizationId: compactText(payload['organizationId'] as string | null | undefined),
         operationId: String(payload['operationId'] ?? ''),
         feature: String(payload['feature'] ?? ''),
         baselineCents: Number(payload['baselineCents'] ?? 0),
         newBalanceCents: Number(payload['newBalanceCents'] ?? 0),
+        environment: (payload['environment'] as RuntimeEnvironment) ?? 'production',
       });
+      assertB2CUsersLifecycleNotFailed(b2cUsersResult, record.eventType, record.eventKey);
       return;
     }
 
@@ -724,7 +749,8 @@ export async function enqueueAgentDeliverableGeneratedMarketingOutboxEvent(
 export async function enqueueUsageStartedMarketingOutboxEvent(
   input: EnqueueUsageStartedMarketingOutboxInput
 ): Promise<EnqueueMarketingOutboxResult> {
-  const eventType = input.organizationId
+  const organizationId = compactText(input.organizationId);
+  const eventType = organizationId
     ? 'billing.usage_started.organization'
     : 'billing.usage_started.individual';
 
@@ -735,7 +761,7 @@ export async function enqueueUsageStartedMarketingOutboxEvent(
     environment: input.environment,
     payload: {
       userId: input.userId,
-      organizationId: input.organizationId,
+      organizationId: organizationId ?? null,
       operationId: input.operationId,
       feature: input.feature,
       chargeAmountCents: input.chargeAmountCents,
@@ -754,7 +780,8 @@ export async function enqueueTrialCreditsFinishedMarketingOutboxEvent(
     environment: input.environment,
     payload: {
       userId: input.userId,
-      organizationId: input.organizationId,
+      billingOwnerType: input.billingOwnerType,
+      organizationId: compactText(input.organizationId) ?? null,
       operationId: input.operationId,
       feature: input.feature,
       baselineCents: input.baselineCents,

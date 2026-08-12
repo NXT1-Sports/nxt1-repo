@@ -157,4 +157,101 @@ describe('approval-gate.service', () => {
     expect(expiresAt!._seconds).toBeGreaterThan(nowSeconds + retentionSeconds - 60);
     expect(expiresAt!._seconds).toBeLessThan(nowSeconds + retentionSeconds + 60);
   });
+
+  it('persists normalized email attachments in approval requests', async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const doc = vi.fn(() => ({ set }));
+    const collection = vi.fn(() => ({ doc }));
+    const db = { collection } as unknown as Firestore;
+    const service = new ApprovalGateService(db);
+
+    const request = await service.requestApproval({
+      operationId: 'op-1',
+      taskId: 'inline_chat',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      toolName: 'send_email',
+      toolInput: {
+        userId: 'user-1',
+        toEmail: 'coach@example.com',
+        subject: 'Report',
+        bodyHtml: '<p>Attached.</p>',
+        attachments: [
+          {
+            id: 'attachment-1',
+            name: 'Scout Report.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: '12',
+            storagePath: 'Users/user-1/threads/thread-1/uploads/scout-report.pdf',
+            extraIgnoredField: 'ignored',
+          },
+        ],
+      },
+      actionSummary: 'Send report.',
+    });
+
+    expect(request.toolInput['attachments']).toEqual([
+      {
+        id: 'attachment-1',
+        name: 'Scout Report.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 12,
+        storagePath: 'Users/user-1/threads/thread-1/uploads/scout-report.pdf',
+      },
+    ]);
+  });
+
+  it('requires approved email attachments to match on resume', async () => {
+    const approvedInput = {
+      userId: 'user-1',
+      toEmail: 'coach@example.com',
+      subject: 'Report',
+      bodyHtml: '<p>Attached.</p>',
+      attachments: [
+        {
+          name: 'Scout Report.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 12,
+          storagePath: 'Users/user-1/threads/thread-1/uploads/scout-report.pdf',
+        },
+      ],
+    };
+    const get = vi.fn().mockResolvedValue({
+      exists: true,
+      data: () => ({
+        id: 'approval-1',
+        operationId: 'op-1',
+        taskId: 'inline_chat',
+        userId: 'user-1',
+        actionSummary: 'Send report.',
+        reasonCode: 'send_email',
+        toolName: 'send_email',
+        toolInput: approvedInput,
+        status: 'approved',
+        createdAt: new Date().toISOString(),
+        expiresInMs: 86_400_000,
+      }),
+    });
+    const doc = vi.fn(() => ({ get }));
+    const collection = vi.fn(() => ({ doc }));
+    const service = new ApprovalGateService({ collection } as unknown as Firestore);
+
+    await expect(
+      service.isApprovalGranted('approval-1', 'user-1', 'send_email', approvedInput)
+    ).resolves.toBe(true);
+
+    await expect(
+      service.isApprovalGranted('approval-1', 'user-1', 'send_email', {
+        ...approvedInput,
+        attachments: [
+          {
+            name: 'Different.pdf',
+            mimeType: 'application/pdf',
+            sizeBytes: 12,
+            storagePath: 'Users/user-1/threads/thread-1/uploads/different.pdf',
+          },
+        ],
+      })
+    ).resolves.toBe(false);
+  });
 });

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type {
   AgentXAttachment,
@@ -149,6 +150,9 @@ const TeamFilmReviewSourceVideoSchema = z.object({
   order: z.number().int().nonnegative(),
   fileId: z.string().trim().min(1).nullable().optional(),
   videoUrl: z.string().trim().min(1),
+  cameraAngle: z.enum(['wide', 'tight', 'unknown']).optional(),
+  angleGroupId: z.string().trim().min(1).max(120).optional(),
+  angleDetectionSource: z.enum(['filename', 'manual', 'backend', 'unknown']).optional(),
   downloadUrl: z.string().trim().min(1).optional(),
   title: z.string().trim().min(1).optional(),
   storagePath: z.string().trim().min(1).optional(),
@@ -175,14 +179,14 @@ const TeamFileFolderCreateBodySchema = z.object({
 });
 
 const TeamFileFolderUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(80).optional(),
   parentId: z.string().trim().min(1).nullable().optional(),
   sortOrder: z.number().int().nonnegative().optional(),
 });
 
 const TeamFileUpdateBodySchema = z.object({
-  teamId: z.string().trim().min(1).optional(),
+  teamId: z.string().trim().min(1).nullable().optional(),
   folderId: z.string().trim().min(1).nullable().optional(),
   name: z.string().trim().min(1).max(120).optional(),
   summary: z.string().max(5000).optional(),
@@ -203,6 +207,8 @@ const TeamFileFilmReviewCreateBodySchema = z.object({
   sport: z.string().trim().min(1),
   title: z.string().trim().min(1),
   videoUrl: z.string().trim().min(1),
+  playlistId: z.string().trim().min(1).nullable().optional(),
+  playlistName: z.string().trim().min(1).nullable().optional(),
   uploadMode: z.enum(['single_video', 'batch_clips', 'full_footage']).optional(),
   storagePath: z.string().trim().min(1).optional(),
   cloudflareVideoId: z.string().trim().min(1).optional(),
@@ -212,12 +218,45 @@ const TeamFileFilmReviewCreateBodySchema = z.object({
   source: z.string().trim().min(1).optional(),
   sourceUrl: z.string().trim().min(1).optional(),
   durationSec: z.number().nonnegative().optional(),
+  sources: z
+    .array(TeamFilmReviewSourceVideoSchema)
+    .min(1)
+    .superRefine(validateFilmReviewSourceAngleGroups)
+    .optional(),
 });
 
 const TeamFilmReviewUploadCreateBodySchema = TeamFileFilmReviewCreateBodySchema.extend({
   attachment: TeamFileIndexBodySchema.shape.attachment,
-  sources: z.array(TeamFilmReviewSourceVideoSchema).min(1).optional(),
+  sources: z
+    .array(TeamFilmReviewSourceVideoSchema)
+    .min(1)
+    .superRefine(validateFilmReviewSourceAngleGroups)
+    .optional(),
 });
+
+function validateFilmReviewSourceAngleGroups(
+  sources: readonly z.infer<typeof TeamFilmReviewSourceVideoSchema>[],
+  context: z.RefinementCtx
+): void {
+  const seen = new Set<string>();
+  sources.forEach((source, index) => {
+    const angleGroupId = source.angleGroupId?.trim();
+    const cameraAngle = source.cameraAngle;
+    if (!angleGroupId || (cameraAngle !== 'wide' && cameraAngle !== 'tight')) return;
+
+    const key = `${angleGroupId}:${cameraAngle}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      return;
+    }
+
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [index, 'cameraAngle'],
+      message: `Duplicate ${cameraAngle} camera angle in group ${angleGroupId}`,
+    });
+  });
+}
 
 const TeamFileFilmReviewUpdateBodySchema = z.object({
   teamId: z.string().trim().min(1).optional(),
@@ -381,6 +420,66 @@ function getStringArray(value: unknown): readonly string[] {
   return value
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter((entry) => entry.length > 0);
+}
+
+function uniqueAccessKeys(keys: readonly string[]): readonly string[] {
+  return [...new Set(keys.filter((key) => key.trim().length > 0))];
+}
+
+function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
+function getInheritedSourceFolderId(data: Record<string, unknown>): string | null {
+  const acl = data['acl'];
+  if (!acl || typeof acl !== 'object') {
+    return null;
+  }
+
+  const mode =
+    typeof (acl as { mode?: unknown }).mode === 'string' ? (acl as { mode: string }).mode : '';
+  const sourceFolderId =
+    typeof (acl as { sourceFolderId?: unknown }).sourceFolderId === 'string'
+      ? (acl as { sourceFolderId: string }).sourceFolderId.trim()
+      : '';
+
+  return mode === 'copied_from_folder' && sourceFolderId.length > 0 ? sourceFolderId : null;
+}
+
+function resolveCurrentAccessKeys(
+  data: Record<string, unknown>,
+  field: 'readAccessKeys' | 'writeAccessKeys',
+  fallback: readonly string[]
+): readonly string[] {
+  const explicit = getStringArray(data[field]);
+  return explicit.length > 0 ? explicit : fallback;
+}
+
+function shouldTreatAccessAsInheritedFromParent(params: {
+  readonly data: Record<string, unknown>;
+  readonly parentFolderId: string;
+  readonly parentAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+  readonly currentAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+}): boolean {
+  const inheritedSourceFolderId = getInheritedSourceFolderId(params.data);
+  if (inheritedSourceFolderId === params.parentFolderId) {
+    return true;
+  }
+
+  return (
+    arraysEqual(params.currentAccess.readAccessKeys, params.parentAccess.readAccessKeys) &&
+    arraysEqual(params.currentAccess.writeAccessKeys, params.parentAccess.writeAccessKeys)
+  );
 }
 
 function getAclReadAccessKeys(
@@ -563,27 +662,51 @@ async function refreshFileUrl(
     return file.url ?? '';
   }
 
-  const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
-  const [signedUrl] = await getSignedUrlWithTimeout(() =>
-    bucket.file(file.storagePath as string).getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-      ...((options?.disposition === 'inline' && file.mimeType === 'application/pdf') ||
-      options?.disposition === 'attachment'
-        ? {
-            responseDisposition:
-              options.disposition === 'attachment'
-                ? options.fileName
-                  ? `attachment; filename="${options.fileName.replace(/"/g, '')}"`
-                  : 'attachment'
-                : 'inline',
-            responseType: file.mimeType,
-          }
-        : {}),
-    })
-  );
-  return signedUrl;
+  // When a specific Content-Disposition header is needed (attachment download
+  // or inline PDF viewer), we must use a signed URL because those response
+  // headers can only be injected via GCS signed URL query parameters.
+  const needsDisposition =
+    (options?.disposition === 'inline' && file.mimeType === 'application/pdf') ||
+    options?.disposition === 'attachment';
+
+  if (needsDisposition) {
+    const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      bucket.file(file.storagePath as string).getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: expiresAt,
+        responseDisposition:
+          options.disposition === 'attachment'
+            ? options.fileName
+              ? `attachment; filename="${options.fileName.replace(/"/g, '')}"`
+              : 'attachment'
+            : 'inline',
+        responseType: file.mimeType,
+      })
+    );
+    return signedUrl;
+  }
+
+  // For all other accesses, issue a permanent Firebase download-token URL
+  // so stored URLs never expire and clients never hit 403s.
+  try {
+    return await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+      bucket,
+      storagePath: file.storagePath as string,
+    });
+  } catch {
+    // Last resort: short-lived signed URL as safety net.
+    const expiresAt = Date.now() + SIGNED_URL_TTL_MS;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      bucket.file(file.storagePath as string).getSignedUrl({
+        version: 'v4',
+        action: 'read',
+        expires: expiresAt,
+      })
+    );
+    return signedUrl;
+  }
 }
 
 function withUpdatedUniversalNativePayload(
@@ -1052,6 +1175,219 @@ async function resolveInheritedFolderAcl(params: {
   };
 }
 
+async function rescopeMovedFolderDescendants(params: {
+  readonly db: NonNullable<Request['firebase']>['db'];
+  readonly folderId: string;
+  readonly previousAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+  readonly nextAccess: {
+    readonly readAccessKeys: readonly string[];
+    readonly writeAccessKeys: readonly string[];
+  };
+  readonly nextTeamId: string | null;
+  readonly nextOrganizationId: string | null;
+  readonly updatedByUserId: string;
+  readonly updatedAt: string;
+}): Promise<void> {
+  const pendingFolders: Array<{
+    readonly folderId: string;
+    readonly previousAccess: {
+      readonly readAccessKeys: readonly string[];
+      readonly writeAccessKeys: readonly string[];
+    };
+    readonly nextAccess: {
+      readonly readAccessKeys: readonly string[];
+      readonly writeAccessKeys: readonly string[];
+    };
+    readonly nextTeamId: string | null;
+    readonly nextOrganizationId: string | null;
+  }> = [
+    {
+      folderId: params.folderId,
+      previousAccess: {
+        readAccessKeys: uniqueAccessKeys(params.previousAccess.readAccessKeys),
+        writeAccessKeys: uniqueAccessKeys(params.previousAccess.writeAccessKeys),
+      },
+      nextAccess: {
+        readAccessKeys: uniqueAccessKeys(params.nextAccess.readAccessKeys),
+        writeAccessKeys: uniqueAccessKeys(params.nextAccess.writeAccessKeys),
+      },
+      nextTeamId: params.nextTeamId,
+      nextOrganizationId: params.nextOrganizationId,
+    },
+  ];
+
+  while (pendingFolders.length > 0) {
+    const current = pendingFolders.shift();
+    if (!current) {
+      continue;
+    }
+
+    const [childFoldersSnapshot, childFilesSnapshot] = await Promise.all([
+      params.db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .where('parentId', '==', current.folderId)
+        .get(),
+      params.db
+        .collection(UNIVERSAL_FILES_COLLECTION)
+        .where('folderId', '==', current.folderId)
+        .get(),
+    ]);
+
+    for (const childFolderDoc of childFoldersSnapshot.docs) {
+      const childFolderData = (childFolderDoc.data() ?? {}) as Record<string, unknown>;
+      const childOwnerUserId =
+        normalizeQueryString(childFolderData['ownerUserId']) ??
+        normalizeQueryString(childFolderData['createdByUserId']) ??
+        params.updatedByUserId;
+      const currentAccess = {
+        readAccessKeys: resolveCurrentAccessKeys(
+          childFolderData,
+          'readAccessKeys',
+          current.previousAccess.readAccessKeys
+        ),
+        writeAccessKeys: resolveCurrentAccessKeys(
+          childFolderData,
+          'writeAccessKeys',
+          current.previousAccess.writeAccessKeys
+        ),
+      };
+      const inheritsParentAccess = shouldTreatAccessAsInheritedFromParent({
+        data: childFolderData,
+        parentFolderId: current.folderId,
+        parentAccess: current.previousAccess,
+        currentAccess,
+      });
+      const inheritedScope = inheritsParentAccess
+        ? await resolveInheritedFolderAcl({
+            db: params.db,
+            teamId: current.nextTeamId,
+            parentId: current.folderId,
+            ownerUserId: childOwnerUserId,
+            organizationId: current.nextOrganizationId,
+          })
+        : null;
+      const nextAccess = inheritedScope
+        ? {
+            readAccessKeys: inheritedScope.readAccessKeys,
+            writeAccessKeys: inheritedScope.writeAccessKeys,
+          }
+        : currentAccess;
+
+      await childFolderDoc.ref.set(
+        {
+          teamId: current.nextTeamId ?? FieldValue.delete(),
+          organizationId: current.nextOrganizationId ?? FieldValue.delete(),
+          ...(inheritsParentAccess
+            ? {
+                acl: inheritedScope?.acl ?? FieldValue.delete(),
+                readAccessKeys: inheritedScope?.readAccessKeys ?? currentAccess.readAccessKeys,
+                writeAccessKeys: inheritedScope?.writeAccessKeys ?? currentAccess.writeAccessKeys,
+              }
+            : {}),
+          updatedByUserId: params.updatedByUserId,
+          updatedAt: params.updatedAt,
+        },
+        { merge: true }
+      );
+
+      pendingFolders.push({
+        folderId: childFolderDoc.id,
+        previousAccess: currentAccess,
+        nextAccess,
+        nextTeamId: current.nextTeamId,
+        nextOrganizationId: current.nextOrganizationId,
+      });
+    }
+
+    for (const childFileDoc of childFilesSnapshot.docs) {
+      const childFileData = (childFileDoc.data() ?? {}) as Record<string, unknown>;
+      const childOwnerUserId =
+        normalizeQueryString(childFileData['ownerUserId']) ??
+        normalizeQueryString(childFileData['createdByUserId']) ??
+        params.updatedByUserId;
+      const currentAccess = {
+        readAccessKeys: resolveCurrentAccessKeys(
+          childFileData,
+          'readAccessKeys',
+          current.previousAccess.readAccessKeys
+        ),
+        writeAccessKeys: resolveCurrentAccessKeys(
+          childFileData,
+          'writeAccessKeys',
+          current.previousAccess.writeAccessKeys
+        ),
+      };
+      const inheritsParentAccess = shouldTreatAccessAsInheritedFromParent({
+        data: childFileData,
+        parentFolderId: current.folderId,
+        parentAccess: current.previousAccess,
+        currentAccess,
+      });
+      const inheritedScope = inheritsParentAccess
+        ? await resolveInheritedFolderAcl({
+            db: params.db,
+            teamId: current.nextTeamId,
+            parentId: current.folderId,
+            ownerUserId: childOwnerUserId,
+            organizationId: current.nextOrganizationId,
+          })
+        : null;
+
+      await childFileDoc.ref.set(
+        {
+          teamId: current.nextTeamId ?? FieldValue.delete(),
+          organizationId: current.nextOrganizationId ?? FieldValue.delete(),
+          ...(inheritsParentAccess
+            ? {
+                acl: inheritedScope?.acl ?? FieldValue.delete(),
+                readAccessKeys: inheritedScope?.readAccessKeys ?? currentAccess.readAccessKeys,
+                writeAccessKeys: inheritedScope?.writeAccessKeys ?? currentAccess.writeAccessKeys,
+              }
+            : {}),
+          updatedByUserId: params.updatedByUserId,
+          updatedAt: params.updatedAt,
+        },
+        { merge: true }
+      );
+
+      const nextChildFileData: Record<string, unknown> = {
+        ...childFileData,
+        updatedByUserId: params.updatedByUserId,
+        updatedAt: params.updatedAt,
+      };
+      if (current.nextTeamId) {
+        nextChildFileData['teamId'] = current.nextTeamId;
+      } else {
+        delete nextChildFileData['teamId'];
+      }
+      if (current.nextOrganizationId) {
+        nextChildFileData['organizationId'] = current.nextOrganizationId;
+      } else {
+        delete nextChildFileData['organizationId'];
+      }
+      if (inheritsParentAccess) {
+        if (inheritedScope?.acl) {
+          nextChildFileData['acl'] = inheritedScope.acl;
+        } else {
+          delete nextChildFileData['acl'];
+        }
+        nextChildFileData['readAccessKeys'] =
+          inheritedScope?.readAccessKeys ?? currentAccess.readAccessKeys;
+        nextChildFileData['writeAccessKeys'] =
+          inheritedScope?.writeAccessKeys ?? currentAccess.writeAccessKeys;
+      }
+
+      scheduleUniversalFileSemanticSync({
+        db: params.db,
+        document: toUniversalFileDoc(childFileDoc.id, current.nextTeamId, nextChildFileData),
+      });
+    }
+  }
+}
+
 function inferInlineTextFileOrigin(file: UniversalFileDoc): TeamFileOrigin {
   if (
     file.sourceRef?.sourceThreadId ||
@@ -1253,6 +1589,7 @@ function attachNativeFilmReviewToBaseFile(
     sport: review.sport ?? file.sport,
     summary: review.aiSummary ?? file.summary,
     tags: review.tags?.length ? review.tags : file.tags,
+    ...(review.playlistId !== undefined ? { folderId: review.playlistId ?? null } : {}),
     thumbnailUrl: review.thumbnailUrl ?? file.thumbnailUrl,
     updatedByUserId: review.updatedBy ?? file.updatedByUserId,
     sourceRef: Object.keys(sourceRef).length > 0 ? sourceRef : undefined,
@@ -1344,6 +1681,9 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     id: source.id.trim() || `source-${index + 1}`,
     order: index,
     ...(index === 0 ? { fileId: source.fileId?.trim() || params.fileId } : {}),
+    ...(source.cameraAngle ? { cameraAngle: source.cameraAngle } : {}),
+    ...(source.angleGroupId?.trim() ? { angleGroupId: source.angleGroupId.trim() } : {}),
+    ...(source.angleDetectionSource ? { angleDetectionSource: source.angleDetectionSource } : {}),
     ...(source.title?.trim() ? { title: source.title.trim() } : {}),
     ...(source.downloadUrl?.trim() ? { downloadUrl: source.downloadUrl.trim() } : {}),
     ...(source.storagePath?.trim() ? { storagePath: source.storagePath.trim() } : {}),
@@ -1388,6 +1728,8 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     sources: normalizedSources,
     ...(fallbackDurationSec !== undefined ? { fallbackDurationSec } : {}),
   });
+  const playlistId = params.body.playlistId?.trim() || null;
+  const playlistName = params.body.playlistName?.trim() || null;
 
   const draftReview = {
     id: params.fileId,
@@ -1398,6 +1740,12 @@ function buildFilmReviewDocumentFromCreateRequest(params: {
     title: normalizedTitle,
     status,
     uploadMode,
+    ...(params.body.playlistId !== undefined
+      ? {
+          playlistId,
+          playlistName: playlistId && playlistName ? playlistName : null,
+        }
+      : {}),
     videoUrl: params.body.videoUrl.trim(),
     sources: normalizedSources,
     ...(primaryStoragePath ? { storagePath: primaryStoragePath } : {}),
@@ -2317,6 +2665,53 @@ function resolveFilmReviewBreakdownProvider(
   return 'manual_import';
 }
 
+type FilmReviewSourceGroup = {
+  readonly id: string;
+  readonly sources: readonly TeamFilmReviewSourceVideo[];
+};
+
+function resolveFilmReviewSourceGroupKey(source: TeamFilmReviewSourceVideo, index: number): string {
+  const angleGroupId = source.angleGroupId?.trim();
+  if (angleGroupId) return `angle:${angleGroupId}`;
+
+  const sourceId = source.id.trim();
+  return sourceId ? `source:${sourceId}` : `source-index:${index}`;
+}
+
+function groupFilmReviewSourcesByPlay(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): readonly FilmReviewSourceGroup[] {
+  const groups = new Map<string, TeamFilmReviewSourceVideo[]>();
+
+  sources.forEach((source, index) => {
+    const groupKey = resolveFilmReviewSourceGroupKey(source, index);
+    const group = groups.get(groupKey) ?? [];
+    group.push(source);
+    groups.set(groupKey, group);
+  });
+
+  return [...groups.entries()].map(([id, group]) => ({ id, sources: group }));
+}
+
+function selectPrimaryFilmReviewSource(group: FilmReviewSourceGroup): TeamFilmReviewSourceVideo {
+  return (
+    group.sources.find((source) => source.cameraAngle === 'wide') ??
+    (group.sources[0] as TeamFilmReviewSourceVideo)
+  );
+}
+
+function resolveFilmReviewSourceGroupIds(group: FilmReviewSourceGroup): readonly string[] {
+  return [...new Set(group.sources.map((source) => source.id.trim()).filter(Boolean))];
+}
+
+function resolveFilmReviewSourceGroupDuration(group: FilmReviewSourceGroup): number {
+  const durations = group.sources
+    .map((source) => source.durationSec)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  return Math.max(1, ...durations, 1);
+}
+
 function buildSeededFilmReviewTimeline(params: {
   readonly uploadMode: TeamFilmReviewUploadMode;
   readonly sources: readonly TeamFilmReviewSourceVideo[];
@@ -2325,14 +2720,20 @@ function buildSeededFilmReviewTimeline(params: {
   if (params.sources.length === 0) return [];
 
   if (params.uploadMode === 'batch_clips') {
-    return params.sources.map((source, index) => ({
-      id: `play-${source.id}`,
-      number: index + 1,
-      label: `Clip ${index + 1}`,
-      startSec: 0,
-      endSec: Math.max(1, source.durationSec ?? 1),
-      sourceId: source.id,
-    }));
+    return groupFilmReviewSourcesByPlay(params.sources).map((group, index) => {
+      const primarySource = selectPrimaryFilmReviewSource(group);
+      const sourceIds = resolveFilmReviewSourceGroupIds(group);
+
+      return {
+        id: `play-${primarySource.id}`,
+        number: index + 1,
+        label: primarySource.title?.trim() || `Clip ${index + 1}`,
+        startSec: 0,
+        endSec: resolveFilmReviewSourceGroupDuration(group),
+        sourceId: primarySource.id,
+        ...(sourceIds.length > 0 ? { sourceIds } : {}),
+      };
+    });
   }
 
   const primarySource = params.sources[0] as TeamFilmReviewSourceVideo;
@@ -2361,51 +2762,63 @@ function normalizeImportedBreakdownTimeline(
     return { timeline: parsedTimeline, warnings: parsedWarnings };
   }
 
+  const sourceGroups = groupFilmReviewSourcesByPlay(sources);
   const warnings = [...parsedWarnings];
-  if (parsedTimeline.length !== sources.length) {
+  if (parsedTimeline.length !== sourceGroups.length) {
     warnings.push(
-      parsedTimeline.length > sources.length
-        ? 'The breakdown file has more rows than uploaded clips. Extra rows were ignored so playback stays matched to each uploaded video.'
-        : 'The breakdown file has fewer rows than uploaded clips. Unmatched clips kept their existing placeholders so playback stays matched to each uploaded video.'
+      parsedTimeline.length > sourceGroups.length
+        ? 'The breakdown file has more rows than uploaded plays. Extra rows were ignored so playback stays matched to each grouped play.'
+        : 'The breakdown file has fewer rows than uploaded plays. Unmatched plays kept their existing placeholders so playback stays matched to each grouped play.'
     );
   }
 
   const existingBySourceId = new Map(
-    (review.timeline ?? [])
-      .filter((segment) => segment.sourceId?.trim())
-      .map((segment) => [segment.sourceId!.trim(), segment] as const)
+    (review.timeline ?? []).flatMap((segment) => {
+      const sourceIds = segment.sourceIds?.length
+        ? segment.sourceIds
+        : segment.sourceId
+          ? [segment.sourceId]
+          : [];
+      return sourceIds
+        .map((sourceId) => sourceId.trim())
+        .filter((sourceId) => sourceId.length > 0)
+        .map((sourceId) => [sourceId, segment] as const);
+    })
   );
 
-  const timeline = sources.map((source, index) => {
+  const timeline = sourceGroups.map((group, index) => {
+    const primarySource = selectPrimaryFilmReviewSource(group);
+    const sourceIds = resolveFilmReviewSourceGroupIds(group);
     const imported = parsedTimeline[index] ?? null;
     if (!imported) {
-      const existing = existingBySourceId.get(source.id.trim());
+      const existing = sourceIds
+        .map((sourceId) => existingBySourceId.get(sourceId))
+        .find((segment): segment is TeamFilmReviewPlaySegment => !!segment);
       return existing
-        ? { ...existing, number: index + 1, sourceId: source.id }
+        ? { ...existing, number: index + 1, sourceId: primarySource.id, sourceIds }
         : {
-            id: `play-${source.id}`,
+            id: `play-${primarySource.id}`,
             number: index + 1,
-            label: source.title?.trim() || `Clip ${index + 1}`,
+            label: primarySource.title?.trim() || `Clip ${index + 1}`,
             startSec: 0,
-            endSec: Math.max(1, source.durationSec ?? 1),
-            sourceId: source.id,
+            endSec: resolveFilmReviewSourceGroupDuration(group),
+            sourceId: primarySource.id,
+            sourceIds,
           };
     }
 
     const importedDuration = Math.max(1, imported.endSec - imported.startSec);
-    const sourceDuration =
-      typeof source.durationSec === 'number' && Number.isFinite(source.durationSec)
-        ? Math.max(1, source.durationSec)
-        : null;
+    const sourceDuration = resolveFilmReviewSourceGroupDuration(group);
 
     return {
       ...imported,
-      id: imported.id?.trim() || `play-${source.id}`,
+      id: imported.id?.trim() || `play-${primarySource.id}`,
       number: index + 1,
-      label: imported.label.trim() || source.title?.trim() || `Clip ${index + 1}`,
+      label: imported.label.trim() || primarySource.title?.trim() || `Clip ${index + 1}`,
       startSec: 0,
-      endSec: sourceDuration ?? importedDuration,
-      sourceId: source.id,
+      endSec: sourceDuration || importedDuration,
+      sourceId: primarySource.id,
+      sourceIds,
     };
   });
 
@@ -2692,6 +3105,14 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
       return;
     }
 
+    if (teamId) {
+      const authorizedTeam = await getAuthorizedTeam(req, teamId, 'read');
+      if (!authorizedTeam.ok) {
+        res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+        return;
+      }
+    }
+
     const userProfileSnap = await db.collection('Users').doc(auth.uid).get();
     const userRole =
       typeof userProfileSnap.data()?.['role'] === 'string'
@@ -2727,6 +3148,10 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
         }
 
         const resolvedTeamId = normalizeOptionalString(data['teamId']) ?? null;
+        if (teamId && resolvedTeamId !== teamId) {
+          return null;
+        }
+
         const universalFile = toUniversalFileDoc(doc.id, resolvedTeamId, data);
         if (universalFile.type !== 'file' || universalFile.payloadKind === 'pointer') {
           return universalFile;
@@ -2767,6 +3192,10 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
         })
       )
       .map((doc) => toTeamFileFolderDoc(doc.id, doc.data() as Record<string, unknown>))
+      .filter((folder) => {
+        const folderTeamId = normalizeOptionalString(folder.teamId) ?? null;
+        return !teamId || folderTeamId === teamId;
+      })
       .sort(compareTeamFileFolders);
 
     res.json({ success: true, data: { files: allFiles, folders } });
@@ -3315,6 +3744,7 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
 
     const existingData = folderDoc.data() ?? {};
     const existingTeamId = normalizeOptionalString(existingData['teamId']);
+    const existingOrganizationId = normalizeOptionalString(existingData['organizationId']);
     const existingAcl = getFileFolderAcl(existingData);
     const canWriteFolder = await canWriteAccessControlledRecord({
       db,
@@ -3361,41 +3791,118 @@ router.patch('/files/folders/:folderId', appGuard, async (req: Request, res: Res
       }
     }
 
+    const requestedTeamId =
+      body.teamId === undefined
+        ? (existingTeamId ?? null)
+        : (normalizeOptionalString(body.teamId) ?? null);
+    const existingParentId =
+      typeof existingData['parentId'] === 'string' ? existingData['parentId'] : null;
+    const nextScopeFromParent = nextParentId
+      ? await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(nextParentId).get()
+      : null;
+    const nextParentData = (nextScopeFromParent?.data() ?? {}) as Record<string, unknown>;
+    const nextTeamId = nextParentId
+      ? (normalizeOptionalString(nextParentData['teamId']) ?? null)
+      : requestedTeamId;
+    const nextInheritedScope = await resolveInheritedFolderAcl({
+      db,
+      teamId: nextTeamId,
+      parentId: nextParentId,
+      ownerUserId: normalizeQueryString(existingData['createdByUserId']) ?? auth.uid,
+      organizationId: nextParentId
+        ? (normalizeOptionalString(nextParentData['organizationId']) ?? null)
+        : null,
+    });
+    const nextOrganizationId = nextInheritedScope.organizationId ?? null;
+    const crossScopeChange =
+      nextTeamId !== (existingTeamId ?? null) ||
+      nextOrganizationId !== (existingOrganizationId ?? null);
+    const ownerUserId = normalizeQueryString(existingData['createdByUserId']) ?? auth.uid;
+    if (crossScopeChange && ownerUserId !== auth.uid) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+    if (!nextParentId && nextTeamId && nextTeamId !== (existingTeamId ?? null)) {
+      const authorizedTeam = await getAuthorizedTeam(req, nextTeamId, 'manage');
+      if (!authorizedTeam.ok) {
+        res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+        return;
+      }
+    }
+
     const nextName = body.name?.trim() || String(existingData['name'] ?? 'Untitled folder');
     const nextSortOrder = body.sortOrder ?? Number(existingData['sortOrder'] ?? 0);
     const now = new Date().toISOString();
+    const previousReadAccessKeys = resolveCurrentAccessKeys(
+      existingData as Record<string, unknown>,
+      'readAccessKeys',
+      existingAcl ? getAclReadAccessKeys(existingAcl) : getLegacyReadAccessKeys(existingData)
+    );
+    const previousWriteAccessKeys = resolveCurrentAccessKeys(
+      existingData as Record<string, unknown>,
+      'writeAccessKeys',
+      getLegacyWriteAccessKeys(existingData)
+    );
 
     await folderRef.set(
       {
+        teamId: nextTeamId ?? FieldValue.delete(),
+        organizationId: nextOrganizationId ?? FieldValue.delete(),
         name: nextName,
         normalizedName: nextName.toLowerCase(),
         parentId: nextParentId,
         sortOrder: nextSortOrder,
+        acl: nextInheritedScope.acl ?? FieldValue.delete(),
+        readAccessKeys: nextInheritedScope.readAccessKeys,
+        writeAccessKeys: nextInheritedScope.writeAccessKeys,
+        updatedByUserId: auth.uid,
         updatedAt: now,
       },
       { merge: true }
     );
+
+    const subtreeNeedsRescope =
+      nextParentId !== existingParentId ||
+      crossScopeChange ||
+      !arraysEqual(previousReadAccessKeys, nextInheritedScope.readAccessKeys) ||
+      !arraysEqual(previousWriteAccessKeys, nextInheritedScope.writeAccessKeys);
+    if (subtreeNeedsRescope) {
+      await rescopeMovedFolderDescendants({
+        db,
+        folderId,
+        previousAccess: {
+          readAccessKeys: previousReadAccessKeys,
+          writeAccessKeys: previousWriteAccessKeys,
+        },
+        nextAccess: {
+          readAccessKeys: nextInheritedScope.readAccessKeys,
+          writeAccessKeys: nextInheritedScope.writeAccessKeys,
+        },
+        nextTeamId,
+        nextOrganizationId,
+        updatedByUserId: auth.uid,
+        updatedAt: now,
+      });
+    }
 
     res.json({
       success: true,
       data: {
         folder: {
           id: folderId,
-          ...(existingTeamId ? { teamId: existingTeamId } : {}),
-          ...(typeof existingData['organizationId'] === 'string'
-            ? { organizationId: existingData['organizationId'] }
-            : {}),
+          ...(nextTeamId ? { teamId: nextTeamId } : {}),
+          ...(nextOrganizationId ? { organizationId: nextOrganizationId } : {}),
           name: nextName,
           normalizedName: nextName.toLowerCase(),
           ...(nextParentId ? { parentId: nextParentId } : {}),
           sortOrder: nextSortOrder,
           createdByUserId: String(existingData['createdByUserId'] ?? ''),
-          ...(existingAcl ? { acl: existingAcl } : {}),
-          ...(getStringArray(existingData['readAccessKeys']).length > 0
-            ? { readAccessKeys: getStringArray(existingData['readAccessKeys']) }
+          ...(nextInheritedScope.acl ? { acl: nextInheritedScope.acl } : {}),
+          ...(nextInheritedScope.readAccessKeys.length > 0
+            ? { readAccessKeys: nextInheritedScope.readAccessKeys }
             : {}),
-          ...(getStringArray(existingData['writeAccessKeys']).length > 0
-            ? { writeAccessKeys: getStringArray(existingData['writeAccessKeys']) }
+          ...(nextInheritedScope.writeAccessKeys.length > 0
+            ? { writeAccessKeys: nextInheritedScope.writeAccessKeys }
             : {}),
           createdAt: toPortableTimestamp(existingData['createdAt']),
           updatedAt: now,
@@ -3950,6 +4457,12 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
 
     const fileData = fileDoc.data() ?? {};
     const existingTeamId = normalizeOptionalString(fileData['teamId']);
+    const existingOrganizationId = normalizeOptionalString(fileData['organizationId']);
+    const existingFolderId = normalizeOptionalString(fileData['folderId']);
+    const ownerUserId =
+      normalizeQueryString(fileData['ownerUserId']) ??
+      normalizeQueryString(fileData['createdByUserId']) ??
+      auth.uid;
 
     const fileAcl = getUniversalFileAcl(fileData as Record<string, unknown>);
     const canWrite = await canWriteAccessControlledRecord({
@@ -3966,28 +4479,78 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     }
 
     const folderId = body.folderId?.trim() || null;
+    const requestedTeamId =
+      body.teamId === undefined
+        ? (existingTeamId ?? null)
+        : (normalizeOptionalString(body.teamId) ?? null);
+    let nextTeamId = existingTeamId ?? null;
+    let nextOrganizationId = existingOrganizationId ?? null;
+    let nextAcl = fileAcl;
+    let nextReadAccessKeys = getStringArray(fileData['readAccessKeys']);
+    let nextWriteAccessKeys = getStringArray(fileData['writeAccessKeys']);
+
     if (folderId) {
       const folderDoc = await db.collection(TEAM_FILE_FOLDERS_COLLECTION).doc(folderId).get();
       const folderData = (folderDoc.data() ?? {}) as Record<string, unknown>;
-      if (
-        !folderDoc.exists ||
-        (normalizeOptionalString(folderData['teamId']) ?? null) !== (existingTeamId ?? null)
-      ) {
+      const folderAcl = getFileFolderAcl(folderData);
+      const folderTeamId = normalizeOptionalString(folderData['teamId']) ?? null;
+      if (!folderDoc.exists) {
         res.status(404).json({ success: false, error: 'Folder not found' });
         return;
       }
       const canWriteFolder = await canWriteAccessControlledRecord({
         db,
         authUid: auth.uid,
-        teamId: existingTeamId ?? '',
+        teamId: folderTeamId ?? '',
         data: folderData,
-        acl: getFileFolderAcl(folderData),
+        acl: folderAcl,
         grantedAccessKeys,
       });
       if (!canWriteFolder) {
         res.status(403).json({ success: false, error: 'Forbidden' });
         return;
       }
+
+      const inheritedScope = await resolveInheritedFolderAcl({
+        db,
+        teamId: folderTeamId,
+        parentId: folderId,
+        ownerUserId,
+        organizationId: normalizeOptionalString(folderData['organizationId']) ?? null,
+      });
+      nextTeamId = folderTeamId;
+      nextOrganizationId = inheritedScope.organizationId ?? null;
+      nextAcl = inheritedScope.acl;
+      nextReadAccessKeys = inheritedScope.readAccessKeys;
+      nextWriteAccessKeys = inheritedScope.writeAccessKeys;
+    } else if (body.folderId !== undefined || body.teamId !== undefined) {
+      if (!folderId && requestedTeamId && requestedTeamId !== (existingTeamId ?? null)) {
+        const authorizedTeam = await getAuthorizedTeam(req, requestedTeamId, 'manage');
+        if (!authorizedTeam.ok) {
+          res.status(authorizedTeam.status).json({ success: false, error: authorizedTeam.error });
+          return;
+        }
+      }
+
+      const inheritedScope = await resolveInheritedFolderAcl({
+        db,
+        teamId: requestedTeamId,
+        parentId: null,
+        ownerUserId,
+      });
+      nextTeamId = requestedTeamId;
+      nextOrganizationId = inheritedScope.organizationId ?? null;
+      nextAcl = inheritedScope.acl;
+      nextReadAccessKeys = inheritedScope.readAccessKeys;
+      nextWriteAccessKeys = inheritedScope.writeAccessKeys;
+    }
+
+    const crossScopeChange =
+      nextTeamId !== (existingTeamId ?? null) ||
+      nextOrganizationId !== (existingOrganizationId ?? null);
+    if (crossScopeChange && ownerUserId !== auth.uid) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
     }
 
     const nextName = body.name?.trim() || null;
@@ -4024,8 +4587,26 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
     const shouldMirrorArtifactSummary = body.summary !== undefined && !supportsInlineTextPayload;
     const shouldMirrorArtifactNotes = nextTextContent !== undefined && !supportsInlineTextPayload;
 
+    const scopeMutated =
+      (body.folderId !== undefined && folderId !== existingFolderId) ||
+      (body.teamId !== undefined && nextTeamId !== (existingTeamId ?? null)) ||
+      nextOrganizationId !== (existingOrganizationId ?? null) ||
+      (body.folderId !== undefined &&
+        !arraysEqual(nextReadAccessKeys, getStringArray(fileData['readAccessKeys']))) ||
+      (body.folderId !== undefined &&
+        !arraysEqual(nextWriteAccessKeys, getStringArray(fileData['writeAccessKeys'])));
+
     await fileRef.update({
       ...(body.folderId !== undefined ? { folderId } : {}),
+      ...(body.folderId !== undefined || body.teamId !== undefined
+        ? {
+            teamId: nextTeamId ?? FieldValue.delete(),
+            organizationId: nextOrganizationId ?? FieldValue.delete(),
+            acl: nextAcl ?? FieldValue.delete(),
+            readAccessKeys: nextReadAccessKeys,
+            writeAccessKeys: nextWriteAccessKeys,
+          }
+        : {}),
       ...(nextName
         ? {
             title: nextName,
@@ -4048,12 +4629,13 @@ router.patch('/files/:fileId', appGuard, async (req: Request, res: Response) => 
       body.summary !== undefined ||
       body.classificationPrimary !== undefined ||
       body.textContent !== undefined ||
-      payloadPatch
+      payloadPatch ||
+      scopeMutated
     ) {
       const dbSnapshot = await fileRef.get();
       const updatedDocument = toUniversalFileDoc(
         fileId,
-        existingTeamId ?? null,
+        nextTeamId,
         dbSnapshot.data() ?? { updatedAt }
       );
       scheduleUniversalFileSemanticSync({ db, document: updatedDocument });
@@ -4308,6 +4890,8 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       ? body.uploadMode
       : 'single_video';
     const sport = body.sport.trim().toLowerCase();
+    const playlistId = body.playlistId?.trim() || null;
+    const playlistName = body.playlistName?.trim() || null;
     const now = new Date().toISOString();
     const source: TeamFilmReviewSourceVideo = {
       id: fileId,
@@ -4322,11 +4906,12 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       ...(body.thumbnailUrl ? { thumbnailUrl: body.thumbnailUrl } : {}),
       ...(body.durationSec !== undefined ? { durationSec: body.durationSec } : {}),
     };
+    const sources = body.sources?.length ? body.sources : [source];
     const status: TeamFilmReviewDoc['status'] =
       body.cloudflareVideoId && body.readyToStream !== true ? 'processing' : 'ready';
     const timeline = buildSeededFilmReviewTimeline({
       uploadMode,
-      sources: [source],
+      sources,
       ...(body.durationSec !== undefined ? { fallbackDurationSec: body.durationSec } : {}),
     });
 
@@ -4338,8 +4923,14 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       title: body.title.trim(),
       status,
       uploadMode,
+      ...(body.playlistId !== undefined
+        ? {
+            playlistId,
+            playlistName: playlistId && playlistName ? playlistName : null,
+          }
+        : {}),
       videoUrl: body.videoUrl,
-      sources: [source],
+      sources,
       durationSec: body.durationSec ?? 0,
       source: body.source ?? 'team_files',
       schemaVersion: 2,
@@ -4358,8 +4949,14 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       title: body.title.trim(),
       status,
       uploadMode,
+      ...(body.playlistId !== undefined
+        ? {
+            playlistId,
+            playlistName: playlistId && playlistName ? playlistName : null,
+          }
+        : {}),
       videoUrl: body.videoUrl,
-      sources: [source],
+      sources,
       ...(body.storagePath ? { storagePath: body.storagePath } : {}),
       ...(body.cloudflareVideoId ? { cloudflareVideoId: body.cloudflareVideoId } : {}),
       ...(body.cloudflareStatus ? { cloudflareStatus: body.cloudflareStatus } : {}),

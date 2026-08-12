@@ -13,10 +13,119 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
+import { PARTNER_TEAM_LOGO_PATHS } from '@nxt1/design-tokens/assets';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 
+interface FoundationPartnerTeamLogo {
+  readonly id: string;
+  readonly name: string;
+  readonly src: string;
+}
+
 const FOUNDATION_TEAM_LIMIT = 50;
-const FOUNDATION_TEAM_CLAIMED = 14;
+
+const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
+  {
+    id: 'allen-iverson-prep-stars-showcase',
+    name: 'Allen Iverson Prep Stars Showcase',
+    src: PARTNER_TEAM_LOGO_PATHS.aiNexxtLevelUClub,
+  },
+  {
+    id: 'akron-east-hs',
+    name: 'Akron East High School',
+    src: PARTNER_TEAM_LOGO_PATHS.akronEastHs,
+  },
+  {
+    id: 'barberton-hs',
+    name: 'Barberton High School',
+    src: PARTNER_TEAM_LOGO_PATHS.barbertonHs,
+  },
+  {
+    id: 'brush-hs',
+    name: 'Brush High School',
+    src: PARTNER_TEAM_LOGO_PATHS.brushHs,
+  },
+  {
+    id: 'canton-mckinley-hs',
+    name: 'Canton McKinley High School',
+    src: PARTNER_TEAM_LOGO_PATHS.cantonMckinleyHs,
+  },
+  {
+    id: 'canton-south-hs',
+    name: 'Canton South High School',
+    src: PARTNER_TEAM_LOGO_PATHS.cantonSouthHs,
+  },
+  {
+    id: 'carrollton-hs',
+    name: 'Carrollton High School',
+    src: PARTNER_TEAM_LOGO_PATHS.carrolltonHs,
+  },
+  {
+    id: 'central-valley-hs',
+    name: 'Central Valley High School',
+    src: PARTNER_TEAM_LOGO_PATHS.centralValleyHs,
+  },
+  {
+    id: 'crestview-hs',
+    name: 'Crestview High School',
+    src: PARTNER_TEAM_LOGO_PATHS.crestviewHs,
+  },
+  {
+    id: 'fairborn-hs',
+    name: 'Fairborn High School',
+    src: PARTNER_TEAM_LOGO_PATHS.fairbornHs,
+  },
+  {
+    id: 'garfield-hs',
+    name: 'Garfield High School',
+    src: PARTNER_TEAM_LOGO_PATHS.garfieldHs,
+  },
+  {
+    id: 'hoover-hs',
+    name: 'Hoover High School',
+    src: PARTNER_TEAM_LOGO_PATHS.hooverHs,
+  },
+  {
+    id: 'lake-hs',
+    name: 'Lake High School',
+    src: PARTNER_TEAM_LOGO_PATHS.lakeHs,
+  },
+  {
+    id: 'martin-county-hs',
+    name: 'Martin County High School',
+    src: PARTNER_TEAM_LOGO_PATHS.martinCountyHs,
+  },
+  {
+    id: 'nordonia-hs',
+    name: 'Nordonia High School',
+    src: PARTNER_TEAM_LOGO_PATHS.nordoniaHs,
+  },
+  {
+    id: 'perry-pirates-hs',
+    name: 'Perry Pirates',
+    src: PARTNER_TEAM_LOGO_PATHS.perryPiratesHs,
+  },
+  {
+    id: 'salem-hs',
+    name: 'Salem High School',
+    src: PARTNER_TEAM_LOGO_PATHS.salemHs,
+  },
+  {
+    id: 'sandy-valley-hs',
+    name: 'Sandy Valley High School',
+    src: PARTNER_TEAM_LOGO_PATHS.sandyValleyHs,
+  },
+  {
+    id: 'st-v-hs',
+    name: 'St. Vincent-St. Mary High School',
+    src: PARTNER_TEAM_LOGO_PATHS.stVHs,
+  },
+  {
+    id: 'youngstown-hs',
+    name: 'Youngstown High School',
+    src: PARTNER_TEAM_LOGO_PATHS.youngstownHs,
+  },
+] as const;
 
 @Component({
   selector: 'app-foundation-fifty-banner',
@@ -36,8 +145,8 @@ const FOUNDATION_TEAM_CLAIMED = 14;
           </div>
 
           <h2 id="f50-title" class="f50__headline" itemprop="name">
-            Join the First 50 Coaches.<br class="f50__br" />
-            Get <span class="f50__accent">$100+ Free</span> to Start.
+            Join the First 50 Programs.<br class="f50__br" />
+            Get a <span class="f50__accent">FREE Budget</span> to Start on Us.
           </h2>
 
           <p class="f50__sub">
@@ -107,7 +216,25 @@ const FOUNDATION_TEAM_CLAIMED = 14;
           <div class="f50__progress" aria-hidden="true">
             <span class="f50__progress-bar" [style.width.%]="partnerProgressPercent"></span>
           </div>
-          <p class="f50__partners-note">14 founding coach spots have been claimed so far.</p>
+          <div class="f50__partner-grid" aria-label="Current Foundation team logos">
+            @for (partner of partnerLogos; track partner.id) {
+              <div
+                class="f50__partner-card"
+                [class.f50__partner-card--large]="
+                  partner.id === 'akron-east-hs' || partner.id === 'barberton-hs'
+                "
+              >
+                <img
+                  class="f50__partner-logo"
+                  [src]="partner.src"
+                  [alt]="partner.name + ' logo'"
+                  width="88"
+                  height="88"
+                  decoding="async"
+                />
+              </div>
+            }
+          </div>
         </aside>
       </div>
     </section>
@@ -432,13 +559,45 @@ const FOUNDATION_TEAM_CLAIMED = 14;
         background: linear-gradient(90deg, var(--f50-accent), var(--f50-accent-muted));
       }
 
-      .f50__partners-note {
+      .f50__partner-grid {
         position: relative;
         z-index: 1;
-        margin: 0;
-        font-size: var(--nxt1-fontSize-sm, 0.875rem);
-        line-height: 1.6;
-        color: var(--nxt1-color-text-secondary);
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: var(--nxt1-spacing-2, 0.5rem);
+      }
+
+      .f50__partner-card {
+        width: 100%;
+        aspect-ratio: 1;
+        border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 55%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 58%, white 4%);
+        display: grid;
+        place-items: center;
+        padding: var(--nxt1-spacing-2, 0.5rem);
+        box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
+      }
+
+      .f50__partner-card--large {
+        padding: var(--nxt1-spacing-1, 0.25rem);
+      }
+
+      .f50__partner-logo {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        filter: saturate(0.94) contrast(1.04);
+      }
+
+      .f50__partner-card--large .f50__partner-logo {
+        transform: scale(1.08);
+        transform-origin: center;
+      }
+
+      .f50__partner-card:hover .f50__partner-logo {
+        filter: saturate(1.05) contrast(1.08);
       }
 
       /* ── Body layout — text + cta stacked by default ── */
@@ -468,6 +627,10 @@ const FOUNDATION_TEAM_CLAIMED = 14;
 
         .f50__partners {
           padding: var(--nxt1-spacing-4, 1rem);
+        }
+
+        .f50__partner-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
         }
       }
 
@@ -508,6 +671,16 @@ const FOUNDATION_TEAM_CLAIMED = 14;
           margin-block-end: var(--nxt1-spacing-4, 1rem);
         }
 
+        .f50__partner-grid {
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: var(--nxt1-spacing-3, 0.75rem);
+        }
+
+        .f50__partner-card {
+          border-radius: var(--nxt1-borderRadius-xl, 0.75rem);
+          padding: var(--nxt1-spacing-3, 0.75rem);
+        }
+
         .f50__sub {
           font-size: var(--nxt1-fontSize-base, 1rem);
         }
@@ -519,9 +692,10 @@ const FOUNDATION_TEAM_CLAIMED = 14;
 export class FoundationFiftyBannerComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
-  protected readonly partnerProgressLabel = `${FOUNDATION_TEAM_CLAIMED}/${FOUNDATION_TEAM_LIMIT}`;
+  protected readonly partnerLogos = PARTNER_TEAM_LOGOS;
+  protected readonly partnerProgressLabel = `${this.partnerLogos.length}/${FOUNDATION_TEAM_LIMIT}`;
   protected readonly partnerProgressPercent =
-    (FOUNDATION_TEAM_CLAIMED / FOUNDATION_TEAM_LIMIT) * 100;
+    (this.partnerLogos.length / FOUNDATION_TEAM_LIMIT) * 100;
 
   protected onClaimSpotClick(): void {
     this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {

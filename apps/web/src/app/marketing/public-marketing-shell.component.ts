@@ -39,6 +39,9 @@ const DOWNLOAD_BAR_SCROLL_THRESHOLD = 220;
 const DOWNLOAD_BAR_END_HIDE_OFFSET = 220;
 const DOWNLOAD_BAR_DIRECTION_INTENT_TTL_MS = 600;
 const PUBLIC_MARKETING_SCROLL_CLASS = 'nxt1-public-marketing-scroll';
+const IOS_APP_STORE_URL = 'https://apps.apple.com/us/app/nxt-1/id6446410344';
+const GOOGLE_PLAY_STORE_URL =
+  'https://play.google.com/store/apps/details?id=com.nxt1sports.app.twa';
 
 @Component({
   selector: 'app-public-marketing-shell',
@@ -57,8 +60,8 @@ const PUBLIC_MARKETING_SCROLL_CLASS = 'nxt1-public-marketing-scroll';
         >
           <div class="platform-promo__message platform-promo__message--mobile">
             <span class="platform-promo__status" aria-hidden="true"></span>
-            <span class="platform-promo__label">New NXT1 is live.</span>
-            <span class="platform-promo__copy">Agent X is ready to work.</span>
+            <span class="platform-promo__label">Download the NXT1 app.</span>
+            <span class="platform-promo__copy">Get the full platform on iPhone and Android.</span>
           </div>
         </div>
       </aside>
@@ -66,7 +69,7 @@ const PUBLIC_MARKETING_SCROLL_CLASS = 'nxt1-public-marketing-scroll';
       <aside
         class="platform-promo"
         [class.platform-promo--hidden]="platformBannerScrolledAway()"
-        aria-label="NXT1 platform announcement"
+        aria-label="NXT1 app download announcement"
       >
         <div
           class="platform-promo__inner"
@@ -74,16 +77,15 @@ const PUBLIC_MARKETING_SCROLL_CLASS = 'nxt1-public-marketing-scroll';
         >
           <div class="platform-promo__message">
             <span class="platform-promo__status" aria-hidden="true"></span>
-            <span class="platform-promo__label">New NXT1 Platform</span>
+            <span class="platform-promo__label">Download the NXT1 app</span>
             <span class="platform-promo__copy">
-              Agent X now executes film, creative, recruiting, and staff workflows from one command
-              center.
+              Take the full platform with you and get NXT1 on iPhone or Android.
             </span>
           </div>
 
-          <a href="/agent-x" class="platform-promo__button" (click)="goToAgentX()">
-            Explore Agent X
-          </a>
+          <button type="button" class="platform-promo__button" (click)="goToAppDownload()">
+            Download the App
+          </button>
         </div>
       </aside>
 
@@ -389,9 +391,12 @@ export class PublicMarketingShellComponent {
     void this.router.navigateByUrl('/');
   }
 
-  protected goToAgentX(): void {
+  protected goToAppDownload(): void {
     this.trackPromoSelected('public_marketing_shell_banner');
-    void this.router.navigateByUrl('/agent-x');
+
+    if (!this.isBrowser) return;
+
+    window.open(this.resolveAppDownloadUrl(), '_blank', 'noopener,noreferrer');
   }
 
   protected dismissDownloadBar(): void {
@@ -541,21 +546,28 @@ export class PublicMarketingShellComponent {
     if (this.promoViewed) return;
     this.promoViewed = true;
     this.analytics?.trackEvent(FIREBASE_EVENTS.VIEW_PROMOTION, {
-      creative_name: 'agent_x_platform_banner',
+      creative_name: 'mobile_app_download_banner',
       creative_slot: placement,
-      promotion_id: 'agent_x_platform_launch',
-      promotion_name: 'Agent X Platform Banner',
+      promotion_id: 'mobile_app_download',
+      promotion_name: 'Mobile App Download Banner',
       location_id: placement,
     });
   }
 
   private trackPromoSelected(placement: string): void {
     this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {
-      creative_name: 'agent_x_platform_banner',
+      creative_name: 'mobile_app_download_banner',
       creative_slot: placement,
-      promotion_id: 'agent_x_platform_launch',
-      promotion_name: 'Agent X Platform Banner',
+      promotion_id: 'mobile_app_download',
+      promotion_name: 'Mobile App Download Banner',
       location_id: placement,
     });
+  }
+
+  private resolveAppDownloadUrl(): string {
+    if (!this.isBrowser) return IOS_APP_STORE_URL;
+
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    return userAgent.includes('android') ? GOOGLE_PLAY_STORE_URL : IOS_APP_STORE_URL;
   }
 }

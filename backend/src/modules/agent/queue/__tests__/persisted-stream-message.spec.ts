@@ -77,6 +77,30 @@ describe('PersistedAssistantStreamBuilder', () => {
     ]);
   });
 
+  it('does not persist DSML tool-call markup as assistant text', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    builder.process({
+      type: 'delta',
+      agentId: 'performance_coordinator',
+      text: 'Your PDF is ready. <｜DSML｜tool_calls>\n<｜DSML｜invoke name="dynamic_export">\n<｜DSML｜parameter name="format" string="true">pdf</｜DSML｜parameter>',
+    });
+    builder.process({
+      type: 'delta',
+      agentId: 'performance_coordinator',
+      text: ' Clean summary after the export.',
+    });
+
+    const snapshot = builder.snapshot();
+
+    expect(snapshot.content).toContain('Your PDF is ready.');
+    expect(snapshot.content).toContain('Clean summary after the export.');
+    expect(snapshot.content).not.toContain('<｜DSML｜');
+    expect(snapshot.content).not.toContain('dynamic_export');
+    expect(JSON.stringify(snapshot.parts)).not.toContain('<｜DSML｜');
+    expect(JSON.stringify(snapshot.parts)).not.toContain('dynamic_export');
+  });
+
   it('omits failed coordinator draft deltas from persisted assistant content', () => {
     const builder = new PersistedAssistantStreamBuilder();
 

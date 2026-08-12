@@ -39,7 +39,8 @@ type RenderedPageArtifact = {
   readonly mimeType: 'image/png';
   readonly width: number;
   readonly height: number;
-  readonly expiresAt: string;
+  /** @deprecated URLs are now permanent Firebase download-token URLs; expiresAt is no longer set. */
+  readonly expiresAt?: string;
 };
 
 type FailedRenderedPage = {
@@ -78,15 +79,9 @@ function resolvePdfJsCanvasBindings(): CanvasBindings {
 function ensurePdfJsNodeGlobals(canvasBindings: CanvasBindings): void {
   const globalScope = globalThis as Record<string, unknown>;
 
-  if (typeof globalScope['DOMMatrix'] === 'undefined') {
-    globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
-  }
-  if (typeof globalScope['ImageData'] === 'undefined') {
-    globalScope['ImageData'] = canvasBindings.ImageData as unknown;
-  }
-  if (typeof globalScope['Path2D'] === 'undefined') {
-    globalScope['Path2D'] = canvasBindings.Path2D as unknown;
-  }
+  globalScope['DOMMatrix'] = canvasBindings.DOMMatrix as unknown;
+  globalScope['ImageData'] = canvasBindings.ImageData as unknown;
+  globalScope['Path2D'] = canvasBindings.Path2D as unknown;
 }
 
 function buildLargePdfRecoveryResult(params: {
@@ -316,7 +311,6 @@ export class RenderPdfPagesTool extends BaseTool {
       const loadingTask = pdfjs.getDocument({
         data: new Uint8Array(pdfSource.buffer),
         useWorkerFetch: false,
-        isEvalSupported: false,
         disableFontFace: true,
         useSystemFonts: true,
       });
@@ -371,24 +365,25 @@ export class RenderPdfPagesTool extends BaseTool {
               mimeType: 'image/png',
               fileName: renderedFileName,
             });
-            const signed = await AgentMediaLifecycleService.saveBufferAndSignRead({
+            // saveBufferAndSignRead now returns a permanent Firebase download-token
+            // URL (no expiry) via saveBufferAndMakePublic internally.
+            const saved = await AgentMediaLifecycleService.saveBufferAndSignRead({
               bucket,
               storagePath,
               buffer: pageBuffer,
               mimeType: 'image/png',
-              cacheControl: 'private, max-age=0',
+              cacheControl: 'public, max-age=31536000, immutable',
             });
 
             renderedPages.push({
               pageNumber,
-              url: signed.url,
-              imageUrl: signed.url,
+              url: saved.url,
+              imageUrl: saved.url,
               storagePath,
               fileName: renderedFileName,
               mimeType: 'image/png',
               width: canvas.width,
               height: canvas.height,
-              expiresAt: new Date(signed.expiresAt).toISOString(),
             });
 
             page.cleanup();

@@ -7,6 +7,7 @@ default_platform(:android)
 
 # App configuration
 PACKAGE_NAME = "com.nxt1sports.app.twa"
+GOOGLE_PLAY_KEY_FILE = File.expand_path("../google-play-key.json", __dir__)
 
 platform :android do
   before_all do
@@ -97,7 +98,7 @@ platform :android do
 
     # Try to get the latest version code from Play Store; always keep CI builds
     # above the checked-in Android version code so Play can upgrade existing users.
-    key_file = "google-play-key.json"
+    key_file = GOOGLE_PLAY_KEY_FILE
     if File.exist?(key_file) && File.size(key_file) > 10
       begin
         tracks = %w[internal alpha beta production]
@@ -148,7 +149,7 @@ platform :android do
     upload_to_play_store(
       track: "internal",
       aab: "./app/build/outputs/bundle/release/app-release.aab",
-      json_key: "google-play-key.json",
+      json_key: GOOGLE_PLAY_KEY_FILE,
       package_name: PACKAGE_NAME,
       skip_upload_metadata: true,
       skip_upload_images: true,
@@ -165,7 +166,7 @@ platform :android do
     upload_to_play_store(
       track: "production",
       aab: "./app/build/outputs/bundle/release/app-release.aab",
-      json_key: "google-play-key.json",
+      json_key: GOOGLE_PLAY_KEY_FILE,
       package_name: PACKAGE_NAME,
       skip_upload_metadata: false,
       skip_upload_images: false,
@@ -183,7 +184,7 @@ platform :android do
     upload_to_play_store(
       track: "internal",
       track_promote_to: "production",
-      json_key: "google-play-key.json",
+      json_key: GOOGLE_PLAY_KEY_FILE,
       package_name: PACKAGE_NAME,
       skip_upload_aab: true,
       skip_upload_metadata: true,

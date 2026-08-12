@@ -52,6 +52,7 @@ import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/a
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
+  containsInternalProtocolMarkup,
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
@@ -99,6 +100,145 @@ const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
   'write_intel',
 ]);
 
+const PRIMARY_DELIVERABLE_TOOLS = new Set(
+  [...TERMINAL_ARTIFACT_TOOL_FAILURES].filter(
+    (toolName) => toolName !== 'ffmpeg_generate_thumbnail'
+  )
+);
+
+function resolveRequestedDeliverableTools(intent: string): ReadonlySet<string> {
+  const normalized = intent.toLowerCase();
+
+  if (/\b(highlight|reel|montage|merge)\b/.test(normalized)) {
+    return new Set(['generate_highlight_reel', 'ffmpeg_merge_videos', 'export_video']);
+  }
+  if (/\bthumbnail\b/.test(normalized)) return new Set(['ffmpeg_generate_thumbnail']);
+  if (/\btrim(?:med|ming)?\b/.test(normalized)) return new Set(['ffmpeg_trim_video']);
+  if (/\bconvert(?:ed|ing)?\b/.test(normalized)) return new Set(['ffmpeg_convert_video']);
+  if (/\bcompress(?:ed|ing|ion)?\b/.test(normalized)) return new Set(['ffmpeg_compress_video']);
+  if (/\bresize(?:d|s|ing)?\b/.test(normalized)) return new Set(['ffmpeg_resize_video']);
+  if (/\bsubtitle|captions?\b/.test(normalized)) return new Set(['ffmpeg_burn_subtitles']);
+  if (/\btext overlay|overlay text\b/.test(normalized)) {
+    return new Set(['ffmpeg_add_text_overlay']);
+  }
+  if (/\b(play diagram|diagram a play|draw a play)\b/.test(normalized)) {
+    return new Set(['create_play_diagram']);
+  }
+  if (/\b(graphic|poster|social image|title card)\b/.test(normalized)) {
+    return new Set(['generate_graphic']);
+  }
+
+  return PRIMARY_DELIVERABLE_TOOLS;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function readNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function restoreDocumentToolRecordLinkage(
+  rawOutput: Record<string, unknown>,
+  sanitizedOutput: Record<string, unknown>
+): Record<string, unknown> {
+  const rawDocument = readRecord(rawOutput['document']);
+  const documentId = readNonEmptyString(rawDocument?.['id']);
+  if (!documentId) return sanitizedOutput;
+
+  const sanitizedDocument = readRecord(sanitizedOutput['document']) ?? {};
+  return {
+    ...sanitizedOutput,
+    document: {
+      ...sanitizedDocument,
+      id: documentId,
+    },
+  };
+}
+
+function restoreDynamicExportToolRecordLinkage(
+  rawRecord: Record<string, unknown>,
+  sanitizedRecord: Record<string, unknown>
+): Record<string, unknown> {
+  const relatedDocumentId = readNonEmptyString(rawRecord['relatedDocumentId']);
+  if (!relatedDocumentId) return sanitizedRecord;
+
+  const nextRecord: Record<string, unknown> = {
+    ...sanitizedRecord,
+    relatedDocumentId,
+  };
+  const sanitizedAttachments = Array.isArray(sanitizedRecord['attachments'])
+    ? sanitizedRecord['attachments']
+    : null;
+  const rawAttachments = Array.isArray(rawRecord['attachments']) ? rawRecord['attachments'] : null;
+
+  if (sanitizedAttachments && rawAttachments) {
+    nextRecord['attachments'] = sanitizedAttachments.map((entry, index) => {
+      const rawAttachment = readRecord(rawAttachments[index]);
+      const sanitizedAttachment = readRecord(entry);
+      const attachmentRelatedDocumentId = readNonEmptyString(rawAttachment?.['relatedDocumentId']);
+      return sanitizedAttachment && attachmentRelatedDocumentId
+        ? { ...sanitizedAttachment, relatedDocumentId: attachmentRelatedDocumentId }
+        : entry;
+    });
+  }
+
+  return nextRecord;
+}
+
+function restoreToolRecordLinkage(params: {
+  readonly toolName: string;
+  readonly rawInput: Record<string, unknown>;
+  readonly sanitizedInput: Record<string, unknown>;
+  readonly rawOutput?: Record<string, unknown>;
+  readonly sanitizedOutput?: Record<string, unknown>;
+}): { readonly input: Record<string, unknown>; readonly output?: Record<string, unknown> } {
+  if (params.toolName === 'dynamic_export') {
+    return {
+      input: restoreDynamicExportToolRecordLinkage(params.rawInput, params.sanitizedInput),
+      output: params.rawOutput
+        ? restoreDynamicExportToolRecordLinkage(
+            params.rawOutput,
+            params.sanitizedOutput ?? sanitizeAgentPayload(params.rawOutput)
+          )
+        : params.sanitizedOutput,
+    };
+  }
+
+  if (
+    (params.toolName === 'create_universal_team_document' ||
+      params.toolName === 'update_universal_team_document') &&
+    params.rawOutput
+  ) {
+    return {
+      input: params.sanitizedInput,
+      output: restoreDocumentToolRecordLinkage(
+        params.rawOutput,
+        params.sanitizedOutput ?? sanitizeAgentPayload(params.rawOutput)
+      ),
+    };
+  }
+
+  return {
+    input: params.sanitizedInput,
+    output: params.sanitizedOutput,
+  };
+}
+
+export function sanitizeAgentResultDataWithToolRecords(
+  data: Record<string, unknown>,
+  toolCallRecords: readonly AgentToolCallRecord[]
+): Record<string, unknown> {
+  const { toolCallRecords: _ignoredToolCallRecords, ...rest } = data;
+  return {
+    ...sanitizeAgentPayload(rest),
+    toolCallRecords,
+  };
+}
+
 const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
@@ -106,7 +246,8 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Hydrated selected-context contract: when the app injects a clearly labeled expanded or hydrated selected-context block (for example selected database rows, clip breakdown rows, or document excerpts), treat that block as trusted first-party context for the current request. Answer from that block first. Only call retrieval tools when the block is missing facts needed for the answer, appears stale/contradictory, or the user explicitly asks for broader lookup, fresh analysis, save/update, or extraction work.',
   '- Files contract: saved files, folders, film reviews, and managed documents live in the user-visible Files panel. Default to the user\'s personal Files scope when the user does not explicitly ask to use a shared/team library. Internally use the universal-document and folder tools (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`, `list_team_file_folders`, `move_universal_file_to_folder`) as implementation details, but user-facing language should say "your Files", "your folder", or the exact folder/file name. Only say "team" or "shared" when the user explicitly requested shared/team Files or the selected artifact itself is visibly shared/team-scoped.',
   "- Files ingestion recovery (CRITICAL): if `parse_document` or `render_pdf_pages` returns `data.recovery`, follow that recovery object exactly. Do NOT retry the same inline parse/render loop. Save the upload to Files with `create_universal_team_document` using the provided `sourceFile`, then continue from the returned document id. For PDFs, immediately call `enrich_document_notes` and answer from the saved record's `artifactSummary`/`artifactNotes`. This applies to every domain and every file family, not just playbooks.",
-  '- Notes-first rule: when `get_universal_team_document` returns existing `artifactSummary` or `artifactNotes`, treat those notes as authoritative first-party extracted context before attempting fresh raw-file parsing. Only re-parse or re-enrich when the user asks for fresh extraction, the notes are missing/partial for the requested page range, or the notes contradict newer selected context.',
+  '- PDF note enrichment rule (CRITICAL): when reviewing, analyzing, summarizing, or generating notes for a PDF file (such as a playbook, callsheet, install sheet, scout report, deck, or multi-page PDF document) in Files, ALWAYS call `enrich_document_notes` on the document ID instead of `parse_document`. `parse_document` only extracts plain text OCR and skips visual play drawings and formation diagrams. `enrich_document_notes` renders every page visually and saves full page-by-page AI notes onto the record.',
+  '- Notes-first rule: when `get_universal_team_document` returns existing `artifactSummary` or `artifactNotes`, treat those notes as authoritative first-party extracted context before attempting fresh raw-file parsing. Exception: if existing `artifactNotes` are text-only OCR notes, lack visual diagram coverage, or the user explicitly asks to re-analyze, regenerate notes, or visually review play drawings/diagrams, run `enrich_document_notes` to perform a complete page-by-page visual pass.',
   '- Film-review workspace contract: film reviews, selected film-review sources, source breakdown rows, cutups, annotations, and film-review CRUD are NOT generic text-document workflows. Use film-review retrieval and mutation tools first (`get_film_review`, `list_film_review_sources`, `get_film_review_source_breakdown`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh). Do not create a universal document as the first write for a cutup, source extraction, breakdown edit, or film-review update unless the user explicitly asks for a separate notes/report document in addition to the film-review mutation.',
   '- Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that Files item like a raw content document you can overwrite wholesale. Use a NEW managed document only for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Files item, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
   '- Pointer-resolution contract: when the user or app provides only lightweight pointers (for example `team_file`, `playbook`, `film_review`, `film_review_source`, or folder ids) and the inline context is not sufficient to answer safely, proactively resolve backing data before answering or mutating anything. For Files-backed artifacts, run semantic Files discovery first with `list_universal_team_documents` using the artifact family and domain terminology needed, then hydrate selected/referenced Files with `get_universal_team_document` as high-priority candidates. For film-review pointers, use `get_film_review`, `list_film_review_sources`, and `get_film_review_source_breakdown` when those tools are in your current tool surface; otherwise route the film-review work to the owning coordinator instead of pretending the pointer is complete. For folder structure, use `list_team_file_folders`. Selected/referenced Files are priority candidates after semantic discovery, not the only search path.',
@@ -142,6 +283,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
   '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
   '- **No platform fallback**: If no provider is connected, do not attempt fallback sending. Ask the user to connect Gmail or Outlook in Settings → Email first.',
+  '- **Email attachments**: If the user asks to send an attached file, include the existing attachment ref in the email tool `attachments` array using the provided name, mimeType, sizeBytes, storagePath, and url. Never invent attachment URLs or attach arbitrary external URLs.',
   '- **Approval card preview only**: When you call an email send tool, do not paste the full subject/body/template in normal chat. The approval card is the single place where the user reviews and edits the full email. Chat should only summarize recipient count, target names, and that the draft is in the approval card.',
 ].join('\n');
 
@@ -1232,6 +1374,9 @@ export abstract class BaseAgent {
     // context pruning and allow augmentToolCallWithArtifact to recover artifacts
     // even when the originating tool message has been evicted from messages[].
     const artifactLedger: ArtifactLedgerEntry[] = [];
+    const requestedDeliverableTools = resolveRequestedDeliverableTools(
+      this.extractLatestUserText(messages)
+    );
     let completedToolCallCount = 0;
     const recentToolNames: string[] = [];
     let lastProgressCommentaryAtMs = 0;
@@ -1577,13 +1722,16 @@ export abstract class BaseAgent {
 
         return {
           summary,
-          data: sanitizeAgentPayload({
-            model: result.model,
-            usage: result.usage,
-            toolCallRecords,
-            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-            ...extractedToolData,
-          }),
+          data: sanitizeAgentResultDataWithToolRecords(
+            {
+              model: result.model,
+              usage: result.usage,
+              toolCallRecords,
+              ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+              ...extractedToolData,
+            },
+            toolCallRecords
+          ),
           ...(artifacts ? { artifacts } : {}),
           suggestions: [],
           success: runLoopSuccess,
@@ -1607,12 +1755,16 @@ export abstract class BaseAgent {
       }
 
       // Append the assistant message with its tool calls to the conversation
+      const assistantContent =
+        typeof result.content === 'string'
+          ? sanitizeAgentOutputText(result.content)
+          : result.content;
       const assistantMsgWithToolCalls: LLMMessage = {
         role: 'assistant',
         content:
-          typeof result.content === 'string'
-            ? sanitizeAgentOutputText(result.content)
-            : result.content,
+          typeof assistantContent === 'string' && containsInternalProtocolMarkup(assistantContent)
+            ? ''
+            : assistantContent,
         tool_calls: toolCallsForIteration,
       };
       messages.push(assistantMsgWithToolCalls);
@@ -2055,12 +2207,15 @@ export abstract class BaseAgent {
           // final answer directly. In both cases, skip the next LLM turn.
           return {
             summary: delegationSummary,
-            data: sanitizeAgentPayload({
-              model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
-              toolCallRecords,
-              ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-              ...extractedToolData,
-            }),
+            data: sanitizeAgentResultDataWithToolRecords(
+              {
+                model: typeof coordinatorModel === 'string' ? coordinatorModel.trim() : '',
+                toolCallRecords,
+                ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+                ...extractedToolData,
+              },
+              toolCallRecords
+            ),
             ...(artifacts ? { artifacts } : {}),
             suggestions: [],
             success: true,
@@ -2119,6 +2274,48 @@ export abstract class BaseAgent {
         ? (maxIterArtifactsAcc as AgentArtifactHandoff)
         : undefined;
 
+    const finalIterationAssistant = [...messages]
+      .reverse()
+      .find((message) => message.role === 'assistant');
+    const lastAssistantSummary =
+      typeof finalIterationAssistant?.content === 'string' &&
+      finalIterationAssistant.content.trim().length > 0
+        ? finalIterationAssistant.content
+        : undefined;
+    const completedArtifactAtIterationLimit =
+      typeof lastAssistantSummary === 'string' &&
+      lastAssistantSummary.trim().length > 0 &&
+      toolCallRecords.some(
+        (record) => record.status === 'success' && requestedDeliverableTools.has(record.toolName)
+      );
+
+    if (completedArtifactAtIterationLimit) {
+      logger.info(
+        `[${this.id}] Iteration limit reached after deliverable completion — preserving successful result`,
+        {
+          agentId: this.id,
+          userId: context.userId,
+          operationId: context.operationId,
+        }
+      );
+
+      return {
+        summary: sanitizeAgentOutputText(lastAssistantSummary),
+        success: true,
+        data: sanitizeAgentResultDataWithToolRecords(
+          {
+            completedAtIterationLimit: true,
+            toolCallRecords,
+            ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+            ...extractedToolData,
+          },
+          toolCallRecords
+        ),
+        ...(maxIterArtifacts ? { artifacts: maxIterArtifacts } : {}),
+        suggestions: [],
+      };
+    }
+
     return {
       summary: sanitizeAgentOutputText(
         'The agent reached its maximum iteration limit. ' +
@@ -2126,12 +2323,15 @@ export abstract class BaseAgent {
       ),
       success: false,
       errorMessage: 'Agent reached its maximum iteration limit before completing the task.',
-      data: sanitizeAgentPayload({
-        maxIterationsReached: true,
-        toolCallRecords,
-        ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
-        ...extractedToolData,
-      }),
+      data: sanitizeAgentResultDataWithToolRecords(
+        {
+          maxIterationsReached: true,
+          toolCallRecords,
+          ...(evidenceTrace.length > 0 ? { evidenceTrace } : {}),
+          ...extractedToolData,
+        },
+        toolCallRecords
+      ),
       ...(maxIterArtifacts ? { artifacts: maxIterArtifacts } : {}),
       suggestions: ['Try breaking the request into smaller tasks.'],
     };
@@ -2905,6 +3105,7 @@ export abstract class BaseAgent {
         }
 
         let output: Record<string, unknown> | undefined;
+        let rawOutput: Record<string, unknown> | undefined;
         let status: AgentToolCallRecord['status'] = 'success';
         try {
           const parsed = JSON.parse(observation) as Record<string, unknown>;
@@ -2913,10 +3114,11 @@ export abstract class BaseAgent {
               ? 'blocked_by_guardrail'
               : 'error';
           }
-          output =
+          rawOutput =
             typeof parsed['data'] === 'object' && parsed['data'] !== null
-              ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-              : sanitizeAgentPayload(parsed);
+              ? (parsed['data'] as Record<string, unknown>)
+              : parsed;
+          output = sanitizeAgentPayload(rawOutput);
         } catch {
           // Non-JSON observation — store as raw text
           output = observation
@@ -2925,11 +3127,19 @@ export abstract class BaseAgent {
         }
 
         const meta = executionMeta?.get(tc.id);
+        const sanitizedInput = sanitizeAgentPayload(input);
+        const restoredRecord = restoreToolRecordLinkage({
+          toolName: tc.function.name,
+          rawInput: input,
+          sanitizedInput,
+          rawOutput,
+          sanitizedOutput: output,
+        });
 
         records.push({
           toolName: tc.function.name,
-          input: sanitizeAgentPayload(input),
-          output,
+          input: restoredRecord.input,
+          output: restoredRecord.output,
           ...(typeof meta?.durationMs === 'number' ? { durationMs: meta.durationMs } : {}),
           status,
           timestamp: meta?.completedAt ?? new Date().toISOString(),
@@ -4672,18 +4882,49 @@ export abstract class BaseAgent {
       const format = typeof input['format'] === 'string' ? input['format'].toLowerCase() : '';
       if (format !== 'pdf' && format !== 'xlsx') return toolCall;
 
+      const existingRelatedDocumentId =
+        typeof input['relatedDocumentId'] === 'string' &&
+        input['relatedDocumentId'].trim().length > 0
+          ? input['relatedDocumentId'].trim()
+          : '';
       const existingTopLevelImages = readStringArray(input['imageUrls']);
       const existingSectionImages = Array.isArray(input['sections'])
         ? input['sections'].flatMap((section) =>
             asObject(section) ? readStringArray(asObject(section)?.['imageUrls']) : []
           )
         : [];
-      if (existingTopLevelImages.length > 0 || existingSectionImages.length > 0) {
-        return toolCall;
+      const hasExistingImages =
+        existingTopLevelImages.length > 0 || existingSectionImages.length > 0;
+
+      const toolNameByCallId = new Map<string, string>();
+      const collectToolCallNames = (history: readonly LLMMessage[]): void => {
+        for (const msg of history) {
+          if (msg.role !== 'assistant' || !msg.tool_calls) continue;
+          for (const call of msg.tool_calls) {
+            toolNameByCallId.set(call.id, call.function.name);
+          }
+        }
+      };
+      collectToolCallNames(messages);
+      if (context?.conversationHistory?.length) {
+        collectToolCallNames(context.conversationHistory);
       }
 
       const chartImageCandidates: string[] = [];
+      const relatedDocumentCandidates: string[] = [];
       const collectFromData = (data: Record<string, unknown>, sourceToolName?: string): void => {
+        if (
+          !existingRelatedDocumentId &&
+          (sourceToolName === 'create_universal_team_document' ||
+            sourceToolName === 'update_universal_team_document')
+        ) {
+          const wrappedData = asObject(data['data']);
+          const documentSource = wrappedData ?? data;
+          const document = asObject(documentSource['document']);
+          const documentId = typeof document?.['id'] === 'string' ? document['id'].trim() : '';
+          if (documentId) relatedDocumentCandidates.push(documentId);
+        }
+
         const isChartArtifact =
           sourceToolName === 'generate_chart_visualization' ||
           typeof data['chartUrl'] === 'string' ||
@@ -4724,7 +4965,10 @@ export abstract class BaseAgent {
           const result = JSON.parse(msg.content) as Record<string, unknown>;
           if (result['success'] !== true) continue;
           const data = asObject(result['data']);
-          if (data) collectFromData(data);
+          const sourceToolName = msg.tool_call_id
+            ? toolNameByCallId.get(msg.tool_call_id)
+            : undefined;
+          if (data) collectFromData(data, sourceToolName);
         } catch {
           continue;
         }
@@ -4738,7 +4982,9 @@ export abstract class BaseAgent {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
             if (result['success'] !== true) continue;
             const data = asObject(result['data']);
-            if (data) collectFromData(data);
+            const toolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId : undefined;
+            const sourceToolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
+            if (data) collectFromData(data, sourceToolName);
           } catch {
             continue;
           }
@@ -4752,13 +4998,23 @@ export abstract class BaseAgent {
         }
       }
 
-      const chartImageUrls = dedupeUrls(chartImageCandidates).slice(0, 12);
-      if (chartImageUrls.length === 0) return toolCall;
+      const chartImageUrls = hasExistingImages ? [] : dedupeUrls(chartImageCandidates).slice(0, 12);
+      const uniqueRelatedDocumentIds = [...new Set(relatedDocumentCandidates)];
+      const inferredRelatedDocumentId =
+        !existingRelatedDocumentId && uniqueRelatedDocumentIds.length === 1
+          ? uniqueRelatedDocumentIds[0]
+          : undefined;
+      if (chartImageUrls.length === 0 && !inferredRelatedDocumentId) return toolCall;
 
-      const augmentedInput = { ...input, imageUrls: chartImageUrls };
-      logger.info('[BaseAgent] Augmented dynamic_export with recent chart images', {
+      const augmentedInput = {
+        ...input,
+        ...(chartImageUrls.length > 0 ? { imageUrls: chartImageUrls } : {}),
+        ...(inferredRelatedDocumentId ? { relatedDocumentId: inferredRelatedDocumentId } : {}),
+      };
+      logger.info('[BaseAgent] Augmented dynamic_export with recent artifacts', {
         agentId: this.id,
         imageCount: chartImageUrls.length,
+        relatedDocumentId: inferredRelatedDocumentId,
         format,
       });
 
@@ -4804,10 +5060,23 @@ export abstract class BaseAgent {
 
         try {
           const parsed = new URL(sanitized);
-          const pathname = decodeURIComponent(parsed.pathname);
-          return /(?:^|\/)Organizations\//i.test(pathname);
+          if (
+            parsed.hostname !== 'firebasestorage.googleapis.com' ||
+            parsed.searchParams.get('alt') !== 'media' ||
+            !parsed.searchParams.get('token')?.trim()
+          ) {
+            return false;
+          }
+
+          const objectIndex = parsed.pathname.indexOf('/o/');
+          if (objectIndex === -1) return false;
+          const storagePath = decodeURIComponent(parsed.pathname.slice(objectIndex + 3));
+          return (
+            /^Organizations\/[^/]+\/logo(?:\/|$)/.test(storagePath) ||
+            /^Teams\/[^/]+\/logo(?:\/|$)/.test(storagePath)
+          );
         } catch {
-          return /(?:^|\/)Organizations\//i.test(sanitized);
+          return false;
         }
       };
       const isLikelyLogoAssetUrl = (value: string): boolean => {
@@ -5226,8 +5495,23 @@ export abstract class BaseAgent {
 
       const videoCandidates: string[] = [];
       const imageCandidates: string[] = [];
+      const posterCandidates: string[] = [];
 
-      const collectFromData = (data: Record<string, unknown>): void => {
+      const toolNameByCallId = new Map<string, string>();
+      const collectToolCallNames = (history: readonly LLMMessage[]): void => {
+        for (const msg of history) {
+          if (msg.role !== 'assistant' || !msg.tool_calls) continue;
+          for (const call of msg.tool_calls) {
+            toolNameByCallId.set(call.id, call.function.name);
+          }
+        }
+      };
+      collectToolCallNames(messages);
+      if (context?.conversationHistory?.length) {
+        collectToolCallNames(context.conversationHistory);
+      }
+
+      const collectFromData = (data: Record<string, unknown>, sourceToolName?: string): void => {
         const items = Array.isArray(data['items'])
           ? data['items'].filter(
               (item): item is Record<string, unknown> =>
@@ -5247,7 +5531,10 @@ export abstract class BaseAgent {
           if (videoUrl) videoCandidates.push(videoUrl);
           if (outputUrl && /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(outputUrl))
             videoCandidates.push(outputUrl);
-          if (imageUrl) imageCandidates.push(imageUrl);
+          if (imageUrl) {
+            imageCandidates.push(imageUrl);
+            if (sourceToolName === 'generate_graphic') posterCandidates.push(imageUrl);
+          }
           imageCandidates.push(...profileImgs, ...galleryImages, ...images);
 
           const mediaUrls = readStringArray(entry['mediaUrls']);
@@ -5300,7 +5587,10 @@ export abstract class BaseAgent {
             const result = JSON.parse(msg.content) as Record<string, unknown>;
             if (result['success'] !== true) continue;
             const data = asObject(result['data']);
-            if (data) collectFromData(data);
+            const sourceToolName = msg.tool_call_id
+              ? toolNameByCallId.get(msg.tool_call_id)
+              : undefined;
+            if (data) collectFromData(data, sourceToolName);
           } catch {
             continue;
           }
@@ -5317,7 +5607,9 @@ export abstract class BaseAgent {
               const result = JSON.parse(msg.content) as Record<string, unknown>;
               if (result['success'] !== true) continue;
               const data = asObject(result['data']);
-              if (data) collectFromData(data);
+              const toolCallId = typeof msg.toolCallId === 'string' ? msg.toolCallId : undefined;
+              const sourceToolName = toolCallId ? toolNameByCallId.get(toolCallId) : undefined;
+              if (data) collectFromData(data, sourceToolName);
             } catch {
               continue;
             }
@@ -5327,7 +5619,7 @@ export abstract class BaseAgent {
 
       if (artifactLedger?.length) {
         for (let i = artifactLedger.length - 1; i >= 0; i--) {
-          collectFromData(artifactLedger[i].artifacts);
+          collectFromData(artifactLedger[i].artifacts, artifactLedger[i].toolName);
         }
       }
 
@@ -5345,6 +5637,7 @@ export abstract class BaseAgent {
 
       const videos = dedupe(videoCandidates);
       const images = dedupe(imageCandidates);
+      const posters = dedupe(posterCandidates);
       const augmentedInput: Record<string, unknown> = { ...input };
       let injected = false;
 
@@ -5372,6 +5665,10 @@ export abstract class BaseAgent {
           augmentedInput['inputPaths'] = videos.slice(0, 4);
           injected = true;
         }
+        if (typeof augmentedInput['posterUrl'] !== 'string' && posters.length > 0) {
+          augmentedInput['posterUrl'] = posters[0];
+          injected = true;
+        }
       } else {
         if (typeof augmentedInput['inputPath'] !== 'string' && videos.length > 0) {
           augmentedInput['inputPath'] = videos[0];
@@ -5389,6 +5686,7 @@ export abstract class BaseAgent {
         injected,
         videoCandidates: videos.length,
         imageCandidates: images.length,
+        posterCandidates: posters.length,
       });
 
       return {

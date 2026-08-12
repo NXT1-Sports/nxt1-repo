@@ -3,6 +3,7 @@ import { normalizeBaseSportKey } from '@nxt1/core';
 
 const {
   mockPromoteMedia,
+  mockPromoteLogoToDurableDestination,
   mockUpdateOrganization,
   mockEnqueueWelcomeGraphicIfReady,
   mockInvalidateTeamCache,
@@ -14,6 +15,10 @@ const {
   mockSyncDiff,
 } = vi.hoisted(() => ({
   mockPromoteMedia: vi.fn(async (urls: string[]) => urls),
+  mockPromoteLogoToDurableDestination: vi.fn(
+    async () =>
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg_123%2Flogo?alt=media&token=test-token'
+  ),
   mockUpdateOrganization: vi.fn().mockResolvedValue(undefined),
   mockEnqueueWelcomeGraphicIfReady: vi.fn().mockResolvedValue({ status: 'skipped' }),
   mockInvalidateTeamCache: vi.fn().mockResolvedValue(undefined),
@@ -93,6 +98,7 @@ vi.mock('../../../triggers/trigger.listeners.js', () => ({
 vi.mock('../../integrations/social/scraper-media.service.js', () => ({
   ScraperMediaService: {
     promoteMedia: mockPromoteMedia,
+    promoteLogoToDurableDestination: mockPromoteLogoToDurableDestination,
   },
 }));
 
@@ -227,6 +233,9 @@ describe('WriteCoreIdentityTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPromoteMedia.mockImplementation(async (urls: string[]) => urls);
+    mockPromoteLogoToDurableDestination.mockResolvedValue(
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg_123%2Flogo?alt=media&token=test-token'
+    );
     mockUpdateOrganization.mockResolvedValue(undefined);
     mockEnqueueWelcomeGraphicIfReady.mockResolvedValue({ status: 'skipped' });
     mockInvalidateTeamCache.mockResolvedValue(undefined);
@@ -350,17 +359,81 @@ describe('WriteCoreIdentityTool', () => {
     expect(mockUpdateOrganization).toHaveBeenCalledWith(
       'org_123',
       expect.objectContaining({
-        logoUrl: 'https://cdn.test/logo.png',
+        logoUrl:
+          'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forg_123%2Flogo?alt=media&token=test-token',
         primaryColor: '#111111',
         secondaryColor: '#eeeeee',
         location: { city: 'Austin', state: 'TX', country: 'USA' },
       }),
       'agent-x-scraper'
     );
-    expect(mockPromoteMedia).toHaveBeenCalledTimes(2);
+    expect(mockPromoteLogoToDurableDestination).toHaveBeenCalledWith(
+      'https://cdn.test/logo.png',
+      'user_123',
+      'Organizations/org_123/logo'
+    );
+    expect(mockPromoteMedia).toHaveBeenCalledTimes(1);
     expect(mockEnqueueWelcomeGraphicIfReady).toHaveBeenCalledTimes(1);
     expect(mockOnDailySyncComplete).not.toHaveBeenCalled();
   });
+
+  it.each([null, ''])(
+    'does not persist a source logo when durable promotion returns %p',
+    async (promotionResult) => {
+      const sourceLogoUrl = 'https://cdn.test/logo.png';
+      mockPromoteLogoToDurableDestination.mockResolvedValue(promotionResult);
+
+      const { db, userRef, teamRef } = createMockFirestore({
+        userData: {
+          role: 'athlete',
+          sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+        },
+        teamData: {
+          organizationId: 'org_123',
+          connectedSources: [],
+          teamCode: 'team-code',
+          unicode: 'team-unicode',
+        },
+        organizationData: {},
+      });
+      mockAssertCanManageProfileTarget.mockResolvedValue({
+        actorUserId: 'user_123',
+        targetUserId: 'user_123',
+        targetRole: 'athlete',
+        targetUserData: {
+          role: 'athlete',
+          sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+        },
+        isSelfWrite: true,
+        sharedTeamIds: [],
+        sharedOrganizationIds: [],
+        sharedSports: [],
+      });
+
+      const tool = new WriteCoreIdentityTool(db as never);
+      const result = await tool.execute(buildInput(), { userId: 'user_123' });
+
+      expect(result.success).toBe(true);
+      expect(mockPromoteLogoToDurableDestination).toHaveBeenCalledWith(
+        sourceLogoUrl,
+        'user_123',
+        'Organizations/org_123/logo'
+      );
+
+      const userPayload = userRef.update.mock.calls[0]?.[0] as Record<string, unknown>;
+      const sports = userPayload['sports'] as Array<Record<string, unknown>>;
+      const sportTeam = sports[0]?.['team'] as Record<string, unknown>;
+      expect(sportTeam).not.toHaveProperty('logoUrl');
+      expect(teamRef.update).toHaveBeenCalledWith(
+        expect.not.objectContaining({ logoUrl: sourceLogoUrl })
+      );
+      expect(mockUpdateOrganization).toHaveBeenCalledWith(
+        'org_123',
+        expect.not.objectContaining({ logoUrl: sourceLogoUrl }),
+        'agent-x-scraper'
+      );
+    }
+  );
 
   it('fills missing coach sport team refs from explicit team and organization ids', async () => {
     const { db, userRef, teamRef } = createMockFirestore({

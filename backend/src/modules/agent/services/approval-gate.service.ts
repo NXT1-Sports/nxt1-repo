@@ -265,6 +265,38 @@ export class ApprovalGateService {
 
     const dedupe = (urls: readonly string[]): string[] => [...new Set(urls)];
 
+    const normalizeEmailAttachments = (value: unknown): Record<string, unknown>[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((attachment): Record<string, unknown> | null => {
+          if (!attachment || typeof attachment !== 'object' || Array.isArray(attachment)) {
+            return null;
+          }
+          const record = attachment as Record<string, unknown>;
+          const normalized: Record<string, unknown> = {};
+          for (const [sourceKey, targetKey] of [
+            ['id', 'id'],
+            ['name', 'name'],
+            ['filename', 'filename'],
+            ['mimeType', 'mimeType'],
+            ['contentType', 'contentType'],
+            ['storagePath', 'storagePath'],
+            ['url', 'url'],
+          ] as const) {
+            const rawValue = record[sourceKey];
+            if (typeof rawValue === 'string' && rawValue.trim().length > 0) {
+              normalized[targetKey] = rawValue.trim();
+            }
+          }
+          const sizeBytes = Number(record['sizeBytes']);
+          if (Number.isFinite(sizeBytes) && sizeBytes >= 0) {
+            normalized['sizeBytes'] = sizeBytes;
+          }
+          return Object.keys(normalized).length > 0 ? normalized : null;
+        })
+        .filter((attachment): attachment is Record<string, unknown> => attachment !== null);
+    };
+
     const isLikelyVideoUrl = (url: string): boolean => {
       const value = url.trim().toLowerCase();
       return (
@@ -273,6 +305,7 @@ export class ApprovalGateService {
     };
 
     if (toolName === 'send_email') {
+      const attachments = normalizeEmailAttachments(toolInput['attachments']);
       return {
         userId: toolInput['userId'],
         toEmail: toolInput['toEmail'] ?? toolInput['to'],
@@ -282,10 +315,12 @@ export class ApprovalGateService {
           toolInput['body'] ??
           toolInput['bodyText'] ??
           toolInput['message'],
+        ...(attachments.length > 0 ? { attachments } : {}),
       };
     }
 
     if (toolName === 'batch_send_email') {
+      const attachments = normalizeEmailAttachments(toolInput['attachments']);
       const rawRecipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
       const recipients = rawRecipients
         .map((recipient) => {
@@ -327,6 +362,7 @@ export class ApprovalGateService {
           toolInput['bodyHtml'] ??
           toolInput['body'] ??
           toolInput['message'],
+        ...(attachments.length > 0 ? { attachments } : {}),
       };
     }
 

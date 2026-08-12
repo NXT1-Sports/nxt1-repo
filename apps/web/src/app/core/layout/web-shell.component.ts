@@ -136,6 +136,10 @@ import {
   resolveCanonicalTeamRoute,
 } from '@nxt1/core';
 import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
+
+const IOS_APP_STORE_URL = 'https://apps.apple.com/us/app/nxt-1/id6446410344';
+const GOOGLE_PLAY_STORE_URL =
+  'https://play.google.com/store/apps/details?id=com.nxt1sports.app.twa';
 import type { SidenavSportProfile, UserDisplayInput, UserDisplayFallback } from '@nxt1/core';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 
@@ -415,7 +419,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
           <aside
             class="platform-promo"
             [class.platform-promo--hidden]="platformBannerScrolledAway()"
-            aria-label="NXT1 platform announcement"
+            aria-label="NXT1 app download announcement"
           >
             <div
               class="platform-promo__inner"
@@ -423,15 +427,14 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
             >
               <div class="platform-promo__message">
                 <span class="platform-promo__status" aria-hidden="true"></span>
-                <span class="platform-promo__label">New NXT1 Platform</span>
+                <span class="platform-promo__label">Download the NXT1 app</span>
                 <span class="platform-promo__copy">
-                  Agent X now executes film, creative, recruiting, and staff workflows from one
-                  command center.
+                  Take the full platform with you and get NXT1 on iPhone or Android.
                 </span>
               </div>
 
               <button type="button" class="platform-promo__button" (click)="onPlatformPromoClick()">
-                Explore Agent X
+                Download the App
               </button>
             </div>
           </aside>
@@ -2016,25 +2019,35 @@ export class WebShellComponent {
 
   onPlatformPromoClick(): void {
     this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {
-      creative_name: 'agent_x_platform_banner',
+      creative_name: 'mobile_app_download_banner',
       creative_slot: 'authenticated_web_shell_banner',
-      promotion_id: 'agent_x_platform_launch',
-      promotion_name: 'Agent X Platform Banner',
+      promotion_id: 'mobile_app_download',
+      promotion_name: 'Mobile App Download Banner',
       location_id: 'authenticated_web_shell_banner',
     });
-    void this.router.navigate(['/agent-x']);
+
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    window.open(this.resolveAppDownloadUrl(), '_blank', 'noopener,noreferrer');
   }
 
   private trackPromoViewed(): void {
     if (this.promoViewed) return;
     this.promoViewed = true;
     this.analytics?.trackEvent(FIREBASE_EVENTS.VIEW_PROMOTION, {
-      creative_name: 'agent_x_platform_banner',
+      creative_name: 'mobile_app_download_banner',
       creative_slot: 'authenticated_web_shell_banner',
-      promotion_id: 'agent_x_platform_launch',
-      promotion_name: 'Agent X Platform Banner',
+      promotion_id: 'mobile_app_download',
+      promotion_name: 'Mobile App Download Banner',
       location_id: 'authenticated_web_shell_banner',
     });
+  }
+
+  private resolveAppDownloadUrl(): string {
+    if (!isPlatformBrowser(this.platformId)) return IOS_APP_STORE_URL;
+
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    return userAgent.includes('android') ? GOOGLE_PLAY_STORE_URL : IOS_APP_STORE_URL;
   }
 
   onShellContentScroll(event: Event): void {

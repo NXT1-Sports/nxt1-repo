@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  InternalProtocolStreamSanitizer,
+  containsInternalProtocolMarkup,
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
@@ -149,6 +151,43 @@ describe('platform identifier sanitizer', () => {
       );
       expect(sanitized).toContain('Hudl');
       expect(sanitized).toContain('YouTube');
+    });
+  });
+
+  describe('internal protocol sanitization', () => {
+    it('strips DSML tool-call markup from user-visible text', () => {
+      const dirty =
+        'Here is the export. <｜DSML｜tool_calls>\n<｜DSML｜invoke name="dynamic_export">\n<｜DSML｜parameter name="format" string="true">pdf</｜DSML｜parameter>\n<｜DSML｜parameter name="sections" string="false">[{"title":"Plan"}]</｜DSML｜parameter>';
+
+      const sanitized = sanitizeAgentOutputText(dirty);
+
+      expect(sanitized).toContain('Here is the export.');
+      expect(sanitized).not.toContain('<｜DSML｜');
+      expect(sanitized).not.toContain('dynamic_export');
+      expect(sanitized).not.toContain('parameter');
+    });
+
+    it('detects internal protocol markers before they are stripped', () => {
+      expect(containsInternalProtocolMarkup('<｜DSML｜invoke name="dynamic_export">')).toBe(true);
+      expect(containsInternalProtocolMarkup('Your PDF is ready.')).toBe(false);
+    });
+
+    it('strips DSML markup even when the marker is split across stream chunks', () => {
+      const sanitizer = new InternalProtocolStreamSanitizer();
+      const chunks = [
+        'Your PDF is ',
+        'ready. <｜DSM',
+        'L｜tool_calls>\n<｜DSML｜invoke name="dynamic_export">',
+        '\n<｜DSML｜parameter name="format" string="true">pdf</｜DSML｜parameter>',
+        ' Clean summary after the tool block.',
+      ];
+
+      const output = chunks.map((chunk) => sanitizer.push(chunk)).join('') + sanitizer.flush();
+
+      expect(output).toContain('Your PDF is ready.');
+      expect(output).toContain('Clean summary after the tool block.');
+      expect(output).not.toContain('<｜DSML｜');
+      expect(output).not.toContain('dynamic_export');
     });
   });
 });

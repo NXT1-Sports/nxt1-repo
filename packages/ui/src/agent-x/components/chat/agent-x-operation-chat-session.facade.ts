@@ -894,7 +894,7 @@ export class AgentXOperationChatSessionFacade {
     for (const key of ['imageUrl', 'videoUrl', 'outputUrl', 'output_url', 'output_path'] as const) {
       addUrl(record[key]);
     }
-    for (const key of ['thumbnailUrl', 'posterUrl', 'poster'] as const) {
+    for (const key of ['posterUrl', 'poster', 'thumbnailUrl'] as const) {
       addThumbnailUrl(record[key]);
     }
     for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
@@ -1235,10 +1235,89 @@ export class AgentXOperationChatSessionFacade {
         continue;
       }
 
+      const isToolCallPartialPair =
+        (previous.semanticPhase === 'assistant_tool_call' &&
+          message.semanticPhase === 'assistant_partial') ||
+        (previous.semanticPhase === 'assistant_partial' &&
+          message.semanticPhase === 'assistant_tool_call');
+      const previousText = this.normalizeMessageContent(this.agentMessageDisplayText(previous));
+      const messageText = this.normalizeMessageContent(this.agentMessageDisplayText(message));
+      const hasRepeatedPreamble =
+        previousText.length >= 24 &&
+        messageText.length >= 24 &&
+        (previousText === messageText ||
+          previousText.includes(messageText) ||
+          messageText.includes(previousText));
+
+      if (sameOperation && isToolCallPartialPair && hasRepeatedPreamble) {
+        deduped[deduped.length - 1] = this.mergeRepeatedPreambleRows(previous, message);
+        continue;
+      }
+
       deduped.push(message);
     }
 
     return deduped;
+  }
+
+  private mergeRepeatedPreambleRows(
+    first: OperationMessage,
+    second: OperationMessage
+  ): OperationMessage {
+    const firstText = this.agentMessageDisplayText(first).trim();
+    const secondText = this.agentMessageDisplayText(second).trim();
+    const content = secondText.length >= firstText.length ? secondText : firstText;
+    const parts: AgentXMessagePart[] = [{ type: 'text', content }];
+    const seenPartSignatures = new Set<string>();
+    const representedToolSteps = new Set<string>();
+
+    const addPart = (part: AgentXMessagePart): void => {
+      if (part.type === 'text') return;
+      const signature = JSON.stringify(part);
+      if (seenPartSignatures.has(signature)) return;
+      seenPartSignatures.add(signature);
+      if (part.type === 'tool-steps') {
+        for (const step of part.steps) representedToolSteps.add(step.id);
+      }
+      parts.push(part);
+    };
+
+    for (const part of [...(second.parts ?? []), ...(first.parts ?? [])]) {
+      addPart(part);
+    }
+
+    const mergedSteps = [...this.messageToolSteps(first), ...this.messageToolSteps(second)].filter(
+      (step, index, steps) => steps.findIndex((candidate) => candidate.id === step.id) === index
+    );
+    const unrepresentedSteps = mergedSteps.filter((step) => !representedToolSteps.has(step.id));
+    if (unrepresentedSteps.length > 0) {
+      parts.push({ type: 'tool-steps', steps: unrepresentedSteps });
+    }
+
+    const mergedCards = [...(second.cards ?? []), ...(first.cards ?? [])].filter(
+      (card, index, cards) =>
+        cards.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(card)) === index
+    );
+    for (const card of mergedCards) {
+      addPart({ type: 'card', card });
+    }
+
+    return {
+      ...second,
+      content,
+      parts,
+      ...(mergedSteps.length > 0 ? { steps: mergedSteps } : {}),
+      ...(mergedCards.length > 0 ? { cards: mergedCards } : {}),
+      ...((second.yieldState ?? first.yieldState)
+        ? { yieldState: second.yieldState ?? first.yieldState }
+        : {}),
+      ...((second.yieldCardState ?? first.yieldCardState)
+        ? { yieldCardState: second.yieldCardState ?? first.yieldCardState }
+        : {}),
+      ...((second.yieldResolvedText ?? first.yieldResolvedText)
+        ? { yieldResolvedText: second.yieldResolvedText ?? first.yieldResolvedText }
+        : {}),
+    };
   }
 
   private normalizePartTextContent(value: string | undefined | null): string {
@@ -1504,11 +1583,15 @@ export class AgentXOperationChatSessionFacade {
           continue;
         }
 
-        // Prefer the user row for the same operation. This prevents a later
-        // assistant response from being attached to an older paused turn that
-        // never produced a final message.
+        // Prefer the user row for the same operation. Final resume rows may
+        // arrive after a pre-approval/tool-call row already attached to that
+        // user, so allow final rows to attach to an occupied matching slot.
         let target = assistantOperationId
-          ? userSlots.find((s) => s.assistantCount === 0 && s.operationId === assistantOperationId)
+          ? userSlots.find(
+              (s) =>
+                s.operationId === assistantOperationId &&
+                (s.assistantCount === 0 || msg.semanticPhase === 'assistant_final')
+            )
           : undefined;
         // If the assistant row already has a backend operationId but the
         // matching user row has not been backfilled yet, attach it to the most
@@ -1521,11 +1604,13 @@ export class AgentXOperationChatSessionFacade {
         // older rows that do not have operation ids backfilled.
         target ??= userSlots.find((s) => s.assistantCount === 0);
         if (!target && userSlots.length > 0) {
-          // Otherwise attach to the user with the fewest assistants
-          // (preferring earlier on ties — stable scan order does this).
-          target = userSlots.reduce(
+          // Operation-scoped assistants with no exact user match are usually
+          // resumed/yield completions. Keep them near the latest user turn
+          // instead of jumping back to the earliest fully answered prompt.
+          const candidates = assistantOperationId ? [...userSlots].reverse() : userSlots;
+          target = candidates.reduce(
             (best, s) => (s.assistantCount < best.assistantCount ? s : best),
-            userSlots[0]
+            candidates[0]
           );
         }
         if (target) {
@@ -1759,6 +1844,7 @@ export class AgentXOperationChatSessionFacade {
     const partialSuppressedIds = new Set<string>();
     const partialLastSeen = new Map<string, string>();
     const operationIdsWithPartialNoFinal = new Set<string>();
+    const duplicatedTextOnlyPartialIds = new Set<string>();
     for (const item of items) {
       if (
         item.role === 'assistant' &&
@@ -1772,6 +1858,54 @@ export class AgentXOperationChatSessionFacade {
         if (prev) partialSuppressedIds.add(prev);
         partialLastSeen.set(item.operationId, item.id);
       }
+    }
+
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index]!;
+      if (
+        item.role !== 'assistant' ||
+        item.semanticPhase !== 'assistant_partial' ||
+        !item.operationId
+      ) {
+        continue;
+      }
+
+      const hasRichState =
+        (item.steps?.length ?? 0) > 0 ||
+        (item.toolCalls?.length ?? 0) > 0 ||
+        (item.parts?.length ?? 0) > 0 ||
+        (item.cards?.length ?? 0) > 0 ||
+        (item.attachments?.length ?? 0) > 0 ||
+        (!!item.resultData && Object.keys(item.resultData).length > 0);
+      if (hasRichState) continue;
+
+      const partialText = this.normalizeMessageContent(this.agentMessageDisplayText(item));
+      if (partialText.length < 24) continue;
+
+      const toolCallSuperset = items.some((candidate) => {
+        if (candidate.id === item.id) return false;
+        if (
+          candidate.role !== 'assistant' ||
+          candidate.semanticPhase !== 'assistant_tool_call' ||
+          !this.sameReplayOperation(candidate.operationId, item.operationId)
+        ) {
+          return false;
+        }
+
+        const candidateHasRichState =
+          (candidate.steps?.length ?? 0) > 0 ||
+          (candidate.toolCalls?.length ?? 0) > 0 ||
+          (candidate.parts?.length ?? 0) > 0 ||
+          (candidate.cards?.length ?? 0) > 0 ||
+          (candidate.attachments?.length ?? 0) > 0 ||
+          (!!candidate.resultData && Object.keys(candidate.resultData).length > 0);
+        if (!candidateHasRichState) return false;
+
+        const toolCallText = this.normalizeMessageContent(this.agentMessageDisplayText(candidate));
+        return toolCallText === partialText || toolCallText.includes(partialText);
+      });
+
+      if (toolCallSuperset) duplicatedTextOnlyPartialIds.add(item.id);
     }
 
     // ── Pass 2c: collapse tool_call rows for completed yielded ops ───────────
@@ -1795,6 +1929,36 @@ export class AgentXOperationChatSessionFacade {
           lastSeenToolCall.set(item.operationId, item.id);
         }
       }
+    }
+
+    const cumulativeToolCallSuppressedIds = new Set<string>();
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index]!;
+      if (
+        item.role !== 'assistant' ||
+        item.semanticPhase !== 'assistant_tool_call' ||
+        !item.operationId
+      ) {
+        continue;
+      }
+
+      const itemText = this.normalizeMessageContent(this.agentMessageDisplayText(item));
+      if (itemText.length < 24) continue;
+
+      const laterCumulativeToolCall = items.slice(index + 1).some((candidate) => {
+        if (
+          candidate.role !== 'assistant' ||
+          candidate.semanticPhase !== 'assistant_tool_call' ||
+          !this.sameReplayOperation(candidate.operationId, item.operationId)
+        ) {
+          return false;
+        }
+
+        const candidateText = this.normalizeMessageContent(this.agentMessageDisplayText(candidate));
+        return candidateText.length > itemText.length && candidateText.includes(itemText);
+      });
+
+      if (laterCumulativeToolCall) cumulativeToolCallSuppressedIds.add(item.id);
     }
 
     // ── Pass 2d: collapse tool_call rows for answered ask_user (needs_input) ops ─
@@ -1956,6 +2120,11 @@ export class AgentXOperationChatSessionFacade {
       // Suppress earlier tool_call rows for completed approval ops (keep only last).
       if (completedApprovalToolCallSuppressedIds.has(item.id)) return false;
 
+      // Later tool-call rows can carry cumulative interleaved parts from earlier
+      // iterations. Keep that richer row so its preamble appears once alongside
+      // its tool steps and approval state.
+      if (cumulativeToolCallSuppressedIds.has(item.id)) return false;
+
       // If a partial snapshot exists for this in-flight operation (and no
       // final/yield exists), prefer partial over tool_call so only one
       // assistant bubble renders during rehydrate.
@@ -1975,6 +2144,7 @@ export class AgentXOperationChatSessionFacade {
       }
 
       // Suppress all-but-last assistant_partial rows (no final path).
+      if (duplicatedTextOnlyPartialIds.has(item.id)) return false;
       if (partialSuppressedIds.has(item.id)) return false;
 
       // Suppress non-richest legacy duplicates (untagged rows with no final).

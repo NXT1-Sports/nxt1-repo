@@ -17,8 +17,6 @@ vi.mock('../../../../../../services/team/team-intel-permissions.js', () => ({
 vi.mock('../../../../../../services/team/universal-file-semantic.service.js', () => ({
   scheduleUniversalFileSemanticSync: mockScheduleUniversalFileSemanticSync,
   UniversalFileSemanticService: class UniversalFileSemanticService {
-    constructor() {}
-
     async search(...args: readonly unknown[]): Promise<readonly unknown[]> {
       return mockSemanticSearch(...args);
     }

@@ -75,6 +75,27 @@ describe('AgentXFilesService', () => {
     },
   } as unknown as UniversalFileDoc;
 
+  const managedMarkdownWithSpreadsheetAssetDoc = {
+    ...managedMarkdownFileDoc,
+    id: 'file-spreadsheet-1',
+    title: 'Practice Script Spreadsheet',
+    normalizedTitle: 'practice script spreadsheet',
+    payload: {
+      content: {
+        text: '# Practice Script\n\n- Open with indy\n- Finish with team',
+        format: 'markdown',
+      },
+      asset: {
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        kind: 'doc',
+        origin: 'agent_chat_output',
+        sizeBytes: 8475,
+        url: 'https://cdn.example.com/practice-script.xlsx',
+        storagePath: 'Users/user-1/threads/thread-1/exports/practice-script.xlsx',
+      },
+    },
+  } as unknown as UniversalFileDoc;
+
   const uploadedPdfWithArtifactNotesDoc = {
     id: 'file-pdf-1',
     teamId: 'team-1',
@@ -183,6 +204,29 @@ describe('AgentXFilesService', () => {
     expect(service.files()[0]?.mimeType).toBe('text/plain');
   });
 
+  it('preserves loaded write access keys in the local file model', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [
+            {
+              ...sharedFileDoc,
+              readAccessKeys: ['user:user-1', 'team:team-1'],
+              writeAccessKeys: ['user:user-1'],
+            },
+          ],
+          folders: [],
+        },
+      })
+    );
+
+    await service.loadFiles();
+
+    expect(service.files()[0]?.readAccessKeys).toEqual(['user:user-1', 'team:team-1']);
+    expect(service.files()[0]?.writeAccessKeys).toEqual(['user:user-1']);
+  });
+
   it('maps artifact note metadata into the viewer model for uploaded files', async () => {
     httpMock.get.mockReturnValue(
       of({
@@ -241,6 +285,30 @@ describe('AgentXFilesService', () => {
     expect(service.files()).toHaveLength(1);
     expect(service.files()[0]?.mimeType).toBe('text/markdown');
     expect(service.files()[0]?.textContent).toContain('# Practice Script');
+  });
+
+  it('uses a native spreadsheet asset instead of downgrading a managed document to markdown', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [managedMarkdownWithSpreadsheetAssetDoc],
+          folders: [],
+        },
+      })
+    );
+
+    await service.loadFiles();
+
+    expect(service.files()).toHaveLength(1);
+    expect(service.files()[0]).toMatchObject({
+      id: 'file-spreadsheet-1',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      kind: 'doc',
+      url: 'https://cdn.example.com/practice-script.xlsx',
+      storagePath: 'Users/user-1/threads/thread-1/exports/practice-script.xlsx',
+      textContent: '# Practice Script\n\n- Open with indy\n- Finish with team',
+    });
   });
 
   it('preserves explicit team queries for compatibility', async () => {
@@ -344,6 +412,91 @@ describe('AgentXFilesService', () => {
       }
     );
     expect(service.folders()[0]?.readAccessKeys).toEqual(['user:user-1', 'user:user-2']);
+  });
+
+  it('sends destination scope when moving a file', async () => {
+    httpMock.patch.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          fileId: 'file-1',
+          folderId: 'folder-1',
+        },
+      })
+    );
+
+    await service.moveFile('file-1', 'team-77', 'folder-1');
+
+    expect(httpMock.patch).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/file-1', {
+      teamId: 'team-77',
+      folderId: 'folder-1',
+    });
+  });
+
+  it('sends explicit null scope when moving a file back to personal root', async () => {
+    httpMock.patch.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          fileId: 'file-1',
+          folderId: null,
+        },
+      })
+    );
+
+    await service.moveFile('file-1', null, null);
+
+    expect(httpMock.patch).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/file-1', {
+      teamId: null,
+      folderId: null,
+    });
+  });
+
+  it('sends destination scope when updating a folder', async () => {
+    httpMock.patch.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          folder: sharedFolderDoc,
+        },
+      })
+    );
+
+    await service.updateFolder('folder-1', {
+      teamId: null,
+      parentId: null,
+    });
+
+    expect(httpMock.patch).toHaveBeenCalledWith(
+      'https://api.nxt1.test/agent-x/files/folders/folder-1',
+      {
+        teamId: null,
+        parentId: null,
+      }
+    );
+  });
+
+  it('sends shared destination scope when creating a folder', async () => {
+    httpMock.post.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          folder: sharedFolderDoc,
+        },
+      })
+    );
+
+    await service.createFolder({
+      teamId: 'team-77',
+      name: 'Team Film',
+      parentId: 'folder-parent',
+    });
+
+    expect(httpMock.post).toHaveBeenCalledWith('https://api.nxt1.test/agent-x/files/folders', {
+      teamId: 'team-77',
+      name: 'Team Film',
+      parentId: 'folder-parent',
+    });
   });
 
   it('loads scoped share candidates for the member picker', async () => {

@@ -10,4 +10,6 @@ export {
   type ArchiveDownloadSource,
   type DownloadZipOptions,
   type DownloadZipResult,
+  type ExtractedZipEntry,
+  type ExtractZipResult,
 } from './archive.service';

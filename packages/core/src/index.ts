@@ -135,8 +135,12 @@ export {
   type TeamFilmReviewBreakdownSource,
   type TeamFilmReviewDownloadPrewarm,
   type TeamFilmReviewDownloadExport,
+  type TeamFilmReviewCameraAngle,
+  type TeamFilmReviewCameraAngleDetectionSource,
+  type TeamFilmReviewSourceAngleMetadata,
   type TeamFilmReviewPlaylistDoc,
   type TeamFilmReviewDoc,
+  buildTeamFilmReviewSourceAngleMetadata,
   type AgentFileAcl,
   type AgentFileAclGrant,
   type AgentFileAclGrantRole,
@@ -207,6 +211,7 @@ export {
   getTeamFilmReviewRevision,
   isTeamFilmReviewSportTagValueValid,
   mergeTeamFilmReviewSourceBreakdownPatches,
+  normalizeTeamFilmReviewGroupedTimeline,
   resolveTeamFilmReviewRowOwnership,
   resolveTeamFilmReviewSportTagSchemaKey,
   // Agent X & Scouting (source-of-truth domain types)
@@ -513,7 +518,7 @@ export {
   createCapacitorStorageAdapter,
 } from './storage';
 
-// Platform - detection utilities
+// Platform - detection utilities & theme
 export {
   type Platform,
   type DeviceType,
@@ -537,10 +542,7 @@ export {
   runInBrowser,
   runOnServer,
   runInNative,
-} from './platform';
-
-// Theme - cross-platform theming utilities
-export {
+  // Theme utilities
   type Theme,
   type ThemePreference,
   type ThemeConfig,
@@ -555,7 +557,7 @@ export {
   initializeTheme,
   watchSystemTheme,
   generateThemeInitScript,
-} from './platform/theme';
+} from './platform';
 
 // ============================================
 // GEOLOCATION

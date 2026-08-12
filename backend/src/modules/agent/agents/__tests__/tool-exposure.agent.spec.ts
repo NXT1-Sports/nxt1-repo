@@ -147,6 +147,11 @@ describe('Agent tool exposure regressions', () => {
     const prompt = agent.getSystemPrompt(context);
 
     expect(prompt).toContain('Own linked-account monitoring workflows for connected sources');
+    expect(prompt).toContain('Hudl connected-source boundary');
+    expect(prompt).toContain('save or monitor the Hudl source');
+    expect(prompt).toContain('Hudl fallback boundary');
+    expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
+    expect(prompt).toContain('This fallback is for inaccessible/private assets only');
     expect(prompt).toContain('present outcomes in clean product language');
     expect(prompt).toContain('### Social URL Exception (CRITICAL)');
     expect(prompt).toContain('Do NOT call `scrape_and_index_profile` for x.com');
@@ -173,11 +178,13 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'Only when the user explicitly asks to add/upload/save attached photos or images to an athlete profile'
     );
-    expect(prompt).toContain('For Team Files PDF note-enrichment requests');
+    expect(prompt).toContain('For Team Files PDF review, summary, and note-enrichment requests');
     expect(prompt).toContain(
       'call `enrich_document_notes` with the selected UniversalFiles document ID'
     );
-    expect(prompt).toContain('Do NOT manually loop `render_pdf_pages` + `analyze_image`');
+    expect(prompt).toContain(
+      'Do NOT call `parse_document` for PDFs when notes, summaries, or playbook analysis are requested'
+    );
     expect(prompt).toContain('Do NOT call `stage_media` first for an already-attached video');
     expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
     expect(prompt).toContain('source: "agent_x_upload"');
@@ -233,6 +240,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('execute_sandbox_script');
+    expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_sources');
     expect(agent.getAvailableTools()).toContain('analyze_film_review_source_breakdowns');
     expect(agent.getAvailableTools()).toContain('analyze_image');
@@ -274,6 +282,12 @@ describe('Agent tool exposure regressions', () => {
     const agent = new PerformanceCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
+    expect(prompt).toContain('## Coach Analytics Chart Contract (MANDATORY)');
+    expect(prompt).toContain('call `generate_chart_visualization` proactively');
+    expect(prompt).toContain('single-point conclusions, sparse data that would mislead');
+    expect(prompt).toContain(
+      'pass the returned `imageUrl`/`chartUrl` into `dynamic_export.imageUrls`'
+    );
     expect(prompt).toContain('no forced annotation-overlay workflow');
     expect(prompt).toContain('Do not require `ffmpeg_burn_annotation` before analysis.');
     expect(prompt).toContain('call `analyze_video` directly');
@@ -350,7 +364,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('get_universal_team_document');
     expect(agent.getAvailableTools()).toContain('update_universal_team_document');
     expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
-    expect(agent.getAvailableTools()).toContain('generate_practice_script');
+    expect(agent.getAvailableTools()).not.toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
@@ -401,7 +415,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('create_universal_team_document');
     expect(prompt).toContain('update_universal_team_document');
     expect(prompt).toContain('delete_universal_team_document');
-    expect(prompt).toContain('generate_practice_script');
+    expect(prompt).toContain('Export-to-Files linking rule');
+    expect(prompt).toContain('then call `dynamic_export` with `relatedDocumentId`');
+    expect(prompt).not.toContain('generate_practice_script');
+    expect(prompt).toContain('do not call deprecated practice-script generation tools');
     expect(prompt).toContain('Files library organization is part of your domain');
     expect(prompt).toContain('list_team_file_folders');
     expect(prompt).toContain('move_universal_file_to_folder');
@@ -423,7 +440,7 @@ describe('Agent tool exposure regressions', () => {
       'Do not move any file until the target Files folder has actually been created or resolved successfully'
     );
     expect(prompt).toContain(
-      'persist with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
+      'Draft the script directly from the hydrated playbook/install context in this workflow, then persist it with `create_universal_team_document` using `classification: { primary: "strategy_document", route: "practice_script", labels: ["practice-script"] }`'
     );
     expect(prompt).toContain('run semantic Files discovery first');
     expect(prompt).toContain('then hydrate selected/referenced Files');
@@ -441,6 +458,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'Film-review cutups, selected-source extraction, source CRUD, breakdown CRUD'
     );
+    expect(prompt).toContain('Hudl strategy fallback boundary');
+    expect(prompt).toContain('upload their film and other Hudl materials there');
+    expect(prompt).toContain('continue the strategy workflow from those uploaded artifacts');
+    expect(prompt).toContain('must not replace public or already-accessible Hudl sources');
     expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
     expect(prompt).toContain('There is no `batch_full_video` tool');
     expect(prompt).toContain('add each clip with `add_film_review_source`');

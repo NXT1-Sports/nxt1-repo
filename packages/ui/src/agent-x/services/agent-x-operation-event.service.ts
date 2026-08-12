@@ -600,11 +600,11 @@ export class AgentXOperationEventService {
     };
 
     const rootThumbnailUrl = this.firstHttpUrl(
-      toolResult['thumbnailUrl'],
       toolResult['posterUrl'],
       toolResult['poster'],
       toolResult['previewUrl'],
-      toolResult['coverUrl']
+      toolResult['coverUrl'],
+      toolResult['thumbnailUrl']
     );
 
     const pushPlaybackFields = (
@@ -657,11 +657,11 @@ export class AgentXOperationEventService {
         if (!file || typeof file !== 'object') continue;
         const record = file as Record<string, unknown>;
         const thumbnailUrl = this.firstHttpUrl(
-          record['thumbnailUrl'],
           record['posterUrl'],
           record['poster'],
           record['previewUrl'],
-          record['coverUrl']
+          record['coverUrl'],
+          record['thumbnailUrl']
         );
         pushCandidate(record['url'], record['mimeType'], undefined, thumbnailUrl);
         pushCandidate(record['downloadUrl'], record['mimeType'], undefined, thumbnailUrl);
@@ -680,11 +680,11 @@ export class AgentXOperationEventService {
         const forcedType =
           record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
         const thumbnailUrl = this.firstHttpUrl(
-          record['thumbnailUrl'],
           record['posterUrl'],
           record['poster'],
           record['previewUrl'],
-          record['coverUrl']
+          record['coverUrl'],
+          record['thumbnailUrl']
         );
         pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
         pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);
@@ -698,11 +698,11 @@ export class AgentXOperationEventService {
       const forcedType =
         record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
       const thumbnailUrl = this.firstHttpUrl(
-        record['thumbnailUrl'],
         record['posterUrl'],
         record['poster'],
         record['previewUrl'],
-        record['coverUrl']
+        record['coverUrl'],
+        record['thumbnailUrl']
       );
       pushCandidate(record['url'], record['mimeType'], forcedType, thumbnailUrl);
       pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, thumbnailUrl);

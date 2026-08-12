@@ -8,6 +8,7 @@ import {
   type CreateTeamFilmReviewRequest,
   type DeleteFilmReviewPlaylistResponse,
   type ImportFilmReviewBreakdownResponse,
+  normalizeTeamFilmReviewGroupedTimeline,
   type RefreshFilmReviewAiResponse,
   type RequestFilmReviewDownloadExportResponse,
   type TeamFilmReviewAnnotation,
@@ -149,11 +150,16 @@ export class AgentXFilmReviewService {
   }
 
   private normalizeReviewTimelineError(review: TeamFilmReviewDoc): TeamFilmReviewDoc {
-    if (!review.timelineError) return review;
+    const normalizedReview = this.normalizeLegacyGroupedTimeline(review);
+    if (!normalizedReview.timelineError) return normalizedReview;
     return {
-      ...review,
-      timelineError: this.toUserFacingTimelineError(review.timelineError),
+      ...normalizedReview,
+      timelineError: this.toUserFacingTimelineError(normalizedReview.timelineError),
     };
+  }
+
+  private normalizeLegacyGroupedTimeline(review: TeamFilmReviewDoc): TeamFilmReviewDoc {
+    return normalizeTeamFilmReviewGroupedTimeline(review).review;
   }
 
   private buildFilmReviewSourceIdentity(source: {
@@ -262,7 +268,7 @@ export class AgentXFilmReviewService {
       return null;
     }
 
-    return {
+    return this.normalizeReviewTimelineError({
       id: file.id,
       teamId: file.teamId,
       organizationId: file.organizationId ?? undefined,
@@ -308,7 +314,7 @@ export class AgentXFilmReviewService {
       timelineProgress: payload.timelineProgress,
       downloadPrewarm: payload.downloadPrewarm,
       downloadExport: payload.downloadExport,
-    };
+    });
   }
 
   private async createLinkedFileReview(
@@ -588,18 +594,22 @@ export class AgentXFilmReviewService {
   }
 
   private async rethrowAfterRevisionConflict(reviewId: string, error: unknown): Promise<never> {
+    await this.refreshAfterRevisionConflict(reviewId, error);
+    const message = 'This film review changed elsewhere. The latest version has been reloaded.';
+    this._error.set(message);
+    this.logger.warn('Film review revision conflict; refreshed latest review', {
+      reviewId,
+      teamId: this.resolveReviewTeamId(reviewId),
+    });
+    throw new Error(message, { cause: error });
+  }
+
+  private async refreshAfterRevisionConflict(reviewId: string, error: unknown): Promise<void> {
     if (!this.isRevisionConflict(error)) throw error;
 
     const teamId = this.resolveReviewTeamId(reviewId);
     await this.ensureReviewDetails(reviewId, teamId ?? undefined, true);
     await this.syncFilesPanelReview(reviewId, teamId);
-    const message = 'This film review changed elsewhere. The latest version has been reloaded.';
-    this._error.set(message);
-    this.logger.warn('Film review revision conflict; refreshed latest review', {
-      reviewId,
-      teamId,
-    });
-    throw new Error(message, { cause: error });
   }
 
   private async syncFilesPanelReview(reviewId: string, teamId?: string | null): Promise<void> {
@@ -709,8 +719,8 @@ export class AgentXFilmReviewService {
         teamId = this.resolveReviewTeamId(reviewId);
       }
 
-      const result =
-        (await this.performance?.trace(
+      const importBreakdownAttempt = () =>
+        (this.performance?.trace(
           TRACE_NAMES.FILM_REVIEW_BREAKDOWN_IMPORT,
           () => this.importLinkedFileReviewBreakdown(reviewId, teamId, formData),
           {
@@ -720,7 +730,22 @@ export class AgentXFilmReviewService {
               mime_type: file.type || 'unknown',
             },
           }
-        )) ?? (await this.importLinkedFileReviewBreakdown(reviewId, teamId, formData));
+        ) as Promise<ImportFilmReviewBreakdownResponse | null> | undefined) ??
+        this.importLinkedFileReviewBreakdown(reviewId, teamId, formData);
+
+      let result: ImportFilmReviewBreakdownResponse | null;
+      try {
+        result = await importBreakdownAttempt();
+      } catch (err) {
+        if (!this.isRevisionConflict(err)) {
+          throw err;
+        }
+
+        await this.refreshAfterRevisionConflict(reviewId, err);
+        teamId = this.resolveReviewTeamId(reviewId);
+        result = await importBreakdownAttempt();
+        this._error.set(null);
+      }
 
       if (!result) {
         throw new Error('Failed to import film review breakdown');

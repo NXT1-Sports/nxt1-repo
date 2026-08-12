@@ -68,9 +68,6 @@ const MIME_TO_EXT: Record<string, string> = {
 /** Cache-Control header for staged media files. */
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
-/** Read URL TTL for tmp-staged scrape media (7 days). */
-const TMP_SIGNED_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 /** Supported source platforms for media persistence. */
@@ -243,7 +240,6 @@ export class ScraperMediaService {
         buffer,
         mimeType,
         cacheControl: CACHE_CONTROL,
-        signedUrlTtlMs: TMP_SIGNED_URL_TTL_MS,
       });
 
       const mediaType: 'image' | 'video' = mimeType.startsWith('video/') ? 'video' : 'image';
@@ -352,6 +348,57 @@ export class ScraperMediaService {
       userId,
       destinationPrefix,
     });
+  }
+
+  static async promoteLogoToDurableDestination(
+    sourceUrl: string,
+    userId: string,
+    destinationPath: string
+  ): Promise<string | null> {
+    const bucket = getStorage().bucket();
+    const sourceStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(sourceUrl);
+
+    try {
+      if (sourceStoragePath) {
+        if (!AgentMediaLifecycleService.isOwnedByUser(sourceStoragePath, userId)) {
+          logger.warn('[ScraperMediaService] Rejected non-user-owned logo storage path', {
+            storagePath: sourceStoragePath,
+            destinationPath,
+          });
+          return null;
+        }
+
+        const promoted = await AgentMediaLifecycleService.promoteOwnedUrlToDurableDestination({
+          bucket,
+          sourceUrl,
+          userId,
+          destinationPath,
+        });
+        return promoted.url;
+      }
+
+      const [persisted] = await new ScraperMediaService().persistBatch(
+        [{ url: sourceUrl, type: 'image', platform: 'web' }],
+        { userId, threadId: 'identity-logo' }
+      );
+      if (!persisted) {
+        return null;
+      }
+
+      const promoted = await AgentMediaLifecycleService.promoteOwnedUrlToDurableDestination({
+        bucket,
+        sourceUrl: persisted.url,
+        userId,
+        destinationPath,
+      });
+      return promoted.url;
+    } catch (error) {
+      logger.warn('[ScraperMediaService] Failed to promote logo to durable storage', {
+        destinationPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /**

@@ -59,7 +59,21 @@ export interface TeamFilmReviewClip {
 
 export type TeamFilmReviewUploadMode = 'single_video' | 'batch_clips' | 'full_footage';
 
-export interface TeamFilmReviewSourceVideo {
+export type TeamFilmReviewCameraAngle = 'wide' | 'tight' | 'unknown';
+
+export type TeamFilmReviewCameraAngleDetectionSource =
+  | 'filename'
+  | 'manual'
+  | 'backend'
+  | 'unknown';
+
+export interface TeamFilmReviewSourceAngleMetadata {
+  readonly cameraAngle?: TeamFilmReviewCameraAngle;
+  readonly angleGroupId?: string;
+  readonly angleDetectionSource?: TeamFilmReviewCameraAngleDetectionSource;
+}
+
+export interface TeamFilmReviewSourceVideo extends TeamFilmReviewSourceAngleMetadata {
   readonly id: string;
   readonly order: number;
   readonly fileId?: string | null;
@@ -72,6 +86,84 @@ export interface TeamFilmReviewSourceVideo {
   readonly readyToStream?: boolean;
   readonly thumbnailUrl?: string;
   readonly durationSec?: number;
+}
+
+const TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS = new Set(['wide', 'w', 'endzone', 'end', 'ez', 'all22']);
+
+const TEAM_FILM_REVIEW_TIGHT_ANGLE_TOKENS = new Set([
+  'tight',
+  't',
+  'sideline',
+  'side',
+  'sl',
+  'box',
+]);
+
+function tokenizeFilmReviewAngleFileName(fileName: string): readonly string[] {
+  return fileName
+    .replace(/\.[^.]+$/, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function normalizeFilmReviewAngleGroupKey(tokens: readonly string[]): string | null {
+  const value = tokens
+    .join('-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 120);
+  return value.length > 0 ? value : null;
+}
+
+function resolveFilmReviewAngleFromTokens(tokens: readonly string[]): TeamFilmReviewCameraAngle {
+  const hasWide = tokens.some((token) => TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS.has(token));
+  const hasTight = tokens.some((token) => TEAM_FILM_REVIEW_TIGHT_ANGLE_TOKENS.has(token));
+
+  if (hasWide === hasTight) return 'unknown';
+  return hasWide ? 'wide' : 'tight';
+}
+
+export function buildTeamFilmReviewSourceAngleMetadata(
+  fileNames: readonly string[]
+): readonly TeamFilmReviewSourceAngleMetadata[] {
+  const detections = fileNames.map((fileName) => {
+    const tokens = tokenizeFilmReviewAngleFileName(fileName);
+    const cameraAngle = resolveFilmReviewAngleFromTokens(tokens);
+    const groupTokens = tokens.filter(
+      (token) =>
+        !TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS.has(token) &&
+        !TEAM_FILM_REVIEW_TIGHT_ANGLE_TOKENS.has(token)
+    );
+
+    return {
+      cameraAngle,
+      angleGroupKey: normalizeFilmReviewAngleGroupKey(groupTokens),
+    };
+  });
+
+  const groupAngles = new Map<string, Set<TeamFilmReviewCameraAngle>>();
+  for (const detection of detections) {
+    if (detection.cameraAngle === 'unknown' || !detection.angleGroupKey) continue;
+    const angles = groupAngles.get(detection.angleGroupKey) ?? new Set<TeamFilmReviewCameraAngle>();
+    angles.add(detection.cameraAngle);
+    groupAngles.set(detection.angleGroupKey, angles);
+  }
+
+  return detections.map((detection) => {
+    if (detection.cameraAngle === 'unknown') {
+      return { cameraAngle: 'unknown', angleDetectionSource: 'unknown' };
+    }
+
+    const angles = detection.angleGroupKey ? groupAngles.get(detection.angleGroupKey) : null;
+    return {
+      cameraAngle: detection.cameraAngle,
+      angleDetectionSource: 'filename',
+      ...(detection.angleGroupKey && angles && angles.size > 1
+        ? { angleGroupId: `angle-${detection.angleGroupKey}` }
+        : {}),
+    };
+  });
 }
 
 export interface TeamFilmReviewAnnotation {
@@ -485,6 +577,7 @@ export interface TeamFilmReviewPlaySegment {
   readonly startSec: number;
   readonly endSec: number;
   readonly sourceId?: string;
+  readonly sourceIds?: readonly string[];
   readonly confidence?: number;
   readonly annotation?: TeamFilmReviewPlayAnnotation | null;
   readonly annotations?: readonly TeamFilmReviewPlayAnnotation[] | null;
@@ -1160,4 +1253,118 @@ export interface TeamFilmReviewDoc {
   readonly downloadPrewarm?: TeamFilmReviewDownloadPrewarm;
   /** Server-side staged export state for large full-game downloads */
   readonly downloadExport?: TeamFilmReviewDownloadExport;
+}
+
+export interface NormalizeTeamFilmReviewGroupedTimelineResult {
+  readonly review: TeamFilmReviewDoc;
+  readonly changed: boolean;
+}
+
+function resolveTeamFilmReviewSourceGroupKey(
+  source: TeamFilmReviewSourceVideo,
+  index: number
+): string {
+  const angleGroupId = source.angleGroupId?.trim();
+  if (angleGroupId) return `angle:${angleGroupId}`;
+
+  const sourceId = source.id.trim();
+  return sourceId ? `source:${sourceId}` : `source-index:${index}`;
+}
+
+function groupTeamFilmReviewSourcesByPlay(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): readonly (readonly TeamFilmReviewSourceVideo[])[] {
+  const groups = new Map<string, TeamFilmReviewSourceVideo[]>();
+
+  sources.forEach((source, index) => {
+    const groupKey = resolveTeamFilmReviewSourceGroupKey(source, index);
+    const group = groups.get(groupKey) ?? [];
+    group.push(source);
+    groups.set(groupKey, group);
+  });
+
+  return [...groups.values()];
+}
+
+function selectPrimaryTeamFilmReviewSource(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): TeamFilmReviewSourceVideo {
+  return (
+    sources.find((source) => source.cameraAngle === 'wide') ??
+    (sources[0] as TeamFilmReviewSourceVideo)
+  );
+}
+
+function resolveTeamFilmReviewSourceIds(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): readonly string[] {
+  return [...new Set(sources.map((source) => source.id.trim()).filter(Boolean))];
+}
+
+function resolveTeamFilmReviewGroupDurationSec(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): number {
+  const durations = sources
+    .map((source) => source.durationSec)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  return Math.max(1, ...durations, 1);
+}
+
+export function normalizeTeamFilmReviewGroupedTimeline(
+  review: TeamFilmReviewDoc
+): NormalizeTeamFilmReviewGroupedTimelineResult {
+  const sources = review.sources ?? [];
+  const timeline = review.timeline ?? [];
+  if (review.uploadMode !== 'batch_clips' || sources.length <= 1 || timeline.length <= 1) {
+    return { review, changed: false };
+  }
+
+  const sourceGroups = groupTeamFilmReviewSourcesByPlay(sources);
+  if (!sourceGroups.some((group) => group.length > 1) || sourceGroups.length >= timeline.length) {
+    return { review, changed: false };
+  }
+
+  const timelineBySourceId = new Map(
+    timeline.flatMap((play) => {
+      const sourceIds = play.sourceIds?.length
+        ? play.sourceIds
+        : play.sourceId
+          ? [play.sourceId]
+          : [];
+      return sourceIds
+        .map((sourceId) => sourceId.trim())
+        .filter((sourceId) => sourceId.length > 0)
+        .map((sourceId) => [sourceId, play] as const);
+    })
+  );
+
+  const normalizedTimeline = sourceGroups.map((group, index) => {
+    const primarySource = selectPrimaryTeamFilmReviewSource(group);
+    const sourceIds = resolveTeamFilmReviewSourceIds(group);
+    const existing = sourceIds
+      .map((sourceId) => timelineBySourceId.get(sourceId))
+      .find((play): play is TeamFilmReviewPlaySegment => !!play);
+    const durationSec = resolveTeamFilmReviewGroupDurationSec(group);
+
+    return {
+      ...(existing ?? {
+        id: `play-${primarySource.id}`,
+        label: primarySource.title?.trim() || `Clip ${index + 1}`,
+        startSec: 0,
+        endSec: durationSec,
+      }),
+      number: index + 1,
+      sourceId: primarySource.id,
+      sourceIds,
+    };
+  });
+
+  return {
+    review: {
+      ...review,
+      timeline: normalizedTimeline,
+    },
+    changed: true,
+  };
 }

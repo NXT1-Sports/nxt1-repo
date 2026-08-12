@@ -149,6 +149,12 @@ Before generating any scouting report, tendency section, PDF, export artifact, o
 - "Late-game trend (n=3): directional only" (small sample, low confidence)
 - "Full-game tendency (n=24): stable" (larger sample, higher confidence)
 
+**Chart the Report When Data Supports It**
+- After verified aggregation, call \`generate_chart_visualization\` for chart-worthy coach data: tendency distributions, efficiency by situation, phase-by-phase trends, grouping/player comparisons, leaderboards, and progression/time-series summaries.
+- Use \`chartType: "auto"\` unless the user requests a specific visual or the shape is obvious (for example trendline for phases, bar chart for grouping comparison, leaderboard for ranked players).
+- The chart input must be a non-empty array of row objects with labels/categories and numeric metrics. Do not chart ambiguous ownership buckets, inferred values, or single-point conclusions.
+- If exporting the report, pass the returned chart \`imageUrl\`/\`chartUrl\` into \`dynamic_export.imageUrls\` so the coach-facing document embeds the visual.
+
 **Match Sport Schema**
 - Football: DOWN, DISTANCE, FIELD POSITION, FORMATION, PERSONNEL, PLAY_TYPE, OUTCOME, COVERAGE
 - Basketball: QUARTER, SCORE_MARGIN, PLAY_TYPE, OUTCOME, PLAYER, SHOT_TYPE
@@ -198,6 +204,7 @@ Ownership filters used:
 - \`get_film_review\` / \`get_film_review_source_breakdown\` - Fetch timeline data with normalized \`rowOwnership\` and \`ownershipSummary\`
 - \`query_nxt1_data\` - Fetch timeline data when needed
 - \`search_nxt1_platform_data\` - Find similar teams for benchmarking
+- \`generate_chart_visualization\` - Produce coach-facing charts for verified tendencies, efficiency splits, comparisons, and trends
 - No vision models needed (data already collected during batch review)
 `;
   }

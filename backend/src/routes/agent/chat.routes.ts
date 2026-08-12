@@ -927,6 +927,90 @@ function normalizeApprovalResumeToolInput(
   };
 }
 
+function normalizeEmailApprovalAttachment(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+
+  for (const key of ['id', 'name', 'filename', 'mimeType', 'contentType', 'storagePath', 'url']) {
+    const rawValue = record[key];
+    if (typeof rawValue === 'string' && rawValue.trim().length > 0) {
+      normalized[key] = rawValue.trim();
+    }
+  }
+
+  const sizeBytes = Number(record['sizeBytes']);
+  if (Number.isFinite(sizeBytes) && sizeBytes >= 0) {
+    normalized['sizeBytes'] = sizeBytes;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function normalizeEmailApprovalAttachments(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((attachment) => normalizeEmailApprovalAttachment(attachment))
+    .filter((attachment): attachment is Record<string, unknown> => attachment !== null);
+}
+
+function emailAttachmentKey(attachment: Record<string, unknown>): string {
+  return JSON.stringify(
+    Object.keys(attachment)
+      .sort()
+      .reduce<Record<string, unknown>>((next, key) => {
+        next[key] = attachment[key];
+        return next;
+      }, {})
+  );
+}
+
+function isEmailApprovalTool(toolName: unknown): boolean {
+  const normalizedToolName = typeof toolName === 'string' ? toolName.trim().toLowerCase() : '';
+  return normalizedToolName === 'send_email' || normalizedToolName === 'batch_send_email';
+}
+
+function validateEditedApprovalToolInput(params: {
+  readonly toolName: unknown;
+  readonly approvedToolInput: unknown;
+  readonly editedToolInput: Record<string, unknown> | undefined;
+}): string | null {
+  if (!params.editedToolInput) return null;
+
+  const approvedToolInput =
+    params.approvedToolInput && typeof params.approvedToolInput === 'object'
+      ? (params.approvedToolInput as Record<string, unknown>)
+      : {};
+
+  const approvedUserId =
+    typeof approvedToolInput['userId'] === 'string' ? approvedToolInput['userId'].trim() : '';
+  const editedUserId =
+    typeof params.editedToolInput['userId'] === 'string'
+      ? params.editedToolInput['userId'].trim()
+      : '';
+  if (approvedUserId && editedUserId && approvedUserId !== editedUserId) {
+    return 'Approved tool input cannot change the email sender user.';
+  }
+
+  if (!isEmailApprovalTool(params.toolName)) return null;
+
+  const approvedAttachments = normalizeEmailApprovalAttachments(approvedToolInput['attachments']);
+  const editedAttachments = normalizeEmailApprovalAttachments(
+    params.editedToolInput['attachments']
+  );
+  if (editedAttachments.length === 0) return null;
+
+  const approvedAttachmentKeys = new Set(
+    approvedAttachments.map((attachment) => emailAttachmentKey(attachment))
+  );
+  const hasUnapprovedAttachment = editedAttachments.some(
+    (attachment) => !approvedAttachmentKeys.has(emailAttachmentKey(attachment))
+  );
+  return hasUnapprovedAttachment
+    ? 'Approved email attachments cannot be added or replaced during approval.'
+    : null;
+}
+
 async function finalizeRejectedApproval(params: {
   userId: string;
   threadId?: string | null;
@@ -3699,6 +3783,15 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         body.toolInput ?? approvalData['toolInput']
       );
 
+      if (body.decision === 'approved' && body.toolInput) {
+        const validationError = validateEditedApprovalToolInput({
+          toolName: approvalData['toolName'],
+          approvedToolInput: approvalData['toolInput'],
+          editedToolInput: body.toolInput,
+        });
+        if (validationError) return { code: 400, error: validationError } as const;
+      }
+
       txn.update(approvalRef, {
         status: body.decision,
         resolvedAt: new Date().toISOString(),
@@ -4057,6 +4150,15 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         approvalData['toolName'],
         toolInput ?? approvalData['toolInput']
       );
+
+      if (decision === 'approved' && toolInput) {
+        const validationError = validateEditedApprovalToolInput({
+          toolName: approvalData['toolName'],
+          approvedToolInput: approvalData['toolInput'],
+          editedToolInput: toolInput,
+        });
+        if (validationError) return { code: 400, error: validationError } as const;
+      }
 
       txn.update(approvalRef, {
         status: decision,

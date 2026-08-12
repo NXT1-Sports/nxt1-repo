@@ -29,9 +29,8 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 4. \`runway_check_task\` — poll until complete; capture output URL.
 5. Motion quality gate — the Runway opener must show clear camera movement, parallax, kinetic type, profile/subject reveal, and polished lighting/energy. If it is static or weak, run one regenerate/upscale pass before FFmpeg.
 6. \`ffmpeg_trim_video\` — normalize selected play windows; preserve full source clips when the uploaded clips are already short.
-7. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro with maxIntroSeconds=4 when the first input is the motion intro.
-8. \`ffmpeg_generate_thumbnail\` — validate final playback and poster metadata immediately after merge.
-9. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
+7. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro with maxIntroSeconds=4 when the first input is the motion intro. \`ffmpeg_merge_videos\` automatically validates playback and extracts poster metadata.
+8. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
 10. Optional: \`ffmpeg_resize_video\`, \`ffmpeg_burn_subtitles\`, \`ffmpeg_convert_video\`, \`ffmpeg_compress_video\`.
 
 ### Pipeline B — Existing Film → Broadcast Polish
@@ -44,9 +43,8 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 ### Pipeline C — Poster + Reel Package
 1. \`generate_graphic\` — social poster.
 2. \`runway_generate_video\` — motion teaser from poster.
-3. \`ffmpeg_merge_videos\` — append teaser to highlight reel with maxIntroSeconds=4 when the teaser is used as the opener.
-4. \`ffmpeg_generate_thumbnail\` — generate poster frame metadata for the final reel (not a separate deliverable unless requested).
-5. NXT1 posting handoff — return the final media URL for the Data Coordinator posting workflow only when the user explicitly asks for a NXT1 timeline/feed post. For Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external network, prepare the media URL and caption only; direct external publishing is not connected yet.
+3. \`ffmpeg_merge_videos\` — append teaser to highlight reel with maxIntroSeconds=4 when the teaser is used as the opener. \`ffmpeg_merge_videos\` automatically extracts poster frame metadata for the reel.
+4. NXT1 posting handoff — return the final media URL for the Data Coordinator posting workflow only when the user explicitly asks for a NXT1 timeline/feed post. For Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external network, prepare the media URL and caption only; direct external publishing is not connected yet.
 
 ### Pipeline Execution Rules
 - Prefer tool execution over descriptive-only responses when user asks to create/edit media.

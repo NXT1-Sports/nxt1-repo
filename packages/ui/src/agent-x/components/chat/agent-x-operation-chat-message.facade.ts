@@ -234,19 +234,17 @@ export class AgentXOperationChatMessageFacade {
           (message) => message.id === persistedMessageId && message.id !== params.streamingId
         )
           ? messages.filter((message) => message.id !== params.streamingId)
-          : messages
-              .map((message) =>
-                message.id === params.streamingId
-                  ? shouldReloadPersistedFinal
-                    ? null
-                    : { ...message, id: persistedMessageId, isTyping: false }
-                  : message
-              )
-              .filter((message): message is NonNullable<typeof message> => message !== null)
+          : messages.map((message) =>
+              message.id === params.streamingId
+                ? { ...message, id: persistedMessageId, isTyping: false }
+                : message
+            )
       );
 
       // Rehydrate the persisted assistant row immediately so final attachments
-      // (video + thumbnailUrl poster) render without requiring app reload.
+      // (video + thumbnailUrl poster) render without requiring app reload. Keep
+      // the visible streamed row mounted during the async reload so completion
+      // never briefly blanks the chat timeline.
       const resolvedThreadId =
         (typeof params.threadId === 'string' && params.threadId.trim().length > 0
           ? params.threadId.trim()

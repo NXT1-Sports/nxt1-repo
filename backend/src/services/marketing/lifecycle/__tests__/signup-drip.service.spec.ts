@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY,
   SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY,
+  SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY,
+  SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY,
+  SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
   SIGNUP_DRIP_REENGAGEMENT_STEP_KEY,
   buildInitialSignupDripState,
   evaluateSignupDripDecision,
@@ -26,6 +28,7 @@ describe('signup-drip lifecycle decisions', () => {
         hasMeaningfulProfile: false,
         hasTimelinePost: false,
         hasAgentXActivity: false,
+        trialCreditsFinished: false,
         setupFocusAreas: ['Add a profile image.'],
       },
     });
@@ -41,6 +44,7 @@ describe('signup-drip lifecycle decisions', () => {
         hasMeaningfulProfile: true,
         hasTimelinePost: true,
         hasAgentXActivity: false,
+        trialCreditsFinished: false,
         setupFocusAreas: [],
       },
     });
@@ -48,14 +52,15 @@ describe('signup-drip lifecycle decisions', () => {
     expect(decision).toEqual({ action: 'advance', reason: 'profile-activated' });
   });
 
-  it('advances past the agent activation step once Agent X is already active', () => {
+  it('advances past the day 3 inactivity nudge if Agent X is already active', () => {
     const decision = evaluateSignupDripDecision({
-      stepKey: SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY,
+      stepKey: SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY,
       marketingEnabled: true,
       signals: {
         hasMeaningfulProfile: true,
         hasTimelinePost: false,
         hasAgentXActivity: true,
+        trialCreditsFinished: false,
         setupFocusAreas: [],
       },
     });
@@ -63,7 +68,58 @@ describe('signup-drip lifecycle decisions', () => {
     expect(decision).toEqual({ action: 'advance', reason: 'agent-activated' });
   });
 
-  it('still sends the day-14 reengagement step when the campaign reaches the final stage', () => {
+  it('advances past mid-trial step if user converted to paid plan', () => {
+    const decision = evaluateSignupDripDecision({
+      stepKey: SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY,
+      marketingEnabled: true,
+      paymentState: 'paid',
+      signals: {
+        hasMeaningfulProfile: true,
+        hasTimelinePost: false,
+        hasAgentXActivity: true,
+        trialCreditsFinished: false,
+        setupFocusAreas: [],
+      },
+    });
+
+    expect(decision).toEqual({ action: 'advance', reason: 'paid-converted' });
+  });
+
+  it('evaluates post-purchase check-in steps for paid users', () => {
+    const decision = evaluateSignupDripDecision({
+      stepKey: SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+      marketingEnabled: true,
+      paymentState: 'paid',
+      signals: {
+        hasMeaningfulProfile: true,
+        hasTimelinePost: true,
+        hasAgentXActivity: true,
+        trialCreditsFinished: true,
+        setupFocusAreas: [],
+      },
+    });
+
+    expect(decision).toEqual({ action: 'send' });
+  });
+
+  it('advances post-purchase check-in steps if user is unpaid', () => {
+    const decision = evaluateSignupDripDecision({
+      stepKey: SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+      marketingEnabled: true,
+      paymentState: 'unpaid',
+      signals: {
+        hasMeaningfulProfile: true,
+        hasTimelinePost: true,
+        hasAgentXActivity: false,
+        trialCreditsFinished: false,
+        setupFocusAreas: [],
+      },
+    });
+
+    expect(decision).toEqual({ action: 'advance', reason: 'completed' });
+  });
+
+  it('still sends the day-30 reengagement step when the campaign reaches the final stage', () => {
     const decision = evaluateSignupDripDecision({
       stepKey: SIGNUP_DRIP_REENGAGEMENT_STEP_KEY,
       marketingEnabled: true,
@@ -71,6 +127,7 @@ describe('signup-drip lifecycle decisions', () => {
         hasMeaningfulProfile: true,
         hasTimelinePost: true,
         hasAgentXActivity: true,
+        trialCreditsFinished: false,
         setupFocusAreas: [],
       },
     });

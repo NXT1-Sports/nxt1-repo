@@ -22,7 +22,12 @@ import {
   normalizeTemplateSyntax,
   renderEmailTemplate,
   resolveConnectedEmailProvider,
+  stripEmailAttachmentAnnotations,
 } from './email-tool.utils.js';
+import {
+  EmailAttachmentReferenceSchema,
+  resolveProviderEmailAttachments,
+} from './email-attachment-resolver.js';
 import { z } from 'zod';
 
 const INTER_SEND_DELAY_MS = 750;
@@ -78,6 +83,7 @@ const BatchSendEmailInputSchema = z.object({
         'Use {{variableName}} double-brace placeholders for per-recipient substitution (e.g. {{firstName}}, {{teamName}}). ' +
         'Example: <p>Hi {{firstName}},</p><p>We wanted to reach out to {{collegeName}}...</p><p>Best,<br>Coach Smith</p>'
     ),
+  attachments: z.array(EmailAttachmentReferenceSchema).max(5).optional(),
 });
 
 interface BatchSendSuccess {
@@ -163,7 +169,9 @@ function resolveRenderedMessage(input: {
   }
 
   const subject = renderEmailTemplate(subjectTemplate, recipient.variables);
-  const bodyHtml = renderEmailTemplate(bodyHtmlTemplate, recipient.variables);
+  const bodyHtml = stripEmailAttachmentAnnotations(
+    renderEmailTemplate(bodyHtmlTemplate, recipient.variables)
+  );
 
   if (subject.trim().length === 0) {
     return { error: `Recipient ${recipient.toEmail} resolved to an empty subject.` };
@@ -216,7 +224,16 @@ export class BatchSendEmailTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const { userId, recipients: rawRecipients } = parsed.data;
+    const { recipients: rawRecipients } = parsed.data;
+    const requestedUserId = parsed.data.userId;
+    const userId = context?.userId?.trim() || requestedUserId;
+    if (context?.userId && requestedUserId !== userId) {
+      logger.warn('Rejected batch_send_email with mismatched userId', {
+        contextUserId: userId,
+        requestedUserId,
+      });
+      return { success: false, error: 'Email send user does not match the authenticated session.' };
+    }
     // Normalize template syntax: convert any LLM-generated single-brace {key} to {{key}}
     const subjectTemplate = normalizeTemplateSyntax(parsed.data.subjectTemplate);
     const bodyHtmlTemplate = normalizeTemplateSyntax(parsed.data.bodyHtmlTemplate);
@@ -260,6 +277,26 @@ export class BatchSendEmailTool extends BaseTool {
         success: false,
         error: previewErrors.slice(0, 5).join(' | '),
       };
+    }
+
+    let attachments;
+    try {
+      attachments = await resolveProviderEmailAttachments({
+        userId,
+        attachments: parsed.data.attachments ?? [],
+        environment: context?.environment,
+      });
+    } catch (attachmentErr) {
+      const errorMessage =
+        attachmentErr instanceof Error
+          ? attachmentErr.message
+          : 'Failed to prepare email attachments.';
+      logger.error('Failed to prepare batch_send_email attachments', {
+        error: errorMessage,
+        userId,
+        attachmentCount: parsed.data.attachments?.length ?? 0,
+      });
+      return { success: false, error: errorMessage };
     }
 
     context?.emitStage?.('submitting_job', {
@@ -319,6 +356,7 @@ export class BatchSendEmailTool extends BaseTool {
             recipientName: recipient.recipientName,
             recipientKind: recipient.recipientKind,
             recipientOrgName: recipient.recipientOrgName,
+            attachments,
             auditContext: {
               toolName: this.name,
               approvalId: context?.approvalId,

@@ -41,7 +41,7 @@ import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { z } from 'zod';
 
-const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const EXPORT_DOWNLOAD_URL_TTL_MS_NO_EXPIRE = 100 * 365 * 24 * 60 * 60 * 1000;
 
 const ExportSectionSchema = z.object({
   title: z.string().trim().min(1).optional(),
@@ -86,6 +86,7 @@ export class DynamicExportTool extends BaseTool {
     'branding, and cloud hosting.\n\n' +
     'HOW TO FORMAT LIKE A PRO:\n' +
     '- NEVER use emojis in the data or titles. They break the PDF and Excel generators. Use text only.\n' +
+    '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
     '- For Practice Scripts/Schedules: Divide the schedule into multiple `sections` (e.g. "Period 1: Flex", "Period 2: 7on7") instead of one massive table. Default these to XLSX or native saved documents unless the user explicitly asks for PDF/print-ready delivery. Pass `pageOrientation: "landscape"` so it prints well in Excel/PDF.\n' +
     '- For Callsheets / Rosters / Multi-Panel Boards: Pass `layoutMode: "multi_column_grid"`, `pageSize: "LEGAL"`, and `pageOrientation: "landscape"`. Default coaching sheets like callsheets to XLSX or native saved documents unless the user explicitly asks for PDF, printing, or share-ready output. You can optionally set `gridColumn: 1` or `2` etc on each section so it builds a perfect side-by-side coach board instead of a vertical stack. Use section.themeColor to visually separate different types of plays (e.g., Red Zone, Run Game).\n' +
     '- For Scout Reports: Use `pageSize: "LETTER"`, `pageOrientation: "portrait"`, and break down the opponent into `sections` with paragraphs and bullet points.\n\n' +
@@ -150,7 +151,7 @@ export class DynamicExportTool extends BaseTool {
       .trim()
       .min(1)
       .optional()
-      .describe('Optional PDF watermark text such as DRAFT or CONFIDENTIAL.'),
+      .describe('Deprecated and ignored. PDF watermarks are disabled.'),
     relatedDocumentId: z
       .string()
       .trim()
@@ -225,7 +226,7 @@ export class DynamicExportTool extends BaseTool {
     const pageOrientation = this.resolvePageOrientation(input['pageOrientation']);
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
     const organizationName = this.str(input, 'organizationName') ?? undefined;
-    const watermarkText = this.str(input, 'watermarkText') ?? undefined;
+    const watermarkText = undefined;
     const relatedDocumentId = this.str(input, 'relatedDocumentId') ?? undefined;
     const sourceDocumentIds = this.parseStringArray(input, 'sourceDocumentIds');
     const sourceAttachmentIds = this.parseStringArray(input, 'sourceAttachmentIds');
@@ -514,7 +515,7 @@ export class DynamicExportTool extends BaseTool {
       fileName: params.fileName,
       mimeType: params.mimeType,
       routeBase: agentRouteBase,
-      ttlMs: EXPORT_DOWNLOAD_URL_TTL_MS,
+      ttlMs: EXPORT_DOWNLOAD_URL_TTL_MS_NO_EXPIRE,
     }).url;
   }
 

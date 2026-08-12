@@ -73,6 +73,7 @@ export type {
   TeamOrganizationBudgetAccessState,
   UpdateTeamOrganizationBudgetAccessRequest,
   UpdateMembershipRequest,
+  UpdateMembershipAdminAccessRequest,
   MembershipEditorMode,
 } from './manage-team.types';
 

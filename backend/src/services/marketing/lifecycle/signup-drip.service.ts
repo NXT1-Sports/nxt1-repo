@@ -23,23 +23,48 @@ import { recordB2BPartnerContactEvent } from '../integrations/notion/signup-dash
 export const SIGNUP_DRIP_CAMPAIGN_KEY = 'signup_elite_v1';
 export const SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY = 'profile_setup';
 export const SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY = 'agent_activation';
+export const SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY = 'day3_inactivity_nudge';
+export const SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY = 'day7_mid_trial_showcase';
+export const SIGNUP_DRIP_DAY14_FEEDBACK_NO_USAGE_STEP_KEY = 'day14_pretrial_feedback_no_usage';
+export const SIGNUP_DRIP_DAY14_FEEDBACK_HAS_USAGE_STEP_KEY = 'day14_pretrial_feedback_has_usage';
+export const SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY = 'day14_post_purchase_checkin';
+export const SIGNUP_DRIP_DAY30_POST_PURCHASE_STEP_KEY = 'day30_post_purchase_survey';
 export const SIGNUP_DRIP_REENGAGEMENT_STEP_KEY = 'reengagement';
+
 export const SIGNUP_DRIP_STEP_SEQUENCE = [
   SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY,
   SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY,
+  SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY,
+  SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY,
+  SIGNUP_DRIP_DAY14_FEEDBACK_NO_USAGE_STEP_KEY,
+  SIGNUP_DRIP_DAY14_FEEDBACK_HAS_USAGE_STEP_KEY,
+  SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY,
+  SIGNUP_DRIP_DAY30_POST_PURCHASE_STEP_KEY,
   SIGNUP_DRIP_REENGAGEMENT_STEP_KEY,
 ] as const;
 
 const SIGNUP_DRIP_STEP_LABELS: Record<SignupDripStepKey, string> = {
-  [SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY]: 'Day 3 - Profile Setup',
-  [SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY]: 'Day 7 - Agent X Activation',
-  [SIGNUP_DRIP_REENGAGEMENT_STEP_KEY]: 'Day 14 - Reengagement',
+  [SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY]: 'Day 0 - Profile Setup',
+  [SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY]: 'Day 1 - Agent X Activation',
+  [SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY]: 'Day 3 - Inactivity Nudge',
+  [SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY]: 'Day 7 - Mid-Trial Showcase',
+  [SIGNUP_DRIP_DAY14_FEEDBACK_NO_USAGE_STEP_KEY]: 'Day 14 - Pre-Trial Survey (No Usage)',
+  [SIGNUP_DRIP_DAY14_FEEDBACK_HAS_USAGE_STEP_KEY]: 'Day 14 - Pre-Trial Survey (Unfinished Trial)',
+  [SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY]: 'Day 14 - Post-Purchase Check-in',
+  [SIGNUP_DRIP_DAY30_POST_PURCHASE_STEP_KEY]: 'Day 30 - Post-Purchase Survey',
+  [SIGNUP_DRIP_REENGAGEMENT_STEP_KEY]: 'Day 30 - Reengagement',
 };
 
 const SIGNUP_DRIP_DAY_OFFSETS: Record<SignupDripStepKey, number> = {
   [SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY]: 3,
-  [SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY]: 7,
-  [SIGNUP_DRIP_REENGAGEMENT_STEP_KEY]: 14,
+  [SIGNUP_DRIP_AGENT_ACTIVATION_STEP_KEY]: 3,
+  [SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY]: 3,
+  [SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY]: 7,
+  [SIGNUP_DRIP_DAY14_FEEDBACK_NO_USAGE_STEP_KEY]: 14,
+  [SIGNUP_DRIP_DAY14_FEEDBACK_HAS_USAGE_STEP_KEY]: 14,
+  [SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY]: 14,
+  [SIGNUP_DRIP_DAY30_POST_PURCHASE_STEP_KEY]: 30,
+  [SIGNUP_DRIP_REENGAGEMENT_STEP_KEY]: 30,
 };
 const DEFAULT_QUERY_LIMIT = 100;
 const POSTS_COLLECTION = 'Posts';
@@ -66,6 +91,9 @@ export interface SignupDripStateRecord {
   readonly enrolledAt: Date;
   readonly roleTrack: SignupDripRoleTrack;
   readonly paymentState: SignupDripPaymentState;
+  readonly hasAgentXActivity?: boolean;
+  readonly trialCreditsFinished?: boolean;
+  readonly firstPurchaseAt?: Date;
   readonly currentStepKey: SignupDripStepKey;
   readonly lastSentStepKey?: SignupDripStepKey;
   readonly lastSentAt?: Date;
@@ -85,6 +113,8 @@ interface SignupDripUserSnapshot {
   readonly organizationName?: string;
   readonly marketingEnabled?: boolean;
   readonly agentXLastActiveAt?: Date | null;
+  readonly trialCreditsFinished?: boolean;
+  readonly firstPurchaseAt?: Date | null;
   readonly state: SignupDripStateRecord;
   readonly hasProfileImage: boolean;
   readonly hasBio: boolean;
@@ -97,12 +127,17 @@ interface SignupDripActivationSignals {
   readonly hasMeaningfulProfile: boolean;
   readonly hasTimelinePost: boolean;
   readonly hasAgentXActivity: boolean;
+  readonly trialCreditsFinished: boolean;
+  readonly firstPurchaseAt?: Date | null;
   readonly setupFocusAreas: readonly string[];
 }
 
 type SignupDripDecision =
   | { readonly action: 'pause'; readonly reason: 'marketing-disabled' }
-  | { readonly action: 'advance'; readonly reason: 'profile-activated' | 'agent-activated' }
+  | {
+      readonly action: 'advance';
+      readonly reason: 'profile-activated' | 'agent-activated' | 'paid-converted' | 'completed';
+    }
   | { readonly action: 'send' }
   | { readonly action: 'complete'; readonly reason: 'completed' };
 
@@ -184,6 +219,16 @@ function getStepEligibleAt(enrolledAt: Date, stepKey: SignupDripStepKey): Date {
   return addDays(enrolledAt, SIGNUP_DRIP_DAY_OFFSETS[stepKey]);
 }
 
+function getStepEligibleAtForState(state: SignupDripStateRecord, stepKey: SignupDripStepKey): Date {
+  const anchor =
+    stepKey === SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY ||
+    stepKey === SIGNUP_DRIP_DAY30_POST_PURCHASE_STEP_KEY
+      ? (state.firstPurchaseAt ?? state.enrolledAt)
+      : state.enrolledAt;
+
+  return addDays(anchor, SIGNUP_DRIP_DAY_OFFSETS[stepKey]);
+}
+
 function getNextStepKey(stepKey: SignupDripStepKey): SignupDripStepKey | null {
   const currentIndex = SIGNUP_DRIP_STEP_SEQUENCE.indexOf(stepKey);
   if (currentIndex === -1 || currentIndex >= SIGNUP_DRIP_STEP_SEQUENCE.length - 1) {
@@ -250,6 +295,10 @@ async function writeSignupDripState(
       'lifecycle.signup.drip.enrolledAt': state.enrolledAt,
       'lifecycle.signup.drip.roleTrack': state.roleTrack,
       'lifecycle.signup.drip.paymentState': state.paymentState,
+      'lifecycle.signup.drip.hasAgentXActivity': state.hasAgentXActivity ?? FieldValue.delete(),
+      'lifecycle.signup.drip.trialCreditsFinished':
+        state.trialCreditsFinished ?? FieldValue.delete(),
+      'lifecycle.signup.drip.firstPurchaseAt': state.firstPurchaseAt ?? FieldValue.delete(),
       'lifecycle.signup.drip.currentStepKey': state.currentStepKey,
       'lifecycle.signup.drip.lastSentStepKey': state.lastSentStepKey ?? FieldValue.delete(),
       'lifecycle.signup.drip.lastSentAt': state.lastSentAt ?? FieldValue.delete(),
@@ -358,6 +407,15 @@ function parseSignupDripState(rawValue: unknown, role: UserRole): SignupDripStat
     paymentState: ['unknown', 'unpaid', 'paid', 'org-covered'].includes(String(raw['paymentState']))
       ? (raw['paymentState'] as SignupDripPaymentState)
       : 'unknown',
+    hasAgentXActivity:
+      typeof raw['hasAgentXActivity'] === 'boolean'
+        ? (raw['hasAgentXActivity'] as boolean)
+        : undefined,
+    trialCreditsFinished:
+      typeof raw['trialCreditsFinished'] === 'boolean'
+        ? (raw['trialCreditsFinished'] as boolean)
+        : undefined,
+    firstPurchaseAt: toDate(raw['firstPurchaseAt']) ?? undefined,
     currentStepKey: currentStepKey as SignupDripStepKey,
     lastSentStepKey: SIGNUP_DRIP_STEP_SEQUENCE.includes(raw['lastSentStepKey'] as SignupDripStepKey)
       ? (raw['lastSentStepKey'] as SignupDripStepKey)
@@ -475,6 +533,8 @@ async function buildUserSnapshot(
     return null;
   }
 
+  const dripObj = user.lifecycle?.signup?.drip as Record<string, unknown> | undefined;
+
   return {
     id: doc.id,
     email: user.email,
@@ -483,7 +543,11 @@ async function buildUserSnapshot(
     primarySport: resolvePrimarySport(user),
     organizationName: resolveOrganizationName(user),
     marketingEnabled: resolveMarketingEnabled(user),
-    agentXLastActiveAt: toDate(doc.get('agentXLastActiveAt') as PortableTimestamp | undefined),
+    agentXLastActiveAt:
+      toDate(doc.get('agentXLastActiveAt') as PortableTimestamp | undefined) ??
+      (dripObj?.['hasAgentXActivity'] ? new Date() : null),
+    trialCreditsFinished: Boolean(dripObj?.['trialCreditsFinished']),
+    firstPurchaseAt: toDate(dripObj?.['firstPurchaseAt']),
     state,
     hasProfileImage: Array.isArray(user.profileImgs) && user.profileImgs.length > 0,
     hasBio: typeof user.aboutMe === 'string' && user.aboutMe.trim().length > 0,
@@ -510,6 +574,8 @@ async function buildActivationSignals(
       ].filter(Boolean).length >= 2 || timelinePost,
     hasTimelinePost: timelinePost,
     hasAgentXActivity: Boolean(user.agentXLastActiveAt),
+    trialCreditsFinished: Boolean(user.trialCreditsFinished),
+    firstPurchaseAt: user.firstPurchaseAt,
     setupFocusAreas: buildSetupFocusAreas(user, timelinePost),
   };
 }
@@ -517,11 +583,14 @@ async function buildActivationSignals(
 export function evaluateSignupDripDecision(input: {
   readonly stepKey: SignupDripStepKey;
   readonly marketingEnabled?: boolean;
+  readonly paymentState?: SignupDripPaymentState;
   readonly signals: SignupDripActivationSignals;
 }): SignupDripDecision {
   if (input.marketingEnabled === false) {
     return { action: 'pause', reason: 'marketing-disabled' };
   }
+
+  const isPaid = input.paymentState === 'paid' || input.paymentState === 'org-covered';
 
   if (input.stepKey === SIGNUP_DRIP_PROFILE_SETUP_STEP_KEY && input.signals.hasMeaningfulProfile) {
     return { action: 'advance', reason: 'profile-activated' };
@@ -531,6 +600,39 @@ export function evaluateSignupDripDecision(input: {
     return { action: 'advance', reason: 'agent-activated' };
   }
 
+  if (input.stepKey === SIGNUP_DRIP_DAY3_INACTIVITY_STEP_KEY && input.signals.hasAgentXActivity) {
+    return { action: 'advance', reason: 'agent-activated' };
+  }
+
+  if (
+    input.stepKey === SIGNUP_DRIP_DAY7_MID_TRIAL_STEP_KEY &&
+    (input.signals.trialCreditsFinished || isPaid)
+  ) {
+    return { action: 'advance', reason: 'paid-converted' };
+  }
+
+  if (
+    input.stepKey === SIGNUP_DRIP_DAY14_FEEDBACK_NO_USAGE_STEP_KEY &&
+    (input.signals.hasAgentXActivity || input.signals.trialCreditsFinished || isPaid)
+  ) {
+    return { action: 'advance', reason: 'agent-activated' };
+  }
+
+  if (
+    input.stepKey === SIGNUP_DRIP_DAY14_FEEDBACK_HAS_USAGE_STEP_KEY &&
+    (!input.signals.hasAgentXActivity || input.signals.trialCreditsFinished || isPaid)
+  ) {
+    return { action: 'advance', reason: 'paid-converted' };
+  }
+
+  if (input.stepKey === SIGNUP_DRIP_DAY14_POST_PURCHASE_STEP_KEY && !isPaid) {
+    return { action: 'advance', reason: 'completed' };
+  }
+
+  if (input.stepKey === SIGNUP_DRIP_DAY30_POST_PURCHASE_STEP_KEY && !isPaid) {
+    return { action: 'advance', reason: 'completed' };
+  }
+
   return { action: 'send' };
 }
 
@@ -538,7 +640,7 @@ function buildAdvancedState(
   state: SignupDripStateRecord,
   now: Date,
   paymentState: SignupDripPaymentState,
-  reason: 'profile-activated' | 'agent-activated'
+  reason: 'profile-activated' | 'agent-activated' | 'paid-converted' | 'completed'
 ): SignupDripStateRecord {
   const nextStepKey = getNextStepKey(state.currentStepKey);
   if (!nextStepKey) {
@@ -556,7 +658,7 @@ function buildAdvancedState(
     ...state,
     paymentState,
     currentStepKey: nextStepKey,
-    nextEligibleAt: getStepEligibleAt(state.enrolledAt, nextStepKey),
+    nextEligibleAt: getStepEligibleAtForState(state, nextStepKey),
     pausedAt: undefined,
     suppressionReason: reason,
   };
@@ -609,7 +711,7 @@ function buildSentState(input: {
     currentStepKey: nextStepKey,
     lastSentStepKey: input.state.currentStepKey,
     lastSentAt: input.now,
-    nextEligibleAt: getStepEligibleAt(input.state.enrolledAt, nextStepKey),
+    nextEligibleAt: getStepEligibleAtForState(input.state, nextStepKey),
     pausedAt: undefined,
     suppressionReason: undefined,
     history: [...(input.state.history ?? []), historyEntry],
@@ -627,6 +729,7 @@ async function processSignupDripUser(input: {
   const decision = evaluateSignupDripDecision({
     stepKey: input.user.state.currentStepKey,
     marketingEnabled: input.user.marketingEnabled,
+    paymentState,
     signals,
   });
 

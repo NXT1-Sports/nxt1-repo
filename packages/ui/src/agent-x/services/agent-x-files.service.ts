@@ -315,6 +315,19 @@ function readUniversalFileAccessKeys(file: UniversalFileDoc): readonly string[] 
   return normalizedAccessKeys.length > 0 ? normalizedAccessKeys : undefined;
 }
 
+function readUniversalFileWriteAccessKeys(file: UniversalFileDoc): readonly string[] | undefined {
+  const accessKeys = (file as { readonly writeAccessKeys?: readonly unknown[] }).writeAccessKeys;
+  if (!Array.isArray(accessKeys) || accessKeys.length === 0) {
+    return undefined;
+  }
+
+  const normalizedAccessKeys = accessKeys
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter((value): value is string => value.length > 0);
+
+  return normalizedAccessKeys.length > 0 ? normalizedAccessKeys : undefined;
+}
+
 function normalizeOptionalArtifactString(value: unknown): string | undefined {
   if (typeof value !== 'string') {
     return undefined;
@@ -354,6 +367,7 @@ function readUniversalArtifactTags(file: UniversalFileDoc): readonly string[] | 
 
 function buildBaseLibraryFields(file: UniversalFileDoc) {
   const readAccessKeys = readUniversalFileAccessKeys(file);
+  const writeAccessKeys = readUniversalFileWriteAccessKeys(file);
   const artifactSummary = readUniversalArtifactSummary(file);
   const artifactTags = readUniversalArtifactTags(file);
 
@@ -373,6 +387,7 @@ function buildBaseLibraryFields(file: UniversalFileDoc) {
     ...(file.classification ? { classification: file.classification } : {}),
     ...(file.folderId !== undefined ? { folderId: file.folderId } : {}),
     ...(readAccessKeys ? { readAccessKeys } : {}),
+    ...(writeAccessKeys ? { writeAccessKeys } : {}),
     ...(file.sport ? { sport: file.sport } : {}),
     ...(file.sourceRef?.sourceThreadId ? { sourceThreadId: file.sourceRef.sourceThreadId } : {}),
     ...(file.sourceRef?.sourceMessageId ? { sourceMessageId: file.sourceRef.sourceMessageId } : {}),
@@ -960,6 +975,9 @@ export class AgentXFilesService {
     try {
       const response = await firstValueFrom(
         this.http.post<UniversalFolderMutationResponse>(`${this.baseUrl}/files/folders`, {
+          ...(typeof request.teamId === 'string' && request.teamId.trim().length > 0
+            ? { teamId: request.teamId }
+            : {}),
           name: request.name,
           ...(typeof request.parentId !== 'undefined' ? { parentId: request.parentId } : {}),
           ...(request.id ? { id: request.id } : {}),
@@ -976,7 +994,7 @@ export class AgentXFilesService {
       const message = error instanceof Error ? error.message : 'Failed to create folder';
       this._error.set(message);
       this.logger.error('Failed to create file folder', error, {
-        teamId: null,
+        teamId: request.teamId ?? null,
         parentId: request.parentId ?? null,
       });
       throw error;
@@ -1002,6 +1020,7 @@ export class AgentXFilesService {
         this.http.patch<UniversalFolderMutationResponse>(
           `${this.baseUrl}/files/folders/${folderId}`,
           {
+            ...(typeof request.teamId !== 'undefined' ? { teamId: request.teamId } : {}),
             ...(typeof request.name === 'string' ? { name: request.name } : {}),
             ...(typeof request.parentId !== 'undefined' ? { parentId: request.parentId } : {}),
             ...(typeof request.sortOrder === 'number' ? { sortOrder: request.sortOrder } : {}),
@@ -1020,7 +1039,7 @@ export class AgentXFilesService {
       this._error.set(message);
       this.logger.error('Failed to update file folder', error, {
         folderId,
-        teamId: null,
+        teamId: request.teamId ?? null,
       });
       throw error;
     } finally {
@@ -1142,13 +1161,14 @@ export class AgentXFilesService {
     return response.data.candidates;
   }
 
-  async moveFile(fileId: string, _teamId: string | null, folderId: string | null): Promise<void> {
+  async moveFile(fileId: string, teamId: string | null, folderId: string | null): Promise<void> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
       const response = await firstValueFrom(
         this.http.patch<UniversalFileMutationResponse>(`${this.baseUrl}/files/${fileId}`, {
+          teamId,
           folderId,
         })
       );
@@ -1158,14 +1178,16 @@ export class AgentXFilesService {
       }
 
       this._files.update((files) =>
-        files.map((file) => (file.id === fileId ? { ...file, folderId } : file))
+        files.map((file) =>
+          file.id === fileId ? { ...file, folderId, teamId: teamId ?? undefined } : file
+        )
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to move file';
       this._error.set(message);
       this.logger.error('Failed to move file', error, {
         fileId,
-        teamId: null,
+        teamId,
         folderId,
       });
       throw error;

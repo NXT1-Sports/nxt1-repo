@@ -24,6 +24,8 @@ const mockZipModule = vi.hoisted(() => {
 
     readonly generateAsync = vi.fn(async () => new Blob(['zip'], { type: 'application/zip' }));
 
+    static loadAsync = vi.fn();
+
     constructor() {
       instances.push(this);
     }
@@ -128,5 +130,45 @@ describe('NxtArchiveService', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('No files were provided for the ZIP export');
     expect(zipInstances).toHaveLength(0);
+  });
+
+  it('extracts ZIP entries and skips directories and OS junk files', async () => {
+    const imageBlob = new Blob(['image-bytes'], { type: 'application/octet-stream' });
+    const zipFiles = {
+      'MyPhotos/': { dir: true, name: 'MyPhotos/', async: vi.fn() },
+      'MyPhotos/img1.jpg': {
+        dir: false,
+        name: 'MyPhotos/img1.jpg',
+        async: vi.fn(async () => imageBlob),
+      },
+      'MyPhotos/__MACOSX/img1.jpg': {
+        dir: false,
+        name: 'MyPhotos/__MACOSX/img1.jpg',
+        async: vi.fn(async () => imageBlob),
+      },
+      'MyPhotos/.DS_Store': {
+        dir: false,
+        name: 'MyPhotos/.DS_Store',
+        async: vi.fn(async () => imageBlob),
+      },
+    };
+    mockZipModule.MockJSZip.loadAsync.mockResolvedValue({ files: zipFiles });
+
+    const service = TestBed.inject(NxtArchiveService);
+    const result = await service.extractZipEntries(new Blob(['zip-bytes']));
+
+    expect(result.success).toBe(true);
+    expect(result.entries).toEqual([{ path: 'MyPhotos/img1.jpg', blob: imageBlob }]);
+  });
+
+  it('returns an error result when the ZIP file cannot be parsed', async () => {
+    mockZipModule.MockJSZip.loadAsync.mockRejectedValue(new Error('Corrupted zip'));
+
+    const service = TestBed.inject(NxtArchiveService);
+    const result = await service.extractZipEntries(new Blob(['not-a-zip']));
+
+    expect(result.success).toBe(false);
+    expect(result.entries).toEqual([]);
+    expect(result.error).toBe('Corrupted zip');
   });
 });

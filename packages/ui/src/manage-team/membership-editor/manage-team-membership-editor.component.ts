@@ -61,21 +61,125 @@ const MAX_POSITIONS = 5;
       <!-- ══════════════════════════════════════════
            Segment tabs
            ══════════════════════════════════════════ -->
-      <div class="nxt1-mm__segments" role="tablist">
-        @for (tab of visibleTabs(); track tab) {
-          <button
-            type="button"
-            role="tab"
-            class="nxt1-mm__seg-pill"
-            [class.nxt1-mm__seg-pill--active]="activeTab() === tab"
-            [attr.aria-selected]="activeTab() === tab"
-            (click)="activeTab.set(tab)"
-          >
-            <span class="nxt1-mm__seg-label">{{ labelForTab(tab) }}</span>
-            @if (badgeCount(tab) > 0) {
-              <span class="nxt1-mm__seg-badge">{{ badgeCount(tab) }}</span>
-            }
-          </button>
+      <div class="nxt1-mm__chrome">
+        <div class="nxt1-mm__segments" role="tablist">
+          @for (tab of visibleTabs(); track tab) {
+            <button
+              type="button"
+              role="tab"
+              class="nxt1-mm__seg-pill"
+              [class.nxt1-mm__seg-pill--active]="activeTab() === tab"
+              [attr.aria-selected]="activeTab() === tab"
+              (click)="setActiveTab(tab)"
+            >
+              <span class="nxt1-mm__seg-label">{{ labelForTab(tab) }}</span>
+              @if (badgeCount(tab) > 0) {
+                <span class="nxt1-mm__seg-badge">{{ badgeCount(tab) }}</span>
+              }
+            </button>
+          }
+        </div>
+
+        @if (!service.loading() && !service.error() && filteredItems().length > 0) {
+          <section class="nxt1-mm__toolbar">
+            <div class="nxt1-mm__toolbar-top">
+              <div class="nxt1-mm__toolbar-left">
+                <button
+                  type="button"
+                  class="nxt1-mm__toolbar-select"
+                  [class.nxt1-mm__toolbar-select--active]="allVisibleSelected()"
+                  [disabled]="selectionBusy()"
+                  (click)="toggleSelectAllVisible()"
+                >
+                  <span class="nxt1-mm__toolbar-select-box" aria-hidden="true">
+                    @if (allVisibleSelected()) {
+                      <nxt1-icon name="checkmark" [size]="12" />
+                    }
+                  </span>
+                  {{ allVisibleSelected() ? 'Clear All' : 'Select All' }}
+                </button>
+              </div>
+
+              <div class="nxt1-mm__toolbar-actions">
+                @if (canEditSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn"
+                    [disabled]="selectionBusy()"
+                    (click)="editSelectedMember()"
+                  >
+                    Edit
+                  </button>
+                }
+
+                @if (canApproveSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn nxt1-mm__toolbar-btn--approve"
+                    [disabled]="selectionBusy()"
+                    (click)="approveSelectedMembers()"
+                  >
+                    Approve
+                  </button>
+                }
+
+                @if (canGrantAdminSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn nxt1-mm__toolbar-btn--primary"
+                    [disabled]="selectionBusy()"
+                    (click)="grantAdminToSelected()"
+                  >
+                    Make Admin
+                  </button>
+                }
+
+                @if (canRevokeAdminSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn nxt1-mm__toolbar-btn--warning"
+                    [disabled]="selectionBusy()"
+                    (click)="revokeAdminFromSelected()"
+                  >
+                    Remove Admin
+                  </button>
+                }
+
+                @if (canEnableBudgetSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn nxt1-mm__toolbar-btn--primary"
+                    [disabled]="selectionBusy()"
+                    (click)="enableBudgetForSelected()"
+                  >
+                    Budget On
+                  </button>
+                }
+
+                @if (canDisableBudgetSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn nxt1-mm__toolbar-btn--warning"
+                    [disabled]="selectionBusy()"
+                    (click)="disableBudgetForSelected()"
+                  >
+                    Budget Off
+                  </button>
+                }
+
+                @if (canRemoveSelection()) {
+                  <button
+                    type="button"
+                    class="nxt1-mm__toolbar-btn nxt1-mm__toolbar-btn--danger"
+                    [disabled]="selectionBusy()"
+                    (click)="removeSelectedMembers()"
+                  >
+                    Remove
+                  </button>
+                }
+              </div>
+            </div>
+          </section>
         }
       </div>
 
@@ -108,49 +212,32 @@ const MAX_POSITIONS = 5;
             <p class="nxt1-mm__state-msg">No {{ labelForTab(activeTab()) | lowercase }} members.</p>
           </div>
         } @else {
-          @if (activeTab() !== 'staff' && rosterMembers().length > 0) {
-            <section class="nxt1-mm__budget-card">
-              <div class="nxt1-mm__budget-copy">
-                <span class="nxt1-mm__budget-eyebrow">Organization Budget</span>
-                <h3 class="nxt1-mm__budget-title">
-                  @if (organizationBudgetAccess().enabledForAllAthletes) {
-                    All athletes can use org budget
-                  } @else {
-                    Only selected athletes can use org budget
-                  }
-                </h3>
-                <p class="nxt1-mm__budget-text">
-                  @if (organizationBudgetAccess().enabledForAllAthletes) {
-                    Turn this off to choose exactly which athletes can charge usage to the team.
-                  } @else {
-                    Enable access athlete by athlete below. Coaches and staff are not affected.
-                  }
-                </p>
-              </div>
-
-              <button
-                type="button"
-                class="nxt1-btn nxt1-mm__budget-toggle"
-                [disabled]="updatingOrganizationBudgetAccess()"
-                (click)="toggleOrganizationBudgetAccessMode()"
-              >
-                @if (organizationBudgetAccess().enabledForAllAthletes) {
-                  Switch To Selected Athletes
-                } @else {
-                  Turn On For All Athletes
-                }
-              </button>
-            </section>
-          }
-
           <ul class="nxt1-mm__list" role="list">
             @for (member of filteredItems(); track member.entryId) {
               <li
                 class="nxt1-mm__row"
+                [class.nxt1-mm__row--selected]="isSelected(member.entryId)"
                 [class.nxt1-mm__row--editing]="editingEntryId() === member.entryId"
               >
-                <!-- Avatar + identity + row actions -->
+                <!-- Selection + avatar + identity -->
                 <div class="nxt1-mm__row-main">
+                  <button
+                    type="button"
+                    class="nxt1-mm__selector"
+                    [class.nxt1-mm__selector--selected]="isSelected(member.entryId)"
+                    role="checkbox"
+                    [attr.aria-checked]="isSelected(member.entryId)"
+                    [attr.aria-label]="'Select ' + memberDisplayName(member)"
+                    [disabled]="selectionBusy()"
+                    (click)="toggleSelection(member)"
+                  >
+                    <span class="nxt1-mm__selector-box" aria-hidden="true">
+                      @if (isSelected(member.entryId)) {
+                        <nxt1-icon name="checkmark" [size]="12" />
+                      }
+                    </span>
+                  </button>
+
                   <nxt1-avatar
                     [name]="memberDisplayName(member)"
                     [src]="member.profileImgs?.[0] ?? null"
@@ -173,54 +260,15 @@ const MAX_POSITIONS = 5;
                       @if (member.isPending) {
                         <span class="nxt1-mm__pending-badge">Pending</span>
                       }
+                      @if (member.membershipKind === 'staff' && member.isTeamAdmin) {
+                        <span class="nxt1-mm__admin-badge">Admin</span>
+                      }
+                      @if (
+                        member.membershipKind === 'roster' && member.hasOrganizationBudgetAccess
+                      ) {
+                        <span class="nxt1-mm__admin-badge">Budget On</span>
+                      }
                     </span>
-                  </div>
-
-                  <div class="nxt1-mm__row-actions">
-                    @if (
-                      member.membershipKind === 'roster' &&
-                      managesOrganizationBudgetPerAthlete() &&
-                      member.userId
-                    ) {
-                      <button
-                        type="button"
-                        class="nxt1-btn nxt1-mm__budget-member-btn"
-                        [class.nxt1-mm__budget-member-btn--enabled]="
-                          member.hasOrganizationBudgetAccess === true
-                        "
-                        [disabled]="updatingOrganizationBudgetAccess()"
-                        (click)="toggleAthleteOrganizationBudgetAccess(member)"
-                      >
-                        {{ member.hasOrganizationBudgetAccess ? 'Budget On' : 'Budget Off' }}
-                      </button>
-                    }
-                    @if (member.isPending) {
-                      <button
-                        type="button"
-                        class="nxt1-btn nxt1-mm__action-btn nxt1-mm__action-btn--approve"
-                        (click)="approve(member.entryId)"
-                        aria-label="Approve member"
-                      >
-                        <nxt1-icon name="checkmark" [size]="16" />
-                      </button>
-                    }
-                    <button
-                      type="button"
-                      class="nxt1-btn nxt1-mm__action-btn"
-                      [class.nxt1-mm__action-btn--active]="editingEntryId() === member.entryId"
-                      (click)="toggleEdit(member)"
-                      aria-label="Edit member"
-                    >
-                      <nxt1-icon name="pencil" [size]="16" />
-                    </button>
-                    <button
-                      type="button"
-                      class="nxt1-btn nxt1-mm__action-btn nxt1-mm__action-btn--danger"
-                      (click)="remove(member.entryId)"
-                      aria-label="Remove member"
-                    >
-                      <nxt1-icon name="trash" [size]="16" />
-                    </button>
                   </div>
                 </div>
 
@@ -378,17 +426,21 @@ const MAX_POSITIONS = 5;
       /* ═══════════════════════════════════════════
          SEGMENT TABS
          ═══════════════════════════════════════════ */
+      .nxt1-mm__chrome {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, white);
+        backdrop-filter: blur(18px);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
       .nxt1-mm__segments {
         display: flex;
         gap: var(--nxt1-spacing-2, 8px);
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
-        border-bottom: 1px solid var(--nxt1-color-border-subtle);
         overflow-x: auto;
         scrollbar-width: none;
-        position: sticky;
-        top: 0;
-        z-index: 1;
-        background: var(--nxt1-color-bg-primary);
       }
 
       .nxt1-mm__segments::-webkit-scrollbar {
@@ -455,6 +507,120 @@ const MAX_POSITIONS = 5;
         color: var(--nxt1-color-bg-primary);
       }
 
+      .nxt1-mm__toolbar {
+        display: block;
+        padding: 0 var(--nxt1-spacing-4) var(--nxt1-spacing-4);
+      }
+
+      .nxt1-mm__toolbar-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-3, 12px);
+      }
+
+      .nxt1-mm__toolbar-left {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+      }
+
+      .nxt1-mm__toolbar-select,
+      .nxt1-mm__toolbar-clear,
+      .nxt1-mm__toolbar-btn {
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-bg-primary);
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .nxt1-mm__toolbar-select,
+      .nxt1-mm__toolbar-clear {
+        min-height: 38px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2, 8px);
+        white-space: nowrap;
+      }
+
+      .nxt1-mm__toolbar-select:hover,
+      .nxt1-mm__toolbar-clear:hover,
+      .nxt1-mm__toolbar-btn:hover {
+        border-color: var(--nxt1-color-border-strong);
+        transform: translateY(-1px);
+      }
+
+      .nxt1-mm__toolbar-select--active {
+        background: var(--nxt1-color-text-primary);
+        border-color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-mm__toolbar-select-box {
+        width: 18px;
+        height: 18px;
+        border: 1.5px solid currentColor;
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .nxt1-mm__toolbar-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--nxt1-spacing-2, 8px);
+        justify-content: flex-end;
+      }
+
+      .nxt1-mm__toolbar-btn {
+        min-height: 38px;
+        padding: 0 14px;
+        border-radius: var(--nxt1-radius-full, 9999px);
+      }
+
+      .nxt1-mm__toolbar-btn--approve {
+        border-color: color-mix(in srgb, var(--nxt1-color-success) 35%, white);
+        background: var(--nxt1-color-successBg);
+        color: var(--nxt1-color-success);
+      }
+
+      .nxt1-mm__toolbar-btn--primary {
+        background: var(--nxt1-color-text-primary);
+        border-color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-mm__toolbar-btn--warning {
+        border-color: color-mix(in srgb, var(--nxt1-color-warning) 38%, white);
+        background: var(--nxt1-color-warningBg);
+        color: var(--nxt1-color-warning);
+      }
+
+      .nxt1-mm__toolbar-btn--danger {
+        border-color: color-mix(in srgb, var(--nxt1-color-error) 35%, white);
+        background: var(--nxt1-color-errorBg);
+        color: var(--nxt1-color-error);
+      }
+
+      .nxt1-mm__toolbar-btn:disabled,
+      .nxt1-mm__toolbar-clear:disabled,
+      .nxt1-mm__toolbar-select:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+        transform: none;
+      }
+
       /* ═══════════════════════════════════════════
          SCROLL CONTAINER
          ═══════════════════════════════════════════ */
@@ -462,56 +628,6 @@ const MAX_POSITIONS = 5;
         min-height: 100%;
         overscroll-behavior: contain;
         padding-bottom: calc(var(--nxt1-spacing-6) + env(safe-area-inset-bottom, 0px));
-      }
-
-      .nxt1-mm__budget-card {
-        display: grid;
-        gap: var(--nxt1-spacing-3);
-        margin: var(--nxt1-spacing-4);
-        padding: var(--nxt1-spacing-4);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        border-radius: 20px;
-        background:
-          linear-gradient(
-            180deg,
-            color-mix(in srgb, var(--nxt1-color-surface-300) 65%, white),
-            transparent
-          ),
-          var(--nxt1-color-bg-primary);
-      }
-
-      .nxt1-mm__budget-copy {
-        display: grid;
-        gap: 6px;
-      }
-
-      .nxt1-mm__budget-eyebrow {
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-2xs);
-        font-weight: var(--nxt1-fontWeight-bold);
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .nxt1-mm__budget-title {
-        margin: 0;
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-lg);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .nxt1-mm__budget-text {
-        margin: 0;
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        line-height: 1.5;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .nxt1-mm__budget-toggle {
-        justify-self: start;
       }
 
       /* ═══════════════════════════════════════════
@@ -526,11 +642,17 @@ const MAX_POSITIONS = 5;
       .nxt1-mm__row {
         padding: var(--nxt1-spacing-3) var(--nxt1-spacing-5);
         border-bottom: 1px solid var(--nxt1-color-border-subtle);
-        transition: background 0.12s ease;
+        transition:
+          background 0.12s ease,
+          border-color 0.12s ease;
       }
 
       .nxt1-mm__row:last-child {
         border-bottom: none;
+      }
+
+      .nxt1-mm__row--selected {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 6%, var(--nxt1-color-bg-primary));
       }
 
       .nxt1-mm__row--editing {
@@ -541,6 +663,47 @@ const MAX_POSITIONS = 5;
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-3);
+      }
+
+      .nxt1-mm__selector {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .nxt1-mm__selector-box {
+        width: 20px;
+        height: 20px;
+        border: 1.5px solid var(--nxt1-color-border-strong);
+        border-radius: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: var(--nxt1-color-bg-primary);
+        color: transparent;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .nxt1-mm__selector--selected .nxt1-mm__selector-box {
+        background: var(--nxt1-color-text-primary);
+        border-color: var(--nxt1-color-text-primary);
+        color: var(--nxt1-color-bg-primary);
+      }
+
+      .nxt1-mm__selector:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
       }
 
       .nxt1-mm__identity {
@@ -587,81 +750,17 @@ const MAX_POSITIONS = 5;
         text-transform: uppercase;
       }
 
-      /* Row action icon buttons */
-      .nxt1-mm__row-actions {
-        display: flex;
-        align-items: center;
-        gap: var(--nxt1-spacing-1-5);
-        flex-shrink: 0;
-      }
-
-      .nxt1-mm__budget-member-btn {
-        min-height: 34px;
-        padding: 0 12px;
-        border-radius: var(--nxt1-radius-full, 9999px);
-        border: 1px solid var(--nxt1-color-border-default);
-        background: var(--nxt1-color-bg-primary);
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-semibold);
-      }
-
-      .nxt1-mm__budget-member-btn--enabled {
-        background: var(--nxt1-color-text-primary);
-        border-color: var(--nxt1-color-text-primary);
-        color: var(--nxt1-color-bg-primary);
-      }
-
-      .nxt1-mm__action-btn {
+      .nxt1-mm__admin-badge {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        width: 34px;
-        height: 34px;
-        border: 1px solid transparent;
+        padding: 1px 6px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: transparent;
-        color: var(--nxt1-color-text-secondary);
-        cursor: pointer;
-        -webkit-tap-highlight-color: transparent;
-        transition:
-          background 0.12s ease,
-          color 0.12s ease,
-          border-color 0.12s ease;
-      }
-
-      .nxt1-mm__action-btn:hover {
-        background: var(--nxt1-color-surface-300);
-        color: var(--nxt1-color-text-primary);
-        border-color: var(--nxt1-color-border-default);
-      }
-
-      .nxt1-mm__action-btn--active {
-        background: var(--nxt1-color-surface-300);
-        color: var(--nxt1-color-text-primary);
-        border-color: var(--nxt1-color-border-strong);
-      }
-
-      .nxt1-mm__action-btn--approve {
-        color: var(--nxt1-color-success);
-        border-color: var(--nxt1-color-success);
-      }
-
-      .nxt1-mm__action-btn--approve:hover {
-        background: var(--nxt1-color-successBg);
-        color: var(--nxt1-color-success);
-        border-color: var(--nxt1-color-success);
-      }
-
-      .nxt1-mm__action-btn--danger {
-        color: var(--nxt1-color-error);
-        border-color: transparent;
-      }
-
-      .nxt1-mm__action-btn--danger:hover {
-        background: var(--nxt1-color-errorBg);
-        border-color: var(--nxt1-color-error);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 15%, transparent);
+        color: var(--nxt1-color-primary);
+        font-size: var(--nxt1-fontSize-2xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
       }
 
       /* ═══════════════════════════════════════════
@@ -925,8 +1024,10 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   protected readonly isSheetPresentation = computed(() => this.presentation() === 'sheet');
 
-  protected readonly activeTab = signal<FilterTab>('all');
+  protected readonly activeTab = signal<FilterTab>('roster');
   protected readonly editingEntryId = signal<string | null>(null);
+  protected readonly selectedEntryIds = signal<readonly string[]>([]);
+  protected readonly batchAction = signal<string | null>(null);
   private readonly hasChanges = signal(false);
   protected editTitle = '';
   protected readonly editPositions = signal<string[]>([]);
@@ -953,7 +1054,7 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     const mode = this.mode();
     if (mode === 'roster') return ['roster', 'pending'];
     if (mode === 'staff') return ['staff', 'pending'];
-    return ['all', 'roster', 'staff', 'pending'];
+    return ['roster', 'staff', 'pending'];
   });
 
   protected readonly filteredItems = computed(() => {
@@ -964,7 +1065,94 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     if (tab === 'staff') return items.filter((item) => item.membershipKind === 'staff');
     return items;
   });
-
+  protected readonly selectedMembers = computed(() => {
+    const selectedIds = new Set(this.selectedEntryIds());
+    return this.filteredItems().filter((member) => selectedIds.has(member.entryId));
+  });
+  protected readonly selectionCount = computed(() => this.selectedMembers().length);
+  protected readonly allVisibleSelected = computed(() => {
+    const visibleMembers = this.filteredItems();
+    if (visibleMembers.length === 0) return false;
+    const selectedIds = new Set(this.selectedEntryIds());
+    return visibleMembers.every((member) => selectedIds.has(member.entryId));
+  });
+  protected readonly singleSelectedMember = computed(() => {
+    const members = this.selectedMembers();
+    return members.length === 1 ? members[0] : null;
+  });
+  protected readonly selectionBusy = computed(
+    () => this.batchAction() !== null || this.service.pendingAction() !== null
+  );
+  protected readonly canEditSelection = computed(
+    () => this.singleSelectedMember() !== null && !this.selectionBusy()
+  );
+  protected readonly canApproveSelection = computed(() => {
+    const members = this.selectedMembers();
+    return (
+      !this.selectionBusy() && members.length > 0 && members.every((member) => member.isPending)
+    );
+  });
+  protected readonly canRemoveSelection = computed(
+    () => !this.selectionBusy() && this.selectionCount() > 0
+  );
+  protected readonly canGrantAdminSelection = computed(() => {
+    const members = this.selectedMembers();
+    return (
+      !this.selectionBusy() &&
+      this.service.currentUserIsTeamAdmin() &&
+      members.length > 0 &&
+      members.every(
+        (member) =>
+          member.membershipKind === 'staff' &&
+          !member.isPending &&
+          !!member.userId &&
+          member.isTeamAdmin !== true
+      )
+    );
+  });
+  protected readonly canRevokeAdminSelection = computed(() => {
+    const members = this.selectedMembers();
+    return (
+      !this.selectionBusy() &&
+      this.service.currentUserIsTeamAdmin() &&
+      members.length > 0 &&
+      members.every(
+        (member) =>
+          member.membershipKind === 'staff' &&
+          !member.isPending &&
+          !!member.userId &&
+          member.isTeamAdmin === true
+      )
+    );
+  });
+  protected readonly canEnableBudgetSelection = computed(() => {
+    const members = this.selectedMembers();
+    return (
+      !this.selectionBusy() &&
+      this.managesOrganizationBudgetPerAthlete() &&
+      members.length > 0 &&
+      members.every(
+        (member) =>
+          member.membershipKind === 'roster' &&
+          !!member.userId &&
+          member.hasOrganizationBudgetAccess !== true
+      )
+    );
+  });
+  protected readonly canDisableBudgetSelection = computed(() => {
+    const members = this.selectedMembers();
+    return (
+      !this.selectionBusy() &&
+      this.managesOrganizationBudgetPerAthlete() &&
+      members.length > 0 &&
+      members.every(
+        (member) =>
+          member.membershipKind === 'roster' &&
+          !!member.userId &&
+          member.hasOrganizationBudgetAccess === true
+      )
+    );
+  });
   ngOnInit(): void {
     const seed = this.initialFilter();
     if (seed && this.visibleTabs().includes(seed)) {
@@ -1005,18 +1193,376 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     await this.service.loadMembership(this.teamId(), this.mode());
   }
 
-  protected async approve(entryId: string): Promise<void> {
+  protected setActiveTab(tab: FilterTab): void {
+    if (this.activeTab() === tab) {
+      return;
+    }
+
+    this.activeTab.set(tab);
+    this.clearSelection();
+  }
+
+  protected isSelected(entryId: string): boolean {
+    return this.selectedEntryIds().includes(entryId);
+  }
+
+  protected toggleSelection(member: MembershipEditorItem): void {
+    if (this.selectionBusy()) {
+      return;
+    }
+
+    const nextSelectedIds = new Set(this.selectedEntryIds());
+    if (nextSelectedIds.has(member.entryId)) {
+      nextSelectedIds.delete(member.entryId);
+    } else {
+      nextSelectedIds.add(member.entryId);
+    }
+
+    this.selectedEntryIds.set(Array.from(nextSelectedIds));
+    this.syncEditStateToSelection();
+  }
+
+  protected toggleSelectAllVisible(): void {
+    if (this.selectionBusy()) {
+      return;
+    }
+
+    if (this.allVisibleSelected()) {
+      this.clearSelection();
+      return;
+    }
+
+    this.selectedEntryIds.set(this.filteredItems().map((member) => member.entryId));
+    this.syncEditStateToSelection();
+  }
+
+  protected clearSelection(): void {
+    this.selectedEntryIds.set([]);
+    this.syncEditStateToSelection();
+  }
+
+  protected editSelectedMember(): void {
+    const member = this.singleSelectedMember();
+    if (!member) {
+      return;
+    }
+
+    this.startEdit(member);
+  }
+
+  protected async approveSelectedMembers(): Promise<void> {
+    const members = [...this.selectedMembers()];
+    if (members.length === 0 || !members.every((member) => member.isPending)) {
+      return;
+    }
+
+    this.batchAction.set('approve-selected');
+    let approvedCount = 0;
+
+    try {
+      for (const member of members) {
+        const changed = await this.service.approveMember(member.entryId);
+        if (changed) {
+          approvedCount += 1;
+        }
+      }
+    } finally {
+      this.batchAction.set(null);
+    }
+
+    if (approvedCount > 0) {
+      this.hasChanges.set(true);
+      this.clearSelection();
+      this.toast.success(
+        approvedCount === members.length
+          ? `Approved ${approvedCount} ${approvedCount === 1 ? 'member' : 'members'}`
+          : `Approved ${approvedCount} of ${members.length} members`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to approve selected members');
+  }
+
+  protected async removeSelectedMembers(): Promise<void> {
+    const members = [...this.selectedMembers()];
+    if (members.length === 0) {
+      return;
+    }
+
+    const confirmed = await this.modalService.confirm({
+      title: members.length === 1 ? 'Remove Member?' : `Remove ${members.length} Members?`,
+      message:
+        members.length === 1
+          ? 'This will remove the selected member from the team.'
+          : 'This will remove all selected members from the team.',
+      confirmText: members.length === 1 ? 'Remove' : 'Remove Members',
+      cancelText: 'Cancel',
+      destructive: true,
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.batchAction.set('remove-selected');
+    let removedCount = 0;
+
+    try {
+      for (const member of members) {
+        const changed = await this.service.removeMember(member.entryId);
+        if (changed) {
+          removedCount += 1;
+        }
+      }
+    } finally {
+      this.batchAction.set(null);
+    }
+
+    if (removedCount > 0) {
+      this.hasChanges.set(true);
+      this.clearSelection();
+      this.toast.success(
+        removedCount === members.length
+          ? `Removed ${removedCount} ${removedCount === 1 ? 'member' : 'members'}`
+          : `Removed ${removedCount} of ${members.length} members`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to remove selected members');
+  }
+
+  protected async grantAdminToSelected(): Promise<void> {
+    const members = [...this.selectedMembers()];
+    if (!this.canGrantAdminSelection()) {
+      return;
+    }
+
+    if (members.length === 1) {
+      const changed = await this.toggleAdminAccess(members[0]);
+      if (changed) {
+        this.clearSelection();
+      }
+      return;
+    }
+
+    const confirmed = await this.modalService.confirm({
+      title: 'Make Selected Staff Admins?',
+      message: `Grant team admin access to ${members.length} selected staff members?`,
+      confirmText: 'Make Admins',
+      cancelText: 'Cancel',
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.batchAction.set('grant-admin-selected');
+    let updatedCount = 0;
+
+    try {
+      for (const member of members) {
+        const changed = await this.service.updateAdminAccess(member.entryId, true);
+        if (changed) {
+          updatedCount += 1;
+        }
+      }
+    } finally {
+      this.batchAction.set(null);
+    }
+
+    if (updatedCount > 0) {
+      this.hasChanges.set(true);
+      this.clearSelection();
+      this.toast.success(
+        updatedCount === members.length
+          ? `${updatedCount} staff ${updatedCount === 1 ? 'member is' : 'members are'} now admins`
+          : `Updated admin access for ${updatedCount} of ${members.length} staff members`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update admin access');
+  }
+
+  protected async revokeAdminFromSelected(): Promise<void> {
+    const members = [...this.selectedMembers()];
+    if (!this.canRevokeAdminSelection()) {
+      return;
+    }
+
+    if (members.length === 1) {
+      const changed = await this.toggleAdminAccess(members[0]);
+      if (changed) {
+        this.clearSelection();
+      }
+      return;
+    }
+
+    const confirmed = await this.modalService.confirm({
+      title: 'Remove Admin Access?',
+      message: `Remove team admin access from ${members.length} selected staff members?`,
+      confirmText: 'Remove Admin Access',
+      cancelText: 'Cancel',
+      destructive: true,
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.batchAction.set('revoke-admin-selected');
+    let updatedCount = 0;
+
+    try {
+      for (const member of members) {
+        const changed = await this.service.updateAdminAccess(member.entryId, false);
+        if (changed) {
+          updatedCount += 1;
+        }
+      }
+    } finally {
+      this.batchAction.set(null);
+    }
+
+    if (updatedCount > 0) {
+      this.hasChanges.set(true);
+      this.clearSelection();
+      this.toast.success(
+        updatedCount === members.length
+          ? `Removed admin access from ${updatedCount} ${updatedCount === 1 ? 'member' : 'members'}`
+          : `Removed admin access from ${updatedCount} of ${members.length} members`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update admin access');
+  }
+
+  protected async enableBudgetForSelected(): Promise<void> {
+    const members = [...this.selectedMembers()];
+    if (!this.canEnableBudgetSelection()) {
+      return;
+    }
+
+    if (members.length === 1) {
+      const changed = await this.toggleAthleteOrganizationBudgetAccess(members[0]);
+      if (changed) {
+        this.clearSelection();
+      }
+      return;
+    }
+
+    const confirmed = await this.modalService.confirm({
+      title: 'Enable Org Budget?',
+      message: `Allow ${members.length} selected athletes to charge usage to the organization budget?`,
+      confirmText: 'Enable Budget',
+      cancelText: 'Cancel',
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const current = this.organizationBudgetAccess();
+    const nextEnabledAthleteUserIds = new Set(current.enabledAthleteUserIds);
+    for (const member of members) {
+      if (member.userId) {
+        nextEnabledAthleteUserIds.add(member.userId);
+      }
+    }
+
+    this.batchAction.set('enable-budget-selected');
+    const changed = await this.service.updateOrganizationBudgetAccess({
+      enabledForAllAthletes: false,
+      enabledAthleteUserIds: Array.from(nextEnabledAthleteUserIds),
+    });
+    this.batchAction.set(null);
+
+    if (changed) {
+      this.hasChanges.set(true);
+      this.clearSelection();
+      this.toast.success(
+        `${members.length} ${members.length === 1 ? 'athlete can' : 'athletes can'} now use org budget`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update athlete budget access');
+  }
+
+  protected async disableBudgetForSelected(): Promise<void> {
+    const members = [...this.selectedMembers()];
+    if (!this.canDisableBudgetSelection()) {
+      return;
+    }
+
+    if (members.length === 1) {
+      const changed = await this.toggleAthleteOrganizationBudgetAccess(members[0]);
+      if (changed) {
+        this.clearSelection();
+      }
+      return;
+    }
+
+    const confirmed = await this.modalService.confirm({
+      title: 'Disable Org Budget?',
+      message: `Turn off organization billing for ${members.length} selected athletes?`,
+      confirmText: 'Disable Budget',
+      cancelText: 'Cancel',
+      destructive: true,
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    const current = this.organizationBudgetAccess();
+    const nextEnabledAthleteUserIds = new Set(current.enabledAthleteUserIds);
+    for (const member of members) {
+      if (member.userId) {
+        nextEnabledAthleteUserIds.delete(member.userId);
+      }
+    }
+
+    this.batchAction.set('disable-budget-selected');
+    const changed = await this.service.updateOrganizationBudgetAccess({
+      enabledForAllAthletes: false,
+      enabledAthleteUserIds: Array.from(nextEnabledAthleteUserIds),
+    });
+    this.batchAction.set(null);
+
+    if (changed) {
+      this.hasChanges.set(true);
+      this.clearSelection();
+      this.toast.success(
+        `${members.length} ${members.length === 1 ? 'athlete now uses' : 'athletes now use'} personal billing`
+      );
+      return;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update athlete budget access');
+  }
+
+  protected async approve(entryId: string): Promise<boolean> {
     const changed = await this.service.approveMember(entryId);
     if (changed) {
       this.hasChanges.set(true);
       this.toast.success('Member approved');
-      return;
+      return true;
     }
 
     this.toast.error(this.service.error() ?? 'Failed to approve member');
+    return false;
   }
 
-  protected async remove(entryId: string): Promise<void> {
+  protected async remove(entryId: string): Promise<boolean> {
     const confirmed = await this.modalService.confirm({
       title: 'Remove Member?',
       message: 'This will remove the member from the team.',
@@ -1027,17 +1573,18 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     });
 
     if (!confirmed) {
-      return;
+      return false;
     }
 
     const changed = await this.service.removeMember(entryId);
     if (changed) {
       this.hasChanges.set(true);
       this.toast.success('Member removed');
-      return;
+      return true;
     }
 
     this.toast.error(this.service.error() ?? 'Failed to remove member');
+    return false;
   }
 
   protected toggleEdit(member: MembershipEditorItem): void {
@@ -1049,6 +1596,7 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
   }
 
   protected startEdit(member: MembershipEditorItem): void {
+    this.selectedEntryIds.set([member.entryId]);
     this.editingEntryId.set(member.entryId);
     this.editTitle = member.title ?? '';
     this.editPositions.set([...(member.positions ?? [])]);
@@ -1101,6 +1649,23 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
   protected async toggleOrganizationBudgetAccessMode(): Promise<void> {
     const current = this.organizationBudgetAccess();
     const nextEnabledForAllAthletes = !current.enabledForAllAthletes;
+
+    const confirmed = await this.modalService.confirm({
+      title: nextEnabledForAllAthletes
+        ? 'Enable Budget for All Athletes?'
+        : 'Switch to Selected Athletes?',
+      message: nextEnabledForAllAthletes
+        ? 'Allow all athletes on the team to charge usage to the organization budget?'
+        : 'Restrict organization budget access so only selected athletes can use it?',
+      confirmText: nextEnabledForAllAthletes ? 'Enable For All' : 'Switch Mode',
+      cancelText: 'Cancel',
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
     const changed = await this.service.updateOrganizationBudgetAccess({
       enabledForAllAthletes: nextEnabledForAllAthletes,
       enabledAthleteUserIds: [...current.enabledAthleteUserIds],
@@ -1121,14 +1686,33 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
 
   protected async toggleAthleteOrganizationBudgetAccess(
     member: MembershipEditorItem
-  ): Promise<void> {
+  ): Promise<boolean> {
     if (!member.userId) {
-      return;
+      return false;
     }
 
     const current = this.organizationBudgetAccess();
+    const isCurrentlyEnabled = current.enabledAthleteUserIds.includes(member.userId);
+    const nextWillBeEnabled = !isCurrentlyEnabled;
+    const name = this.memberDisplayName(member);
+
+    const confirmed = await this.modalService.confirm({
+      title: nextWillBeEnabled ? 'Enable Org Budget?' : 'Disable Org Budget?',
+      message: nextWillBeEnabled
+        ? `Allow ${name} to charge team usage to the organization budget?`
+        : `Turn off organization budget access for ${name}? They will use personal billing instead.`,
+      confirmText: nextWillBeEnabled ? 'Enable Budget' : 'Disable Budget',
+      cancelText: 'Cancel',
+      destructive: !nextWillBeEnabled,
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return false;
+    }
+
     const nextEnabledAthleteUserIds = new Set(current.enabledAthleteUserIds);
-    if (nextEnabledAthleteUserIds.has(member.userId)) {
+    if (isCurrentlyEnabled) {
       nextEnabledAthleteUserIds.delete(member.userId);
     } else {
       nextEnabledAthleteUserIds.add(member.userId);
@@ -1142,14 +1726,68 @@ export class ManageTeamMembershipEditorComponent implements OnInit, OnDestroy {
     if (changed) {
       this.hasChanges.set(true);
       this.toast.success(
-        nextEnabledAthleteUserIds.has(member.userId)
-          ? `${this.memberDisplayName(member)} can now use org budget`
-          : `${this.memberDisplayName(member)} now uses personal billing`
+        nextWillBeEnabled ? `${name} can now use org budget` : `${name} now uses personal billing`
       );
-      return;
+      return true;
     }
 
     this.toast.error(this.service.error() ?? 'Failed to update athlete budget access');
+    return false;
+  }
+
+  protected isUpdatingAdminAccess(entryId: string): boolean {
+    return this.service.pendingAction() === `admin-access:${entryId}`;
+  }
+
+  protected async toggleAdminAccess(member: MembershipEditorItem): Promise<boolean> {
+    if (!member.userId) {
+      return false;
+    }
+
+    const nextIsTeamAdmin = !member.isTeamAdmin;
+    const name = this.memberDisplayName(member);
+
+    const confirmed = await this.modalService.confirm({
+      title: nextIsTeamAdmin ? 'Make Team Admin?' : 'Revoke Admin Access?',
+      message: nextIsTeamAdmin
+        ? `Grant ${name} admin access to manage team usage, billing, and members?`
+        : `Remove admin access for ${name}? They will no longer be able to manage team usage or billing.`,
+      confirmText: nextIsTeamAdmin ? 'Make Admin' : 'Revoke Access',
+      cancelText: 'Cancel',
+      destructive: !nextIsTeamAdmin,
+      preferNative: 'native',
+    });
+
+    if (!confirmed) {
+      return false;
+    }
+
+    const changed = await this.service.updateAdminAccess(member.entryId, nextIsTeamAdmin);
+
+    if (changed) {
+      this.hasChanges.set(true);
+      this.toast.success(
+        nextIsTeamAdmin
+          ? `${name} can now manage /usage billing`
+          : `${name} no longer has admin access`
+      );
+      return true;
+    }
+
+    this.toast.error(this.service.error() ?? 'Failed to update admin access');
+    return false;
+  }
+
+  private syncEditStateToSelection(): void {
+    const editingEntryId = this.editingEntryId();
+    if (!editingEntryId) {
+      return;
+    }
+
+    const selectedIds = this.selectedEntryIds();
+    if (selectedIds.length !== 1 || selectedIds[0] !== editingEntryId) {
+      this.cancelEdit();
+    }
   }
 
   protected removePosition(position: string): void {

@@ -153,6 +153,11 @@ describe('signup dashboard Notion entry service', () => {
       jsonResponse({ results: [{ id: 'page-existing', url: 'https://notion.so/existing' }] })
     );
     fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        notionPageWithStage('page-existing', 'Onboarding Completed', 'https://notion.so/existing')
+      )
+    );
+    fetchMock.mockResolvedValueOnce(
       jsonResponse({ id: 'page-existing', url: 'https://notion.so/existing' })
     );
     fetchMock.mockResolvedValueOnce(
@@ -239,6 +244,11 @@ describe('signup dashboard Notion entry service', () => {
         jsonResponse({ results: [{ id: 'page-existing', url: 'https://notion.so/existing' }] })
       )
       .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-existing', 'Onboarding Completed', 'https://notion.so/existing')
+        )
+      )
+      .mockResolvedValueOnce(
         jsonResponse({ id: 'page-existing', url: 'https://notion.so/existing' })
       )
       .mockResolvedValueOnce(
@@ -289,6 +299,11 @@ describe('signup dashboard Notion entry service', () => {
       .mockResolvedValueOnce(
         jsonResponse({ results: [{ id: 'page-mascot', url: 'https://notion.so/mascot' }] })
       )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-mascot', 'Onboarding Completed', 'https://notion.so/mascot')
+        )
+      )
       .mockResolvedValueOnce(jsonResponse({ id: 'page-mascot', url: 'https://notion.so/mascot' }))
       .mockResolvedValueOnce(
         jsonResponse(
@@ -320,6 +335,119 @@ describe('signup dashboard Notion entry service', () => {
 
     expect(startsWithQueryBodies).toHaveLength(1);
     expect(startsWithQueryBodies[0]).toContain('"starts_with":"Akron East"');
+  });
+
+  it('reuses an existing B2B Partners page when a team name adds a sport suffix', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 'page-barberton', url: 'https://notion.so/barberton' }] })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage(
+            'page-barberton',
+            'Onboarding Completed',
+            'https://notion.so/barberton'
+          )
+        )
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ id: 'page-barberton', url: 'https://notion.so/barberton' })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage(
+            'page-barberton',
+            'Onboarding Completed',
+            'https://notion.so/barberton'
+          )
+        )
+      );
+
+    const result = await upsertSignupDashboardEntry({
+      userId: 'user-barberton-football',
+      environment: 'production',
+      role: 'coach',
+      firstName: 'Cam',
+      lastName: 'Coach',
+      email: 'coach@example.com',
+      teamName: 'Barberton Football',
+      organizationType: 'high_school',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-barberton',
+      pageUrl: 'https://notion.so/barberton',
+    });
+
+    const organizationQueryBodies = fetchMock.mock.calls
+      .map(([, init]) => (typeof init?.body === 'string' ? String(init.body) : null))
+      .filter(
+        (body): body is string => Boolean(body) && body.includes('"property":"Organization"')
+      );
+
+    expect(organizationQueryBodies[0]).toContain('"equals":"Barberton Football"');
+    expect(organizationQueryBodies[1]).toContain('"equals":"Barberton"');
+  });
+
+  it('preserves a later shared B2B stage when signup sync enriches an existing page', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 'page-shared', url: 'https://notion.so/shared' }] })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-shared', 'Usage Started', 'https://notion.so/shared')
+        )
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 'page-shared', url: 'https://notion.so/shared' }))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          notionPageWithStage('page-shared', 'Usage Started', 'https://notion.so/shared')
+        )
+      );
+
+    const result = await upsertSignupDashboardEntry({
+      userId: 'user-shared-stage',
+      environment: 'production',
+      role: 'coach',
+      email: 'shared@example.com',
+      teamName: 'Barberton Football',
+      organizationType: 'high_school',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-shared',
+      pageUrl: 'https://notion.so/shared',
+    });
+
+    const updateCall = fetchMock.mock.calls.find(([, init]) => {
+      return (
+        init?.method === 'PATCH' &&
+        typeof init?.body === 'string' &&
+        String(init.body).includes('"properties"')
+      );
+    });
+
+    expect(updateCall).toBeTruthy();
+
+    const updateBody = JSON.parse(String(updateCall?.[1]?.body)) as {
+      readonly properties: Record<string, unknown>;
+    };
+
+    expect(updateBody.properties['Stage']).toBeUndefined();
+    expect(updateBody.properties['Next Action']).toBeUndefined();
+    expect(updateBody.properties['Notes']).toBeUndefined();
   });
 
   it('links the B2C user page into the B2B Members relation when available', async () => {
@@ -379,6 +507,9 @@ describe('signup dashboard Notion entry service', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(
         jsonResponse({ id: 'page-phone', url: 'https://notion.so/phone-call-due' })
       )
@@ -436,6 +567,9 @@ describe('signup dashboard Notion entry service', () => {
     process.env['NOTION_API_TOKEN'] = 'secret-test';
     process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
     fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(

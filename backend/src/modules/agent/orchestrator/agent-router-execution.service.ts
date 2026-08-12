@@ -309,6 +309,20 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     forced.add('execute_sandbox_script');
   }
 
+  const mentionsCoachPerformanceAnalytics =
+    mentionsFilmReviewPointer ||
+    /\b(film|game|player|players?|team|roster|lineup|athlete|athletes?|performance|scouting|evaluation|self-scout|opponent|tendency|tendencies|progression)\b/i.test(
+      normalizedIntent
+    );
+  const mentionsChartWorthyPerformanceMetrics =
+    /\b(metrics?|trend(?:s|line)?|split|splits|rate|rates|efficien(?:cy|t)|comparison|compare|leaderboard|progression|tendency|tendencies|break\s*down|breakdown|analytics?|report|summary|distribution|percentage|percent|yards?|points?|touches|scores?|confidence)\b/i.test(
+      normalizedIntent
+    );
+
+  if (mentionsCoachPerformanceAnalytics && mentionsChartWorthyPerformanceMetrics) {
+    forced.add('generate_chart_visualization');
+  }
+
   const asksForSelectedFilmPlayerStats =
     mentionsFilmReviewPointer &&
     /\b(player|players?|team|offensive|rushing|passing|receiving)\b/i.test(normalizedIntent) &&

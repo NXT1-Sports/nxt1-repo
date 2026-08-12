@@ -13,6 +13,7 @@
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { validateBody, validateQuery } from '../../middleware/validation/validation.middleware.js';
 import {
@@ -70,6 +71,7 @@ import {
 } from '../../services/team/team-intel-permissions.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { evictBillingResolutionCache } from '../../modules/billing/budget.service.js';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 
 export {
   canGenerateTeamIntelForUser,
@@ -102,6 +104,45 @@ function validateRequired(value: unknown, fieldName: string): void {
       { field: fieldName, message: `${fieldName} is required`, rule: 'required' },
     ]);
   }
+}
+
+async function finalizeOrganizationLogo(params: {
+  readonly rawValue: string;
+  readonly teamId: string;
+  readonly organizationId: string;
+  readonly bucket: ReturnType<ReturnType<typeof getStorage>['bucket']>;
+}): Promise<string | null> {
+  if (!params.rawValue) return null;
+
+  const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(params.rawValue);
+  const isBareStoragePath = storagePath === params.rawValue.replace(/^\/+/, '');
+  const isTokenizedFirebaseUrl = AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(
+    params.rawValue
+  );
+  const isAuthorizedTeamLogo = storagePath?.startsWith(`Teams/${params.teamId}/logo/`) ?? false;
+  const isCanonicalOrganizationLogo = storagePath === `Organizations/${params.organizationId}/logo`;
+
+  if (
+    !storagePath ||
+    (!isBareStoragePath && !isTokenizedFirebaseUrl) ||
+    (!isAuthorizedTeamLogo && !isCanonicalOrganizationLogo)
+  ) {
+    throw validationError([
+      {
+        field: 'organizationLogoUrl',
+        message:
+          'Organization logo must be an uploaded team-logo storage path or Firebase download URL.',
+        rule: 'invalid',
+      },
+    ]);
+  }
+
+  const promoted = await AgentMediaLifecycleService.promoteStorageObjectToDurableDestination({
+    bucket: params.bucket,
+    storagePath,
+    destinationPath: `Organizations/${params.organizationId}/logo`,
+  });
+  return promoted.url;
 }
 
 async function invalidateMemberProfileCache(
@@ -674,7 +715,6 @@ router.patch(
       ties,
       season,
       organizationLogoUrl,
-      logoUrl,
       galleryImages,
       connectedSources,
       primaryColor,
@@ -687,16 +727,40 @@ router.patch(
 
     validateRequired(id, 'Team ID');
 
+    if (
+      Object.prototype.hasOwnProperty.call(req.body, 'logoUrl') ||
+      Object.prototype.hasOwnProperty.call(req.body, 'teamLogoImg')
+    ) {
+      throw validationError([
+        {
+          field: 'logoUrl',
+          message: 'Legacy team logo fields are not supported. Use organizationLogoUrl.',
+          rule: 'invalid',
+        },
+      ]);
+    }
+
     let previousTeam: Record<string, unknown> | null = null;
+    let previousTeamCode:
+      | Awaited<ReturnType<typeof teamCodeService.getTeamCodeById>>['team']
+      | null = null;
     try {
       const previousSnapshot = await teamCodeService.getTeamCodeById(db, String(id));
       previousTeam = previousSnapshot.team as unknown as Record<string, unknown>;
+      previousTeamCode = previousSnapshot.team;
     } catch (err) {
       logger.warn('[Teams API] Failed to load previous team snapshot for delta', {
         teamId: id,
         userId,
         error: err instanceof Error ? err.message : String(err),
       });
+    }
+
+    if (
+      !previousTeamCode ||
+      !(await teamCodeService.canEditTeamSettings(db, String(id), previousTeamCode, userId))
+    ) {
+      throw forbiddenError('admin');
     }
 
     const normalizedConnectedSources = Array.isArray(connectedSources)
@@ -748,6 +812,32 @@ router.patch(
           }))
       : undefined;
 
+    const normalizedOrganizationLogoUrl =
+      typeof organizationLogoUrl === 'string' ? organizationLogoUrl.trim() : undefined;
+    const previousOrganizationId =
+      typeof previousTeam?.['organizationId'] === 'string'
+        ? previousTeam['organizationId'].trim()
+        : '';
+    const finalizedOrganizationLogoUrl =
+      normalizedOrganizationLogoUrl === undefined
+        ? undefined
+        : previousOrganizationId
+          ? await finalizeOrganizationLogo({
+              rawValue: normalizedOrganizationLogoUrl,
+              teamId: String(id),
+              organizationId: previousOrganizationId,
+              bucket: req.firebase?.storage?.bucket() || getStorage().bucket(),
+            })
+          : (() => {
+              throw validationError([
+                {
+                  field: 'organizationLogoUrl',
+                  message: 'A linked organization is required before updating its logo.',
+                  rule: 'invalid',
+                },
+              ]);
+            })();
+
     const team = await teamCodeService.updateTeamCode(db, String(id), userId, {
       teamName: teamName?.trim(),
       sport: sportName?.trim(),
@@ -765,7 +855,6 @@ router.patch(
       losses: losses !== undefined ? parseInt(String(losses), 10) : undefined,
       ties: ties !== undefined ? parseInt(String(ties), 10) : undefined,
       season: typeof season === 'string' ? season.trim() : undefined,
-      logoUrl: typeof logoUrl === 'string' ? logoUrl.trim() : undefined,
       galleryImages: Array.isArray(galleryImages)
         ? galleryImages
             .filter((item): item is string => typeof item === 'string')
@@ -782,8 +871,6 @@ router.patch(
       });
     }
 
-    const normalizedOrganizationLogoUrl =
-      typeof organizationLogoUrl === 'string' ? organizationLogoUrl.trim() : undefined;
     const resolvedOrganizationId =
       typeof (team as { organizationId?: unknown }).organizationId === 'string'
         ? ((team as { organizationId?: string }).organizationId ?? '').trim()
@@ -813,8 +900,8 @@ router.patch(
           updatedAt: FieldValue.serverTimestamp(),
         };
 
-        if (normalizedOrganizationLogoUrl !== undefined) {
-          organizationUpdates['logoUrl'] = normalizedOrganizationLogoUrl || null;
+        if (finalizedOrganizationLogoUrl !== undefined) {
+          organizationUpdates['logoUrl'] = finalizedOrganizationLogoUrl;
         }
 
         if (normalizedOrgLevel !== undefined) {
@@ -1782,23 +1869,59 @@ async function assertMembershipEditorPermission(
 }
 
 /**
+ * Resolve the effective team admin user IDs from a team document.
+ * Falls back to `createdBy` when the team has no explicit `adminIds` list yet,
+ * so the original team creator always retains admin/billing visibility.
+ */
+function extractEffectiveTeamAdminIds(teamData: Record<string, unknown> | undefined): string[] {
+  if (!teamData) return [];
+  const adminIds = Array.isArray(teamData['adminIds'])
+    ? teamData['adminIds'].filter((value): value is string => typeof value === 'string')
+    : [];
+  if (adminIds.length > 0) return adminIds;
+  return typeof teamData['createdBy'] === 'string' ? [teamData['createdBy']] : [];
+}
+
+/**
+ * Permission helper: only current team admins (or the team owner/creator) may
+ * grant or revoke another member's team admin (`/usage` billing) access.
+ * Stricter than `assertMembershipEditorPermission`, which also allows coaches
+ * without admin rights to manage roster/staff fields.
+ */
+function assertTeamAdminPermission(
+  requesterId: string,
+  teamData: Record<string, unknown> | undefined
+): void {
+  const effectiveAdminIds = extractEffectiveTeamAdminIds(teamData);
+  if (
+    effectiveAdminIds.includes(requesterId) ||
+    teamData?.['ownerId'] === requesterId ||
+    teamData?.['coachId'] === requesterId
+  ) {
+    return;
+  }
+  throw forbiddenError('permission');
+}
+
+/**
  * Map a RosterEntry document to the normalized MembershipEditorItem shape
  * consumed by the shared UI editor component.
  */
 function mapRosterEntryToEditorItem(
   entryId: string,
   entry: Record<string, unknown>,
-  options?: { organizationBudgetAccess?: boolean }
+  options?: { organizationBudgetAccess?: boolean; teamAdminIds?: readonly string[] }
 ): Record<string, unknown> {
   const role = typeof entry['role'] === 'string' ? entry['role'] : '';
   const isAthlete = role.toLowerCase() === 'athlete';
   const status = typeof entry['status'] === 'string' ? entry['status'] : 'active';
   const firstName = typeof entry['firstName'] === 'string' ? entry['firstName'] : '';
   const lastName = typeof entry['lastName'] === 'string' ? entry['lastName'] : '';
+  const userId = typeof entry['userId'] === 'string' ? entry['userId'] : undefined;
 
   return {
     entryId,
-    userId: typeof entry['userId'] === 'string' ? entry['userId'] : undefined,
+    userId,
     sourceKind: 'account-backed',
     membershipKind: isAthlete ? 'roster' : 'staff',
     firstName,
@@ -1818,6 +1941,10 @@ function mapRosterEntryToEditorItem(
     sport: typeof entry['sport'] === 'string' ? entry['sport'] : undefined,
     classOf: isAthlete && typeof entry['classOf'] === 'number' ? entry['classOf'] : undefined,
     hasOrganizationBudgetAccess: isAthlete ? options?.organizationBudgetAccess : undefined,
+    isTeamAdmin:
+      !isAthlete && userId && options?.teamAdminIds
+        ? options.teamAdminIds.includes(userId)
+        : undefined,
     email: typeof entry['email'] === 'string' ? entry['email'] : undefined,
     phone: typeof entry['phone'] === 'string' ? entry['phone'] : undefined,
     joinedAt: entry['joinedAt'] ? String(entry['joinedAt']) : undefined,
@@ -1874,6 +2001,7 @@ router.get(
     const organizationBudgetAccess = normalizeTeamOrganizationBudgetAccess(
       teamData['organizationBudgetAccess']
     );
+    const teamAdminIds = extractEffectiveTeamAdminIds(teamData);
     const teamSport = typeof teamData['sport'] === 'string' ? teamData['sport'] : '';
     const athleteUserIdsNeedingFallback = entries
       .map((entry) => entry as unknown as Record<string, unknown>)
@@ -1908,12 +2036,17 @@ router.get(
           organizationBudgetAccess,
           userId
         ),
+        teamAdminIds,
       });
     });
 
     const rosterCount = members.filter((member) => member['membershipKind'] === 'roster').length;
     const staffCount = members.filter((member) => member['membershipKind'] === 'staff').length;
     const pendingCount = members.filter((member) => member['isPending'] === true).length;
+    const currentUserIsTeamAdmin =
+      teamAdminIds.includes(requesterId) ||
+      teamData['ownerId'] === requesterId ||
+      teamData['coachId'] === requesterId;
 
     logger.info('[Teams API] Membership editor list', { teamId, total: members.length });
     sendSuccess(res, {
@@ -1923,6 +2056,7 @@ router.get(
       staffCount,
       pendingCount,
       organizationBudgetAccess,
+      currentUserIsTeamAdmin,
     });
   })
 );
@@ -1992,6 +2126,7 @@ router.put(
     const organizationBudgetAccess = normalizeTeamOrganizationBudgetAccess(
       teamData['organizationBudgetAccess']
     );
+    const teamAdminIds = extractEffectiveTeamAdminIds(teamData);
     const athleteUserIdsNeedingFallback = allEntries
       .map((entry) => entry as unknown as Record<string, unknown>)
       .filter((entry) => {
@@ -2026,6 +2161,7 @@ router.put(
           organizationBudgetAccess,
           userId
         ),
+        teamAdminIds,
       });
     });
 
@@ -2036,6 +2172,10 @@ router.put(
       staffCount: members.filter((member) => member['membershipKind'] === 'staff').length,
       pendingCount: members.filter((member) => member['isPending'] === true).length,
       organizationBudgetAccess,
+      currentUserIsTeamAdmin:
+        teamAdminIds.includes(requesterId) ||
+        teamData['ownerId'] === requesterId ||
+        teamData['coachId'] === requesterId,
     });
   })
 );
@@ -2076,10 +2216,98 @@ router.patch(
       status: nextStatus,
     });
 
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    const teamAdminIds = extractEffectiveTeamAdminIds(teamDoc.data());
+
     const raw = updated as unknown as Record<string, unknown>;
-    const item = mapRosterEntryToEditorItem(entryId, raw);
+    const item = mapRosterEntryToEditorItem(entryId, raw, { teamAdminIds });
 
     logger.info('[Teams API] Membership entry updated', { teamId, entryId, requesterId });
+    sendSuccess(res, item);
+  })
+);
+
+/**
+ * Grant or revoke a staff member's team admin access.
+ * Team admin status controls `/usage` billing visibility and the ability to
+ * manage other members' admin access, so only existing team admins (or the
+ * team owner/creator) may perform this action.
+ * PATCH /api/v1/teams/:teamId/membership/:entryId/admin-access
+ */
+router.patch(
+  '/:teamId/membership/:entryId/admin-access',
+  appGuard,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const teamId = String(req.params['teamId'] ?? '');
+    const entryId = String(req.params['entryId'] ?? '');
+    const requesterId = req.user!.uid;
+    const db = req.firebase!.db;
+
+    validateRequired(teamId, 'Team ID');
+    validateRequired(entryId, 'Entry ID');
+
+    const { isTeamAdmin } = req.body as { isTeamAdmin?: boolean };
+    if (typeof isTeamAdmin !== 'boolean') {
+      throw validationError([
+        {
+          field: 'isTeamAdmin',
+          message: 'isTeamAdmin must be a boolean',
+          rule: 'type',
+        },
+      ]);
+    }
+
+    const teamDocRef = db.collection('Teams').doc(teamId);
+    const teamDoc = await teamDocRef.get();
+    const teamData = teamDoc.data();
+    assertTeamAdminPermission(requesterId, teamData);
+
+    const rosterService = new RosterEntryService(db);
+    const entry = await rosterService.getRosterEntryById(entryId);
+    if (entry.teamId !== teamId) {
+      throw forbiddenError('permission');
+    }
+    if (!entry.userId) {
+      throw validationError([
+        {
+          field: 'entryId',
+          message: 'This member does not have an account and cannot be granted admin access',
+          rule: 'membership',
+        },
+      ]);
+    }
+    if (String(entry.role).trim().toLowerCase() === 'athlete') {
+      throw validationError([
+        {
+          field: 'entryId',
+          message: 'Only coaches and staff members can be granted team admin access',
+          rule: 'membership',
+        },
+      ]);
+    }
+
+    await teamDocRef.set(
+      {
+        adminIds: isTeamAdmin
+          ? FieldValue.arrayUnion(entry.userId)
+          : FieldValue.arrayRemove(entry.userId),
+      },
+      { merge: true }
+    );
+
+    evictBillingResolutionCache(entry.userId);
+
+    const updatedTeamDoc = await teamDocRef.get();
+    const teamAdminIds = extractEffectiveTeamAdminIds(updatedTeamDoc.data());
+    const raw = entry as unknown as Record<string, unknown>;
+    const item = mapRosterEntryToEditorItem(entryId, raw, { teamAdminIds });
+
+    logger.info('[Teams API] Membership admin access updated', {
+      teamId,
+      entryId,
+      requesterId,
+      isTeamAdmin,
+    });
     sendSuccess(res, item);
   })
 );

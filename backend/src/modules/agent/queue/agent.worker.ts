@@ -100,7 +100,7 @@ import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
-import { upsertTeamFileFromAttachment } from '../../../services/team/team-files-index.service.js';
+import { attachExportAssetToUniversalDocument } from '../../../services/team/team-files-index.service.js';
 import crypto from 'node:crypto';
 
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
@@ -303,9 +303,14 @@ function readTrimmedStringArray(value: unknown): readonly string[] | undefined {
 function readCreatedUniversalDocumentContext(
   output: Record<string, unknown> | undefined
 ): CreatedUniversalDocumentContext | null {
+  const wrappedData =
+    output?.['data'] && typeof output['data'] === 'object'
+      ? (output['data'] as Record<string, unknown>)
+      : null;
+  const documentSource = wrappedData ?? output;
   const document =
-    output?.['document'] && typeof output['document'] === 'object'
-      ? (output['document'] as Record<string, unknown>)
+    documentSource?.['document'] && typeof documentSource['document'] === 'object'
+      ? (documentSource['document'] as Record<string, unknown>)
       : null;
   if (!document) return null;
 
@@ -339,13 +344,130 @@ function collectCreatedUniversalDocumentContexts(
 ): readonly CreatedUniversalDocumentContext[] {
   if (!toolCalls?.length) return [];
 
-  return toolCalls
+  const allToolCalls: AgentToolCallRecord[] = [];
+  const visit = (records: readonly AgentToolCallRecord[]): void => {
+    for (const record of records) {
+      allToolCalls.push(record);
+      const output = record.output as Record<string, unknown> | undefined;
+      const nestedRecords = Array.isArray(output?.['coordinator_tool_call_records'])
+        ? (output['coordinator_tool_call_records'] as AgentToolCallRecord[])
+        : output?.['data'] &&
+            typeof output['data'] === 'object' &&
+            Array.isArray(
+              (output['data'] as Record<string, unknown>)['coordinator_tool_call_records']
+            )
+          ? ((output['data'] as Record<string, unknown>)[
+              'coordinator_tool_call_records'
+            ] as AgentToolCallRecord[])
+          : [];
+      if (nestedRecords.length > 0) visit(nestedRecords);
+    }
+  };
+
+  visit(toolCalls);
+
+  return allToolCalls
     .filter(
       (record) =>
-        record.toolName === 'create_universal_team_document' && record.status === 'success'
+        (record.toolName === 'create_universal_team_document' ||
+          record.toolName === 'update_universal_team_document') &&
+        record.status === 'success'
     )
     .map((record) => readCreatedUniversalDocumentContext(record.output))
     .filter((context): context is CreatedUniversalDocumentContext => context !== null);
+}
+
+function flattenToolCallTimeline(
+  toolCalls: readonly AgentToolCallRecord[] | undefined
+): readonly AgentToolCallRecord[] {
+  if (!toolCalls?.length) return [];
+
+  const timeline: AgentToolCallRecord[] = [];
+  const visit = (records: readonly AgentToolCallRecord[]): void => {
+    for (const record of records) {
+      timeline.push(record);
+      const output = record.output as Record<string, unknown> | undefined;
+      const nestedRecords = Array.isArray(output?.['coordinator_tool_call_records'])
+        ? (output['coordinator_tool_call_records'] as AgentToolCallRecord[])
+        : output?.['data'] &&
+            typeof output['data'] === 'object' &&
+            Array.isArray(
+              (output['data'] as Record<string, unknown>)['coordinator_tool_call_records']
+            )
+          ? ((output['data'] as Record<string, unknown>)[
+              'coordinator_tool_call_records'
+            ] as AgentToolCallRecord[])
+          : [];
+      if (nestedRecords.length > 0) visit(nestedRecords);
+    }
+  };
+
+  visit(toolCalls);
+  return timeline;
+}
+
+function collectExportAttachmentKeys(value: unknown): readonly string[] {
+  if (!value || typeof value !== 'object') return [];
+  const data = value as Record<string, unknown>;
+  const keys = new Set<string>();
+  const add = (prefix: string, candidate: unknown): void => {
+    const normalized = readTrimmedString(candidate);
+    if (normalized) keys.add(`${prefix}:${normalized}`);
+  };
+  const addAttachment = (candidate: unknown): void => {
+    if (!candidate || typeof candidate !== 'object') return;
+    const attachment = candidate as Record<string, unknown>;
+    add('storage', attachment['storagePath']);
+    add('url', attachment['url'] ?? attachment['downloadUrl']);
+    add('name', attachment['name'] ?? attachment['fileName']);
+  };
+
+  addAttachment(data);
+  const wrappedData = data['data'];
+  if (wrappedData && typeof wrappedData === 'object') addAttachment(wrappedData);
+  for (const collectionKey of ['attachments', 'files']) {
+    const collection = Array.isArray(data[collectionKey]) ? data[collectionKey] : [];
+    for (const entry of collection) addAttachment(entry);
+    const nestedCollection =
+      wrappedData &&
+      typeof wrappedData === 'object' &&
+      Array.isArray((wrappedData as Record<string, unknown>)[collectionKey])
+        ? ((wrappedData as Record<string, unknown>)[collectionKey] as unknown[])
+        : [];
+    for (const entry of nestedCollection) addAttachment(entry);
+  }
+
+  return Array.from(keys);
+}
+
+function collectDynamicExportDocumentTargets(
+  toolCalls: readonly AgentToolCallRecord[] | undefined
+): ReadonlyMap<string, string> {
+  const targets = new Map<string, string>();
+  let latestDocument: CreatedUniversalDocumentContext | null = null;
+
+  for (const record of flattenToolCallTimeline(toolCalls)) {
+    if (
+      (record.toolName === 'create_universal_team_document' ||
+        record.toolName === 'update_universal_team_document') &&
+      record.status === 'success'
+    ) {
+      latestDocument = readCreatedUniversalDocumentContext(record.output);
+      continue;
+    }
+
+    if (record.toolName !== 'dynamic_export' || record.status !== 'success') continue;
+
+    const explicitDocumentId = readTrimmedString(record.input?.['relatedDocumentId']);
+    const documentId = explicitDocumentId ?? latestDocument?.id;
+    if (!documentId) continue;
+
+    for (const key of collectExportAttachmentKeys(record.output)) {
+      targets.set(key, documentId);
+    }
+  }
+
+  return targets;
 }
 
 function collectSelectedSourceDocumentIds(payload: AgentJobPayload): readonly string[] | undefined {
@@ -404,6 +526,7 @@ function inferGeneratedArtifactRelationships(params: {
 
   const createdDocuments = collectCreatedUniversalDocumentContexts(params.toolCalls);
   const fallbackDocument = createdDocuments.length === 1 ? createdDocuments[0] : null;
+  const exportDocumentTargets = collectDynamicExportDocumentTargets(params.toolCalls);
   const sourceDocumentIds = collectSelectedSourceDocumentIds(params.payload);
   const artifactGroupId = readTrimmedString(params.payload.operationId);
 
@@ -412,7 +535,15 @@ function inferGeneratedArtifactRelationships(params: {
   return params.attachments.map((attachment) => {
     if (!isGeneratedExportAttachment(attachment)) return attachment;
 
-    const relatedDocumentId = attachment.relatedDocumentId ?? fallbackDocument?.id;
+    const matchedDocumentId = [
+      attachment.storagePath ? `storage:${attachment.storagePath}` : undefined,
+      attachment.url ? `url:${attachment.url}` : undefined,
+      attachment.name ? `name:${attachment.name}` : undefined,
+    ].find((key): key is string => !!key && exportDocumentTargets.has(key));
+    const relatedDocumentId =
+      attachment.relatedDocumentId ??
+      (matchedDocumentId ? exportDocumentTargets.get(matchedDocumentId) : undefined) ??
+      fallbackDocument?.id;
     return {
       ...attachment,
       artifactRole: attachment.artifactRole ?? 'export',
@@ -1491,6 +1622,141 @@ export class AgentWorker {
         error: err instanceof Error ? err.message : String(err),
       });
       return { suppressed: false };
+    }
+  }
+
+  private async persistPostRunPausedSnapshot(
+    payload: AgentJobPayload,
+    snapshot: ReturnType<PersistedAssistantStreamBuilder['snapshot']>,
+    resultSummary: string,
+    resultData: Record<string, unknown> | undefined,
+    userAttachmentUrlSet: ReadonlySet<string>
+  ): Promise<void> {
+    if (!this.chatService) return;
+
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const threadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    if (!threadId) return;
+
+    const rawToolCalls = resultData?.['toolCallRecords'];
+    const toolCalls = Array.isArray(rawToolCalls)
+      ? (rawToolCalls as AgentToolCallRecord[])
+      : undefined;
+    const generatedAttachments = resultData
+      ? inferGeneratedArtifactRelationships({
+          attachments: extractMediaAttachmentsFromResultData(resultData).filter(
+            (attachment) => !isUserAttachmentUrl(attachment.url, userAttachmentUrlSet)
+          ),
+          toolCalls,
+          payload,
+        })
+      : [];
+    const attachments: AgentXAttachment[] = generatedAttachments.map((attachment) => {
+      const mimeType =
+        attachment.mimeType ??
+        (attachment.type === 'image'
+          ? 'image/jpeg'
+          : attachment.type === 'video'
+            ? 'video/mp4'
+            : 'application/octet-stream');
+      const type: AgentXAttachment['type'] =
+        mimeType === 'application/pdf' ? 'pdf' : mimeType === 'text/csv' ? 'csv' : attachment.type;
+
+      return {
+        id: crypto.randomUUID(),
+        url: attachment.url,
+        ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+        name: attachment.name,
+        mimeType,
+        type,
+        sizeBytes: attachment.sizeBytes ?? 0,
+        ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+        ...(attachment.cloudflareVideoId
+          ? { cloudflareVideoId: attachment.cloudflareVideoId }
+          : {}),
+        ...(attachment.artifactRole ? { artifactRole: attachment.artifactRole } : {}),
+        ...(attachment.relatedDocumentId
+          ? { relatedDocumentId: attachment.relatedDocumentId }
+          : {}),
+        ...(attachment.sourceDocumentIds?.length
+          ? { sourceDocumentIds: attachment.sourceDocumentIds }
+          : {}),
+        ...(attachment.sourceAttachmentIds?.length
+          ? { sourceAttachmentIds: attachment.sourceAttachmentIds }
+          : {}),
+        ...(attachment.artifactGroupId ? { artifactGroupId: attachment.artifactGroupId } : {}),
+      };
+    });
+    const persistedContent =
+      snapshot.content.trim().length > 0 ? snapshot.content : resultSummary.trim();
+    const hasDurableSnapshot =
+      persistedContent.length > 0 ||
+      snapshot.steps.length > 0 ||
+      snapshot.parts.length > 0 ||
+      attachments.length > 0 ||
+      Boolean(toolCalls?.length);
+
+    if (!hasDurableSnapshot) return;
+    const addMessageParams = {
+      threadId,
+      userId: payload.userId,
+      role: 'assistant' as const,
+      content: persistedContent,
+      origin: payload.origin,
+      agentId: 'router' as const,
+      operationId: payload.operationId,
+      idempotencyKey: `${payload.operationId}:assistant_partial`,
+      semanticPhase: 'assistant_partial' as const,
+      ...(snapshot.steps.length > 0 ? { steps: snapshot.steps } : {}),
+      ...(snapshot.parts.length > 0 ? { parts: snapshot.parts } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(resultData ? { resultData } : {}),
+      ...(toolCalls?.length ? { toolCalls } : {}),
+    };
+
+    const persistRetryDelaysMs = [0, 500, 1500];
+    let lastError: unknown;
+    for (let attempt = 0; attempt < persistRetryDelaysMs.length; attempt++) {
+      const delayMs = persistRetryDelaysMs[attempt];
+      if (delayMs > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      try {
+        await this.chatService.addMessage(addMessageParams);
+        lastError = undefined;
+        break;
+      } catch (err) {
+        lastError = err;
+        if (attempt < persistRetryDelaysMs.length - 1) {
+          logger.warn('Transient MongoDB write failure persisting paused response, retrying', {
+            operationId: payload.operationId,
+            threadId,
+            attempt,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+
+    if (!lastError) {
+      logger.info('Persisted partial agent response after post-run pause guard', {
+        operationId: payload.operationId,
+        threadId,
+        contentLength: snapshot.content.length,
+        stepCount: snapshot.steps.length,
+        attachmentCount: attachments.length,
+      });
+    } else {
+      logger.warn('Failed to persist partial response after post-run pause guard', {
+        operationId: payload.operationId,
+        threadId,
+        error: lastError instanceof Error ? lastError.message : String(lastError),
+      });
     }
   }
 
@@ -3019,6 +3285,9 @@ export class AgentWorker {
       }
     }
 
+    const completionStreamSnapshot = persistedAssistantStream.snapshot();
+    result = this.withResolvedCompletionSummary(result, completionStreamSnapshot.content);
+
     const resultData =
       typeof result.data === 'object' && result.data !== null
         ? (result.data as Record<string, unknown>)
@@ -3030,6 +3299,13 @@ export class AgentWorker {
     if (pauseCompletionGuard.suppressed) {
       await eventWriter.flush().catch(() => undefined);
       await eventWriter.dispose();
+      await this.persistPostRunPausedSnapshot(
+        payload,
+        completionStreamSnapshot,
+        result.summary,
+        resultData,
+        userAttachmentUrlSet
+      );
 
       await job.updateProgress({
         status: 'paused',
@@ -3572,6 +3848,8 @@ export class AgentWorker {
       attachments: generatedAttachments.map((attachment) => ({
         name: attachment.name,
         type: attachment.type,
+        artifactRole: attachment.artifactRole,
+        relatedDocumentId: attachment.relatedDocumentId,
         thumbnailPresent: Boolean(attachment.thumbnailUrl),
         storagePathPresent: Boolean(attachment.storagePath),
         sizeBytes: attachment.sizeBytes,
@@ -3801,48 +4079,45 @@ export class AgentWorker {
             });
           }
 
-          const createdDocuments = collectCreatedUniversalDocumentContexts(toolCalls);
-          const createdDocumentById = new Map(
-            createdDocuments.map((document) => [document.id, document])
-          );
           const relatedExportAttachments = attachmentsFromResultData.filter(
-            (attachment) =>
-              attachment.artifactRole === 'export' &&
-              !!attachment.relatedDocumentId &&
-              createdDocumentById.has(attachment.relatedDocumentId)
+            (attachment) => attachment.artifactRole === 'export' && !!attachment.relatedDocumentId
           );
 
           if (relatedExportAttachments.length > 0) {
             try {
               const filesDb = await this.getActivityFirestore(job);
               for (const attachment of relatedExportAttachments) {
-                const relatedDocument = createdDocumentById.get(attachment.relatedDocumentId!);
-                if (!relatedDocument) continue;
-                await upsertTeamFileFromAttachment({
+                const attached = await attachExportAssetToUniversalDocument({
                   db: filesDb,
-                  teamId: relatedDocument.teamId ?? null,
+                  documentId: attachment.relatedDocumentId!,
                   userId: payload.userId,
                   attachment,
                   origin: 'agent_chat_output',
-                  folderId: relatedDocument.folderId ?? null,
-                  organizationId: relatedDocument.organizationId ?? null,
-                  readAccessKeys: relatedDocument.readAccessKeys,
-                  writeAccessKeys: relatedDocument.writeAccessKeys,
-                  sport: relatedDocument.sport,
                   sourceThreadId: threadId,
                   sourceMessageId: persistedAssistantMessageId,
                   sourceOperationId: payload.operationId,
                 });
+                if (!attached) {
+                  logger.warn('Related Agent X export target document was not found', {
+                    threadId,
+                    operationId: payload.operationId,
+                    documentId: attachment.relatedDocumentId,
+                    attachmentName: attachment.name,
+                  });
+                }
               }
-              logger.info('Related Agent X export attachments indexed into UniversalFiles', {
-                threadId,
-                operationId: payload.operationId,
-                messageId: persistedAssistantMessageId,
-                attachmentCount: relatedExportAttachments.length,
-              });
+              logger.info(
+                'Related Agent X export attachments applied to UniversalFiles documents',
+                {
+                  threadId,
+                  operationId: payload.operationId,
+                  messageId: persistedAssistantMessageId,
+                  attachmentCount: relatedExportAttachments.length,
+                }
+              );
             } catch (indexErr) {
               logger.error(
-                'Failed to index related Agent X export attachments into UniversalFiles',
+                'Failed to apply related Agent X export attachments to UniversalFiles documents',
                 {
                   threadId,
                   operationId: payload.operationId,
@@ -3944,6 +4219,44 @@ export class AgentWorker {
     }
 
     return '';
+  }
+
+  private withResolvedCompletionSummary(
+    result: AgentOperationResult,
+    streamedAssistantContent: string
+  ): AgentOperationResult {
+    const resultData =
+      typeof result.data === 'object' && result.data !== null
+        ? (result.data as Record<string, unknown>)
+        : undefined;
+    if (
+      result.success === false ||
+      resultData?.['operationStatus'] === 'failed' ||
+      resultData?.['maxIterationsReached'] === true
+    ) {
+      return result;
+    }
+
+    if (
+      typeof result.summary === 'string' &&
+      result.summary.trim().length > 0 &&
+      !isGenericCompletionSummary(result.summary)
+    ) {
+      return result;
+    }
+
+    const fallbackSummary =
+      this.resolveResultSummary(result) ||
+      deriveBodyFromResult(result) ||
+      this.resolveStreamedCompletionSummary(streamedAssistantContent);
+
+    return fallbackSummary ? { ...result, summary: fallbackSummary } : result;
+  }
+
+  private resolveStreamedCompletionSummary(streamedAssistantContent: string): string {
+    const normalized = streamedAssistantContent.trim();
+    if (!normalized || isProgressOnlyAssistantContent(normalized)) return '';
+    return normalized;
   }
 
   // ─── SSE Translation ─────────────────────────────────────────────────

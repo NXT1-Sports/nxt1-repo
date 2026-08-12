@@ -91,14 +91,36 @@ export const PROGRAM_PAGE_IMAGE_PATHS = {
 } as const;
 
 /**
+ * Product image paths relative to app's assets/shared/images/ folder.
+ */
+export const PRODUCT_IMAGE_PATHS = {
+  agentXDesktop: 'assets/shared/images/product-images/Agent-X.png',
+} as const;
+
+/**
  * Partner team logo paths relative to app's assets/shared/images/ folder.
  */
 export const PARTNER_TEAM_LOGO_PATHS = {
+  aiNexxtLevelUClub: 'assets/shared/images/partner-teams/ai-nexxt-level-u-club.png',
+  akronEastHs: 'assets/shared/images/partner-teams/akron-east-hs.webp',
+  barbertonHs: 'assets/shared/images/partner-teams/barberton-hs.png',
   brushHs: 'assets/shared/images/partner-teams/brush-hs.webp',
+  cantonMckinleyHs: 'assets/shared/images/partner-teams/canton-mckinley-hs.png',
+  cantonSouthHs: 'assets/shared/images/partner-teams/canton-south-hs.png',
+  carrolltonHs: 'assets/shared/images/partner-teams/carrollton-hs.png',
+  centralValleyHs: 'assets/shared/images/partner-teams/central-valley-hs.png',
+  crestviewHs: 'assets/shared/images/partner-teams/crestview-hs.png',
+  fairbornHs: 'assets/shared/images/partner-teams/fairborn-hs.png',
   garfieldHs: 'assets/shared/images/partner-teams/garfield-hs.png',
   hooverHs: 'assets/shared/images/partner-teams/hoover-hs.png',
+  lakeHs: 'assets/shared/images/partner-teams/lake-hs.png',
+  martinCountyHs: 'assets/shared/images/partner-teams/martin-county-hs.png',
   nordoniaHs: 'assets/shared/images/partner-teams/nordonia-hs.png',
+  perryPiratesHs: 'assets/shared/images/partner-teams/perry-pirates-hs.png',
+  salemHs: 'assets/shared/images/partner-teams/salem-hs.png',
   sandyValleyHs: 'assets/shared/images/partner-teams/sandy-valley-hs.png',
+  stVHs: 'assets/shared/images/partner-teams/st-v-hs.png',
+  youngstownHs: 'assets/shared/images/partner-teams/youngstown-hs.png',
 } as const;
 
 // ============================================
@@ -124,4 +146,5 @@ export type LogoPath = keyof typeof LOGO_PATHS;
 export type LogoDimension = keyof typeof LOGO_DIMENSIONS;
 export type ImagePath = keyof typeof IMAGE_PATHS;
 export type ProgramPageImagePath = keyof typeof PROGRAM_PAGE_IMAGE_PATHS;
+export type ProductImagePath = keyof typeof PRODUCT_IMAGE_PATHS;
 export type PartnerTeamLogoPath = keyof typeof PARTNER_TEAM_LOGO_PATHS;

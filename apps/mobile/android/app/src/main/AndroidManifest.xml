@@ -57,7 +57,17 @@
 
         <activity
             android:name="com.microsoft.identity.client.BrowserTabActivity"
-            android:exported="true">
+            android:exported="true"
+            android:noHistory="true"
+            android:launchMode="singleTask">
+            <!-- Fix Issue #2: noHistory=true prevents MSAL's fragment from accumulating
+                 in the back stack when MainActivity uses singleTask launch mode.
+                 Without this, system-restore of the auth activity finds a stale fragment
+                 type and throws IllegalStateException: Unexpected fragment type.
+                 Fix Issue #3: launchMode="singleTask" prevents OxygenOS (OnePlus) from
+                 re-creating BrowserTabActivity in a new task after the msauth:// redirect,
+                 which would present a stale/mismatched FragmentManager state to
+                 CurrentTaskAuthorizationActivity and trigger the same crash. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -79,6 +89,18 @@
         <activity
             android:name="com.yubico.yubikit.android.ui.YubiKeyPromptActivity"
             tools:node="remove" />
+
+        <!-- Remove MSAL InstallCertActivityLauncher — NXT1 does not use enterprise
+             device certificate enrollment (conditional access cert flows).
+             MSAL 8.3.x has a bug where InstallCertActivityLauncher.onResume calls
+             activityResultLauncher.launch(intent) with a null Intent when the
+             Microsoft Authenticator broker is absent, crashing with NPE.
+             Removing the activity entirely prevents this path from running. -->
+        <activity
+            android:name="com.microsoft.identity.common.internal.broker.InstallCertActivityLauncher"
+            tools:node="remove" />
+
+
 
         <!-- IAP is iOS-only. Remove ProxyBillingActivity from the merged manifest
              to prevent a crash (NPE on null PendingIntent) that occurs when
@@ -137,4 +159,14 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:node="remove" />
+
+    <!-- Fix Issue #4: Android 11 (API 30) requires explicit package visibility declarations.
+         Without this, MSAL cannot query or bind to the Custom Tabs service (Chrome/browser),
+         causing the OAuth browser-based auth flow to fail silently or crash in
+         CurrentTaskAuthorizationActivity during the redirect phase. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+    </queries>
 </manifest>

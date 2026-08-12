@@ -543,6 +543,151 @@ describe('Agent X Routes', () => {
     expect(deleteResponse.body.success).toBe(true);
   });
 
+  it('should move a user-scoped file into a legacy user-only folder with stale teamId metadata', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/user-file-legacy-folder', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/legacy-personal-folder', {
+      teamId: 'team-123',
+      name: 'Practice Plans',
+      normalizedName: 'practice plans',
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/user-file-legacy-folder')
+      .set('Authorization', 'Bearer test-token')
+      .send({ folderId: 'legacy-personal-folder' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-legacy-folder')).toMatchObject({
+      folderId: 'legacy-personal-folder',
+      updatedByUserId: 'test-user',
+    });
+  });
+
+  it('should allow moving a user-scoped file into an explicitly team-shared folder', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/user-file-team-folder', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/team-shared-folder', {
+      teamId: 'team-123',
+      name: 'Team Film',
+      normalizedName: 'team film',
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/user-file-team-folder')
+      .set('Authorization', 'Bearer test-token')
+      .send({ folderId: 'team-shared-folder' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('UniversalFiles/user-file-team-folder')).toMatchObject({
+      folderId: 'team-shared-folder',
+      teamId: 'team-123',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+    });
+  });
+
+  it('should allow restoring an owned team-scoped file to personal root', async () => {
+    __seedMockFirestoreDocument('UniversalFiles/team-file-personal-root', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Team Notes.txt',
+      normalizedTitle: 'team notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user', 'team:team-123'],
+      writeAccessKeys: ['user:test-user'],
+      acl: {
+        scope: 'team',
+        teamId: 'team-123',
+        inherited: false,
+        grants: [],
+      },
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/team-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/agent-x/files/team-file-personal-root')
+      .set('Authorization', 'Bearer test-token')
+      .send({ teamId: null, folderId: null });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const restoredFile = __getMockFirestoreDocument('UniversalFiles/team-file-personal-root');
+    expect(restoredFile).toMatchObject({
+      folderId: null,
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+    });
+    expect(restoredFile).not.toHaveProperty('teamId');
+    expect(restoredFile).not.toHaveProperty('organizationId');
+    expect(restoredFile).not.toHaveProperty('acl');
+  });
+
   it('should create a film review without teamId in user scope', async () => {
     const response = await request(app)
       .post('/api/v1/agent-x/film-reviews')
@@ -700,6 +845,101 @@ describe('Agent X Routes', () => {
         expect.objectContaining({ name: 'Training', createdByUserId: 'test-user' }),
         expect.objectContaining({ name: 'Highlights', createdByUserId: 'test-user' }),
         expect.objectContaining({ name: 'Documents', createdByUserId: 'test-user' }),
+      ])
+    );
+  });
+
+  it('should include shared team-scoped files and folders in the mixed library listing', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('RosterEntries/roster-test-user-team-123', {
+      userId: 'test-user',
+      teamId: 'team-123',
+      status: 'active',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/personal-file-1', {
+      type: 'file',
+      title: 'Personal Notes.txt',
+      normalizedTitle: 'personal notes.txt',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'text/plain',
+        kind: 'doc',
+        origin: 'files_upload',
+        sizeBytes: 64,
+        url: 'https://example.com/personal-notes.txt',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/team-file-1', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      readAccessKeys: ['team:team-123'],
+      writeAccessKeys: ['team:team-123'],
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'files_upload',
+        sizeBytes: 4096,
+        url: 'https://example.com/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/personal-folder-1', {
+      name: 'Personal Folder',
+      normalizedName: 'personal folder',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['user:test-user'],
+      writeAccessKeys: ['user:test-user'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+    __seedMockFirestoreDocument('TeamFileFolders/team-folder-1', {
+      teamId: 'team-123',
+      name: 'Installs',
+      normalizedName: 'installs',
+      sortOrder: 0,
+      createdByUserId: 'test-user',
+      readAccessKeys: ['team:team-123'],
+      writeAccessKeys: ['team:team-123'],
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'personal-file-1' }),
+        expect.objectContaining({ id: 'team-file-1' }),
+      ])
+    );
+    expect(response.body.data.folders).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'personal-folder-1' }),
+        expect.objectContaining({ id: 'team-folder-1' }),
       ])
     );
   });
@@ -2033,6 +2273,104 @@ describe('Agent X Routes', () => {
       status: 'approved',
       resolvedBy: 'test-user',
       toolInput: editedToolInput,
+    });
+  });
+
+  it('should reject direct approvals that add unapproved email attachments', async () => {
+    const approvedToolInput = {
+      userId: 'test-user',
+      toEmail: 'coach@example.com',
+      subject: 'Report',
+      bodyHtml: '<p>Attached.</p>',
+      attachments: [
+        {
+          name: 'Scout Report.pdf',
+          mimeType: 'application/pdf',
+          sizeBytes: 12,
+          storagePath: 'Users/test-user/threads/thread-123/uploads/scout-report.pdf',
+        },
+      ],
+    };
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Send the report' }],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolInput: approvedToolInput,
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-attachment-guard',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = { enqueue: vi.fn().mockResolvedValue('job-123') };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-attachment-guard', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'send_email',
+      toolInput: approvedToolInput,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-attachment-guard/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'approved',
+        toolInput: {
+          ...approvedToolInput,
+          attachments: [
+            {
+              name: 'Different.pdf',
+              mimeType: 'application/pdf',
+              sizeBytes: 12,
+              storagePath: 'Users/test-user/threads/thread-123/uploads/different.pdf',
+            },
+          ],
+        },
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain('attachments cannot be added or replaced');
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(
+      __getMockFirestoreDocument('AgentApprovalRequests/approval-attachment-guard')
+    ).toMatchObject({
+      status: 'pending',
+      toolInput: approvedToolInput,
     });
   });
 

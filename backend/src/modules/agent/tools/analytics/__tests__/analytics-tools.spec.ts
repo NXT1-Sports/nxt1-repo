@@ -260,7 +260,7 @@ describe('analytics agent tools', () => {
   });
 
   it('returns a controlled error when required string fields are missing', async () => {
-    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const tool = new TrackAnalyticsEventTool({
       track: vi.fn(),
       getSummary: vi.fn(),
@@ -335,7 +335,7 @@ describe('analytics agent tools', () => {
   });
 
   it('returns a controlled error when payload is a non-object string', async () => {
-    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => undefined);
     const analytics: AnalyticsLoggerMock = {
       track: vi.fn(),
       getSummary: vi.fn(),
@@ -372,7 +372,7 @@ describe('analytics agent tools', () => {
   });
 
   it('returns a controlled error instead of throwing when analytics.track fails', async () => {
-    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const analytics: AnalyticsLoggerMock = {
       track: vi.fn().mockRejectedValue(new Error('database unavailable')),
       getSummary: vi.fn(),

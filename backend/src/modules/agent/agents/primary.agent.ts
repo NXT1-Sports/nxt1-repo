@@ -233,6 +233,9 @@ const PRIMARY_OPERATING_CONTRACT = [
   '10-film-review-mutation) Film-review cutups, source extraction, source/breakdown CRUD, annotations, and review metadata updates are coordinator-owned film-review workflows. If the request contains filmReviewId/sourceId, selected film-review clips, "cutup", "clip folder", "breakdown rows", "save back to film review", or "make a new review from these clips", delegate to `performance_coordinator` for performance/evaluation outcomes or `strategy_coordinator` for game-planning/strategy outcomes. Do NOT satisfy those requests by creating a universal document unless the user explicitly asks for a separate written report/notes document in addition to the film-review mutation.',
   '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
   '10i-social) External social publishing boundary: direct publishing to Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or other outside networks is not wired yet. Do NOT promise external publishing and do NOT substitute `write_timeline_post` or `write_team_post` for those destinations. For requests like "make a better one and post it on Instagram", delegate the creative work to `brand_coordinator`; the final response must deliver the asset URL/caption and state that direct external publishing is not connected yet. Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed, profile feed, or team feed.',
+  '10i-hudl) Hudl access and fallback boundary: preserve the direct path when the user provides a public Hudl video/page URL or already-accessible Hudl media. Do NOT force a The Lab upload when the source is already accessible through the current Hudl/media extraction workflow.',
+  '10i-hudl-a) If the user says "connect my Hudl", "add my Hudl", "save this Hudl source", or otherwise wants NXT1 to remember or monitor a Hudl account or page, route to `data_coordinator` for connected-source handling rather than pretending full native Hudl linking already exists.',
+  '10i-hudl-b) If the user wants Agent X to work on Hudl film, clips, or playbook material but the source is private, auth-gated, inside a Hudl library, or otherwise not directly accessible in the current workflow, explicitly tell them the fallback is to use NXT1 desktop, select the "The Lab" button, and upload their film and other Hudl materials there. State that once those files are uploaded into The Lab, Agent X can work with them there. This is fallback-only guidance, not the default for public Hudl URLs.',
   '10i-a) Brand color/logo source-of-truth rule (CRITICAL): for team/org graphic requests, resolve branding via `query_nxt1_data` snapshots in this order: `organization_profile_snapshot` first, then `team_profile_snapshot` only as fallback.',
   '10i-b) If organization primaryColor/secondaryColor exist, they override team colors. Do NOT present team colors as final when organization colors are available.',
   '10i-c) For brand requests, do NOT use `query_nxt1_platform_data` for color authority; use `query_nxt1_data` snapshots because they expose canonical branding fields (`logoUrl`, `primaryColor`, `secondaryColor`).',
@@ -278,6 +281,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Requests for charts, graphs, dashboards, funnels, pipeline maps, process visuals, or spreadsheet-style data views are NOT brand requests by default.',
   '    - Use `delegate_to_coordinator` with `strategy_coordinator` for strategic or conceptual visuals such as recruiting pipelines, stage funnels, operating models, and planning dashboards.',
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
+  '    - Use `delegate_to_coordinator` with `performance_coordinator` when a coach/director or coach-facing task asks for film breakdowns, game reports, player/team evaluations, roster analytics, tendency analysis, performance comparisons, or progression reports. In the handoff, instruct Performance to compute verified metrics and generate chart visualizations when structured chart-worthy metrics are present, even if the user did not explicitly ask for a chart.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
   '10d-ii) Play Diagram & Game Plan Routing Rule (CRITICAL — NO EXCEPTIONS):',
   '    - NEVER call `create_play_diagram` or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh) directly from the router — these tools are coordinator-owned and are NOT in the router tool policy. This restriction does NOT apply to Files document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and Files folder organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly only when the user is asking for Files document/folder work rather than film-review mutation work.',
@@ -315,6 +319,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '11a) Before calling `delegate_to_coordinator`, `create_plan`, `execute_saved_plan`, or any tool likely to take more than a second, first write ONE short warm sentence to the user in normal chat prose so it streams into the bubble (for example: "Pulling that up now.", "Watching your clip now.", or "Routing this to my performance coordinator for a breakdown."). Do not call those tools with empty assistant content.',
   '11b) Delegation wording rule: never say tools are "missing" or "unavailable" due to an error. For coordinator-owned tools, say delegation is by design (for example: "Routing this to Data Coordinator, who owns these write tools").',
   '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
+  '12a) When a coordinator result contains a successful `create_universal_team_document` or `update_universal_team_document`, that coordinator-owned document is the authoritative saved deliverable for this operation. Do NOT create a second Files document after delegation. You may synthesize the user-facing summary or generate an export, but any export must target that existing document with `relatedDocumentId`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',
   '15) Execution path rule (STRICT):',
@@ -530,6 +535,21 @@ export class PrimaryAgent extends BaseAgent {
       });
     }
 
+    if (toolCall.function.name === 'create_universal_team_document') {
+      const coordinatorDocument = this.findCoordinatorPersistedDocument(currentMessages);
+      if (coordinatorDocument) {
+        return JSON.stringify({
+          success: true,
+          data: {
+            document: coordinatorDocument,
+            deduplicated: true,
+            message:
+              'The coordinator already created the authoritative Files document for this operation.',
+          },
+        });
+      }
+    }
+
     // Safety fallback: some model generations may still attempt analyze_video
     // even when router-only tools are exposed. Force coordinator dispatch.
     if (toolCall.function.name === 'analyze_video') {
@@ -636,6 +656,88 @@ export class PrimaryAgent extends BaseAgent {
     }
   }
 
+  private findCoordinatorPersistedDocument(
+    messages: readonly LLMMessage[] | undefined
+  ): Record<string, unknown> | null {
+    if (!messages?.length) return null;
+
+    const readDocument = (value: unknown): Record<string, unknown> | null => {
+      if (!value || typeof value !== 'object') return null;
+      const output = value as Record<string, unknown>;
+      const data =
+        output['data'] && typeof output['data'] === 'object'
+          ? (output['data'] as Record<string, unknown>)
+          : output;
+      const document = data['document'];
+      if (!document || typeof document !== 'object') return null;
+      const id = (document as Record<string, unknown>)['id'];
+      return typeof id === 'string' && id.trim().length > 0
+        ? (document as Record<string, unknown>)
+        : null;
+    };
+
+    const findInRecords = (records: readonly unknown[]): Record<string, unknown> | null => {
+      for (let index = records.length - 1; index >= 0; index--) {
+        const record = records[index];
+        if (!record || typeof record !== 'object') continue;
+        const toolRecord = record as Record<string, unknown>;
+        const nestedOutput = toolRecord['output'];
+        const nestedOutputRecord =
+          nestedOutput && typeof nestedOutput === 'object'
+            ? (nestedOutput as Record<string, unknown>)
+            : null;
+        const nestedRecords = Array.isArray(nestedOutputRecord?.['coordinator_tool_call_records'])
+          ? (nestedOutputRecord['coordinator_tool_call_records'] as unknown[])
+          : nestedOutputRecord?.['data'] &&
+              typeof nestedOutputRecord['data'] === 'object' &&
+              Array.isArray(
+                (nestedOutputRecord['data'] as Record<string, unknown>)[
+                  'coordinator_tool_call_records'
+                ]
+              )
+            ? ((nestedOutputRecord['data'] as Record<string, unknown>)[
+                'coordinator_tool_call_records'
+              ] as unknown[])
+            : [];
+        const nestedDocument = findInRecords(nestedRecords);
+        if (nestedDocument) return nestedDocument;
+
+        if (
+          (toolRecord['toolName'] === 'create_universal_team_document' ||
+            toolRecord['toolName'] === 'update_universal_team_document') &&
+          toolRecord['status'] === 'success'
+        ) {
+          const document = readDocument(nestedOutputRecord);
+          if (document) return document;
+        }
+      }
+      return null;
+    };
+
+    for (let index = messages.length - 1; index >= 0; index--) {
+      const message = messages[index];
+      if (message.role !== 'tool' || typeof message.content !== 'string') continue;
+      try {
+        const result = JSON.parse(message.content) as Record<string, unknown>;
+        const data = result['data'];
+        const records =
+          data &&
+          typeof data === 'object' &&
+          Array.isArray((data as Record<string, unknown>)['coordinator_tool_call_records'])
+            ? ((data as Record<string, unknown>)['coordinator_tool_call_records'] as unknown[])
+            : Array.isArray(result['coordinator_tool_call_records'])
+              ? (result['coordinator_tool_call_records'] as unknown[])
+              : [];
+        const document = findInRecords(records);
+        if (document) return document;
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
   private async handleDirectVideoAnalysisFallback(
     toolCall: LLMToolCall,
     userId: string,
@@ -728,6 +830,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
@@ -868,6 +973,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
+          : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },
@@ -951,6 +1059,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
@@ -1045,6 +1156,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
@@ -1332,6 +1446,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
+          : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },
@@ -1485,6 +1602,12 @@ export class PrimaryAgent extends BaseAgent {
           ? 'Saved plan execution did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because delegated agents already streamed the user-facing response.',
         plan_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorToolCallRecords?.length
+          ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
+          : {}),
         streamed_delta_count: result.streamedDeltaCount ?? 0,
         streamed_char_count: result.streamedCharCount ?? 0,
       },

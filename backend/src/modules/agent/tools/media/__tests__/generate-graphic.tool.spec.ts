@@ -103,7 +103,7 @@ describe('GenerateGraphicTool', () => {
     vi.unstubAllGlobals();
   });
 
-  it('does not hard-fail when required brand logo is missing', async () => {
+  it('returns a deterministic error when a required brand logo is missing', async () => {
     const tool = new GenerateGraphicTool(llm as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['COMMITTED'] } });
@@ -122,8 +122,36 @@ describe('GenerateGraphicTool', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).not.toContain('Required brand logo not provided');
-    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+    expect(result.error).toBe(
+      'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.'
+    );
+    expect(llm.generateImage).not.toHaveBeenCalled();
+  });
+
+  it('drops an inaccessible optional logo instead of forwarding its raw URL to the provider', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+    mockFetch.mockResolvedValue(new Response(null, { status: 403 }));
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['WELCOME'],
+      dimensions: '1080x1080',
+      styleDescription: 'Premium, modern',
+      userId: 'user-1',
+      logoUrls: [
+        'https://storage.googleapis.com/test-bucket/Users/user-1/threads/thread-1/tmp/logo.png',
+      ],
+      autoRetrievedSources: ['manual:lookup:organization_profile_snapshot'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('storage-side test abort');
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({ referenceImageUrl: undefined, additionalImageUrls: [] })
+    );
   });
 
   it('does not hard-fail when assets were auto-retrieved without explicit approval', async () => {
@@ -142,7 +170,7 @@ describe('GenerateGraphicTool', () => {
         'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
       ],
       logoUrls: [
-        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token',
       ],
       autoRetrievedSources: ['conversation_history:profileImgs', 'conversation_history:logoUrl'],
       assetSelectionApproved: false,
@@ -166,7 +194,7 @@ describe('GenerateGraphicTool', () => {
     llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
     const logoUrl =
-      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png';
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token';
 
     const result = await tool.execute({
       graphicType: 'team',
@@ -190,8 +218,8 @@ describe('GenerateGraphicTool', () => {
     );
   });
 
-  it('allows explicitly supplied external logo overlays', async () => {
-    const tool = new GenerateGraphicTool(llm as never);
+  it('accepts reachable explicit non-canonical logos for one-off overlays', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
     llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
@@ -213,6 +241,16 @@ describe('GenerateGraphicTool', () => {
     });
 
     expect(result.success).toBe(false);
+    expect(result.error).toContain('storage-side test abort');
+    expect(transportResolver.resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceUrl: externalLogoUrl, stageMediaKind: 'image' })
+    );
+    expect(mockFetch).toHaveBeenCalledWith(
+      externalLogoUrl,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: expect.stringContaining('image/') }),
+      })
+    );
     expect(llm.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
         referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
@@ -292,7 +330,7 @@ describe('GenerateGraphicTool', () => {
       styleDescription: 'premium red and black broadcast highlight intro',
       userId: 'user-1',
       logoUrls: [
-        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token',
       ],
       applyMode: 'logo_overlay',
     });
@@ -389,26 +427,19 @@ describe('GenerateGraphicTool', () => {
         durable: true,
       },
     });
-    expect(firebaseMocks.productionBucket.getSignedUrl).toHaveBeenCalledWith({
-      version: 'v4',
-      action: 'write',
-      expires: expect.any(Number),
-      contentType: 'image/png',
-    });
-    expect(firebaseMocks.productionBucket.setMetadata).toHaveBeenCalledWith({
-      cacheControl: 'public, max-age=31536000, immutable',
+    expect(firebaseMocks.productionBucket.save).toHaveBeenCalledWith(expect.any(Buffer), {
+      resumable: false,
       metadata: {
-        firebaseStorageDownloadTokens: expect.any(String),
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: {
+          firebaseStorageDownloadTokens: expect.any(String),
+        },
       },
     });
-    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/upload', {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'image/png',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-      },
-      body: expect.any(Uint8Array),
-    });
+    expect(firebaseMocks.productionBucket.getSignedUrl).not.toHaveBeenCalled();
+    expect(firebaseMocks.productionBucket.setMetadata).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('resolves Firebase Storage welcome-photo URLs into provider-safe data URLs', async () => {
@@ -558,6 +589,21 @@ describe('coerceGraphicInput', () => {
       expect(result['videoSourceUrls']).toEqual(['https://example.com/video.mp4']);
       expect(result['autoRetrievedSources']).toEqual(['manual:lookup:user_profile_snapshot']);
       expect(result['themeColors']).toEqual(['#FF0000', '#00FF00']);
+    });
+
+    it('parses JSON-stringified object arrays for autoRetrievedSources', () => {
+      const input = {
+        autoRetrievedSources:
+          '[{"source":"user_attachment","type":"subject_photo","url":"https://example.com/photo.png"}]',
+      };
+      const result = coerceGraphicInput(input);
+      expect(result['autoRetrievedSources']).toEqual([
+        {
+          source: 'user_attachment',
+          type: 'subject_photo',
+          url: 'https://example.com/photo.png',
+        },
+      ]);
     });
 
     it('leaves native arrays untouched', () => {
@@ -744,6 +790,45 @@ describe('GenerateGraphicTool.execute with stringified inputs', () => {
     });
     // All coercions should succeed; only downstream storage fails.
     expect(result.error).not.toMatch(/expected array|expected object|expected boolean/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts object-shaped autoRetrievedSources provenance entries', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GUNSLINGER'],
+      subjectPhotoUrls: ['https://example.com/photo.png'],
+      dimensions: '1920x1080',
+      styleDescription: 'Wild West poster look',
+      userId: 'user-1',
+      autoRetrievedSources: [
+        {
+          source: 'user_attachment',
+          type: 'subject_photo',
+          url: 'https://example.com/photo.png',
+        },
+      ],
+    });
+    expect(result.error).not.toMatch(/\[autoRetrievedSources\]/);
+    expect(result.error).not.toMatch(/expected string/i);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts stringified object-shaped autoRetrievedSources provenance entries', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['GUNSLINGER'],
+      subjectPhotoUrls: ' ["https://example.com/photo.png"] ',
+      dimensions: '1920x1080',
+      styleDescription: 'Wild West poster look',
+      userId: 'user-1',
+      autoRetrievedSources:
+        '[{"source":"user_attachment","type":"subject_photo","url":"https://example.com/photo.png"}]',
+    });
+    expect(result.error).not.toMatch(/\[autoRetrievedSources\]/);
+    expect(result.error).not.toMatch(/expected string/i);
     expect(llm.generateImage).toHaveBeenCalledTimes(1);
   });
 

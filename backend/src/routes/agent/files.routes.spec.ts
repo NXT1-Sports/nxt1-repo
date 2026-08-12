@@ -81,6 +81,8 @@ vi.mock('../../services/communications/file-share-notifications.js', () => ({
 const { default: filesRoutes } = await import('./files.routes.js');
 const { getSignedUrlWithTimeout } = await import('../../utils/gcs-signed-url.js');
 const { logger } = await import('../../utils/logger.js');
+const { upsertTeamFileFromAttachment } =
+  await import('../../services/team/team-files-index.service.js');
 
 type SeedRecord = Record<string, unknown>;
 type MockSignedUrlResponse = string | Error;
@@ -570,6 +572,134 @@ describe('POST /api/v1/agent/files/:fileId/film-review', () => {
     });
   });
 
+  it('preserves wide and tight camera angle metadata on multi-source film review creation', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userVideo: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'Game 1 Wide.mp4',
+          normalizedTitle: 'game 1 wide.mp4',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/game-1-wide.mp4',
+              storagePath: 'Users/owner-1/uploads/video/game-1-wide.mp4',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const sources = [
+      {
+        id: 'source-1',
+        order: 0,
+        title: 'Game 1 Wide',
+        videoUrl: 'https://cdn.example.com/game-1-wide.mp4',
+        cameraAngle: 'wide',
+        angleGroupId: 'angle-game-1',
+        angleDetectionSource: 'filename',
+      },
+      {
+        id: 'source-2',
+        order: 1,
+        title: 'Game 1 Tight',
+        videoUrl: 'https://cdn.example.com/game-1-tight.mp4',
+        cameraAngle: 'tight',
+        angleGroupId: 'angle-game-1',
+        angleDetectionSource: 'filename',
+      },
+    ];
+
+    const response = await request(createApp(db))
+      .post('/api/v1/agent/files/userVideo/film-review')
+      .send({
+        sport: 'football',
+        title: 'Game 1 Multi Angle',
+        videoUrl: 'https://cdn.example.com/game-1-wide.mp4',
+        sources,
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.filmReview.sources).toEqual(sources);
+    expect(db.getRecord('UniversalFiles/userVideo')).toMatchObject({
+      payload: {
+        filmReview: {
+          sources,
+        },
+      },
+    });
+  });
+
+  it('persists playlist selection as the library folder on file-backed film review creation', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        userVideo: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'Practice Clip.mp4',
+          normalizedTitle: 'practice clip.mp4',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/practice-clip.mp4',
+              storagePath: 'Users/owner-1/uploads/video/practice-clip.mp4',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+          lastSeenAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db))
+      .post('/api/v1/agent/files/userVideo/film-review')
+      .send({
+        sport: 'football',
+        title: 'Practice Breakdown',
+        videoUrl: 'https://cdn.example.com/practice-clip.mp4',
+        playlistId: 'playlist-special-teams',
+        playlistName: 'Special Teams',
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.filmReview).toMatchObject({
+      playlistId: 'playlist-special-teams',
+      playlistName: 'Special Teams',
+    });
+    expect(db.getRecord('UniversalFiles/userVideo')).toMatchObject({
+      folderId: 'playlist-special-teams',
+      payload: {
+        filmReview: {
+          playlistId: 'playlist-special-teams',
+          playlistName: 'Special Teams',
+        },
+      },
+    });
+  });
+
   it('returns 403 when file write access is revoked before review creation commits', async () => {
     const db = createMockFirestore({
       UniversalFiles: {
@@ -618,6 +748,85 @@ describe('POST /api/v1/agent/files/:fileId/film-review', () => {
     expect(response.status).toBe(403);
     expect(response.body).toMatchObject({ success: false, code: 'ACCESS_DENIED' });
     expect(db.getRecord('UniversalFiles/userVideo')?.['payload']).not.toHaveProperty('filmReview');
+  });
+});
+
+describe('POST /api/v1/agent/film-reviews', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('persists playlist selection on uploaded film review creation', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        uploadedReviewFile: {
+          ownerUserId: 'owner-1',
+          createdByUserId: 'owner-1',
+          title: 'Practice Clip.mp4',
+          normalizedTitle: 'practice clip.mp4',
+          type: 'file',
+          payloadKind: 'native',
+          payload: {
+            asset: {
+              mimeType: 'video/mp4',
+              kind: 'video',
+              origin: 'files_upload',
+              sizeBytes: 4096,
+              url: 'https://cdn.example.com/practice-clip.mp4',
+              storagePath: 'Users/owner-1/uploads/video/practice-clip.mp4',
+            },
+          },
+          status: 'ready',
+          sport: 'football',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          createdAt: '2026-06-24T00:00:00.000Z',
+          updatedAt: '2026-06-24T00:00:00.000Z',
+          lastSeenAt: '2026-06-24T00:00:00.000Z',
+        },
+      },
+    });
+    vi.mocked(upsertTeamFileFromAttachment).mockResolvedValue('uploadedReviewFile');
+
+    const response = await request(createApp(db))
+      .post('/api/v1/agent/film-reviews')
+      .send({
+        sport: 'football',
+        title: 'Practice Breakdown',
+        videoUrl: 'https://cdn.example.com/practice-clip.mp4',
+        playlistId: 'playlist-special-teams',
+        playlistName: 'Special Teams',
+        attachment: {
+          id: 'attachment-1',
+          url: 'https://cdn.example.com/practice-clip.mp4',
+          storagePath: 'Users/owner-1/uploads/video/practice-clip.mp4',
+          name: 'Practice Clip.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.filmReview).toMatchObject({
+      id: 'uploadedReviewFile',
+      playlistId: 'playlist-special-teams',
+      playlistName: 'Special Teams',
+    });
+    expect(vi.mocked(upsertTeamFileFromAttachment)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadTarget: 'file',
+      })
+    );
+    expect(db.getRecord('UniversalFiles/uploadedReviewFile')).toMatchObject({
+      folderId: 'playlist-special-teams',
+      payload: {
+        filmReview: {
+          playlistId: 'playlist-special-teams',
+          playlistName: 'Special Teams',
+        },
+      },
+    });
   });
 });
 

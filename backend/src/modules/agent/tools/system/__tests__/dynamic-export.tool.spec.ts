@@ -106,12 +106,13 @@ describe('DynamicExportTool', () => {
     );
   });
 
-  it('should forward PDF layout mode and watermark options', async () => {
+  it('should ignore watermark text for PDF exports', async () => {
     const result = await tool.execute(
       {
         format: 'pdf',
         fileName: 'game-plan',
         title: 'Game Plan',
+        relatedDocumentId: 'game-plan-document-1',
         layoutMode: 'multi_column_grid',
         pageOrientation: 'landscape',
         watermarkText: 'DRAFT',
@@ -132,11 +133,53 @@ describe('DynamicExportTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect(result).toMatchObject({
+      data: {
+        fileName: 'game-plan.pdf',
+        mimeType: 'application/pdf',
+        format: 'pdf',
+        artifactRole: 'export',
+        relatedDocumentId: 'game-plan-document-1',
+        attachments: [
+          expect.objectContaining({
+            name: 'game-plan.pdf',
+            mimeType: 'application/pdf',
+            artifactRole: 'export',
+            relatedDocumentId: 'game-plan-document-1',
+          }),
+        ],
+      },
+    });
     expect(generatePdf).toHaveBeenCalledWith(
       expect.objectContaining({
         layoutMode: 'multi_column_grid',
         pageOrientation: 'landscape',
-        watermarkText: 'DRAFT',
+        watermarkText: undefined,
+      })
+    );
+  });
+
+  it('should ignore all watermark text values', async () => {
+    const result = await tool.execute(
+      {
+        format: 'pdf',
+        fileName: 'in-season-plan',
+        title: 'In-Season Plan',
+        watermarkText: 'IN-SEASON',
+        sections: [
+          {
+            title: 'Week Plan',
+            bodyParagraphs: ['Keep athletes fresh and explosive.'],
+          },
+        ],
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(generatePdf).toHaveBeenCalledWith(
+      expect.objectContaining({
+        watermarkText: undefined,
       })
     );
   });

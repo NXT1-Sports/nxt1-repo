@@ -138,7 +138,7 @@ const POLICIES: readonly MutationPolicy[] = [
     allowedOperations: ['update'],
     ownershipPath: '__org_admin_or_team_admin',
     softDelete: false,
-    allowedPatchFields: ['name', 'mascot', 'logoUrl', 'primaryColor', 'secondaryColor', 'location'],
+    allowedPatchFields: ['name', 'mascot', 'primaryColor', 'secondaryColor', 'location'],
   },
   // ── Team-scoped collections ─────────────────────────────────────────────────
   {
