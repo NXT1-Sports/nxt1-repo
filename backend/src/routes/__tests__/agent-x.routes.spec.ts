@@ -1211,7 +1211,9 @@ describe('Agent X Routes', () => {
         payload: expect.objectContaining({
           origin: 'agent_chat_output',
           storagePath: 'Users/test-user/uploads/image/unbound/1730000000000_image.png',
-          url: 'https://example.com/storage/Users%2Ftest-user%2Fuploads%2Fimage%2Funbound%2F1730000000000_image.png',
+          url: expect.stringContaining(
+            'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Users%2Ftest-user%2Fuploads%2Fimage%2Funbound%2F1730000000000_image.png?alt=media&token='
+          ),
         }),
       })
     );

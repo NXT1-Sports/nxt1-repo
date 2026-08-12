@@ -4,12 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   canEditTeamSettingsMock,
+  ensureFirebaseDownloadUrlMock,
   getTeamCodeByIdMock,
+  invalidateOrganizationCacheMock,
   updateTeamCodeMock,
   promoteStorageObjectToDurableDestinationMock,
 } = vi.hoisted(() => ({
   canEditTeamSettingsMock: vi.fn(),
+  ensureFirebaseDownloadUrlMock: vi.fn(),
   getTeamCodeByIdMock: vi.fn(),
+  invalidateOrganizationCacheMock: vi.fn(),
   updateTeamCodeMock: vi.fn(),
   promoteStorageObjectToDurableDestinationMock: vi.fn(),
 }));
@@ -38,9 +42,16 @@ vi.mock('../../services/team/team-code.service.js', () => ({
   updateTeamCode: updateTeamCodeMock,
 }));
 
+vi.mock('../../services/team/organization.service.js', () => ({
+  createOrganizationService: () => ({
+    invalidateCache: invalidateOrganizationCacheMock,
+  }),
+}));
+
 vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () => ({
   AgentMediaLifecycleService: {
     extractStoragePathFromUrl: vi.fn(),
+    ensureFirebaseDownloadUrl: ensureFirebaseDownloadUrlMock,
     isFirebaseDownloadTokenUrl: vi.fn(),
     promoteStorageObjectToDurableDestination: promoteStorageObjectToDurableDestinationMock,
   },
@@ -86,6 +97,7 @@ describe('PATCH /api/v1/teams/:id durable organization logo', () => {
       team: { id: 'team-1', organizationId: 'organization-1' },
     });
     canEditTeamSettingsMock.mockResolvedValue(false);
+    invalidateOrganizationCacheMock.mockResolvedValue(undefined);
   });
 
   it('rejects unauthorized callers before finalizing a logo or mutating team and organization records', async () => {
@@ -107,14 +119,11 @@ describe('PATCH /api/v1/teams/:id durable organization logo', () => {
     expect(documentUpdate).not.toHaveBeenCalled();
   });
 
-  it('persists the finalizer-returned durable logo without passing the raw upload URL to TeamCode', async () => {
+  it('persists the authorized team logo Firebase URL on the Organization document', async () => {
     const rawLogoUrl =
       'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Fupload.png?alt=media&token=upload-token';
-    const durableLogoUrl =
-      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Organizations%2Forganization-1%2Flogo?alt=media&token=durable-token';
     const documentUpdate = vi.fn().mockResolvedValue(undefined);
     canEditTeamSettingsMock.mockResolvedValue(true);
-    promoteStorageObjectToDurableDestinationMock.mockResolvedValue({ url: durableLogoUrl });
     const mediaLifecycleMock =
       await import('../../modules/agent/tools/media/agent-media-lifecycle.service.js');
     vi.mocked(
@@ -134,23 +143,51 @@ describe('PATCH /api/v1/teams/:id durable organization logo', () => {
       .send({ organizationLogoUrl: rawLogoUrl });
 
     expect(response.status).toBe(200);
-    expect(promoteStorageObjectToDurableDestinationMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        storagePath: 'Teams/team-1/logo/upload.png',
-        destinationPath: 'Organizations/organization-1/logo',
-      })
-    );
+    expect(promoteStorageObjectToDurableDestinationMock).not.toHaveBeenCalled();
+    expect(ensureFirebaseDownloadUrlMock).not.toHaveBeenCalled();
     expect(updateTeamCodeMock).toHaveBeenCalledWith(
       expect.anything(),
       'team-1',
       'unauthorized-user',
       expect.not.objectContaining({ logoUrl: rawLogoUrl, organizationLogoUrl: rawLogoUrl })
     );
+    expect(documentUpdate).toHaveBeenCalledWith(expect.objectContaining({ logoUrl: rawLogoUrl }));
+    expect(invalidateOrganizationCacheMock).toHaveBeenCalledWith('organization-1');
+  });
+
+  it('canonicalizes an authorized bare team logo path to a Firebase URL for the Organization document', async () => {
+    const rawLogoPath = 'Teams/team-1/logo/upload.png';
+    const firebaseLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Fupload.png?alt=media&token=upload-token';
+    const documentUpdate = vi.fn().mockResolvedValue(undefined);
+    canEditTeamSettingsMock.mockResolvedValue(true);
+    ensureFirebaseDownloadUrlMock.mockResolvedValue(firebaseLogoUrl);
+    const mediaLifecycleMock =
+      await import('../../modules/agent/tools/media/agent-media-lifecycle.service.js');
+    vi.mocked(
+      mediaLifecycleMock.AgentMediaLifecycleService.extractStoragePathFromUrl
+    ).mockReturnValue('Teams/team-1/logo/upload.png');
+    vi.mocked(
+      mediaLifecycleMock.AgentMediaLifecycleService.isFirebaseDownloadTokenUrl
+    ).mockReturnValue(false);
+    updateTeamCodeMock.mockResolvedValue({
+      id: 'team-1',
+      organizationId: 'organization-1',
+      teamCode: 'team-code',
+    });
+
+    const response = await request(buildApp(documentUpdate))
+      .patch('/api/v1/teams/team-1')
+      .send({ organizationLogoUrl: rawLogoPath });
+
+    expect(response.status).toBe(200);
+    expect(promoteStorageObjectToDurableDestinationMock).not.toHaveBeenCalled();
+    expect(ensureFirebaseDownloadUrlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ storagePath: 'Teams/team-1/logo/upload.png' })
+    );
     expect(documentUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ logoUrl: durableLogoUrl })
+      expect.objectContaining({ logoUrl: firebaseLogoUrl })
     );
-    expect(documentUpdate).not.toHaveBeenCalledWith(
-      expect.objectContaining({ logoUrl: rawLogoUrl })
-    );
+    expect(invalidateOrganizationCacheMock).toHaveBeenCalledWith('organization-1');
   });
 });

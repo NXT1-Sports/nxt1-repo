@@ -1149,7 +1149,10 @@ export class WebShellComponent {
 
     const activeSportIndex = this.authFlow.user()?.activeSportIndex ?? 0;
     const teamId = this.resolveTeamIdForSportIndex(activeSportIndex);
-    await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+    const result = await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+    if (result.saved) {
+      await this.authFlow.refreshUserProfile();
+    }
   }
 
   private async switchOwnSportProfile(profile: SidenavSportProfile): Promise<void> {

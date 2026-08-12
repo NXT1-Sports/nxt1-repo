@@ -51,6 +51,7 @@ import { CaptureLiveViewScreenshotTool } from '../capture-live-view-screenshot.t
 import { ExtractLiveViewMediaTool } from '../extract-live-view-media.tool.js';
 import { ExtractLiveViewPlaylistTool } from '../extract-live-view-playlist.tool.js';
 import { CloseLiveViewTool } from '../close-live-view.tool.js';
+import { AgentMediaLifecycleService } from '../../../../media/agent-media-lifecycle.service.js';
 import type { LiveViewSessionService } from '../live-view-session.service.js';
 import type { ToolExecutionContext } from '../../../../base.tool.js';
 
@@ -355,22 +356,21 @@ describe('ReadLiveViewTool', () => {
 describe('CaptureLiveViewScreenshotTool', () => {
   let tool: CaptureLiveViewScreenshotTool;
   let service: LiveViewSessionService;
-  const mockFetch =
-    vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
-  const mockGetSignedUrl = vi
-    .fn()
-    .mockResolvedValue(['https://storage.example.com/screenshot.png']);
+  const mockSaveBufferAndSignRead = vi.spyOn(AgentMediaLifecycleService, 'saveBufferAndSignRead');
   const mockBucket = {
     name: 'test-bucket',
-    file: vi.fn(() => ({
-      getSignedUrl: mockGetSignedUrl,
-    })),
+    file: vi.fn(),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockFetch.mockResolvedValue({ ok: true, status: 200 } as Response);
-    vi.stubGlobal('fetch', mockFetch);
+    mockSaveBufferAndSignRead.mockResolvedValue({
+      url: 'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/live-view.png?alt=media&token=test-token',
+      expiresAt: new Date('2099-01-01').getTime(),
+      storagePath: 'Users/user-test-123/uploads/tmp/image/unbound/123_live-view.png',
+      kind: 'firebase-download-token',
+      durable: true,
+    });
     service = createMockService();
     tool = new CaptureLiveViewScreenshotTool(service, () => ({ bucket: () => mockBucket }));
   });
@@ -400,37 +400,26 @@ describe('CaptureLiveViewScreenshotTool', () => {
       quality: undefined,
       viewport: undefined,
     });
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://storage.example.com/screenshot.png',
+    expect(mockSaveBufferAndSignRead).toHaveBeenCalledWith(
       expect.objectContaining({
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'image/png',
-          'Cache-Control': 'private, max-age=0',
-        },
-        body: expect.any(Uint8Array),
-      })
-    );
-    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        action: 'write',
-        contentType: 'image/png',
-        version: 'v4',
-      })
-    );
-    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        action: 'read',
-        version: 'v4',
+        bucket: mockBucket,
+        mimeType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        buffer: expect.any(Buffer),
+        storagePath: expect.stringContaining('Users/user-test-123/uploads/tmp/image/unbound/'),
       })
     );
 
     const data = result.data as Record<string, unknown>;
-    expect(data['url']).toBe('https://storage.example.com/screenshot.png');
-    expect(data['imageUrl']).toBe('https://storage.example.com/screenshot.png');
-    expect(data['downloadUrl']).toBe('https://storage.example.com/screenshot.png');
+    expect(data['url']).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/live-view.png?alt=media&token=test-token'
+    );
+    expect(data['imageUrl']).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/live-view.png?alt=media&token=test-token'
+    );
+    expect(data['downloadUrl']).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/live-view.png?alt=media&token=test-token'
+    );
     expect(data['pageUrl']).toBe(TEST_URL);
     expect(data['mimeType']).toBe('image/png');
   });
@@ -455,19 +444,12 @@ describe('CaptureLiveViewScreenshotTool', () => {
       fullPage: true,
       viewport: { width: 1365, height: 768 },
     });
-    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
-      1,
+    expect(mockSaveBufferAndSignRead).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: 'write',
-        contentType: 'image/png',
-        version: 'v4',
-      })
-    );
-    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        action: 'read',
-        version: 'v4',
+        bucket: mockBucket,
+        mimeType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        buffer: expect.any(Buffer),
       })
     );
   });

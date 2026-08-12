@@ -42,6 +42,7 @@ import {
   notifyTeamJoined,
 } from '../../services/communications/team-join-notifications.js';
 import { getUserById } from '../../services/profile/users.service.js';
+import { createOrganizationService } from '../../services/team/organization.service.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import {
@@ -120,13 +121,8 @@ async function finalizeOrganizationLogo(params: {
     params.rawValue
   );
   const isAuthorizedTeamLogo = storagePath?.startsWith(`Teams/${params.teamId}/logo/`) ?? false;
-  const isCanonicalOrganizationLogo = storagePath === `Organizations/${params.organizationId}/logo`;
 
-  if (
-    !storagePath ||
-    (!isBareStoragePath && !isTokenizedFirebaseUrl) ||
-    (!isAuthorizedTeamLogo && !isCanonicalOrganizationLogo)
-  ) {
+  if (!storagePath || (!isBareStoragePath && !isTokenizedFirebaseUrl) || !isAuthorizedTeamLogo) {
     throw validationError([
       {
         field: 'organizationLogoUrl',
@@ -137,12 +133,14 @@ async function finalizeOrganizationLogo(params: {
     ]);
   }
 
-  const promoted = await AgentMediaLifecycleService.promoteStorageObjectToDurableDestination({
+  if (isTokenizedFirebaseUrl) {
+    return params.rawValue;
+  }
+
+  return AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
     bucket: params.bucket,
     storagePath,
-    destinationPath: `Organizations/${params.organizationId}/logo`,
   });
-  return promoted.url;
 }
 
 async function invalidateMemberProfileCache(
@@ -936,6 +934,8 @@ router.patch(
           .collection('Organizations')
           .doc(resolvedOrganizationId)
           .update(organizationUpdates);
+
+        await createOrganizationService(db).invalidateCache(resolvedOrganizationId);
 
         logger.info('[Teams API] Organization display fields updated from manage-team', {
           teamId: id,

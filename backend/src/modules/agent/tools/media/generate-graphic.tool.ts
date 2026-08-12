@@ -303,7 +303,7 @@ export class GenerateGraphicTool extends BaseTool {
   readonly name = 'generate_graphic';
   readonly description =
     'Generates a professional sports graphic using structured parameters (text, dimensions, style, subject photos, logos). ' +
-    'When subject photos are provided, output preserves that exact person; when logos are provided, logos are composited deterministically. ' +
+    'When subject photos are provided, output preserves that exact person; when logos are provided, they are sent as brand reference assets for natural integration. ' +
     'For identifiable athlete graphics, provide real subjectPhotoUrls from retrieved media; the tool rejects fake-athlete/silhouette fallbacks. ' +
     'Use for game day graphics, player spotlights, announcements, stat cards, and social assets.';
   readonly parameters = GenerateGraphicInputSchema;
@@ -437,55 +437,6 @@ export class GenerateGraphicTool extends BaseTool {
     return sharp(baseImage)
       .composite([{ input: logoResized, left, top }])
       .toBuffer();
-  }
-
-  /** Stamps one or more user/team logos in the bottom-left corner via Sharp compositing. */
-  private async stampLogosBottomLeft(baseImage: Buffer, logos: readonly Buffer[]): Promise<Buffer> {
-    if (logos.length === 0) return baseImage;
-
-    const meta = await sharp(baseImage).metadata();
-    const width = meta.width ?? 0;
-    const height = meta.height ?? 0;
-    if (width <= 0 || height <= 0) return baseImage;
-
-    const targetLogoWidth = Math.max(36, Math.round(width * LOGO_WIDTH_RATIO));
-    const margin = Math.max(10, Math.round(width * LOGO_MARGIN_RATIO));
-    const verticalGap = Math.max(8, Math.round(margin * 0.65));
-    const resizedLogos = await Promise.all(
-      logos.slice(0, MAX_LOGOS).map(async (logo) => {
-        try {
-          const png = await sharp(logo)
-            .resize({ width: targetLogoWidth, fit: 'contain' })
-            .png()
-            .toBuffer();
-          const logoMeta = await sharp(png).metadata();
-          return {
-            input: png,
-            width: logoMeta.width ?? targetLogoWidth,
-            height: logoMeta.height ?? targetLogoWidth,
-          };
-        } catch {
-          return null;
-        }
-      })
-    );
-
-    const prepared = resizedLogos.filter((entry): entry is NonNullable<typeof entry> => !!entry);
-    if (prepared.length === 0) return baseImage;
-
-    let cursorBottom = height - margin;
-    const composites: Array<{ input: Buffer; left: number; top: number }> = [];
-
-    for (const logo of prepared) {
-      const top = Math.max(0, cursorBottom - logo.height);
-      composites.push({ input: logo.input, left: margin, top });
-      cursorBottom = top - verticalGap;
-      if (cursorBottom <= 0) break;
-    }
-
-    if (composites.length === 0) return baseImage;
-
-    return sharp(baseImage).composite(composites).toBuffer();
   }
 
   private normalizeUrlList(urls: readonly string[] | undefined, max: number): string[] {
@@ -643,18 +594,6 @@ export class GenerateGraphicTool extends BaseTool {
       'the user wants used or complete retrieval first via query_nxt1_data / approved scrape flow and carry the ' +
       'lookup markers forward in autoRetrievedSources.'
     );
-  }
-
-  private async fetchRemoteImageBuffer(url: string, signal?: AbortSignal): Promise<Buffer | null> {
-    try {
-      const response = await fetch(url, { signal });
-      if (!response.ok) return null;
-      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
-      if (!contentType.startsWith('image/')) return null;
-      return Buffer.from(await response.arrayBuffer());
-    } catch {
-      return null;
-    }
   }
 
   /**
@@ -1080,25 +1019,13 @@ Return JSON only. No explanation outside the JSON.`;
       const bucket = this.resolveStorage(context).bucket();
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
-      const userLogoBuffers = await Promise.all(
-        resolvedLogoUrls.map((url) => this.fetchRemoteImageBuffer(url, context?.signal))
-      );
-      const filteredUserLogos = userLogoBuffers.filter(
-        (buffer): buffer is Buffer => !!buffer && buffer.length > 0
-      );
-
-      const withUserLogos =
-        filteredUserLogos.length > 0
-          ? await this.stampLogosBottomLeft(imageBuffer, filteredUserLogos)
-          : imageBuffer;
-
       // Stamp the NXT1 logo in the bottom-right corner.
-      // Model receives NO logo images so it cannot hallucinate duplicates;
-      // Sharp is the sole, deterministic logo placement mechanism.
+      // User/team logos are model-visible references and should be integrated
+      // by the generated artwork, not pasted into a fixed corner afterward.
       const logoBuffer = await this.fetchLogoBuffer(context);
       const finalBuffer = logoBuffer
-        ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
-        : withUserLogos;
+        ? await this.stampLogoBottomRight(imageBuffer, logoBuffer)
+        : imageBuffer;
 
       const mediaAccess = await AgentMediaLifecycleService.saveBufferAndMakePublic({
         bucket,
@@ -1254,11 +1181,12 @@ If the design needs a real subject image, the caller must provide subjectPhotoUr
     const logoBlock =
       (applyMode === 'logo_overlay' || applyMode === 'mixed') && hasLogos
         ? `
-# LOGO OVERLAY (MANDATORY)
+# LOGO REFERENCE INTEGRATION (MANDATORY)
 <LOGO_START>
-Brand logo assets are provided for deterministic compositing.
-Do NOT invent logos, text marks, mascots, or alternate branding.
-The generation model should focus on background/layout aesthetics; logos are overlaid after generation.
+Real brand logo assets are attached as visual reference inputs.
+Naturally integrate the attached logo into the artwork as a professional brand element: emblem, crest, dimensional mark, center badge, header mark, background insignia, uniform/helmet decal, or composition anchor as the design calls for.
+Preserve the logo's core identity, colors, proportions, and readable mark. Do NOT invent logos, text marks, mascots, alternate branding, or fake variants.
+Blend the logo with lighting, shadows, reflections, motion, and depth so it feels designed into the final graphic rather than pasted on top.
 <LOGO_END>
 `
         : '';
@@ -1272,11 +1200,11 @@ The generation model should focus on background/layout aesthetics; logos are ove
       <NO_LOGO_END>
       `
       : `
-      # BRAND LOGO COMPOSITING (MANDATORY)
-      <LOGO_COMPOSITING_START>
-      Real logo assets are attached and will be composited after generation. Do NOT draw empty logo boxes, blank badge frames, or placeholder wells.
-      Keep the composition clean near the bottom-left for overlay placement, but do not render a visible empty container.
-      <LOGO_COMPOSITING_END>
+      # BRAND LOGO INTEGRATION (MANDATORY)
+      <LOGO_INTEGRATION_START>
+      Real logo assets are attached as design references. Integrate the logo naturally into the generated composition while preserving its brand identity.
+      Do NOT draw empty logo boxes, blank badge frames, placeholder wells, or visible reserved containers.
+      <LOGO_INTEGRATION_END>
       `;
 
     return `You are a professional sports graphic designer. Produce a single, high-quality image.
@@ -1313,7 +1241,7 @@ DO NOT write any word from that section onto the graphic. It describes HOW it sh
 CRITICAL: If a subject image is attached, do not synthesize a new athlete.
 Treat the attached photo as the locked identity source and preserve that exact person.
 
-CRITICAL: If logos are provided, they are brand-locked assets. Do not hallucinate or mutate logo identity.
+CRITICAL: If logos are provided, they are brand-locked reference assets. Integrate them naturally without hallucinating or mutating logo identity.
 
 CRITICAL: Never leave missing-asset areas in the artwork. The final image must look complete even when no subject photo or logo is supplied.
 
@@ -1323,7 +1251,7 @@ CRITICAL: Never leave missing-asset areas in the artwork. The final image must l
 - [ ] No style labels, mood words, or theme names appear as visible text${hasSubjectImage ? '\n- [ ] The person in the output is the SAME person from the attached photo' : ''}
 - [ ] The person in the output is the SAME person from the attached photo${hasSubjectImage ? '' : ' (skip when no subject photo supplied)'}
 - [ ] No empty photo frames, blank media panels, logo wells, crest placeholders, or missing-asset boxes are visible
-- [ ] If logos are supplied, the design leaves subtle breathing room for compositing without drawing a visible empty container
+- [ ] If logos are supplied, the attached logo identity is preserved and integrated naturally into the artwork
 - [ ] The design looks like a professional broadcast sports graphic`;
   }
 

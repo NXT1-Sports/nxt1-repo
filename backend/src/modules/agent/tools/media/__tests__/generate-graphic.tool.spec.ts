@@ -317,7 +317,7 @@ describe('GenerateGraphicTool', () => {
     expect(prompt).not.toContain('Logo placeholders/clear zones exist');
   });
 
-  it('prevents visible empty logo containers when logos will be composited', async () => {
+  it('instructs the model to integrate provided logos instead of reserving overlay space', async () => {
     const tool = new GenerateGraphicTool(llm as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT', 'HIGHLIGHTS'] } });
@@ -336,8 +336,13 @@ describe('GenerateGraphicTool', () => {
     });
 
     const prompt = vi.mocked(llm.generateImage).mock.calls[0]?.[0]?.prompt;
+    expect(prompt).toContain('LOGO REFERENCE INTEGRATION');
+    expect(prompt).toContain('Naturally integrate the attached logo into the artwork');
+    expect(prompt).toContain('attached logo identity is preserved and integrated naturally');
     expect(prompt).toContain('Do NOT draw empty logo boxes');
-    expect(prompt).toContain('do not render a visible empty container');
+    expect(prompt).not.toContain('composited after generation');
+    expect(prompt).not.toContain('bottom-left');
+    expect(prompt).not.toContain('overlay placement');
     expect(prompt).not.toContain('Logo placeholders/clear zones exist');
   });
 
@@ -440,6 +445,51 @@ describe('GenerateGraphicTool', () => {
     expect(firebaseMocks.productionBucket.getSignedUrl).not.toHaveBeenCalled();
     expect(firebaseMocks.productionBucket.setMetadata).not.toHaveBeenCalled();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('saves model-integrated logo graphics without bottom-left user-logo compositing', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
+    llm.generateImage.mockResolvedValue({
+      imageBase64: Buffer.from('model-generated-logo-integrated-image').toString('base64'),
+      mimeType: 'image/png',
+      model: 'cheap-image-model',
+      latencyMs: 1800,
+      costUsd: 0.01,
+      textContent: ['CROWN POINT'],
+    });
+
+    const logoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Organizations%2Fo%2Flogo?alt=media&token=organization-logo-token';
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CROWN POINT'],
+      dimensions: '1080x1080',
+      styleDescription: 'Elite sports look',
+      userId: 'user-1',
+      logoUrls: [logoUrl],
+      requiredAssets: {
+        brandLogo: true,
+      },
+      applyMode: 'logo_overlay',
+    });
+
+    expect(result.success).toBe(true);
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
+        additionalImageUrls: [],
+      })
+    );
+    expect(firebaseMocks.productionBucket.save).toHaveBeenCalledWith(
+      Buffer.from('model-generated-logo-integrated-image'),
+      expect.objectContaining({
+        metadata: expect.objectContaining({ contentType: 'image/png' }),
+      })
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('resolves Firebase Storage welcome-photo URLs into provider-safe data URLs', async () => {

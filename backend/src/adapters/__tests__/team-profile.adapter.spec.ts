@@ -15,7 +15,10 @@ type QueryFilter = {
   value: unknown;
 };
 
-function createFirestoreMock(rosterEntries: Array<Record<string, unknown>>) {
+function createFirestoreMock(
+  rosterEntries: Array<Record<string, unknown>>,
+  organizations: Record<string, Record<string, unknown>> = {}
+) {
   const createRosterQuery = (filters: QueryFilter[] = []) => ({
     where(field: string, op: string, value: unknown) {
       return createRosterQuery([...filters, { field, op, value }]);
@@ -42,6 +45,22 @@ function createFirestoreMock(rosterEntries: Array<Record<string, unknown>>) {
     collection(name: string) {
       if (name === 'RosterEntries') {
         return createRosterQuery();
+      }
+
+      if (name === 'Organizations' || name === 'organizations') {
+        return {
+          doc(id: string) {
+            const data = organizations[id];
+            return {
+              async get() {
+                return {
+                  exists: Boolean(data),
+                  data: () => data,
+                };
+              },
+            };
+          },
+        };
       }
 
       throw new Error(`Unexpected collection: ${name}`);
@@ -130,6 +149,41 @@ describe('mapTeamCodeToProfile', () => {
     expect(result.staff.map((member) => member.id)).toEqual(
       expect.arrayContaining(['coach-1', 'director-1'])
     );
+  });
+
+  it('prefers Organization logo over stale Team logo fields for org-linked teams', async () => {
+    getUsersByIdsMock.mockResolvedValue([]);
+
+    const db = createFirestoreMock([], {
+      'org-1': {
+        name: 'Seed Falcons',
+        logoUrl:
+          'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Fnew.png?alt=media&token=new-token',
+        primaryColor: '#111111',
+        secondaryColor: '#f97316',
+      },
+    });
+
+    const result = await mapTeamCodeToProfile(
+      {
+        id: 'team-1',
+        teamCode: 'SEED01',
+        teamName: 'Falcons',
+        teamType: 'high-school',
+        sport: 'Football',
+        organizationId: 'org-1',
+        logoUrl:
+          'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Fold.png?alt=media&token=old-token',
+        teamLogoImg:
+          'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flogo%2Folder.png?alt=media&token=older-token',
+      },
+      { includeRoster: false },
+      db as never
+    );
+
+    expect(result.team.logoUrl).toContain('new.png');
+    expect(result.team.logoUrl).not.toContain('old.png');
+    expect(result.team.branding?.primaryColor).toBe('#111111');
   });
 
   it('maps unicode in legacy memberIds fallback roster payload', async () => {

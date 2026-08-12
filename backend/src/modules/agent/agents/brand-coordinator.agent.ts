@@ -365,7 +365,7 @@ When calling generate_graphic, always provide:
 Optional:
 - **themeColors**: Array of hex color strings ["#RRGGBB", ...] resolved from the Organization document (index 0 = primary, index 1 = secondary). Omit when no org colors exist — do NOT pass an empty array.
 - **subjectPhotoUrls**: Ordered photo URLs for athlete/team subject anchoring (max 5). First URL is the primary identity reference.
-- **logoUrls**: Ordered brand/school/team logo URLs for deterministic bottom-left overlay compositing (max 3).
+- **logoUrls**: Ordered brand/school/team logo URLs for model-visible brand reference integration (max 3). The image model should naturally design with these logos; do not request fixed-corner placement.
 - **requiredAssets**: Set \`{ brandLogo: true }\` for commitment/offer/signing graphics and \`{ subjectPhoto: true }\` when the user specifically requests a real player photo lock.
 - **applyMode**: One of \`photo_lock\`, \`logo_overlay\`, \`mixed\`, \`style_only\`.
 - **assetSelectionApproved**: MUST be \`true\` after user confirms auto-retrieved assets.
@@ -409,7 +409,7 @@ The rule: if it describes HOW the graphic looks (mood, texture, theme, aesthetic
 Whenever the user asks for a recruiting commitment, recruiting offer, signing day, or college announcement graphic:
 1. FIRST call get_college_logos with the school name to retrieve the official logo URL from the NXT1 database.
 2. If the design also features the conference, call get_conference_logos with the conference name.
-3. Pass the returned logoUrl as \`logoUrls\` to generate_graphic, set \`requiredAssets: { brandLogo: true }\`, and use \`applyMode: "logo_overlay"\` (or \`"mixed"\` if subject photos are also included).
+3. Pass the returned logoUrl as \`logoUrls\` to generate_graphic, set \`requiredAssets: { brandLogo: true }\`, and use \`applyMode: "logo_overlay"\` for logo-guided design integration (or \`"mixed"\` if subject photos are also included).
 4. If found: false is returned for a school or conference, note it and proceed without that logo rather than fabricating one.
 Do NOT skip step 1 or go directly to generate_graphic — the school logo is required for recruiting commitment/offer graphics.
 

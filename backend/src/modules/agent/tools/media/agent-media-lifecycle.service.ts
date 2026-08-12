@@ -567,7 +567,21 @@ export class AgentMediaLifecycleService {
     const destinationFile = params.bucket.file(params.destinationPath);
 
     if (params.storagePath !== params.destinationPath) {
-      await sourceFile.copy(destinationFile);
+      try {
+        await sourceFile.copy(destinationFile);
+      } catch (error) {
+        if (!this.isKnownMetadataParseError(error)) {
+          throw error;
+        }
+
+        logger.info(
+          '[AgentMediaLifecycleService] Storage object copy returned parse-error response; continuing to issue Firebase URL',
+          {
+            sourcePath: params.storagePath,
+            destinationPath: params.destinationPath,
+          }
+        );
+      }
     }
 
     const accessUrl = await this.issueFirebaseDownloadUrl({
@@ -624,7 +638,23 @@ export class AgentMediaLifecycleService {
       }) => Promise<unknown>;
     };
 
-    const [exists] = await file.exists();
+    const exists = await (async (): Promise<boolean> => {
+      try {
+        const [fileExists] = await file.exists();
+        return fileExists;
+      } catch (error) {
+        if (!this.isKnownMetadataParseError(error)) {
+          throw error;
+        }
+
+        logger.info(
+          '[AgentMediaLifecycleService] Storage existence check returned parse-error response; assuming object exists to issue Firebase URL',
+          { storagePath: params.storagePath }
+        );
+        return true;
+      }
+    })();
+
     if (!exists) {
       throw new Error('Promoted media object was not found in storage');
     }

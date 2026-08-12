@@ -32,6 +32,7 @@ import {
   scheduleUniversalFileSemanticSync,
   UniversalFileSemanticService,
 } from '../../../../../services/team/universal-file-semantic.service.js';
+import { getSignedUrlWithTimeout } from '../../../../../utils/gcs-signed-url.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -1072,22 +1073,57 @@ async function resolveInspectableNativeAsset(document: UniversalFileDoc): Promis
 async function resolveInspectableBinaryUrl(
   payload: UniversalBinaryFilePayload
 ): Promise<string | null> {
-  if (payload.storagePath) {
-    try {
-      const bucket = getStorage().bucket();
-      const [metadata] = await bucket.file(payload.storagePath).getMetadata();
-      const token = metadata?.metadata?.['firebaseStorageDownloadTokens'];
+  const directUrl = normalizeString(payload.url);
+  const storagePath = normalizeString(payload.storagePath);
 
-      if (typeof token === 'string' && token) {
-        const firstToken = token.split(',')[0];
-        return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(payload.storagePath)}?alt=media&token=${firstToken}`;
+  if (storagePath) {
+    const bucket = getStorage().bucket();
+    const file = bucket.file(storagePath) as unknown as {
+      getMetadata?: () => Promise<
+        [
+          {
+            metadata?: Record<string, string | undefined>;
+          },
+          unknown,
+        ]
+      >;
+      getSignedUrl?: (options: {
+        version: 'v4';
+        action: 'read';
+        expires: number;
+      }) => Promise<[string]>;
+    };
+
+    if (typeof file.getMetadata === 'function') {
+      try {
+        const [metadata] = await file.getMetadata();
+        const token = metadata?.metadata?.['firebaseStorageDownloadTokens'];
+
+        if (typeof token === 'string' && token) {
+          const firstToken = token.split(',')[0];
+          return `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${firstToken}`;
+        }
+      } catch {
+        // Fall through to signed URL resolution for private objects without token metadata.
       }
-    } catch {
-      // Fall through to the stored URL when metadata/token is unavailable.
+    }
+
+    if (typeof file.getSignedUrl === 'function') {
+      try {
+        const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+        const [signedUrl] = await getSignedUrlWithTimeout(
+          () =>
+            file.getSignedUrl?.({ version: 'v4', action: 'read', expires: expiresAt }) ??
+            Promise.reject(new Error('Signed URL support unavailable'))
+        );
+        return signedUrl;
+      } catch {
+        // Fall back to the stored URL when signing is unavailable.
+      }
     }
   }
 
-  return normalizeString(payload.url) ?? null;
+  return directUrl ?? null;
 }
 
 async function resolveDocumentAccessState(

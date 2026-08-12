@@ -546,7 +546,7 @@ export class OrganizationService {
   /**
    * Invalidate cache for a specific organization and its admin lists.
    */
-  private async invalidateCache(orgId: string): Promise<void> {
+  async invalidateCache(orgId: string): Promise<void> {
     const cache = getCache();
     if (!cache) return;
 

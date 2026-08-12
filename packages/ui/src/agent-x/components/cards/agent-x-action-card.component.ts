@@ -27,7 +27,6 @@ import {
   effect,
   OnDestroy,
   PLATFORM_ID,
-  viewChild,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Capacitor } from '@capacitor/core';
@@ -3175,7 +3174,7 @@ export class AgentXActionCardComponent implements OnDestroy {
   }
 
   private async enableMobileEmailKeyboardResize(): Promise<void> {
-    const session = ++this.mobileEmailKeyboardSession;
+    ++this.mobileEmailKeyboardSession;
     if (!this.isNativePlatform) return;
 
     try {

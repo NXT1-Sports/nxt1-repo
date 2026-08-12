@@ -228,6 +228,77 @@ describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
 });
 
 describe('AgentMediaLifecycleService.promoteSignedUrlsToDestination', () => {
+  it('continues promotion when Storage copy returns a known parse error and returns a Firebase URL', async () => {
+    const sourcePath = 'Teams/team-1/logo/upload.png';
+    const destinationPath = 'Organizations/org-1/logo';
+    const sourceFile = { copy: vi.fn().mockRejectedValue(new Error('Parse Error')) };
+    const destinationFile = {
+      exists: vi.fn().mockResolvedValue([true]),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
+    };
+    const bucket = createBucket({
+      [sourcePath]: sourceFile,
+      [destinationPath]: destinationFile,
+    });
+
+    const result = await AgentMediaLifecycleService.promoteStorageObjectToDurableDestination({
+      bucket,
+      storagePath: sourcePath,
+      destinationPath,
+    });
+
+    expect(sourceFile.copy).toHaveBeenCalledWith(destinationFile);
+    expect(destinationFile.setMetadata).toHaveBeenCalledWith({
+      cacheControl: AgentMediaLifecycleService.POST_MEDIA_CACHE_CONTROL,
+      metadata: {
+        firebaseStorageDownloadTokens: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        ),
+      },
+    });
+    expect(result).toMatchObject({
+      storagePath: destinationPath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain(encodeURIComponent(destinationPath));
+    expect(result.url).toContain('?alt=media&token=');
+    expect(result.url).not.toContain('storage.googleapis.com/test-bucket');
+  });
+
+  it('continues promotion when the destination existence check returns a known parse error', async () => {
+    const sourcePath = 'Teams/team-1/logo/upload.png';
+    const destinationPath = 'Organizations/org-1/logo';
+    const sourceFile = { copy: vi.fn().mockResolvedValue(undefined) };
+    const destinationFile = {
+      exists: vi.fn().mockRejectedValue(new Error('Parse Error')),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
+    };
+    const bucket = createBucket({
+      [sourcePath]: sourceFile,
+      [destinationPath]: destinationFile,
+    });
+
+    const result = await AgentMediaLifecycleService.promoteStorageObjectToDurableDestination({
+      bucket,
+      storagePath: sourcePath,
+      destinationPath,
+    });
+
+    expect(sourceFile.copy).toHaveBeenCalledWith(destinationFile);
+    expect(destinationFile.exists).toHaveBeenCalledOnce();
+    expect(destinationFile.setMetadata).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      storagePath: destinationPath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+    expect(result.url).toContain('https://firebasestorage.googleapis.com/v0/b/test-bucket/o/');
+    expect(result.url).toContain(encodeURIComponent(destinationPath));
+    expect(result.url).toContain('?alt=media&token=');
+  });
+
   it('copies thread-staged media and returns a Firebase download-token URL', async () => {
     const sourcePath = 'Users/user-1/threads/thread-1/tmp/image/123_image.jpg';
     const destinationPath = 'Users/user-1/posts/post-1/123_image.jpg';

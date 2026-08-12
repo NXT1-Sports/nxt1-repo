@@ -216,7 +216,9 @@ function mapTeamCodeToTeam(
   const city = hasOrgOverlay ? (org?.city ?? '') : (teamCode.city ?? '');
   const state = hasOrgOverlay ? (org?.state ?? '') : (teamCode.state ?? '');
   const location = [city, state].filter(Boolean).join(', ');
-  const logoUrl = teamCode.logoUrl ?? teamCode.teamLogoImg ?? org?.logoUrl ?? undefined;
+  const logoUrl = hasOrgOverlay
+    ? (org?.logoUrl ?? teamCode.logoUrl ?? teamCode.teamLogoImg ?? undefined)
+    : (teamCode.logoUrl ?? teamCode.teamLogoImg ?? undefined);
   const primaryColor = hasOrgOverlay
     ? (org?.primaryColor ?? undefined)
     : (teamCode.primaryColor ?? undefined);
