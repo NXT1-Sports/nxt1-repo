@@ -19,7 +19,6 @@
 import {
   Component,
   ChangeDetectionStrategy,
-  ElementRef,
   inject,
   input,
   output,
@@ -685,15 +684,17 @@ export interface EmailAttachmentEdit {
                   </div>
 
                   <div class="action-card__composer-body">
-                    <div
-                      #mobileEmailBody
-                      class="action-card__email-preview action-card__email-preview--editable action-card__email-preview--composer"
-                      contenteditable="true"
+                    <textarea
+                      class="action-card__email-textarea action-card__email-textarea--composer"
+                      [ngModel]="editEmailBody()"
+                      (ngModelChange)="onMobileBodyTextChange($event)"
+                      placeholder="Write the email body"
+                      rows="12"
                       spellcheck="true"
-                      [innerHTML]="safeBodyHtml()"
-                      (input)="onBodyHtmlInput($event)"
-                      (blur)="onBodyHtmlBlur($event)"
-                    ></div>
+                      autocapitalize="sentences"
+                      autocomplete="off"
+                      inputmode="text"
+                    ></textarea>
                   </div>
 
                   @if (editEmailAttachments().length > 0) {
@@ -1770,6 +1771,41 @@ export interface EmailAttachmentEdit {
         background: var(--nxt1-color-surface-primary);
       }
 
+      .action-card__modal-shell :is(ion-input, ion-textarea, ion-searchbar) {
+        --highlight-color-focused: transparent;
+        --highlight-color-valid: transparent;
+        --caret-color: var(--nxt1-color-primary, #ccff00);
+        --color: var(--nxt1-color-text-primary, #fff);
+      }
+
+      .action-card__modal-shell :is(input, textarea) {
+        caret-color: var(--nxt1-color-primary, #ccff00);
+        accent-color: var(--nxt1-color-primary, #ccff00);
+        outline: none !important;
+        box-shadow: none !important;
+        -webkit-box-shadow: none !important;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .action-card__modal-shell :is(input, textarea)::selection {
+        color: var(--nxt1-color-text-primary, #fff);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 28%, transparent);
+      }
+
+      .action-card__modal-shell :is(input, textarea)::-moz-selection {
+        color: var(--nxt1-color-text-primary, #fff);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 28%, transparent);
+      }
+
+      .action-card__modal-shell :is(input, textarea):focus,
+      .action-card__modal-shell :is(input, textarea):focus-visible,
+      .action-card__modal-shell :is(input, textarea):active {
+        outline: none !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+        -webkit-box-shadow: none !important;
+      }
+
       .action-card__modal-toolbar {
         position: sticky;
         top: 0;
@@ -1853,7 +1889,13 @@ export interface EmailAttachmentEdit {
 
       .action-card__modal-body {
         flex: 1;
-        padding-bottom: calc(var(--nxt1-spacing-6, 24px) + env(safe-area-inset-bottom));
+        overflow-anchor: none;
+        scroll-padding-bottom: calc(
+          var(--keyboard-height, 0px) + env(safe-area-inset-bottom) + var(--nxt1-spacing-8, 32px)
+        );
+        padding-bottom: calc(
+          var(--nxt1-spacing-6, 24px) + env(safe-area-inset-bottom) + var(--keyboard-height, 0px)
+        );
       }
 
       .action-card__email-editor--modal {
@@ -1864,6 +1906,13 @@ export interface EmailAttachmentEdit {
         border: none;
         border-radius: 0;
         background: transparent;
+      }
+
+      .action-card__email-editor--modal::after {
+        content: '';
+        display: block;
+        flex: 0 0 auto;
+        height: calc(max(24dvh, 160px) + env(safe-area-inset-bottom) + var(--keyboard-height, 0px));
       }
 
       .action-card__email-field--composer {
@@ -1894,17 +1943,25 @@ export interface EmailAttachmentEdit {
       }
 
       .action-card__email-input--composer {
+        appearance: none;
+        -webkit-appearance: none;
         border: none;
         border-radius: 0;
         background: transparent;
         color: var(--nxt1-color-text-primary, #fff);
         font-size: 16px;
         line-height: 1.4;
+        outline: none;
         padding: 0;
+        box-shadow: none;
+        -webkit-tap-highlight-color: transparent;
       }
 
-      .action-card__email-input--composer:focus {
+      .action-card__email-input--composer:focus,
+      .action-card__email-input--composer:focus-visible {
         border-color: transparent;
+        outline: none;
+        box-shadow: none;
       }
 
       .action-card__recipients-bubbles--composer {
@@ -1931,10 +1988,12 @@ export interface EmailAttachmentEdit {
       .action-card__composer-body {
         flex: 1;
         min-height: max(48dvh, 320px);
+        overflow-anchor: none;
         padding: var(--nxt1-spacing-5, 20px) var(--nxt1-spacing-4, 16px) 0;
       }
 
-      .action-card__email-preview--composer {
+      .action-card__email-preview--composer,
+      .action-card__email-textarea--composer {
         min-height: max(48dvh, 320px);
         border: none;
         border-radius: 0;
@@ -1945,8 +2004,35 @@ export interface EmailAttachmentEdit {
         padding: 0;
       }
 
-      .action-card__email-preview--composer:focus {
+      .action-card__email-textarea--composer {
+        appearance: none;
+        -webkit-appearance: none;
+        display: block;
+        width: 100%;
+        height: min(72dvh, 640px);
+        max-height: min(72dvh, 640px);
+        resize: none;
+        outline: none;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        caret-color: var(--nxt1-color-primary, #ccff00);
+        box-shadow: none;
+        padding-bottom: calc(
+          max(34dvh, 240px) + env(safe-area-inset-bottom) + var(--keyboard-height, 0px)
+        );
+        scroll-padding-bottom: calc(
+          max(34dvh, 240px) + env(safe-area-inset-bottom) + var(--keyboard-height, 0px)
+        );
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .action-card__email-preview--composer:focus,
+      .action-card__email-preview--composer:focus-visible,
+      .action-card__email-textarea--composer:focus,
+      .action-card__email-textarea--composer:focus-visible {
         border-color: transparent;
+        outline: none;
+        box-shadow: none;
       }
 
       .action-card__email-preview--composer ::ng-deep p {
@@ -2082,7 +2168,6 @@ export class AgentXActionCardComponent implements OnDestroy {
   readonly cardState = signal<CardState>('idle');
   /** Controls the mobile-only full-screen email editor modal. */
   readonly mobileEmailEditorOpen = signal(false);
-  private readonly mobileEmailBody = viewChild<ElementRef<HTMLElement>>('mobileEmailBody');
   private mobileEmailKeyboardSession = 0;
 
   /**
@@ -3056,7 +3141,6 @@ export class AgentXActionCardComponent implements OnDestroy {
   }
 
   protected onMobileEmailEditorPresented(): void {
-    this.focusMobileEmailBody();
     void this.enableMobileEmailKeyboardResize();
   }
 
@@ -3072,6 +3156,11 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.syncBodyHtmlFromEvent(event);
   }
 
+  onMobileBodyTextChange(text: string): void {
+    this.editEmailBody.set(text);
+    this.editEmailBodyHtml.set(this.plainTextToHtml(text));
+  }
+
   /** Capture in-place body HTML edits from contenteditable field. */
   onBodyHtmlBlur(event: Event): void {
     this.syncBodyHtmlFromEvent(event);
@@ -3085,17 +3174,6 @@ export class AgentXActionCardComponent implements OnDestroy {
     this.editEmailBody.set(this.htmlToText(html));
   }
 
-  private focusMobileEmailBody(): void {
-    if (!this.isBrowser) return;
-
-    const focusBody = (): void => {
-      this.mobileEmailBody()?.nativeElement.focus({ preventScroll: true });
-    };
-
-    focusBody();
-    requestAnimationFrame(focusBody);
-  }
-
   private async enableMobileEmailKeyboardResize(): Promise<void> {
     const session = ++this.mobileEmailKeyboardSession;
     if (!this.isNativePlatform) return;
@@ -3103,10 +3181,6 @@ export class AgentXActionCardComponent implements OnDestroy {
     try {
       const { Keyboard, KeyboardResize } = await import('@capacitor/keyboard');
       await Keyboard.setResizeMode({ mode: KeyboardResize.Ionic });
-
-      if (session === this.mobileEmailKeyboardSession && this.mobileEmailEditorOpen()) {
-        this.focusMobileEmailBody();
-      }
     } catch {
       // Browser previews use native focus and IonContent scrolling without the Capacitor plugin.
     }
