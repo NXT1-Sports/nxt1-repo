@@ -218,10 +218,11 @@ describe('GenerateGraphicTool', () => {
     );
   });
 
-  it('rejects explicit non-canonical logos before resolution, fetch, or provider generation', async () => {
+  it('accepts reachable explicit non-canonical logos for one-off overlays', async () => {
     const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
     const externalLogoUrl = 'https://image.maxpreps.io/school-mascot/logo.gif';
 
@@ -240,12 +241,22 @@ describe('GenerateGraphicTool', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe(
-      'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.'
+    expect(result.error).toContain('storage-side test abort');
+    expect(transportResolver.resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceUrl: externalLogoUrl, stageMediaKind: 'image' })
     );
-    expect(transportResolver.resolveProcessingUrl).not.toHaveBeenCalled();
-    expect(mockFetch).not.toHaveBeenCalled();
-    expect(llm.generateImage).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledWith(
+      externalLogoUrl,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: expect.stringContaining('image/') }),
+      })
+    );
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
+        additionalImageUrls: [],
+      })
+    );
   });
 
   it('strips trailing punctuation from subject photo URLs before resolution', async () => {

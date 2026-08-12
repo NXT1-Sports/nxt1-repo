@@ -553,9 +553,7 @@ export class GenerateGraphicTool extends BaseTool {
   }
 
   private normalizeProvidedLogoUrlList(urls: readonly string[] | undefined): string[] {
-    return this.normalizeImageUrlList(urls, MAX_LOGOS).filter((url) =>
-      AgentMediaLifecycleService.isCanonicalBrandLogoUrl(url)
-    );
+    return this.normalizeImageUrlList(urls, MAX_LOGOS);
   }
 
   private resolveApplyMode(params: {
