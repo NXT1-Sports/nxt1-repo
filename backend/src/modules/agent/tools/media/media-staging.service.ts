@@ -130,33 +130,36 @@ export class MediaStagingService {
     ].join('/');
 
     const file = bucket.file(storagePath);
-    let sizeBytes: number;
+    let uploaded: { readonly sizeBytes: number; readonly signedUrl: string };
     try {
-      sizeBytes = await this.streamToStorage(file, response, mimeType, request, mediaKind);
+      uploaded = await this.streamToStorage(
+        bucket,
+        storagePath,
+        response,
+        mimeType,
+        request,
+        mediaKind
+      );
     } catch (error) {
       await file.delete({ ignoreNotFound: true }).catch(() => undefined);
       throw error;
     }
-    if (mediaKind === 'video' && sizeBytes < MIN_STAGED_VIDEO_BYTES) {
+    if (mediaKind === 'video' && uploaded.sizeBytes < MIN_STAGED_VIDEO_BYTES) {
       await file.delete({ ignoreNotFound: true }).catch(() => undefined);
       throw new Error(
-        `Staged video payload is too small (${sizeBytes} bytes). ` +
+        `Staged video payload is too small (${uploaded.sizeBytes} bytes). ` +
           'Resolve the provider source to a downloadable video file before staging.'
       );
     }
     const expiresInMinutes = this.resolveExpiryMinutes(request.expiresInMinutes);
     const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
-    const readUrlUrl = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
-      bucket,
-      storagePath,
-    });
-    const readUrl = { url: readUrlUrl, expiresAt: expiresAtDate.toISOString() };
+    const readUrl = { url: uploaded.signedUrl, expiresAt: expiresAtDate.toISOString() };
 
     logger.info('[MediaStagingService] Staged media', {
       sourceHost: parsedSourceUrl.hostname,
       mediaKind,
       mimeType,
-      sizeBytes,
+      sizeBytes: uploaded.sizeBytes,
       storagePath,
       threadId: request.staging.threadId,
       userId: request.staging.userId,
@@ -171,7 +174,7 @@ export class MediaStagingService {
       sourceHost: parsedSourceUrl.hostname,
       mediaKind,
       mimeType,
-      sizeBytes,
+      sizeBytes: uploaded.sizeBytes,
     };
   }
 
@@ -237,6 +240,7 @@ export class MediaStagingService {
       exists: () => Promise<[boolean]>;
       getMetadata: () => Promise<[Record<string, unknown>, ...unknown[]]>;
       copy: (destination: unknown) => Promise<unknown>;
+      download: () => Promise<[Buffer]>;
     };
 
     const [exists] = await sourceFile.exists();
@@ -281,10 +285,39 @@ export class MediaStagingService {
     };
     const existingDownloadToken = this.extractFirebaseDownloadToken(sourceMetadata['metadata']);
     const downloadToken = existingDownloadToken ?? randomUUID();
+    let copiedByStorage = false;
+    let fallbackSignedUrl: string | null = null;
+    let sizeBytes = Number(sourceMetadata['size'] ?? 0);
 
     try {
-      await sourceFile.copy(stagedFile);
-      if (!existingDownloadToken) {
+      try {
+        await sourceFile.copy(stagedFile);
+        copiedByStorage = true;
+      } catch (copyError) {
+        logger.warn(
+          '[MediaStagingService] Owned Firebase media copy failed; retrying by download',
+          {
+            sourceStoragePath: firebaseScope.storagePath,
+            storagePath,
+            error: copyError instanceof Error ? copyError.message : String(copyError),
+          }
+        );
+
+        const [sourceBuffer] = await sourceFile.download();
+        this.assertBufferStageable(sourceBuffer, mediaKind);
+        const uploaded = await this.uploadBufferToStorage({
+          bucket: params.bucket,
+          storagePath,
+          mimeType,
+          cacheControl: 'private, max-age=3600',
+          buffer: sourceBuffer,
+          signedUrlTtlMs: this.resolveExpiryMinutes(params.request.expiresInMinutes) * 60_000,
+        });
+        fallbackSignedUrl = uploaded.signedUrl;
+        sizeBytes = sourceBuffer.length;
+      }
+
+      if (copiedByStorage && !existingDownloadToken) {
         await this.applyObjectMetadataBestEffort({
           file: stagedFile,
           contentType: mimeType,
@@ -302,7 +335,6 @@ export class MediaStagingService {
         });
       }
 
-      const sizeBytes = Number(sourceMetadata['size'] ?? 0);
       if (mediaKind === 'video' && sizeBytes < MIN_STAGED_VIDEO_BYTES) {
         await stagedFile.delete({ ignoreNotFound: true }).catch(() => undefined);
         throw new Error(
@@ -313,10 +345,12 @@ export class MediaStagingService {
 
       const expiresInMinutes = this.resolveExpiryMinutes(params.request.expiresInMinutes);
       const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
-      const readUrlUrl = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
-        bucket: params.bucket,
-        storagePath,
-      });
+      const readUrlUrl =
+        fallbackSignedUrl ??
+        (await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+          bucket: params.bucket,
+          storagePath,
+        }));
       const readUrl = { url: readUrlUrl, expiresAt: expiresAtDate.toISOString() };
 
       logger.info('[MediaStagingService] Staged owned Firebase media by storage copy', {
@@ -348,34 +382,23 @@ export class MediaStagingService {
   }
 
   private async uploadBufferToStorage(params: {
-    readonly file: ReturnType<ReturnType<Storage['bucket']>['file']>;
+    readonly bucket: ReturnType<Storage['bucket']>;
+    readonly storagePath: string;
     readonly mimeType: string;
     readonly cacheControl: string;
-    readonly metadata: Record<string, string>;
     readonly buffer: Buffer;
-  }): Promise<void> {
-    const storageFile = params.file as {
-      save: (
-        buffer: Buffer,
-        options: {
-          resumable: boolean;
-          metadata: {
-            contentType: string;
-            cacheControl: string;
-            metadata: Record<string, string>;
-          };
-        }
-      ) => Promise<unknown>;
-    };
-
-    await storageFile.save(params.buffer, {
-      resumable: false,
-      metadata: {
-        contentType: params.mimeType,
-        cacheControl: params.cacheControl,
-        metadata: params.metadata,
-      },
+    readonly signedUrlTtlMs?: number;
+  }): Promise<{ readonly signedUrl: string }> {
+    const accessUrl = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket: params.bucket,
+      storagePath: params.storagePath,
+      buffer: params.buffer,
+      mimeType: params.mimeType,
+      cacheControl: params.cacheControl,
+      signedUrlTtlMs: params.signedUrlTtlMs,
     });
+
+    return { signedUrl: accessUrl.url };
   }
 
   private resolveStorage(environment?: ToolExecutionContext['environment']): Storage {
@@ -531,38 +554,34 @@ export class MediaStagingService {
   }
 
   private async streamToStorage(
-    file: ReturnType<ReturnType<Storage['bucket']>['file']>,
+    bucket: ReturnType<Storage['bucket']>,
+    storagePath: string,
     response: Response,
     mimeType: string,
     request: StageRemoteMediaRequest,
     mediaKind: StagedMediaKind
-  ): Promise<number> {
+  ): Promise<{ readonly sizeBytes: number; readonly signedUrl: string }> {
     const cacheControl = 'private, max-age=3600';
-    const metadata = {
-      firebaseStorageDownloadTokens: randomUUID(),
-      expiresAt: new Date(
-        Date.now() + this.resolveExpiryMinutes(request.expiresInMinutes) * 60_000
-      ).toISOString(),
-      mediaKind,
-      sourceHost: new URL(request.sourceUrl).hostname,
-      stagedBy: 'agent_x',
-    };
-
     const buffer = Buffer.from(await response.arrayBuffer());
+    this.assertBufferStageable(buffer, mediaKind);
+    const uploaded = await this.uploadBufferToStorage({
+      bucket,
+      storagePath,
+      mimeType,
+      cacheControl,
+      buffer,
+      signedUrlTtlMs: this.resolveExpiryMinutes(request.expiresInMinutes) * 60_000,
+    });
+
+    return { sizeBytes: buffer.length, signedUrl: uploaded.signedUrl };
+  }
+
+  private assertBufferStageable(buffer: Buffer, mediaKind: StagedMediaKind): void {
     if (buffer.length > MAX_MEDIA_SIZE_BYTES) {
       throw new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`);
     }
 
     this.assertPlausibleVideoPayload(buffer.subarray(0, VIDEO_SIGNATURE_SAMPLE_BYTES), mediaKind);
-    await this.uploadBufferToStorage({
-      file,
-      mimeType,
-      cacheControl,
-      metadata,
-      buffer,
-    });
-
-    return buffer.length;
   }
 
   private extractFirebaseDownloadToken(value: unknown): string | null {

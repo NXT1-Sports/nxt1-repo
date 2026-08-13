@@ -249,7 +249,17 @@ if [[ "${DRY_RUN}" == "true" ]]; then
 fi
 
 if ! "${ARTIFACT_DESCRIBE_CMD[@]}" > /dev/null 2>&1; then
-  "${ARTIFACT_CREATE_CMD[@]}"
+  ARTIFACT_CREATE_OUTPUT="$(mktemp)"
+  if ! "${ARTIFACT_CREATE_CMD[@]}" > "${ARTIFACT_CREATE_OUTPUT}" 2>&1; then
+    if grep -qi 'ALREADY_EXISTS' "${ARTIFACT_CREATE_OUTPUT}"; then
+      echo "Artifact Registry repository ${ARTIFACT_REPO} already exists; continuing."
+    else
+      cat "${ARTIFACT_CREATE_OUTPUT}" >&2
+      rm -f "${ARTIFACT_CREATE_OUTPUT}"
+      exit 1
+    fi
+  fi
+  rm -f "${ARTIFACT_CREATE_OUTPUT}"
 fi
 
 "${BUILD_CMD[@]}"

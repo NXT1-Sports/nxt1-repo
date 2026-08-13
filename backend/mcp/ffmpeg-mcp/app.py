@@ -105,6 +105,7 @@ def _mobile_h264_args() -> list[str]:
             (
                 "level=4.0:"
                 "ref=2:"
+                "fullrange=off:"
                 f"vbv-maxrate={MOBILE_H264_MAXRATE_K}:"
                 f"vbv-bufsize={MOBILE_H264_BUFSIZE_K}"
             ),
@@ -131,8 +132,8 @@ def _mobile_scale_filter() -> str:
         f"h='if(gte(iw,ih),"
         f"min(ih,{MOBILE_VIDEO_MAX_LANDSCAPE_HEIGHT}),"
         f"min(ih,{MOBILE_VIDEO_MAX_PORTRAIT_HEIGHT}))':"
-        "force_original_aspect_ratio=decrease,"
-        "scale=trunc(iw/2)*2:trunc(ih/2)*2:out_range=tv,"
+        "force_original_aspect_ratio=decrease:in_range=auto:out_range=tv,"
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2:in_range=auto:out_range=tv,"
         "format=yuv420p,setparams=range=tv"
     )
 
