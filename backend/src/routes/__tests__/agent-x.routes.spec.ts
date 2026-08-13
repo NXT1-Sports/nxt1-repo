@@ -2156,6 +2156,62 @@ describe('Agent X Routes', () => {
     expect(typeof response.body.pageInfo.nextCursor).toBe('string');
   });
 
+  it('should return operations log when BullMQ repeatable lookup stalls', async () => {
+    __seedMockFirestoreDocument('RecurringTasks/task-1', {
+      userId: 'test-user',
+      title: 'Daily check-in',
+      actionSummary: 'Summarize my day',
+      cronExpression: '0 9 * * *',
+      timezone: 'America/Chicago',
+      createdAt: { toMillis: () => Date.parse('2026-01-15T12:00:00.000Z') },
+    });
+
+    const jobRepository = createMockJobRepository();
+    jobRepository.getByUserPage.mockResolvedValue({
+      jobs: [],
+      hasMore: false,
+      nextCreatedAt: undefined,
+    });
+
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      cancel: vi.fn().mockResolvedValue(true),
+      getAllRepeatableJobs: vi.fn(() => new Promise<never>(() => undefined)),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        getUserThreads: vi.fn().mockResolvedValue({ items: [], hasMore: false }),
+        addMessage: vi.fn(),
+      } as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/operations-log?limit=50')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toEqual([]);
+    expect(response.body.scheduled).toEqual([]);
+    expect(queueService.getAllRepeatableJobs).toHaveBeenCalledTimes(1);
+  });
+
   it('should resolve approvals with edited tool input and resume the exact pending call', async () => {
     const jobRepository = createMockJobRepository({
       userId: 'test-user',

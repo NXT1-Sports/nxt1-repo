@@ -96,10 +96,30 @@ type FirestoreDocLike = {
   data(): Record<string, unknown>;
 };
 
+const OPERATIONS_LOG_DEPENDENCY_TIMEOUT_MS = process.env['NODE_ENV'] === 'test' ? 25 : 5_000;
+
 function applyNoStoreHeaders(res: Response): void {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+}
+
+async function withOperationsLogDependencyTimeout<T>(
+  promise: Promise<T>,
+  label: string
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${OPERATIONS_LOG_DEPENDENCY_TIMEOUT_MS}ms`));
+    }, OPERATIONS_LOG_DEPENDENCY_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function detectAgentUploadMultipartBoundary(buffer: Buffer): string | null {
@@ -982,9 +1002,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
 
     for (let pageIndex = 0; pageIndex < maxScanPages && sourceHasMore; pageIndex += 1) {
       try {
-        const page = await jobRepository
-          .withDb(db)
-          .getByUserPage(user.uid, scanPageSize, jobScanCursor);
+        const page = await withOperationsLogDependencyTimeout(
+          jobRepository.withDb(db).getByUserPage(user.uid, scanPageSize, jobScanCursor),
+          'agentJobs operations-log page query'
+        );
         jobs.push(...page.jobs);
         sourceHasMore = page.hasMore;
         jobScanCursor = page.nextCreatedAt;
@@ -1000,7 +1021,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       if (!cursor) {
         if (activeThreadsPromise && !prefetchedThreadResult && !threadPrefetchFailed) {
           try {
-            prefetchedThreadResult = await activeThreadsPromise;
+            prefetchedThreadResult = await withOperationsLogDependencyTimeout(
+              activeThreadsPromise,
+              'Mongo active threads query'
+            );
           } catch (threadErr) {
             threadPrefetchFailed = true;
             logger.warn('Failed to fetch active threads for operations log filtering', {
@@ -1012,7 +1036,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
 
         if (!prefetchedRecurringSnapshot && !recurringPrefetchFailed) {
           try {
-            const snapshot = await recurringTasksPromise;
+            const snapshot = await withOperationsLogDependencyTimeout(
+              recurringTasksPromise,
+              'Firestore recurring tasks query'
+            );
             prefetchedRecurringSnapshot = {
               empty: snapshot.empty,
               docs: snapshot.docs as FirestoreDocLike[],
@@ -1091,7 +1118,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     } else if (activeThreadsPromise && !threadPrefetchFailed) {
       try {
-        const threadResult = await activeThreadsPromise;
+        const threadResult = await withOperationsLogDependencyTimeout(
+          activeThreadsPromise,
+          'Mongo active threads query'
+        );
         activeThreads = threadResult.items ?? [];
         threadFilterIsAuthoritative = !threadResult.hasMore;
 
@@ -1133,7 +1163,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     } else if (!recurringPrefetchFailed) {
       try {
-        const snapshot = await recurringTasksPromise;
+        const snapshot = await withOperationsLogDependencyTimeout(
+          recurringTasksPromise,
+          'Firestore recurring tasks query'
+        );
 
         recurringTasksSnapshot = {
           empty: snapshot.empty,
@@ -1286,7 +1319,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     try {
       if (recurringTasksSnapshot && !recurringTasksSnapshot.empty) {
         const repeatables: RepeatableJobDescriptor[] = queueService
-          ? ((await queueService.getAllRepeatableJobs()) as RepeatableJobDescriptor[])
+          ? ((await withOperationsLogDependencyTimeout(
+              queueService.getAllRepeatableJobs() as Promise<RepeatableJobDescriptor[]>,
+              'BullMQ repeatable jobs query'
+            )) as RepeatableJobDescriptor[])
           : [];
         const repeatableMap = new Map(
           repeatables.map((job: RepeatableJobDescriptor) => [
