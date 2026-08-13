@@ -86,6 +86,11 @@ const PROMPT_ONLY_TITLE_GENERATION_PROMPT = `You are a concise title generator f
 - Include sport/context when relevant
 - Maximum 50 characters`;
 
+const TITLE_GENERATION_CANDIDATE_MODELS = Object.freeze([
+  '~anthropic/claude-haiku-latest',
+  'google/gemini-3.6-flash',
+] as const);
+
 /**
  * Deterministic last-resort title derivation when the LLM call fails or
  * returns an empty string. Strips common quick-action boilerplate and
@@ -129,6 +134,14 @@ function deriveFallbackTitle(prompt: string): string {
   // Strip any trailing partial word fragment from the slice cut-off.
   title = title.replace(/\s+\S+$/, (match) => (title.length === 50 ? '' : match));
   return title || prompt.trim().slice(0, 50);
+}
+
+function buildTitleGenerationOptions(maxTokens: number) {
+  return {
+    maxTokens,
+    temperature: 0.3,
+    candidateModels: TITLE_GENERATION_CANDIDATE_MODELS,
+  } as const;
 }
 
 function resolveQueueEnvironment(): 'staging' | 'production' {
@@ -630,7 +643,7 @@ export class AgentChatService {
           { role: 'system', content: PROMPT_ONLY_TITLE_GENERATION_PROMPT },
           { role: 'user', content: `User prompt: "${trimmedPrompt.slice(0, 300)}"` },
         ],
-        { maxTokens: 50, temperature: 0.3 }
+        buildTitleGenerationOptions(50)
       );
       const title = (result.content ?? '')
         .replace(/^["']|["']$/g, '')
@@ -702,7 +715,7 @@ export class AgentChatService {
           content: `User message: "${userMessage.trim().slice(0, 200)}"\n\nAssistant reply (first 200 chars): "${assistantReply.trim().slice(0, 200)}"`,
         },
       ],
-      { maxTokens: 60, temperature: 0.3 }
+      buildTitleGenerationOptions(60)
     );
 
     const generatedTitle = (result.content ?? '')

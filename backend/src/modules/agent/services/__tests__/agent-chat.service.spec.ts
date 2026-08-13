@@ -384,4 +384,49 @@ describe('AgentChatService', () => {
     expect(result).toBeNull();
     expect(AgentThreadModel.updateOne).not.toHaveBeenCalled();
   });
+
+  it('uses the dedicated title model chain for prompt-only title generation', async () => {
+    const service = new AgentChatService();
+    const llmService = {
+      complete: vi.fn().mockResolvedValue({ content: 'My Title', toolCalls: [] }),
+    };
+
+    const result = await service.generateTitleFromPromptOnly(
+      'build me a spring football outreach plan',
+      llmService as never
+    );
+
+    expect(result).toBe('My Title');
+    expect(llmService.complete).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        maxTokens: 50,
+        temperature: 0.3,
+        candidateModels: ['~anthropic/claude-haiku-latest', 'google/gemini-3.6-flash'],
+      })
+    );
+  });
+
+  it('uses the dedicated title model chain for operation title generation', async () => {
+    const service = new AgentChatService();
+    const llmService = {
+      complete: vi.fn().mockResolvedValue({ content: 'Built Your Outreach Plan', toolCalls: [] }),
+    };
+
+    const result = await service.generateOperationTitle(
+      'build me a spring football outreach plan',
+      'I built your outreach plan and email draft.',
+      llmService as never
+    );
+
+    expect(result).toBe('Built Your Outreach Plan');
+    expect(llmService.complete).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        maxTokens: 60,
+        temperature: 0.3,
+        candidateModels: ['~anthropic/claude-haiku-latest', 'google/gemini-3.6-flash'],
+      })
+    );
+  });
 });
