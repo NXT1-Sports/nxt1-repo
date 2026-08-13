@@ -3540,19 +3540,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     await this.modalCtrl.dismiss(undefined, 'close');
   }
 
-  /** Handle a quick action chip tap — auto-sends as user message. */
+  /** Handle a quick action chip tap — stages it in the composer for manual send. */
   async onQuickAction(action: OperationQuickAction): Promise<void> {
     if (this.delegateCoordinatorQuickActions && resolveCoordinatorActionId(action)) {
       this.coordinatorQuickActionSelected.emit(action);
       return;
     }
 
-    await this.runControlFacade.send({
-      text: action.promptText?.trim() || action.label,
-      selectedAction: action.selectedAction ?? null,
-      effortLevel: this.selectedEffortLevel(),
-      preserveDraft: true,
-    });
+    this.inputValue.set(action.promptText?.trim() || action.label);
+    this._pendingSelectedAction.set(action.selectedAction ?? null);
   }
 
   /** Route composer submit through ask_user reply flow when a pending ask-user yield exists. */

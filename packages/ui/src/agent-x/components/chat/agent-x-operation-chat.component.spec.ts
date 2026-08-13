@@ -8,6 +8,7 @@ import {
   shouldShowApprovedExecutionPlanDockFromMessages,
 } from './agent-x-operation-chat.component';
 import type { FilmTimestampSeekRequest, OperationMessage } from './agent-x-operation-chat.models';
+import type { OperationQuickAction } from './agent-x-operation-chat.types';
 
 type StripHelper = {
   messageAttachmentsForStrip(
@@ -59,6 +60,14 @@ type ApprovalBodyFocusHelper = {
   lastFocusedZone: 'composer' | 'action-card' | 'other';
   lastFocusedEditableElement: HTMLElement | null;
   messagesArea: () => { nativeElement: HTMLElement } | undefined;
+};
+
+type QuickActionDraftHelper = {
+  delegateCoordinatorQuickActions: boolean;
+  coordinatorQuickActionSelected: { emit: (action: OperationQuickAction) => void };
+  inputValue: ReturnType<typeof signal<string>>;
+  _pendingSelectedAction: ReturnType<typeof signal<OperationQuickAction['selectedAction'] | null>>;
+  onQuickAction(action: OperationQuickAction): Promise<void>;
 };
 
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
@@ -374,6 +383,38 @@ describe('AgentXOperationChatComponent approval body focus behavior', () => {
 
     component.onTimelineEditableInput({ target: subjectInput } as Event);
     expect(component.ensureFocusedEditorVisible).toHaveBeenCalledWith(subjectInput);
+  });
+});
+
+describe('AgentXOperationChatComponent quick action drafting', () => {
+  it('stages coordinator prompt text and selected action in the composer', async () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as QuickActionDraftHelper;
+    const emit = vi.fn();
+
+    component.delegateCoordinatorQuickActions = false;
+    component.coordinatorQuickActionSelected = { emit };
+    component.inputValue = signal('');
+    component._pendingSelectedAction = signal(null);
+
+    const action: OperationQuickAction = {
+      id: 'strategy-practice-script',
+      label: 'Practice Script',
+      promptText: "Build a practice script for tomorrow's workout.",
+      selectedAction: {
+        coordinatorId: 'strategy_coordinator',
+        actionId: 'practice_script',
+        surface: 'command',
+        label: 'Practice Script',
+      },
+    };
+
+    await component.onQuickAction(action);
+
+    expect(component.inputValue()).toBe("Build a practice script for tomorrow's workout.");
+    expect(component._pendingSelectedAction()).toEqual(action.selectedAction);
+    expect(emit).not.toHaveBeenCalled();
   });
 });
 
