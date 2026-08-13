@@ -20,7 +20,7 @@
  * 3. Future sessions can retrieve it with search_memory when needed
  */
 
-import { BaseTool, type ToolResult } from '../base.tool.js';
+import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import type { VectorMemoryService } from '../../memory/vector.service.js';
 import type { AgentMemoryCategory } from '@nxt1/core';
 import { z } from 'zod';
@@ -37,12 +37,98 @@ const WRITABLE_CATEGORIES: readonly AgentMemoryCategory[] = [
   'performance_data',
 ];
 
-const SaveMemoryInputSchema = z.object({
-  userId: z.string().trim().min(1),
+const SaveMemoryCategorySchema = z.enum(WRITABLE_CATEGORIES);
+const SaveMemoryMetadataSchema = z.record(z.string(), z.unknown()).optional();
+
+const SaveMemorySingleInputSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
   content: z.string().trim().min(1),
-  category: z.enum(WRITABLE_CATEGORIES),
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  category: SaveMemoryCategorySchema,
+  metadata: SaveMemoryMetadataSchema,
 });
+
+const SaveMemoryLegacyFactInputSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
+  fact: z.string().trim().min(1),
+  category: SaveMemoryCategorySchema,
+  metadata: SaveMemoryMetadataSchema,
+});
+
+const SaveMemoryLegacyFactEntrySchema = z
+  .object({
+    category: SaveMemoryCategorySchema,
+    fact: z.string().trim().min(1).optional(),
+    content: z.string().trim().min(1).optional(),
+    metadata: SaveMemoryMetadataSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.fact || value.content) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['fact'],
+      message: 'fact or content is required',
+    });
+  });
+
+const SaveMemoryLegacyFactsInputSchema = z.object({
+  userId: z.string().trim().min(1).optional(),
+  facts: z.array(SaveMemoryLegacyFactEntrySchema).min(1),
+  metadata: SaveMemoryMetadataSchema,
+});
+
+const SaveMemoryInputSchema = z.union([
+  SaveMemorySingleInputSchema,
+  SaveMemoryLegacyFactInputSchema,
+  SaveMemoryLegacyFactsInputSchema,
+]);
+
+type SaveMemoryInput = z.infer<typeof SaveMemoryInputSchema>;
+
+interface NormalizedSaveMemoryEntry {
+  readonly category: AgentMemoryCategory;
+  readonly content: string;
+  readonly metadata?: Record<string, unknown>;
+}
+
+function mergeMetadata(
+  base?: Record<string, unknown>,
+  override?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const merged = {
+    ...(base ?? {}),
+    ...(override ?? {}),
+  };
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function normalizeSaveMemoryEntries(input: SaveMemoryInput): readonly NormalizedSaveMemoryEntry[] {
+  if ('facts' in input) {
+    return input.facts.map((entry) => ({
+      category: entry.category,
+      content: entry.content ?? entry.fact ?? '',
+      metadata: mergeMetadata(input.metadata, entry.metadata),
+    }));
+  }
+
+  if ('fact' in input) {
+    return [
+      {
+        category: input.category,
+        content: input.fact,
+        metadata: input.metadata,
+      },
+    ];
+  }
+
+  return [
+    {
+      category: input.category,
+      content: input.content,
+      metadata: input.metadata,
+    },
+  ];
+}
 
 export class SaveMemoryTool extends BaseTool {
   readonly name = 'save_memory';
@@ -54,15 +140,16 @@ export class SaveMemoryTool extends BaseTool {
     '"I run a 4.5 forty", "I prefer morning workouts". ' +
     'Do NOT save transient chat content or internal reasoning — only user-stated facts and preferences.\n\n' +
     'Parameters:\n' +
-    '- userId (required): Firebase UID of the user.\n' +
+    '- userId (optional when execution context already identifies the current user): Firebase UID of the user.\n' +
     '- content (required): Concise third-person fact to remember.\n' +
     '- category (required): One of preference, goal, recruiting_context, performance_data.\n' +
     '- metadata (optional): Key-value context (e.g. { sport, position, conference }).';
 
   readonly parameters = SaveMemoryInputSchema;
 
-  // All coordinators can save memories
+  // Router and coordinators can save durable memories.
   override readonly allowedAgents = [
+    'router',
     'strategy_coordinator',
     'recruiting_coordinator',
     'performance_coordinator',
@@ -82,28 +169,73 @@ export class SaveMemoryTool extends BaseTool {
     this.vectorMemory = vectorMemory;
   }
 
-  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
     const parsed = SaveMemoryInputSchema.safeParse(input);
     if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    const userId = parsed.data.userId ?? context?.userId;
+    if (!userId) {
       return {
         success: false,
-        error: parsed.error.issues.map((issue) => issue.message).join(', '),
+        error: 'userId is required (none in input or execution context)',
+        isValidationError: true,
       };
     }
 
-    const { userId, content, category, metadata } = parsed.data;
+    const entries = normalizeSaveMemoryEntries(parsed.data);
 
     // ── Store in vector memory ──────────────────────────────────────────
     try {
-      const entry = await this.vectorMemory.store(userId, content, category, metadata);
+      const storedEntries = [] as Array<{
+        readonly id: string;
+        readonly category: AgentMemoryCategory;
+        readonly content: string;
+      }>;
+
+      for (const entry of entries) {
+        const stored = await this.vectorMemory.store(
+          userId,
+          entry.content,
+          entry.category,
+          entry.metadata
+        );
+        storedEntries.push({
+          id: stored.id,
+          category: entry.category,
+          content: entry.content,
+        });
+      }
+
+      if (storedEntries.length === 1) {
+        const [entry] = storedEntries;
+        return {
+          success: true,
+          data: {
+            memoryId: entry.id,
+            memoryIds: [entry.id],
+            category: entry.category,
+            count: 1,
+            message:
+              `Memory saved (id: ${entry.id}). ` +
+              `To delete or replace this memory later, call delete_memory with this memoryId.`,
+          },
+        };
+      }
+
       return {
         success: true,
         data: {
-          memoryId: entry.id,
-          category,
+          memoryIds: storedEntries.map((entry) => entry.id),
+          count: storedEntries.length,
+          categories: [...new Set(storedEntries.map((entry) => entry.category))],
           message:
-            `Memory saved (id: ${entry.id}). ` +
-            `To delete or replace this memory later, call delete_memory with this memoryId.`,
+            `Saved ${storedEntries.length} memories. ` +
+            `Use delete_memory with a returned memoryId to remove or replace any of them later.`,
         },
       };
     } catch (err) {

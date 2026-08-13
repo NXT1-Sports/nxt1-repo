@@ -13,6 +13,7 @@ import { DelegateToCoordinatorTool } from '../../tools/system/delegate-to-coordi
 import { CreatePlanTool } from '../../tools/system/create-plan.tool.js';
 import { ExecuteSavedPlanTool } from '../../tools/system/execute-saved-plan.tool.js';
 import { PlanAndExecuteTool } from '../../tools/system/plan-and-execute.tool.js';
+import { SaveMemoryTool } from '../../tools/memory/save-memory.tool.js';
 import { ToolRegistry as ConcreteToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolResult } from '../../tools/base.tool.js';
 import { sanitizeAgentResultDataWithToolRecords } from '../base.agent.js';
@@ -235,6 +236,23 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(toolNames).toContain('execute_saved_plan');
     expect(toolNames).not.toContain('delegate_to_coordinator');
     expect(toolNames).not.toContain('plan_and_execute');
+  });
+
+  it('exposes save_memory to the primary router tool surface', () => {
+    const registry = new ConcreteToolRegistry();
+    const vectorMemory = {
+      store: vi.fn(),
+    } as never;
+
+    registry.register(new SaveMemoryTool(vectorMemory));
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools'],
+    });
+
+    expect(definitions.some((definition) => definition.name === 'save_memory')).toBe(true);
   });
 
   it('rejects direct coordinator delegation when the surfaced plan-mode allowlist excludes it', async () => {
