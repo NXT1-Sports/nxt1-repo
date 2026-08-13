@@ -315,6 +315,15 @@ export class ApprovalGateService {
           toolInput['body'] ??
           toolInput['bodyText'] ??
           toolInput['message'],
+        ...(typeof toolInput['recipientName'] === 'string'
+          ? { recipientName: toolInput['recipientName'] }
+          : {}),
+        ...(typeof toolInput['recipientKind'] === 'string'
+          ? { recipientKind: toolInput['recipientKind'] }
+          : {}),
+        ...(typeof toolInput['recipientOrgName'] === 'string'
+          ? { recipientOrgName: toolInput['recipientOrgName'] }
+          : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
       };
     }
@@ -343,10 +352,20 @@ export class ApprovalGateService {
               ? (record['variables'] as Record<string, unknown>)
               : {};
 
-          return {
+          const normalizedRecipient: Record<string, unknown> = {
             toEmail: record['toEmail'] ?? record['to'],
             variables,
           };
+          if (typeof record['recipientName'] === 'string') {
+            normalizedRecipient['recipientName'] = record['recipientName'];
+          }
+          if (typeof record['recipientKind'] === 'string') {
+            normalizedRecipient['recipientKind'] = record['recipientKind'];
+          }
+          if (typeof record['recipientOrgName'] === 'string') {
+            normalizedRecipient['recipientOrgName'] = record['recipientOrgName'];
+          }
+          return normalizedRecipient;
         })
         .filter(
           (recipient): recipient is { toEmail: unknown; variables: Record<string, unknown> } =>

@@ -688,6 +688,13 @@ async function refreshFileUrl(
     return signedUrl;
   }
 
+  if (
+    file.url &&
+    AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(file.url, file.storagePath)
+  ) {
+    return file.url;
+  }
+
   // For all other accesses, issue a permanent Firebase download-token URL
   // so stored URLs never expire and clients never hit 403s.
   try {
@@ -1010,6 +1017,28 @@ async function refreshUniversalFileDisplayAssets(params: {
     }
   } else {
     universalFile = withInlineTextAssetForListing(universalFile);
+  }
+
+  if (params.db && universalFile !== params.file) {
+    // Fire-and-forget background update so next time we won't need to refresh and overwrite tokens.
+    params.db
+      .collection(UNIVERSAL_FILES_COLLECTION)
+      .doc(universalFile.id)
+      .set(
+        {
+          ...(universalFile.thumbnailUrl !== undefined
+            ? { thumbnailUrl: universalFile.thumbnailUrl }
+            : {}),
+          payload: universalFile.payload,
+        },
+        { merge: true }
+      )
+      .catch((err) => {
+        logger.warn('Failed to background-save refreshed UniversalFile URLs', {
+          fileId: universalFile.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
   }
 
   return universalFile;
@@ -2781,7 +2810,7 @@ function normalizeImportedBreakdownTimeline(
           : [];
       return sourceIds
         .map((sourceId) => sourceId.trim())
-        .filter((sourceId) => sourceId.length > 0)
+        .filter((sourceId: string) => sourceId.length > 0)
         .map((sourceId) => [sourceId, segment] as const);
     })
   );

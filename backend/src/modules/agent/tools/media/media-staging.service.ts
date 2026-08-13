@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { Storage } from 'firebase-admin/storage';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
@@ -558,22 +560,88 @@ export class MediaStagingService {
     storagePath: string,
     response: Response,
     mimeType: string,
-    request: StageRemoteMediaRequest,
+    _request: StageRemoteMediaRequest,
     mediaKind: StagedMediaKind
   ): Promise<{ readonly sizeBytes: number; readonly signedUrl: string }> {
     const cacheControl = 'private, max-age=3600';
-    const buffer = Buffer.from(await response.arrayBuffer());
-    this.assertBufferStageable(buffer, mediaKind);
-    const uploaded = await this.uploadBufferToStorage({
-      bucket,
-      storagePath,
-      mimeType,
-      cacheControl,
-      buffer,
-      signedUrlTtlMs: this.resolveExpiryMinutes(request.expiresInMinutes) * 60_000,
+
+    if (!response.body) {
+      throw new Error('Response body is empty');
+    }
+
+    const downloadToken = randomUUID();
+    let totalBytes = 0;
+    let signatureSample = Buffer.alloc(0);
+    let isSignatureChecked = false;
+
+    const file = bucket.file(storagePath);
+    const writeStream = file.createWriteStream({
+      resumable: false,
+      metadata: {
+        contentType: mimeType,
+        cacheControl,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      },
     });
 
-    return { sizeBytes: buffer.length, signedUrl: uploaded.signedUrl };
+    const transformStream = new Transform({
+      transform: (chunk: unknown, _encoding, callback) => {
+        const chunkBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array | string);
+        totalBytes += chunkBuf.length;
+
+        if (totalBytes > MAX_MEDIA_SIZE_BYTES) {
+          return callback(
+            new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`)
+          );
+        }
+
+        if (!isSignatureChecked) {
+          signatureSample = Buffer.concat([signatureSample, chunkBuf]);
+          if (signatureSample.length >= VIDEO_SIGNATURE_SAMPLE_BYTES) {
+            try {
+              this.assertPlausibleVideoPayload(
+                signatureSample.subarray(0, VIDEO_SIGNATURE_SAMPLE_BYTES),
+                mediaKind
+              );
+              isSignatureChecked = true;
+            } catch (error) {
+              return callback(error instanceof Error ? error : new Error(String(error)));
+            }
+          }
+        }
+
+        callback(null, chunkBuf);
+      },
+      flush: (callback) => {
+        if (!isSignatureChecked) {
+          try {
+            this.assertPlausibleVideoPayload(signatureSample, mediaKind);
+          } catch (error) {
+            return callback(error instanceof Error ? error : new Error(String(error)));
+          }
+        }
+        callback();
+      },
+    });
+
+    const readable = Readable.fromWeb(response.body as import('stream/web').ReadableStream);
+
+    try {
+      await pipeline(readable, transformStream, writeStream);
+    } catch (error) {
+      await file.delete({ ignoreNotFound: true }).catch(() => undefined);
+      throw error;
+    }
+
+    const signedUrl = AgentMediaLifecycleService.buildFirebaseDownloadUrl(
+      bucket.name,
+      storagePath,
+      downloadToken
+    );
+
+    return { sizeBytes: totalBytes, signedUrl };
   }
 
   private assertBufferStageable(buffer: Buffer, mediaKind: StagedMediaKind): void {

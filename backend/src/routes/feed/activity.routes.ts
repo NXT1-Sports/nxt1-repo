@@ -334,6 +334,10 @@ async function refreshActivityMediaUrl(params: {
     return mediaUrl;
   }
 
+  if (AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(mediaUrl, storagePath)) {
+    return mediaUrl;
+  }
+
   try {
     return await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
       bucket: params.storageInstance.bucket(params.bucketName),

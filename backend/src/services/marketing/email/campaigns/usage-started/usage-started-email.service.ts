@@ -236,7 +236,10 @@ export async function sendUsageStartedEmail(
       email,
       campaignKey: variant.campaignKey,
     };
-  } catch (err) {
+  } catch (err: unknown) {
+    if ((err as { code?: number })?.code === 11000) {
+      return { status: 'skipped', reason: 'already-sent' };
+    }
     const message = err instanceof Error ? err.message : String(err);
 
     logger.error('[MarketingEmail] Usage started email failed', {

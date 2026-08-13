@@ -178,11 +178,19 @@ export class SaveMemoryTool extends BaseTool {
       return this.zodError(parsed.error);
     }
 
-    const userId = parsed.data.userId ?? context?.userId;
+    const userId = context?.userId;
     if (!userId) {
       return {
         success: false,
-        error: 'userId is required (none in input or execution context)',
+        error: 'userId is required in execution context',
+        isValidationError: true,
+      };
+    }
+
+    if (parsed.data.userId && parsed.data.userId !== userId) {
+      return {
+        success: false,
+        error: 'Forbidden: provided userId does not match the authenticated user context',
         isValidationError: true,
       };
     }

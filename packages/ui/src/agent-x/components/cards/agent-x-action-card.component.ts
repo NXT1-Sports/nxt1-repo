@@ -96,6 +96,9 @@ export interface BatchEmailRecipientEdit {
   readonly variables: Record<string, string | number | boolean>;
   /** Display label shown in the pill — falls back to toEmail when absent. */
   readonly displayName?: string;
+  readonly recipientName?: string;
+  readonly recipientKind?: string;
+  readonly recipientOrgName?: string;
 }
 
 export interface EmailAttachmentEdit {
@@ -2804,10 +2807,13 @@ export class AgentXActionCardComponent implements OnDestroy {
       if (bodyHtml) result['bodyHtmlTemplate'] = bodyHtml;
       const structuredRecipients = this.editEmailRecipients();
       if (structuredRecipients.length > 0) {
-        result['recipients'] = structuredRecipients.map(({ toEmail, variables }) => ({
-          toEmail,
-          variables,
-        }));
+        result['recipients'] = structuredRecipients.map((r) => {
+          const out: Record<string, unknown> = { toEmail: r.toEmail, variables: r.variables };
+          if (r.recipientName) out['recipientName'] = r.recipientName;
+          if (r.recipientKind) out['recipientKind'] = r.recipientKind;
+          if (r.recipientOrgName) out['recipientOrgName'] = r.recipientOrgName;
+          return out;
+        });
       }
       this.writeEditedEmailAttachments(result);
     } else if (effectiveToolName === 'gmail_send_email') {
@@ -3260,7 +3266,20 @@ export class AgentXActionCardComponent implements OnDestroy {
               : typeof obj['name'] === 'string' && obj['name'].trim()
                 ? obj['name'].trim()
                 : undefined;
-          return { toEmail, variables, ...(displayName ? { displayName } : {}) };
+          return {
+            toEmail,
+            variables,
+            ...(displayName ? { displayName } : {}),
+            ...(typeof obj['recipientName'] === 'string'
+              ? { recipientName: obj['recipientName'] }
+              : {}),
+            ...(typeof obj['recipientKind'] === 'string'
+              ? { recipientKind: obj['recipientKind'] }
+              : {}),
+            ...(typeof obj['recipientOrgName'] === 'string'
+              ? { recipientOrgName: obj['recipientOrgName'] }
+              : {}),
+          };
         }
         return null;
       })

@@ -106,6 +106,10 @@ MarketingEmailDispatchSchema.index(
     sparse: true,
   }
 );
+MarketingEmailDispatchSchema.index(
+  { environment: 1, campaignKey: 1, userId: 1 },
+  { unique: true, partialFilterExpression: { sendStatus: 'attempted' } }
+);
 
 export function getMarketingEmailDispatchModel(
   connection: Connection = getMongoEnvironmentConnection()

@@ -1359,7 +1359,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           const initialRunJobId = readRecurringTaskInitialJobId(data);
           const pendingInitialRun =
             pendingFirstRunAt && initialRunJobId && queueService
-              ? await queueService.getJobStatus(initialRunJobId).catch(() => null)
+              ? await withOperationsLogDependencyTimeout(
+                  queueService.getJobStatus(initialRunJobId),
+                  'BullMQ initial job status query'
+                ).catch(() => null)
               : null;
           const nextRunIso =
             pendingInitialRun?.status === 'queued' ? pendingFirstRunAt : repeatableNextRunIso;
