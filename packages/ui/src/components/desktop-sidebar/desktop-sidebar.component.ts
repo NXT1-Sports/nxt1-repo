@@ -359,7 +359,7 @@ import {
               <p class="sidebar__copyright">
                 &copy; {{ currentYear }} NXT1 Sports. All rights reserved.
               </p>
-              <p class="sidebar__signature">Made With ❤️ By John Keller</p>
+              <p class="sidebar__signature">Made With ❤️ By NXT1</p>
             </footer>
           }
         </nav>
