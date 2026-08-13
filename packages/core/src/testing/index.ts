@@ -815,6 +815,13 @@ export const AGENT_X_ATTACHMENTS_SHEET_TEST_IDS = {
   PLACEHOLDER_BTN: 'agent-sheet-placeholder-btn',
 } as const;
 
+export const AGENT_X_SHELL_TEST_IDS = {
+  DOWNLOAD_APP_BUTTON: 'agent-x-shell-download-app-button',
+  DOWNLOAD_APP_MENU: 'agent-x-shell-download-app-menu',
+  DOWNLOAD_APP_IOS: 'agent-x-shell-download-app-ios',
+  DOWNLOAD_APP_ANDROID: 'agent-x-shell-download-app-android',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -1515,6 +1522,7 @@ export const TEST_IDS = {
   AGENT_X_MESSAGE_UNDO: AGENT_X_MESSAGE_UNDO_TEST_IDS,
   AGENT_X_INPUT: AGENT_X_INPUT_TEST_IDS,
   AGENT_X_ATTACHMENTS_SHEET: AGENT_X_ATTACHMENTS_SHEET_TEST_IDS,
+  AGENT_X_SHELL: AGENT_X_SHELL_TEST_IDS,
   AGENT_X_GOALS: AGENT_X_GOALS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,
   PROFILE_TIMELINE: PROFILE_TIMELINE_TEST_IDS,

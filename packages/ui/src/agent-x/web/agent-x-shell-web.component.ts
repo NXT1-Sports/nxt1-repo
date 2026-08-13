@@ -114,7 +114,7 @@ import type { TeamFilmReviewDoc } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
-import { TEST_IDS } from '@nxt1/core/testing';
+import { AGENT_X_SHELL_TEST_IDS, TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtBrowserService } from '../../services/browser';
 import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
@@ -250,6 +250,12 @@ function sortCoordinatorCategories(
   });
 }
 
+type AgentXAppDownloadTarget = 'ios' | 'android';
+
+const AGENT_X_IOS_APP_STORE_URL = 'https://apps.apple.com/us/app/nxt-1/id6446410344';
+const AGENT_X_GOOGLE_PLAY_URL =
+  'https://play.google.com/store/apps/details?id=com.nxt1sports.app.twa';
+
 @Component({
   selector: 'nxt1-agent-x-shell-web',
   standalone: true,
@@ -271,7 +277,67 @@ function sortCoordinatorCategories(
     <!-- Portal: center — Agent X title + centered nav pills -->
     <ng-template #agentTitlePortal>
       <div class="nxt1-header-portal">
-        <span class="nxt1-header-portal__title">Agent X</span>
+        <div class="nxt1-header-portal__title-row">
+          <span class="nxt1-header-portal__title">Agent X</span>
+          <div class="header-nav-dropdown" [class.header-nav-dropdown--open]="isPanelMenuOpen()">
+            <button
+              type="button"
+              class="header-nav-pill header-nav-pill--dropdown header-nav-pill--download-app"
+              aria-haspopup="menu"
+              [attr.aria-expanded]="isPanelMenuOpen()"
+              [attr.data-testid]="agentXShellTestIds.DOWNLOAD_APP_BUTTON"
+              (click)="toggleDownloadAppMenu()"
+            >
+              <span>Download App</span>
+              <svg
+                class="header-nav-pill-chevron"
+                xmlns="http://www.w3.org/2000/svg"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+
+            @if (isPanelMenuOpen()) {
+              <div
+                class="header-nav-dropdown-menu header-nav-dropdown-menu--download"
+                role="menu"
+                [attr.data-testid]="agentXShellTestIds.DOWNLOAD_APP_MENU"
+              >
+                <a
+                  [href]="downloadAppUrls.ios"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="header-nav-dropdown-item"
+                  role="menuitem"
+                  [attr.data-testid]="agentXShellTestIds.DOWNLOAD_APP_IOS"
+                  (click)="onDownloadAppOptionClick('ios')"
+                >
+                  <span>Apple</span>
+                </a>
+                <a
+                  [href]="downloadAppUrls.android"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="header-nav-dropdown-item"
+                  role="menuitem"
+                  [attr.data-testid]="agentXShellTestIds.DOWNLOAD_APP_ANDROID"
+                  (click)="onDownloadAppOptionClick('android')"
+                >
+                  <span>Android</span>
+                </a>
+              </div>
+            }
+          </div>
+        </div>
         <div class="nxt1-header-portal__center header-portal-center-nav">
           <button
             type="button"
@@ -2822,6 +2888,19 @@ function sortCoordinatorCategories(
         position: relative;
       }
 
+      .nxt1-header-portal__title-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .header-nav-pill--download-app {
+        min-height: 30px;
+        padding-inline: 12px 10px;
+        gap: 6px;
+      }
+
       .header-nav-pill--dropdown {
         padding-right: 10px;
       }
@@ -2853,6 +2932,11 @@ function sortCoordinatorCategories(
           0 12px 30px color-mix(in srgb, var(--agent-text-primary) 24%, transparent)
         );
         z-index: 18;
+      }
+
+      .header-nav-dropdown-menu--download {
+        width: max-content;
+        min-width: 150px;
       }
 
       .header-nav-dropdown-item {
@@ -4969,6 +5053,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly filesPanelLabel = withAgentXReleaseLabel('The Lab', 'filmReview');
   protected readonly filmReviewPanelLabel = withAgentXReleaseLabel('Film', 'filmReview');
   protected readonly diagramsPanelLabel = withAgentXReleaseLabel('Diagrams Lab', 'diagramsLab');
+  protected readonly agentXShellTestIds = AGENT_X_SHELL_TEST_IDS;
+  protected readonly downloadAppUrls = {
+    ios: AGENT_X_IOS_APP_STORE_URL,
+    android: AGENT_X_GOOGLE_PLAY_URL,
+  } as const;
   protected readonly isPanelMenuOpen = signal(false);
   protected readonly panelMenuSelection = computed<
     | 'live-view'
@@ -6402,6 +6491,31 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showDiagramsModal.set(false);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
+  }
+
+  protected toggleDownloadAppMenu(): void {
+    this.isPanelMenuOpen.update((value) => !value);
+    void this.haptics.impact('light');
+  }
+
+  protected onDownloadAppOptionClick(platform: AgentXAppDownloadTarget): void {
+    this.isPanelMenuOpen.set(false);
+
+    const destination =
+      platform === 'ios' ? this.downloadAppUrls.ios : this.downloadAppUrls.android;
+    const sourceLabel = platform === 'ios' ? 'Apple App Store' : 'Google Play Store';
+
+    void this.haptics.impact('light');
+    this.analytics?.trackEvent(APP_EVENTS.LINK_CLICKED, {
+      sourceLabel,
+      destination,
+      surface: 'agent_x_shell_download_app',
+      platform,
+    });
+    this.breadcrumb.trackStateChange('agent_x_shell:download_app_selected', {
+      platform,
+      destination,
+    });
   }
 
   /** Toggles the Game Plans right-column panel (desktop, feature-gated). */
