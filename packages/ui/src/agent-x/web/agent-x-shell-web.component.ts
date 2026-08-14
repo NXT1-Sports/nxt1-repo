@@ -6297,6 +6297,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * new session/thread appears in the sidebar.
    */
   protected onResponseComplete(): void {
+    const activeThreadId = this.activeDesktopSession()?.threadId?.trim() ?? '';
+    if (activeThreadId) {
+      this.requestActiveThreadRefresh(activeThreadId, 'chat-response-complete');
+    }
     this.operationsLog()?.refresh();
     this.responseComplete.emit();
   }

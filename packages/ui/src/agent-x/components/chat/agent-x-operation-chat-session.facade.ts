@@ -3153,7 +3153,14 @@ export class AgentXOperationChatSessionFacade {
     return anchoredItems.filter((item) => {
       if (item.role !== 'assistant') return true;
       const operationId = typeof item.operationId === 'string' ? item.operationId.trim() : '';
-      return operationId.length > 0 && visibleUserOperationIds.has(operationId);
+      if (!operationId.length) return false;
+      if (visibleUserOperationIds.has(operationId)) return true;
+
+      // Resume-after-yield completions run under a fresh Firestore operation id
+      // (bare UUID) with no matching persisted user turn. Keep those rows so
+      // reopened threads retain the final deliverable instead of stopping at
+      // the pre-yield ask_user snapshot.
+      return this.isFirestoreOperationId(operationId);
     });
   }
 
@@ -4344,8 +4351,9 @@ export class AgentXOperationChatSessionFacade {
     if (
       host.contextId().trim() &&
       host.contextType() === 'operation' &&
-      host.getOperationStatus() === 'processing'
+      (host.getOperationStatus() === 'processing' || host.getOperationStatus() === 'complete')
     ) {
+      const wasAlreadyCompletedThread = host.getOperationStatus() === 'complete';
       const operationId = this.resolveFirestoreOperationId();
       void this.loadThreadMessages(threadId).then(async () => {
         if (!operationId) {
@@ -4446,6 +4454,13 @@ export class AgentXOperationChatSessionFacade {
               },
             ]);
           }
+          if (wasAlreadyCompletedThread) {
+            host.setActivityPhase('idle');
+            host.setOperationStatus(null);
+            host.loading.set(false);
+            return;
+          }
+
           host.setOperationStatus('complete');
           this.operationEventService.emitOperationStatusUpdated(
             host.threadId().trim() || operationId,
@@ -4454,6 +4469,8 @@ export class AgentXOperationChatSessionFacade {
             'chat',
             operationId
           );
+          host.loading.set(false);
+          this.transportFacade.emitResponseCompleteOnce('stored-event-rehydrate-complete');
           return;
         }
 

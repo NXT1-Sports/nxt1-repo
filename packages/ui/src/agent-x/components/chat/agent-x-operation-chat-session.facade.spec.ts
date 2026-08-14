@@ -260,6 +260,30 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(trimmed).toEqual(items);
   });
 
+  it('keeps resumed bare-uuid assistant rows when reopening a yielded thread slice', () => {
+    const items: AgentMessage[] = [
+      {
+        id: 'user-yield-reply',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'add fire behind the graphic',
+        origin: 'user',
+        operationId: 'chat-yield-op-1',
+        createdAt: '2026-05-05T12:03:00.000Z',
+      },
+      assistantMessage('assistant-resumed-final', 'assistant_final', {
+        operationId: '715c70c8-75b8-4b7d-a87d-9f3a737dec01',
+        content: 'Here it is, Coach — final graphic ready.',
+        createdAt: '2026-05-05T12:03:30.000Z',
+      }),
+    ];
+
+    const trimmed = facade.trimUnstableInitialBoundaryRows(items);
+
+    expect(trimmed.map((item) => item.id)).toEqual(['user-yield-reply', 'assistant-resumed-final']);
+  });
+
   it('waits for full paginated operation history before applying messages', async () => {
     const facade = Object.create(
       AgentXOperationChatSessionFacade.prototype
@@ -296,7 +320,7 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       }),
       ...latestPage,
     ];
-    const appliedHistory: readonly AgentMessage[][] = [];
+    const appliedHistory: AgentMessage[][] = [];
     const loadingSet = vi.fn();
     const historyHydratingSet = vi.fn();
     const getPersistedThreadMessages = vi.fn(async () => {
@@ -347,9 +371,212 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(loadingSet).toHaveBeenLastCalledWith(false);
   });
 
+  it('rehydrates stored final output when a processing thread has already completed in stored state', async () => {
+    const facade = Object.create(
+      AgentXOperationChatSessionFacade.prototype
+    ) as AgentXOperationChatSessionFacade;
+    let messages: OperationMessage[] = [];
+    const messageUpdates: OperationMessage[][] = [];
+    const loadingSet = vi.fn();
+    const threadModeSet = vi.fn();
+    const resolvedThreadIdSet = vi.fn();
+    const setOperationStatus = vi.fn();
+    const setActivityPhase = vi.fn();
+    const emitOperationStatusUpdated = vi.fn();
+    const emitResponseCompleteOnce = vi.fn();
+    const messagesSignal = Object.assign(
+      vi.fn(() => messages),
+      {
+        update: (updater: (items: OperationMessage[]) => OperationMessage[]) => {
+          messages = updater(messages);
+          messageUpdates.push([...messages]);
+          return messages;
+        },
+      }
+    );
+    const getStoredEventState = vi.fn().mockResolvedValue({
+      isDone: true,
+      doneSuccess: true,
+      latestYieldState: null,
+      latestLifecycleStatus: 'complete',
+      content: 'Here it is, Coach — final graphic ready.',
+      parts: [],
+      cards: [],
+      steps: [],
+      media: [],
+      maxSeq: 0,
+    });
+
+    Object.assign(facade as unknown as Record<string, unknown>, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      breadcrumb: { trackStateChange: vi.fn(), trackUserAction: vi.fn() },
+      loadThreadMessages: vi.fn().mockResolvedValue(undefined),
+      streamRegistry: { claim: vi.fn().mockReturnValue(null) },
+      operationEventService: {
+        getEnqueueCancelledEntry: vi.fn().mockReturnValue(null),
+        getStoredEventState,
+        emitOperationStatusUpdated,
+      },
+      transportFacade: { emitResponseCompleteOnce },
+      messageFacade: {
+        messages: messagesSignal,
+        flushPendingTypingDelta: vi.fn(),
+        finalizeStreamedAssistantMessage: vi.fn(),
+        replaceTyping: vi.fn(),
+        queueTypingDelta: vi.fn(),
+        attachStreamedCard: vi.fn(),
+        withUpsertedToolStepPart: vi.fn(),
+      },
+      buildMediaAttachmentsFromStreamEvents: vi.fn().mockReturnValue([]),
+      clearEnqueueWaitingMessage: vi.fn(),
+      normalizeMessageContent:
+        AgentXOperationChatSessionFacade.prototype['normalizeMessageContent'],
+      promoteAssistantMediaUrlsToMarkdown:
+        AgentXOperationChatSessionFacade.prototype['promoteAssistantMediaUrlsToMarkdown'],
+    });
+
+    facade.configure({
+      threadId: () => 'thread-1',
+      resolvedThreadId: { set: resolvedThreadIdSet } as never,
+      threadMode: { set: threadModeSet } as never,
+      contextId: () => '715c70c8-75b8-4b7d-a87d-9f3a737dec01',
+      contextType: () => 'operation',
+      getOperationStatus: () => 'processing',
+      getCurrentOperationId: () => null,
+      resumeOperationId: () => '',
+      setOperationStatus,
+      latestProgressLabel: { set: vi.fn() } as never,
+      setActivityPhase,
+      loading: { set: loadingSet } as never,
+      uid: () => 'assistant-final-1',
+    } as unknown as AgentXOperationChatSessionFacadeHost);
+
+    (
+      facade as unknown as { initializeExistingThread(threadId: string): void }
+    ).initializeExistingThread('thread-1');
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getStoredEventState).toHaveBeenCalledWith('715c70c8-75b8-4b7d-a87d-9f3a737dec01');
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-final-1',
+        role: 'assistant',
+        content: 'Here it is, Coach — final graphic ready.',
+        isTyping: false,
+      }),
+    ]);
+    expect(setOperationStatus).toHaveBeenCalledWith('complete');
+    expect(emitOperationStatusUpdated).toHaveBeenCalledWith(
+      'thread-1',
+      'complete',
+      expect.any(String),
+      'chat',
+      '715c70c8-75b8-4b7d-a87d-9f3a737dec01'
+    );
+    expect(emitResponseCompleteOnce).toHaveBeenCalledWith('stored-event-rehydrate-complete');
+    expect(messageUpdates.length).toBeGreaterThan(0);
+  });
+
+  it('keeps reopened completed threads neutral instead of replaying completion state', async () => {
+    const facade = Object.create(
+      AgentXOperationChatSessionFacade.prototype
+    ) as AgentXOperationChatSessionFacade;
+    let messages: OperationMessage[] = [];
+    const loadingSet = vi.fn();
+    const setOperationStatus = vi.fn();
+    const setActivityPhase = vi.fn();
+    const emitOperationStatusUpdated = vi.fn();
+    const emitResponseCompleteOnce = vi.fn();
+    const messagesSignal = Object.assign(
+      vi.fn(() => messages),
+      {
+        update: (updater: (items: OperationMessage[]) => OperationMessage[]) => {
+          messages = updater(messages);
+          return messages;
+        },
+      }
+    );
+    const getStoredEventState = vi.fn().mockResolvedValue({
+      isDone: true,
+      doneSuccess: true,
+      latestYieldState: null,
+      latestLifecycleStatus: 'complete',
+      content: 'Historical completed output.',
+      parts: [],
+      cards: [],
+      steps: [],
+      media: [],
+      maxSeq: 0,
+    });
+
+    Object.assign(facade as unknown as Record<string, unknown>, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      breadcrumb: { trackStateChange: vi.fn(), trackUserAction: vi.fn() },
+      loadThreadMessages: vi.fn().mockResolvedValue(undefined),
+      streamRegistry: { claim: vi.fn().mockReturnValue(null) },
+      operationEventService: {
+        getEnqueueCancelledEntry: vi.fn().mockReturnValue(null),
+        getStoredEventState,
+        emitOperationStatusUpdated,
+      },
+      transportFacade: { emitResponseCompleteOnce },
+      messageFacade: {
+        messages: messagesSignal,
+        flushPendingTypingDelta: vi.fn(),
+        finalizeStreamedAssistantMessage: vi.fn(),
+        replaceTyping: vi.fn(),
+        queueTypingDelta: vi.fn(),
+        attachStreamedCard: vi.fn(),
+        withUpsertedToolStepPart: vi.fn(),
+      },
+      buildMediaAttachmentsFromStreamEvents: vi.fn().mockReturnValue([]),
+      clearEnqueueWaitingMessage: vi.fn(),
+      normalizeMessageContent:
+        AgentXOperationChatSessionFacade.prototype['normalizeMessageContent'],
+      promoteAssistantMediaUrlsToMarkdown:
+        AgentXOperationChatSessionFacade.prototype['promoteAssistantMediaUrlsToMarkdown'],
+    });
+
+    facade.configure({
+      threadId: () => 'thread-1',
+      resolvedThreadId: { set: vi.fn() } as never,
+      threadMode: { set: vi.fn() } as never,
+      contextId: () => '715c70c8-75b8-4b7d-a87d-9f3a737dec01',
+      contextType: () => 'operation',
+      getOperationStatus: () => 'complete',
+      getCurrentOperationId: () => null,
+      resumeOperationId: () => '',
+      setOperationStatus,
+      latestProgressLabel: { set: vi.fn() } as never,
+      setActivityPhase,
+      loading: { set: loadingSet } as never,
+      uid: () => 'assistant-final-2',
+    } as unknown as AgentXOperationChatSessionFacadeHost);
+
+    (
+      facade as unknown as { initializeExistingThread(threadId: string): void }
+    ).initializeExistingThread('thread-1');
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        id: 'assistant-final-2',
+        role: 'assistant',
+        content: 'Historical completed output.',
+      }),
+    ]);
+    expect(setActivityPhase).toHaveBeenCalledWith('idle');
+    expect(setOperationStatus).toHaveBeenCalledWith(null);
+    expect(emitOperationStatusUpdated).not.toHaveBeenCalled();
+    expect(emitResponseCompleteOnce).not.toHaveBeenCalled();
+  });
+
   it('does not merge a preserved inline approval row when persisted history has that approval card', () => {
     const approvalCard: AgentXRichCard = {
-      id: 'approval-card-1',
       type: 'confirmation',
       title: 'Review and Approve Email',
       status: 'pending',
@@ -393,6 +620,8 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
           toolInput: { operationId: 'chat-current' },
         },
         messages: [],
+        yieldedAt: '2026-05-05T12:00:30.000Z',
+        expiresAt: '2026-05-06T12:00:30.000Z',
       },
     };
 
