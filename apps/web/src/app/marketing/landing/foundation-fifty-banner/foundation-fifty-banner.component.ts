@@ -71,9 +71,19 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.crestviewHs,
   },
   {
+    id: 'dixie-heights-hs',
+    name: 'Dixie Heights High School',
+    src: PARTNER_TEAM_LOGO_PATHS.dixieHeightsHs,
+  },
+  {
     id: 'fairborn-hs',
     name: 'Fairborn High School',
     src: PARTNER_TEAM_LOGO_PATHS.fairbornHs,
+  },
+  {
+    id: 'frederick-douglass-hs',
+    name: 'Frederick Douglass High School',
+    src: PARTNER_TEAM_LOGO_PATHS.frederickDouglassHs,
   },
   {
     id: 'garfield-hs',
@@ -81,9 +91,19 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.garfieldHs,
   },
   {
+    id: 'george-rogers-clark-hs',
+    name: 'George Rogers Clark High School',
+    src: PARTNER_TEAM_LOGO_PATHS.georgeRogersClarkHs,
+  },
+  {
     id: 'hoover-hs',
     name: 'Hoover High School',
     src: PARTNER_TEAM_LOGO_PATHS.hooverHs,
+  },
+  {
+    id: 'keyser-hs',
+    name: 'Keyser High School',
+    src: PARTNER_TEAM_LOGO_PATHS.keyserHs,
   },
   {
     id: 'lake-hs',
@@ -91,9 +111,19 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.lakeHs,
   },
   {
+    id: 'marlington-hs',
+    name: 'Marlington High School',
+    src: PARTNER_TEAM_LOGO_PATHS.marlingtonHs,
+  },
+  {
     id: 'martin-county-hs',
     name: 'Martin County High School',
     src: PARTNER_TEAM_LOGO_PATHS.martinCountyHs,
+  },
+  {
+    id: 'mason-county-hs',
+    name: 'Mason County High School',
+    src: PARTNER_TEAM_LOGO_PATHS.masonCountyHs,
   },
   {
     id: 'nordonia-hs',
