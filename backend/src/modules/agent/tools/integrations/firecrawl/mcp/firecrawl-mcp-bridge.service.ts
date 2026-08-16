@@ -9,7 +9,8 @@
  * - `scrape(url, options?)` — Extract content from a single URL as markdown or JSON.
  * - `search(query, options?)` — Web search with optional content extraction.
  * - `map(url, options?)` — Discover all URLs on a website.
- * - `extract(urls, prompt, options?)` — LLM-powered structured extraction.
+ * - `extract(urls, prompt, options?)` — LLM-powered structured extraction via
+ *   `firecrawl_scrape` JSON mode (the legacy `firecrawl_extract` MCP tool is deprecated).
  * - `crawl(url, options?)` — Multi-page crawl with depth/limit control.
  * - `checkCrawlStatus(id)` — Poll a running crawl job for results.
  *
@@ -223,7 +224,7 @@ const MapResponseSchema = z.union([
 
 type MapResponsePayload = z.infer<typeof MapResponseSchema>;
 
-/** Schema for firecrawl_extract output — structured extraction result. */
+/** Schema for structured extraction output after JSON-mode scrape unwrap. */
 const ExtractResponseSchema = JsonValueSchema;
 
 /** Schema for firecrawl_crawl initiation — returns a job ID. */
@@ -332,12 +333,42 @@ function normalizeMapResponse(payload: MapResponsePayload): string[] {
   return [...deduped];
 }
 
+function buildExtractionPrompt(prompt: string, systemPrompt?: string): string {
+  const normalizedSystemPrompt = systemPrompt?.trim();
+  if (!normalizedSystemPrompt) return prompt;
+  return `${normalizedSystemPrompt}\n\n${prompt}`;
+}
+
+function normalizeExtractResponse(payload: unknown): unknown {
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as unknown;
+    } catch {
+      return payload;
+    }
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return payload;
+  }
+
+  const record = payload as Record<string, unknown>;
+  if (record['json'] !== undefined) return normalizeExtractResponse(record['json']);
+
+  const nestedData = record['data'];
+  if (nestedData && typeof nestedData === 'object' && !Array.isArray(nestedData)) {
+    const nestedRecord = nestedData as Record<string, unknown>;
+    if (nestedRecord['json'] !== undefined) {
+      return normalizeExtractResponse(nestedRecord['json']);
+    }
+  }
+
+  return payload;
+}
+
 export interface FirecrawlExtractOptions {
   readonly systemPrompt?: string;
   readonly schema?: Record<string, unknown>;
-  readonly allowExternalLinks?: boolean;
-  readonly enableWebSearch?: boolean;
-  readonly includeSubdomains?: boolean;
 }
 
 export interface FirecrawlCrawlOptions {
@@ -555,14 +586,17 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
   }
 
   /**
-   * Extract structured information from web pages using LLM capabilities.
+   * Extract structured information from known web pages using Firecrawl's
+   * JSON-mode scrape flow.
    *
    * NOT cached: extraction is prompt-dependent and compute-heavy.
    *
    * @param urls - URLs to extract data from (max 25).
    * @param prompt - Natural language description of what to extract.
-   * @param options - Schema, system prompt, and scope controls.
-   * @returns Extracted structured data.
+   * @param options - Schema and extraction prompt controls for known URLs.
+   * @returns Single-URL extractions return the extracted payload directly.
+   * Multi-URL extractions return `{ results: [{ url, data }] }` to preserve
+   * per-page attribution now that Firecrawl requires one scrape call per URL.
    */
   async extract(
     urls: string[],
@@ -577,34 +611,59 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    const args: Record<string, unknown> = { urls, prompt };
-    if (options?.systemPrompt) args['systemPrompt'] = options.systemPrompt;
-    if (options?.schema) args['schema'] = options.schema;
-    if (options?.allowExternalLinks !== undefined)
-      args['allowExternalLinks'] = options.allowExternalLinks;
-    if (options?.enableWebSearch !== undefined) args['enableWebSearch'] = options.enableWebSearch;
-    if (options?.includeSubdomains !== undefined)
-      args['includeSubdomains'] = options.includeSubdomains;
+    const extractionPrompt = buildExtractionPrompt(prompt, options?.systemPrompt);
 
-    const result = await this.executeTool('firecrawl_extract', args, {
-      timeoutMs: EXTRACT_TIMEOUT_MS,
-    });
+    const extractedResults = await Promise.all(
+      urls.map(async (url) => {
+        const args: Record<string, unknown> = {
+          url,
+          formats: ['json'],
+          jsonOptions: {
+            prompt: extractionPrompt,
+            ...(options?.schema ? { schema: options.schema } : {}),
+          },
+        };
 
-    if (result.isError) {
-      const payload = extractPayload(result);
-      logger.error('[FirecrawlMCP] firecrawl_extract returned error', {
-        urls,
-        prompt,
-        error: payload,
-      });
-      throw new AgentEngineError(
-        'FIRECRAWL_REQUEST_FAILED',
-        `Firecrawl extract failed: ${JSON.stringify(payload)}`,
-        { metadata: { operation: 'firecrawl_extract', urlCount: urls.length } }
-      );
+        const result = await this.executeTool('firecrawl_scrape', args, {
+          timeoutMs: EXTRACT_TIMEOUT_MS,
+        });
+
+        if (result.isError) {
+          const payload = extractPayload(result);
+          logger.error('[FirecrawlMCP] firecrawl_scrape returned extraction error', {
+            url,
+            prompt,
+            error: payload,
+          });
+          throw new AgentEngineError(
+            'FIRECRAWL_REQUEST_FAILED',
+            `Firecrawl extract failed for "${url}": ${JSON.stringify(payload)}`,
+            { metadata: { operation: 'firecrawl_scrape', url } }
+          );
+        }
+
+        const payload = this.validatePayload(
+          ScrapeResponseSchema,
+          extractPayload(result),
+          'firecrawl_scrape'
+        );
+
+        return {
+          url,
+          data: this.validatePayload(
+            ExtractResponseSchema,
+            normalizeExtractResponse(payload),
+            'firecrawl_extract'
+          ),
+        } as const;
+      })
+    );
+
+    if (extractedResults.length === 1) {
+      return extractedResults[0]?.data ?? null;
     }
 
-    return this.validatePayload(ExtractResponseSchema, extractPayload(result), 'firecrawl_extract');
+    return { results: extractedResults };
   }
 
   /**

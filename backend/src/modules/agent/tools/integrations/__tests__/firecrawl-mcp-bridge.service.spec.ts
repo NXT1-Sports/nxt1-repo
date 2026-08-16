@@ -220,21 +220,38 @@ describe('FirecrawlMcpBridgeService', () => {
     it('returns validated extraction result', async () => {
       const service = new FirecrawlMcpBridgeService();
       const extraction = { players: [{ name: 'John', position: 'QB' }] };
-      vi.spyOn(service, 'executeTool').mockResolvedValue({
-        content: [{ type: 'text', text: JSON.stringify(extraction) }],
+      const executeToolSpy = vi.spyOn(service, 'executeTool').mockResolvedValue({
+        content: [{ type: 'text', text: JSON.stringify({ json: extraction }) }],
       });
 
       const result = await service.extract(
         ['https://gators.com/roster'],
-        'Extract player names and positions'
+        'Extract player names and positions',
+        {
+          schema: { type: 'object' },
+          systemPrompt: 'Use only the provided page content.',
+        }
       );
+
       expect(result).toEqual(extraction);
+      expect(executeToolSpy).toHaveBeenCalledWith(
+        'firecrawl_scrape',
+        {
+          url: 'https://gators.com/roster',
+          formats: ['json'],
+          jsonOptions: {
+            prompt: 'Use only the provided page content.\n\nExtract player names and positions',
+            schema: { type: 'object' },
+          },
+        },
+        expect.objectContaining({ timeoutMs: 90_000 })
+      );
     });
 
     it('does NOT cache extract calls', async () => {
       const service = new FirecrawlMcpBridgeService();
       const executeToolSpy = vi.spyOn(service, 'executeTool').mockResolvedValue({
-        content: [{ type: 'text', text: JSON.stringify({ data: 'test' }) }],
+        content: [{ type: 'text', text: JSON.stringify({ json: { data: 'test' } }) }],
       });
 
       await service.extract(['https://example.com'], 'Extract data');
@@ -242,6 +259,29 @@ describe('FirecrawlMcpBridgeService', () => {
 
       // extract is NOT cached — both should hit executeTool
       expect(executeToolSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('returns per-url results for multi-url extraction', async () => {
+      const service = new FirecrawlMcpBridgeService();
+      vi.spyOn(service, 'executeTool')
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: JSON.stringify({ json: { players: ['A'] } }) }],
+        })
+        .mockResolvedValueOnce({
+          content: [{ type: 'text', text: JSON.stringify({ json: { players: ['B'] } }) }],
+        });
+
+      const result = await service.extract(
+        ['https://school-a.edu/roster', 'https://school-b.edu/roster'],
+        'Extract roster players'
+      );
+
+      expect(result).toEqual({
+        results: [
+          { url: 'https://school-a.edu/roster', data: { players: ['A'] } },
+          { url: 'https://school-b.edu/roster', data: { players: ['B'] } },
+        ],
+      });
     });
   });
 

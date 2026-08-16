@@ -2,17 +2,18 @@
  * @fileoverview Firecrawl Extract Tool — Agent X Tool
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
- * Extracts structured data from web pages using Firecrawl's LLM extraction.
+ * Extracts structured data from one or more known web pages using Firecrawl's
+ * JSON-mode scrape flow.
  * Pass a natural language prompt describing what to extract and optionally
  * a JSON schema for the output format.
  *
  * Use cases:
  * - Extracting roster data (player names, positions, numbers) from college sites
  * - Pulling coaching staff emails and phone numbers
- * - Scraping product/pricing info from multiple pages
+ * - Scraping product/pricing info from multiple known pages
  * - Extracting event schedules and dates from athletic departments
  *
- * Budget: Extract uses server-side LLM processing — more expensive than scrape.
+ * Budget: Each URL is scraped separately in JSON mode.
  * Maximum 25 URLs per call.
  *
  * Configuration:
@@ -101,17 +102,15 @@ function truncateOutput(data: unknown): string {
 export class FirecrawlExtractTool extends BaseTool {
   readonly name = 'extract_web_data';
   readonly description =
-    'Extract structured data from one or more web pages using AI. ' +
+    'Extract structured JSON data from one or more already-known web pages using AI. ' +
     'Pass a prompt describing what to extract and optionally a JSON schema for the output format. ' +
-    'Uses server-side LLM processing — more powerful than simple scraping. ' +
-    'Best for: roster tables, coaching directories, event schedules, pricing pages. ' +
-    'Maximum 25 URLs per call. For discovering URLs first, use map_website.';
+    'Best for: roster tables, coaching directories, event schedules, and pricing pages when you already have the page URLs. ' +
+    'Maximum 25 URLs per call. For URL discovery use firecrawl_search_web, map_website, or firecrawl_agent_research.';
 
   readonly parameters = z.object({
     urls: z.array(z.string().trim().min(1)).min(1).max(MAX_URLS),
     prompt: z.string().trim().min(1),
     schema: z.record(z.string(), z.unknown()).optional(),
-    enableWebSearch: z.boolean().optional(),
   });
 
   readonly isMutation = false;
@@ -219,12 +218,24 @@ export class FirecrawlExtractTool extends BaseTool {
       };
     }
 
-    const schema = input['schema'] as Record<string, unknown> | undefined;
-    const enableWebSearch = input['enableWebSearch'] === true;
+    const legacyDiscoveryFlags = [
+      'enableWebSearch',
+      'allowExternalLinks',
+      'includeSubdomains',
+    ].filter((key) => Object.prototype.hasOwnProperty.call(input, key));
+    if (legacyDiscoveryFlags.length > 0) {
+      return {
+        success: false,
+        error:
+          '`extract_web_data` only supports structured extraction from already-known page URLs. ' +
+          `Unsupported option(s): ${legacyDiscoveryFlags.join(', ')}. ` +
+          'Use `firecrawl_search_web` to find candidate pages, `map_website` to discover site URLs, or `firecrawl_agent_research` for open-ended multi-source research.',
+      };
+    }
 
+    const schema = input['schema'] as Record<string, unknown> | undefined;
     const options: FirecrawlExtractOptions = {
       schema,
-      enableWebSearch,
     };
 
     logger.info('[FirecrawlExtract] Extracting data', {

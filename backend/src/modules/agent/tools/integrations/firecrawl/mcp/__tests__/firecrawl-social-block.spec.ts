@@ -122,4 +122,23 @@ describe('FirecrawlExtractTool — social domain block', () => {
 
     expect(mockBridge.extract).toHaveBeenCalledTimes(1);
   });
+
+  it('rejects legacy discovery flags and redirects to the right tools', async () => {
+    const result = await tool.execute(
+      {
+        urls: ['https://gophersports.com/roster'],
+        prompt: 'extract roster data',
+        enableWebSearch: true,
+        allowExternalLinks: true,
+        includeSubdomains: true,
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/already-known page URLs/i);
+    expect(result.error).toMatch(/enableWebSearch, allowExternalLinks, includeSubdomains/);
+    expect(result.error).toMatch(/firecrawl_search_web|map_website|firecrawl_agent_research/);
+    expect(mockBridge.extract).not.toHaveBeenCalled();
+  });
 });
