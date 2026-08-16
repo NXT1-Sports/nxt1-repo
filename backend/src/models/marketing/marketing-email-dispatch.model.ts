@@ -108,7 +108,13 @@ MarketingEmailDispatchSchema.index(
 );
 MarketingEmailDispatchSchema.index(
   { environment: 1, campaignKey: 1, userId: 1 },
-  { unique: true, partialFilterExpression: { sendStatus: 'attempted' } }
+  {
+    unique: true,
+    partialFilterExpression: {
+      sendStatus: 'attempted',
+      userId: { $type: 'string' },
+    },
+  }
 );
 
 export function getMarketingEmailDispatchModel(

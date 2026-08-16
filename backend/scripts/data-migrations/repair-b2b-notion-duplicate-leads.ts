@@ -294,11 +294,33 @@ function normalizeNotionDateTime(value: string | null): string | null {
   return date.toISOString();
 }
 
+function shouldReopenStalePhoneCallDueState(
+  existingStatus: LeadStatus | undefined,
+  incomingStatus: LeadStatus,
+  touchCount: number
+): boolean {
+  if (existingStatus !== 'phone_call_due') return false;
+  if (touchCount >= MAX_AUTOMATED_TOUCHES) return false;
+
+  return (
+    incomingStatus === 'lead' ||
+    incomingStatus === 'contacted' ||
+    incomingStatus === 'follow_up_due' ||
+    incomingStatus === 'follow_up_sent'
+  );
+}
+
 function shouldPreferIncomingLeadStatus(
   existingStatus: LeadStatus | undefined,
-  incomingStatus: LeadStatus
+  incomingStatus: LeadStatus,
+  touchCount = MAX_AUTOMATED_TOUCHES
 ): boolean {
   if (!existingStatus) return true;
+
+  if (shouldReopenStalePhoneCallDueState(existingStatus, incomingStatus, touchCount)) {
+    return true;
+  }
+
   return getLeadStatusSyncPriority(incomingStatus) >= getLeadStatusSyncPriority(existingStatus);
 }
 
@@ -647,7 +669,11 @@ function createRepairPlan(
     existingLead?.status ?? canonicalStatus,
     finalTouchCount
   );
-  const shouldApplyIncomingStatus = shouldPreferIncomingLeadStatus(existingStatus, canonicalStatus);
+  const shouldApplyIncomingStatus = shouldPreferIncomingLeadStatus(
+    existingStatus,
+    canonicalStatus,
+    finalTouchCount
+  );
   const finalStatus = shouldApplyIncomingStatus ? canonicalStatus : existingStatus;
   const finalLastContactedAt = preferLaterIsoDate(
     existingLead?.lastContactedAt ?? null,

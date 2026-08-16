@@ -61,6 +61,64 @@ describe('b2b-outbound-automation Notion sync guards', () => {
     ).toBe(true);
   });
 
+  it('lets an active Notion state reopen a stale phone_call_due lead below the automation limit', () => {
+    expect(
+      __b2bOutboundAutomationTestUtils.shouldPreferIncomingLeadStatus(
+        'phone_call_due',
+        'follow_up_due',
+        1
+      )
+    ).toBe(true);
+    expect(
+      __b2bOutboundAutomationTestUtils.shouldPreferIncomingLeadStatus(
+        'phone_call_due',
+        'contacted',
+        2
+      )
+    ).toBe(true);
+    expect(
+      __b2bOutboundAutomationTestUtils.shouldPreferIncomingLeadStatus(
+        'phone_call_due',
+        'follow_up_due',
+        3
+      )
+    ).toBe(false);
+  });
+
+  it('keeps an intentional Notion phone_call_due row terminal even below the automation limit', () => {
+    const contacted = {
+      docId: 'coach-example-school-org',
+      pageId: 'page-contacted',
+      pageUrl: 'https://notion.so/page-contacted',
+      organization: 'Example School',
+      primaryContact: 'Coach Example',
+      partnerType: 'School/University',
+      sourceUrl: '',
+      email: 'coach@example-school.org',
+      status: 'contacted',
+      touchCount: 1,
+      lastContactedAt: '2026-07-31T12:00:00.000Z',
+      nextFollowUpAt: '2026-08-07',
+    } as const;
+
+    const phoneCallDue = {
+      ...contacted,
+      pageId: 'page-phone',
+      pageUrl: 'https://notion.so/page-phone',
+      status: 'phone_call_due',
+      nextFollowUpAt: null,
+    } as const;
+
+    const merged = __b2bOutboundAutomationTestUtils.mergeNotionLeadSyncCandidate(
+      contacted,
+      phoneCallDue
+    );
+
+    expect(merged.pageId).toBe('page-phone');
+    expect(merged.status).toBe('phone_call_due');
+    expect(merged.nextFollowUpAt).toBeNull();
+  });
+
   it('treats stale lead records at the automation limit as eligible for phone call due reconciliation', () => {
     expect(
       __b2bOutboundAutomationTestUtils.isEligibleForPhoneCallDueReconciliation({

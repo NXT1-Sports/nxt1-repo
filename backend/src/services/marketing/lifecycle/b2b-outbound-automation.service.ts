@@ -280,11 +280,33 @@ function preferLaterIsoDate(left: string | null, right: string | null): string |
   return compareIsoDateStrings(left, right) >= 0 ? left : right;
 }
 
+function shouldReopenStalePhoneCallDueState(
+  existingStatus: LeadStatus | undefined,
+  incomingStatus: LeadStatus,
+  touchCount: number
+): boolean {
+  if (existingStatus !== 'phone_call_due') return false;
+  if (touchCount >= MAX_AUTOMATED_TOUCHES) return false;
+
+  return (
+    incomingStatus === 'lead' ||
+    incomingStatus === 'contacted' ||
+    incomingStatus === 'follow_up_due' ||
+    incomingStatus === 'follow_up_sent'
+  );
+}
+
 function shouldPreferIncomingLeadStatus(
   existingStatus: LeadStatus | undefined,
-  incomingStatus: LeadStatus
+  incomingStatus: LeadStatus,
+  touchCount = MAX_AUTOMATED_TOUCHES
 ): boolean {
   if (!existingStatus) return true;
+
+  if (shouldReopenStalePhoneCallDueState(existingStatus, incomingStatus, touchCount)) {
+    return true;
+  }
+
   return getLeadStatusSyncPriority(incomingStatus) >= getLeadStatusSyncPriority(existingStatus);
 }
 
@@ -527,21 +549,23 @@ async function syncOutboundQueueFromNotion(input: {
     }
 
     const domain = candidate.email.includes('@') ? (candidate.email.split('@')[1] ?? '') : '';
-    const existingStatusRaw = existingData?.['status'];
-    const existingStatus =
-      typeof existingStatusRaw === 'string' ? (existingStatusRaw as LeadStatus) : undefined;
-    const shouldApplyIncomingStatus = shouldPreferIncomingLeadStatus(
-      existingStatus,
-      candidate.status
-    );
-    const status = shouldApplyIncomingStatus
-      ? candidate.status
-      : (existingStatus ?? candidate.status);
     const existingTouchCount =
       typeof existingData?.['touchCount'] === 'number' &&
       Number.isFinite(existingData['touchCount'])
         ? (existingData['touchCount'] as number)
         : 0;
+    const effectiveTouchCount = Math.max(existingTouchCount, candidate.touchCount);
+    const existingStatusRaw = existingData?.['status'];
+    const existingStatus =
+      typeof existingStatusRaw === 'string' ? (existingStatusRaw as LeadStatus) : undefined;
+    const shouldApplyIncomingStatus = shouldPreferIncomingLeadStatus(
+      existingStatus,
+      candidate.status,
+      effectiveTouchCount
+    );
+    const status = shouldApplyIncomingStatus
+      ? candidate.status
+      : (existingStatus ?? candidate.status);
     const existingLastContactedAt =
       typeof existingData?.['lastContactedAt'] === 'string'
         ? (existingData['lastContactedAt'] as string)
@@ -550,7 +574,7 @@ async function syncOutboundQueueFromNotion(input: {
       typeof existingData?.['nextFollowUpAt'] === 'string'
         ? (existingData['nextFollowUpAt'] as string)
         : null;
-    const touchCount = Math.max(existingTouchCount, candidate.touchCount);
+    const touchCount = effectiveTouchCount;
     const lastContactedAt = preferLaterIsoDate(existingLastContactedAt, candidate.lastContactedAt);
     const nextFollowUpAt =
       status === 'converted' ||
@@ -777,9 +801,14 @@ function parseLeadDoc(id: string, data: Record<string, unknown>): OutboundLeadRe
 
 async function fetchLeads(
   db: FirebaseFirestore.Firestore,
-  limit: number
+  limit?: number
 ): Promise<readonly OutboundLeadRecord[]> {
-  const snapshot = await db.collection(LEADS_COLLECTION).limit(limit).get();
+  const collection = db.collection(LEADS_COLLECTION);
+  const snapshot =
+    typeof limit === 'number' && Number.isFinite(limit) && limit > 0
+      ? await collection.limit(limit).get()
+      : await collection.get();
+
   return snapshot.docs.map((doc) =>
     parseLeadDoc(doc.id, (doc.data() as Record<string, unknown>) ?? {})
   );
@@ -1335,7 +1364,7 @@ export async function runB2BOutboundInitialSend(input: SendInput): Promise<B2BOu
 
   const now = new Date();
   const dayKey = getEasternDayKey(now);
-  const leads = await fetchLeads(input.db, 500);
+  const leads = await fetchLeads(input.db);
   await reclaimBudgetForBouncedLeads(input.db, leads);
   await reconcilePhoneCallDueLeads({
     db: input.db,
@@ -1491,7 +1520,7 @@ export async function runB2BOutboundFollowUpSend(input: SendInput): Promise<B2BO
 
   const now = new Date();
   const dayKey = getEasternDayKey(now);
-  const leads = await fetchLeads(input.db, 500);
+  const leads = await fetchLeads(input.db);
   await reclaimBudgetForBouncedLeads(input.db, leads);
   await reconcilePhoneCallDueLeads({
     db: input.db,

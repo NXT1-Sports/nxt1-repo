@@ -5,6 +5,9 @@ import {
   type MarketingEmailDispatchProvider,
 } from '../../../models/marketing/marketing-email-dispatch.model.js';
 
+const NULL_USER_ATTEMPTED_SUPERSEDED_REASON =
+  'Superseded stale attempted dispatch for a recipient-scoped marketing send.';
+
 export interface CreateMarketingEmailDispatchInput {
   readonly dispatchId: string;
   readonly trackingId: string;
@@ -53,7 +56,7 @@ export function readMarketingRecipientDomain(email: string): string | null {
 export async function createMarketingEmailDispatch(
   input: CreateMarketingEmailDispatchInput
 ): Promise<void> {
-  await MarketingEmailDispatchModel.create({
+  const document = {
     environment: getRuntimeEnvironment(),
     dispatchId: input.dispatchId,
     trackingId: input.trackingId,
@@ -68,7 +71,57 @@ export async function createMarketingEmailDispatch(
     sendStatus: 'attempted',
     metadata: input.metadata ?? {},
     lastEventAt: new Date(),
-  });
+  };
+
+  try {
+    await MarketingEmailDispatchModel.create(document);
+    return;
+  } catch (error) {
+    if (!shouldRecycleAnonymousAttemptedDispatch(error, input, document.environment)) {
+      throw error;
+    }
+
+    const supersededAt = new Date();
+    await MarketingEmailDispatchModel.updateMany(
+      {
+        environment: document.environment,
+        campaignKey: input.campaignKey,
+        userId: null,
+        sendStatus: 'attempted',
+      },
+      {
+        $set: {
+          sendStatus: 'failed',
+          failureReason: NULL_USER_ATTEMPTED_SUPERSEDED_REASON,
+          failedAt: supersededAt,
+          lastEventAt: supersededAt,
+        },
+      }
+    );
+
+    await MarketingEmailDispatchModel.create(document);
+  }
+}
+
+function shouldRecycleAnonymousAttemptedDispatch(
+  error: unknown,
+  input: CreateMarketingEmailDispatchInput,
+  environment: RuntimeEnvironment
+): boolean {
+  if (input.userId) return false;
+  if (!isDuplicateKeyError(error)) return false;
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('marketingemaildispatches') &&
+    message.includes('campaignkey') &&
+    message.includes('userid') &&
+    message.includes(environment.toLowerCase())
+  );
+}
+
+function isDuplicateKeyError(error: unknown): error is Error & { readonly code: number } {
+  return error instanceof Error && 'code' in error && (error as { code?: unknown }).code === 11000;
 }
 
 export async function hasSentMarketingEmailCampaign(input: {
