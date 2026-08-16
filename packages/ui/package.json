@@ -44,6 +44,7 @@
     "@nxt1/core": "*",
     "@nxt1/design-tokens": "*",
     "@stripe/stripe-js": "^9.7.0",
+    "@zip.js/zip.js": "^2.8.51",
     "dompurify": "^3.4.12",
     "hls.js": "^1.6.16",
     "jszip": "^3.10.1",

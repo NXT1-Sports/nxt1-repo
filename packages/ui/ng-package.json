@@ -13,7 +13,8 @@
     "jszip",
     "zod",
     "marked",
-    "dompurify"
+    "dompurify",
+    "@zip.js/zip.js"
   ],
   "assets": []
 }

@@ -4167,15 +4167,32 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     if (typeof URL.createObjectURL !== 'function' || typeof URL.revokeObjectURL !== 'function') {
       return Promise.resolve(undefined);
     }
+    // Prevent browser media engine from hanging on huge files (e.g. moov atom at the end)
+    if (file.size > 50 * 1024 * 1024) {
+      return Promise.resolve(undefined);
+    }
+
     return new Promise((resolve) => {
       const video = document.createElement('video');
       const objectUrl = URL.createObjectURL(file);
+      // eslint-disable-next-line prefer-const
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
       const cleanup = () => {
+        if (timeoutId) clearTimeout(timeoutId);
         video.onloadedmetadata = null;
         video.onerror = null;
         video.removeAttribute('src');
+        video.load(); // Force browser to release the media resource
         URL.revokeObjectURL(objectUrl);
       };
+
+      // Timeout after 3 seconds to prevent infinite hangs
+      timeoutId = setTimeout(() => {
+        cleanup();
+        resolve(undefined);
+      }, 3000);
+
       video.preload = 'metadata';
       video.onloadedmetadata = () => {
         const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
@@ -4341,7 +4358,18 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       );
       for (let index = 0; index < validVideos.length; index += 1) {
         this.filesUploadCurrentFile.set(index + 1);
-        const file = validVideos[index] as File;
+        let file = validVideos[index] as File;
+
+        // Lazy-extract zip entry right before upload to prevent memory crash
+        if (
+          (file as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })._nxt1_lazy_entry
+        ) {
+          const entry = (file as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })
+            ._nxt1_lazy_entry!;
+          const blob = await entry.getData();
+          file = new File([blob], file.name, { type: file.type, lastModified: file.lastModified });
+        }
+
         const angleMetadata = sourceAngleMetadata[index];
         this.filesUploadCurrentFileName.set(file.name);
         const uploaded = await this.uploadSingleLibraryVideo(
@@ -4370,6 +4398,15 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           ...(uploaded.thumbnailUrl ? { thumbnailUrl: uploaded.thumbnailUrl } : {}),
           ...(uploaded.durationSec !== undefined ? { durationSec: uploaded.durationSec } : {}),
         });
+
+        // Explicitly clear local file reference to release the Blob
+        file = null as unknown as File;
+
+        // Yield to the event loop to allow Garbage Collector to reclaim Blob memory
+        // This is critical when extracting hundreds of videos from a ZIP file in a tight loop.
+        // We use 3000ms (3 seconds) to give Chrome's network stack and GC ample time to
+        // clear the massive 500MB+ Blobs before we allocate the next one.
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
 
       let importedPlayCount: number | null = null;
@@ -4411,7 +4448,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         targetReviewId = created.id;
         this.setTransientListThumbnail(targetReviewId, await primaryLocalThumbnailPromise);
 
-        const breakdownFile = validBreakdowns[0];
+        let breakdownFile = validBreakdowns[0];
         if (breakdownFile) {
           const progressIndex = validVideos.length + 1;
           this.filesUploadCurrentFile.set(progressIndex);
@@ -4422,6 +4459,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
           if (!targetReviewId) {
             throw new Error('Upload a video before importing a breakdown sheet.');
+          }
+
+          if (
+            (breakdownFile as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })
+              ._nxt1_lazy_entry
+          ) {
+            const entry = (
+              breakdownFile as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } }
+            )._nxt1_lazy_entry!;
+            const blob = await entry.getData();
+            breakdownFile = new File([blob], breakdownFile.name, {
+              type: breakdownFile.type,
+              lastModified: breakdownFile.lastModified,
+            });
           }
 
           const imported = await this.filmReviewService.importBreakdown(
@@ -6042,6 +6093,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       (descriptor) => !this.isIgnoredSystemUploadDescriptor(descriptor)
     );
     if (uploadDescriptors.length === 0) {
+      this.onCloseUploadMenu();
       return;
     }
 
@@ -6489,8 +6541,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         entry.path,
       ];
 
+      const fakeFile = {
+        name: entryFileName,
+        type: mimeType,
+        size: entry.uncompressedSize || 0,
+        lastModified: Date.now(),
+        _nxt1_lazy_entry: entry,
+      } as unknown as File;
+
       zipDescriptors.push({
-        file: new File([entry.blob], entryFileName, { type: mimeType }),
+        file: fakeFile,
         relativePath: relativeSegments.join('/'),
       });
     }

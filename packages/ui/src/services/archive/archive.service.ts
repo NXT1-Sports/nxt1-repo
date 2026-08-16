@@ -7,6 +7,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { Injectable, PLATFORM_ID, inject } from '@angular/core';
 import { isCapacitor } from '@nxt1/core';
 import JSZip from 'jszip';
+import { ZipReader, BlobReader, Uint8ArrayWriter } from '@zip.js/zip.js';
 import { NxtLoggingService } from '../logging/logging.service';
 
 export type ArchiveDownloadSource =
@@ -56,7 +57,8 @@ export interface DownloadZipResult {
 
 export interface ExtractedZipEntry {
   readonly path: string;
-  readonly blob: Blob;
+  readonly uncompressedSize?: number;
+  readonly getData: () => Promise<Blob>;
 }
 
 export interface ExtractZipResult {
@@ -163,25 +165,65 @@ export class NxtArchiveService {
     }
 
     try {
-      const zip = await JSZip.loadAsync(source);
+      const reader = new ZipReader(new BlobReader(source), { useWebWorkers: false });
+      const zipEntries = await reader.getEntries();
       const entries: ExtractedZipEntry[] = [];
 
-      for (const zipObject of Object.values(zip.files)) {
-        if (zipObject.dir || this.isIgnoredZipEntryPath(zipObject.name)) {
+      for (const entry of zipEntries) {
+        if (entry.directory || this.isIgnoredZipEntryPath(entry.filename)) {
           continue;
         }
 
-        const blob = await zipObject.async('blob');
-        entries.push({ path: zipObject.name, blob });
+        entries.push({
+          path: entry.filename,
+          uncompressedSize: entry.uncompressedSize,
+          getData: async () => {
+            return new Promise<Blob>((resolve, reject) => {
+              const timeoutId = setTimeout(() => {
+                reject(
+                  new Error(
+                    'Extracting file from ZIP took too long. The browser may have run out of memory or lost access to the file.'
+                  )
+                );
+              }, 15000); // 15 seconds timeout for fail-fast debugging
+
+              if (entry.getData) {
+                entry
+                  .getData(new Uint8ArrayWriter(), { useWebWorkers: false })
+                  .then((array) => {
+                    clearTimeout(timeoutId);
+                    resolve(new Blob([array]));
+                  })
+                  .catch((err) => {
+                    clearTimeout(timeoutId);
+                    reject(err);
+                  });
+              } else {
+                clearTimeout(timeoutId);
+                reject(new Error('Failed to extract ZIP entry: getData is undefined'));
+              }
+            });
+          },
+        });
       }
 
       if (entries.length === 0) {
+        await reader.close();
         return { success: false, entries: [], error: 'The ZIP file has no supported files' };
       }
 
       return { success: true, entries };
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to read ZIP file';
+      let message = err instanceof Error ? err.message : 'Failed to read ZIP file';
+
+      if (err instanceof DOMException && err.name === 'NotReadableError') {
+        message =
+          'The file could not be read. Please ensure it is fully downloaded, not currently open in another program, and try again.';
+      } else if (message.includes('NotReadableError') || message.includes('permission problems')) {
+        message =
+          'The file could not be read. Please ensure it is fully downloaded, not currently open in another program, and try again.';
+      }
+
       this.logger.error('ZIP extraction failed', err);
       return { success: false, entries: [], error: message };
     }

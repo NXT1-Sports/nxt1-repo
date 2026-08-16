@@ -938,75 +938,77 @@ async function refreshUniversalFileDisplayAssets(params: {
       }
     }
 
-    if (filmReviewPayload?.sources?.length) {
+    if (filmReviewPayload?.sources?.length && params.logScope === 'single') {
       const assetStoragePath = normalizeComparableStoragePath(filePayload.storagePath);
       const refreshedSourceUrlsById = new Map<string, string>();
 
-      for (const source of filmReviewPayload.sources) {
-        const sourceId = normalizeOptionalString(source.id);
-        const sourceStoragePath = normalizeComparableStoragePath(
-          normalizeOptionalString(source.storagePath) ??
-            AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl)
-        );
-
-        if (!sourceId) {
-          continue;
-        }
-
-        if (!sourceStoragePath) {
-          logger.warn(
-            `Skipped Universal File film review source URL refresh for ${params.logScope === 'listing' ? 'listing' : 'single file'} because no storage path could be resolved`,
-            {
-              teamId: universalFile.teamId,
-              fileId: universalFile.id,
-              sourceId,
-              videoUrl: source.videoUrl,
-            }
-          );
-          continue;
-        }
-
-        if (
-          refreshedPrimaryAssetUrl &&
-          assetStoragePath &&
-          sourceStoragePath === assetStoragePath
-        ) {
-          // Reuse the primary asset URL when a source points at the same storage object.
-          refreshedSourceUrlsById.set(sourceId, refreshedPrimaryAssetUrl);
-          continue;
-        }
-
-        try {
-          const refreshedSourceUrl = await refreshFileUrl(
-            params.bucket,
-            {
-              url: source.videoUrl,
-              storagePath: sourceStoragePath,
-              kind: 'video',
-              mimeType: filePayload.mimeType,
-            },
-            {
-              allowVideoRefresh: true,
-            }
+      await Promise.all(
+        filmReviewPayload.sources.map(async (source) => {
+          const sourceId = normalizeOptionalString(source.id);
+          const sourceStoragePath = normalizeComparableStoragePath(
+            normalizeOptionalString(source.storagePath) ??
+              AgentMediaLifecycleService.extractStoragePathFromUrl(source.videoUrl)
           );
 
-          const normalizedRefreshedSourceUrl = normalizeOptionalString(refreshedSourceUrl);
-          if (normalizedRefreshedSourceUrl) {
-            refreshedSourceUrlsById.set(sourceId, normalizedRefreshedSourceUrl);
+          if (!sourceId) {
+            return;
           }
-        } catch (refreshError) {
-          logger.warn(
-            `Failed to refresh Universal File film review source URL for ${params.logScope === 'listing' ? 'listing' : 'single file'}`,
-            {
-              teamId: universalFile.teamId,
-              fileId: universalFile.id,
-              sourceId,
-              storagePath: sourceStoragePath,
-              error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+
+          if (!sourceStoragePath) {
+            logger.warn(
+              `Skipped Universal File film review source URL refresh for ${params.logScope === 'listing' ? 'listing' : 'single file'} because no storage path could be resolved`,
+              {
+                teamId: universalFile.teamId,
+                fileId: universalFile.id,
+                sourceId,
+                videoUrl: source.videoUrl,
+              }
+            );
+            return;
+          }
+
+          if (
+            refreshedPrimaryAssetUrl &&
+            assetStoragePath &&
+            sourceStoragePath === assetStoragePath
+          ) {
+            // Reuse the primary asset URL when a source points at the same storage object.
+            refreshedSourceUrlsById.set(sourceId, refreshedPrimaryAssetUrl);
+            return;
+          }
+
+          try {
+            const refreshedSourceUrl = await refreshFileUrl(
+              params.bucket,
+              {
+                url: source.videoUrl,
+                storagePath: sourceStoragePath,
+                kind: 'video',
+                mimeType: filePayload.mimeType,
+              },
+              {
+                allowVideoRefresh: true,
+              }
+            );
+
+            const normalizedRefreshedSourceUrl = normalizeOptionalString(refreshedSourceUrl);
+            if (normalizedRefreshedSourceUrl) {
+              refreshedSourceUrlsById.set(sourceId, normalizedRefreshedSourceUrl);
             }
-          );
-        }
-      }
+          } catch (refreshError) {
+            logger.warn(
+              `Failed to refresh Universal File film review source URL for ${params.logScope === 'listing' ? 'listing' : 'single file'}`,
+              {
+                teamId: universalFile.teamId,
+                fileId: universalFile.id,
+                sourceId,
+                storagePath: sourceStoragePath,
+                error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+              }
+            );
+          }
+        })
+      );
 
       if (refreshedPrimaryAssetUrl || refreshedSourceUrlsById.size > 0) {
         universalFile = withRefreshedFilmReviewPlaybackUrls(universalFile, {
@@ -5087,6 +5089,7 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
 });
 
 router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
+  res.setTimeout(120_000); // Allow up to 2 minutes for processing large film reviews
   try {
     const user = getAuthUser(req);
     if (!user?.uid) {
@@ -5106,6 +5109,109 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
     if (body.attachment.type !== 'video') {
       res.status(400).json({ success: false, error: 'Film review requires a video attachment' });
       return;
+    }
+
+    const bucket = req.firebase?.storage?.bucket();
+    if (bucket) {
+      const ensureDurable = async (
+        urlInput: string | undefined | null,
+        storagePath: string | undefined | null
+      ): Promise<string | undefined> => {
+        if (!urlInput || !storagePath) return urlInput ?? undefined;
+        if (AgentMediaLifecycleService.isFirebaseDownloadTokenUrl(urlInput, storagePath))
+          return urlInput;
+        try {
+          return await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+            bucket,
+            storagePath,
+          });
+        } catch (e) {
+          logger.warn('Failed to promote film review source URL to durable Firebase URL', {
+            storagePath,
+            error: String(e),
+          });
+          return urlInput;
+        }
+      };
+
+      const uniqueStoragePaths = new Map<string, { urlInput: string }>();
+
+      if (body.attachment.storagePath && body.attachment.url) {
+        uniqueStoragePaths.set(body.attachment.storagePath, { urlInput: body.attachment.url });
+      }
+
+      if (body.attachment.thumbnailUrl) {
+        const thumbnailStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+          body.attachment.thumbnailUrl
+        );
+        if (thumbnailStoragePath) {
+          uniqueStoragePaths.set(thumbnailStoragePath, { urlInput: body.attachment.thumbnailUrl });
+        }
+      }
+
+      if (body.sources) {
+        for (const source of body.sources) {
+          if (source.storagePath && source.videoUrl) {
+            uniqueStoragePaths.set(source.storagePath, { urlInput: source.videoUrl });
+          }
+          if (source.thumbnailUrl) {
+            const sourceThumbnailStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+              source.thumbnailUrl
+            );
+            if (sourceThumbnailStoragePath) {
+              uniqueStoragePaths.set(sourceThumbnailStoragePath, { urlInput: source.thumbnailUrl });
+            }
+          }
+        }
+      }
+
+      // Execute ensureDurable calls for all unique storage paths in parallel.
+      // Doing this without chunking is required to bypass the 30s hard Express timeout for 300+ clips.
+      const durableUrlsByStoragePath = new Map<string, string>();
+      const storagePathEntries = Array.from(uniqueStoragePaths.entries());
+
+      await Promise.all(
+        storagePathEntries.map(async ([storagePath, { urlInput }]) => {
+          const durableUrl = await ensureDurable(urlInput, storagePath);
+          if (durableUrl) durableUrlsByStoragePath.set(storagePath, durableUrl);
+        })
+      );
+
+      // Re-assign durable URLs back to the body
+      if (body.attachment.storagePath) {
+        body.attachment.url =
+          durableUrlsByStoragePath.get(body.attachment.storagePath) ?? body.attachment.url;
+      }
+      if (body.attachment.thumbnailUrl) {
+        const thumbnailStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+          body.attachment.thumbnailUrl
+        );
+        if (thumbnailStoragePath) {
+          body.attachment.thumbnailUrl =
+            durableUrlsByStoragePath.get(thumbnailStoragePath) ?? body.attachment.thumbnailUrl;
+        }
+      }
+
+      if (body.sources) {
+        for (const source of body.sources) {
+          if (source.storagePath) {
+            const durableVideoUrl = durableUrlsByStoragePath.get(source.storagePath);
+            if (durableVideoUrl) {
+              source.videoUrl = durableVideoUrl;
+              source.downloadUrl = durableVideoUrl;
+            }
+          }
+          if (source.thumbnailUrl) {
+            const sourceThumbnailStoragePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+              source.thumbnailUrl
+            );
+            if (sourceThumbnailStoragePath) {
+              source.thumbnailUrl =
+                durableUrlsByStoragePath.get(sourceThumbnailStoragePath) ?? source.thumbnailUrl;
+            }
+          }
+        }
+      }
     }
 
     const db = req.firebase?.db;
@@ -5138,7 +5244,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
     const inherited = await resolveInheritedFolderAcl({
       db,
       teamId: normalizedTeamId,
-      parentId: null,
+      parentId: body.playlistId ?? null,
       ownerUserId: user.uid,
       organizationId: teamData['organizationId'] as string | undefined,
     });
@@ -5149,6 +5255,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       userId: user.uid,
       attachment: body.attachment as AgentXAttachment,
       origin: 'files_upload',
+      folderId: body.playlistId ?? undefined,
       organizationId: inherited.organizationId,
       acl: inherited.acl ?? undefined,
       readAccessKeys: inherited.readAccessKeys,

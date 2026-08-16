@@ -2117,6 +2117,32 @@ export class AgentXVideoUploadService {
       // GCS signed URLs only sign 'content-type' and 'host' headers, so adding
       // this extra header does NOT invalidate the signature.
       xhr.setRequestHeader('ngsw-bypass', '1');
+
+      // Chrome sometimes deadlocks its network thread when queuing massive Blobs,
+      // which prevents the native xhr.timeout from ever firing. We add an absolute
+      // JS-level fallback timeout to ensure the promise doesn't hang forever.
+      const fallbackTimeoutId = setTimeout(() => {
+        cancellation.clearXhr(xhr);
+        xhr.abort();
+        reject(
+          new Error(
+            `Video upload timed out (fallback) after 30 seconds. Chrome network thread stalled.`
+          )
+        );
+      }, 30000); // 30s timeout for fail-fast debugging
+
+      const originalResolve = resolve;
+      resolve = (value: void | PromiseLike<void>) => {
+        clearTimeout(fallbackTimeoutId);
+        originalResolve(value);
+      };
+
+      const originalReject = reject;
+      reject = (reason?: unknown) => {
+        clearTimeout(fallbackTimeoutId);
+        originalReject(reason);
+      };
+
       xhr.send(file);
     });
   }
