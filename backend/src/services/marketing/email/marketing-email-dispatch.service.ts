@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
-import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+import {
+  getRuntimeEnvironment,
+  type RuntimeEnvironment,
+} from '../../../config/runtime-environment.js';
 import {
   MarketingEmailDispatchModel,
+  type MarketingEmailDispatchDocument,
   type MarketingEmailDispatchProvider,
 } from '../../../models/marketing/marketing-email-dispatch.model.js';
 
@@ -56,7 +60,7 @@ export function readMarketingRecipientDomain(email: string): string | null {
 export async function createMarketingEmailDispatch(
   input: CreateMarketingEmailDispatchInput
 ): Promise<void> {
-  const document = {
+  const document: MarketingEmailDispatchDocument = {
     environment: getRuntimeEnvironment(),
     dispatchId: input.dispatchId,
     trackingId: input.trackingId,
