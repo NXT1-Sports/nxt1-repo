@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { provideBrowserAuthProviders } from './core/providers/browser-auth.providers';
 import { provideWebShellProviders } from './core/providers/web-shell.providers';
 import { matchAuthenticatedAgentXLayout } from './core/routing/agent-x-layout.matchers';
+import { authGuard } from './features/auth/guards/auth.guards';
 
 export const APP_SHELL_ROUTES: Routes = [
   {
@@ -29,6 +30,7 @@ export const APP_SHELL_ROUTES: Routes = [
       },
       {
         path: 'settings',
+        canActivate: [authGuard],
         loadChildren: () =>
           import('./features/settings/settings.routes').then((m) => m.SETTINGS_ROUTES),
       },

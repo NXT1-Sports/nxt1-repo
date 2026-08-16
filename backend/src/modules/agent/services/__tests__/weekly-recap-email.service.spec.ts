@@ -15,7 +15,7 @@ vi.mock('../../llm/openrouter.service.js', () => ({
   },
 }));
 
-const { generateEmailContent, WEEKLY_RECAP_EMAIL_MODEL } =
+const { buildEmailHtml, generateEmailContent, WEEKLY_RECAP_EMAIL_MODEL } =
   await import('../weekly-recap-email.service.js');
 
 describe('generateEmailContent', () => {
@@ -91,5 +91,24 @@ describe('generateEmailContent', () => {
     expect(content.resultsHighlights.length).toBeGreaterThan(0);
     expect(content.nextSteps.length).toBeGreaterThan(0);
     expect(content.ctaUrl).toBe('https://app.nxt1sports.com/dashboard');
+  });
+
+  it('links email preference management to the live notification preferences route', () => {
+    const html = buildEmailHtml({
+      userName: 'John',
+      role: 'athlete',
+      weekNumber: 1,
+      recapNumber: 1,
+      introParagraph: 'Agent X helped you move forward this week.',
+      completedActions: ['Reviewed your plan'],
+      resultsHighlights: ['Your recap is ready'],
+      nextSteps: ['Open Agent X'],
+      ctaText: 'Open Agent X',
+      ctaUrl: 'https://nxt1sports.com/agent-x',
+    });
+
+    expect(html).toContain('https://nxt1sports.com/settings');
+    expect(html).not.toContain('/settings/notifications');
+    expect(html).not.toContain('/settings/notification-preferences');
   });
 });

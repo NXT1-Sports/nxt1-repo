@@ -32,6 +32,7 @@ const USERS_COLLECTION = 'Users';
 const RECAPS_SUBCOLLECTION = 'agent_weekly_recaps';
 const WEEKLY_RECAP_DISPATCH_COLLECTION = 'AgentWeeklyRecapDispatches';
 const APP_URL = 'https://nxt1sports.com';
+const SETTINGS_URL = `${APP_URL}/settings`;
 export const WEEKLY_RECAP_EMAIL_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -493,7 +494,7 @@ export function buildEmailHtml(params: {
     footerHtml: `
       <p style="margin:0;font-size:12px;line-height:1.5;color:#b7c5d5;">You're receiving this because you have Agent X autonomous mode enabled.</p>
       <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">
-        <a href="${APP_URL}/settings/notifications" style="color:#ccff00;text-decoration:none;">Manage email preferences</a>
+        <a href="${SETTINGS_URL}" style="color:#ccff00;text-decoration:none;">Manage email preferences</a>
         &nbsp;·&nbsp;
         <a href="${APP_URL}" style="color:#ccff00;text-decoration:none;">NXT1 Sports</a>
       </p>

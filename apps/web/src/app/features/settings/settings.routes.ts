@@ -14,6 +14,11 @@ export const SETTINGS_ROUTES: Routes = [
     loadComponent: () => import('./settings.component').then((m) => m.SettingsComponent),
   },
   {
+    path: 'notifications',
+    redirectTo: '',
+    pathMatch: 'full',
+  },
+  {
     path: 'account-information',
     loadComponent: () =>
       import('./account-information.component').then((m) => m.AccountInformationComponent),
@@ -25,9 +30,7 @@ export const SETTINGS_ROUTES: Routes = [
   },
   {
     path: 'notification-preferences',
-    loadComponent: () =>
-      import('./notification-preferences.component').then(
-        (m) => m.NotificationPreferencesComponent
-      ),
+    redirectTo: '',
+    pathMatch: 'full',
   },
 ];

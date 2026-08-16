@@ -138,7 +138,7 @@ const KNOWN_APP_ROUTE_PATTERNS = [
   /^\/oauth\/success\/?$/,
   /^\/activity\/?$/,
   /^\/profile(?:\/[^/]+\/[^/]+\/[^/]+|\/[^/]+)?\/?$/,
-  /^\/settings(?:\/(?:account-information|connected-accounts|notification-preferences))?\/?$/,
+  /^\/settings(?:\/(?:account-information|connected-accounts|notification-preferences|notifications))?\/?$/,
   /^\/help-center(?:\/(?:category\/[^/]+|article\/[^/]+|video\/[^/]+|search|contact))?\/?$/,
   /^\/manage-team\/?$/,
   /^\/invite(?:\/team\/[^/]+)?\/?$/,
