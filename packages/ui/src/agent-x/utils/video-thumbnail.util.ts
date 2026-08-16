@@ -34,7 +34,10 @@ async function createVideoThumbnailCapture(file: File): Promise<VideoThumbnailCa
       video.playsInline = true;
       video.src = objectUrl;
 
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
       const cleanup = (): void => {
+        if (timeoutId) clearTimeout(timeoutId);
         video.pause();
         video.removeAttribute('src');
         video.load();
@@ -45,6 +48,11 @@ async function createVideoThumbnailCapture(file: File): Promise<VideoThumbnailCa
         cleanup();
         resolve(null);
       };
+
+      // Timeout after 5 seconds to prevent infinite hangs if browser decoder limit is reached
+      timeoutId = setTimeout(() => {
+        fail();
+      }, 5000);
 
       const capture = (): void => {
         const width = video.videoWidth;
