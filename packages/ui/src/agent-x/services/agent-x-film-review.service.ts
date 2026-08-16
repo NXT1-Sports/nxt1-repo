@@ -795,8 +795,15 @@ export class AgentXFilmReviewService {
     }
   }
 
-  async load(teamId?: string | null, sport?: string, limit: number = 20): Promise<void> {
-    this._loading.set(true);
+  async load(
+    teamId?: string | null,
+    sport?: string,
+    limit: number = 20,
+    options?: { readonly background?: boolean }
+  ): Promise<void> {
+    if (!options?.background) {
+      this._loading.set(true);
+    }
     this._error.set(null);
 
     const normalizedTeamId = teamId?.trim() || null;
@@ -846,7 +853,9 @@ export class AgentXFilmReviewService {
         sport,
       });
     } finally {
-      this._loading.set(false);
+      if (!options?.background) {
+        this._loading.set(false);
+      }
     }
   }
 

@@ -5180,12 +5180,12 @@ export class AgentXPlaybooksPanelComponent {
     this.clearSelection();
   }
 
-  public async refreshData(): Promise<void> {
+  public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
     const selectedPlaybookId = this.selectedPlaybook()?.id ?? null;
     const selectedCallsheetId = this.selectedCallsheetId();
     const selectedPracticeScriptId = this.selectedPracticeScriptId();
 
-    await this.loadPlaybooks();
+    await this.loadPlaybooks(options);
 
     if (
       !selectedPlaybookId ||
@@ -8847,17 +8847,21 @@ li + li { margin-top: 2px; }
 
   // ── Loaders ──────────────────────────────────────────────────────────────────
 
-  private async loadPlaybooks(): Promise<void> {
-    this.loading.set(true);
+  private async loadPlaybooks(options?: { readonly background?: boolean }): Promise<void> {
+    if (!options?.background) {
+      this.loading.set(true);
+    }
     this.error.set(null);
     const teamId = this._teamId();
     if (!teamId) {
       this.playbooks.set([]);
-      this.loading.set(false);
+      if (!options?.background) {
+        this.loading.set(false);
+      }
       return;
     }
     try {
-      await this.playbooksService.loadPlaybooks(teamId);
+      await this.playbooksService.loadPlaybooks(teamId, undefined, options);
       const loadedPlaybooks = this.playbooksService.playbooks();
       this.playbooks.set(loadedPlaybooks);
 
@@ -8868,7 +8872,9 @@ li + li { margin-top: 2px; }
       this.error.set(err instanceof Error ? err.message : 'Unable to load playbooks.');
       // Preserve current list so a transient reload failure does not blank the panel.
     } finally {
-      this.loading.set(false);
+      if (!options?.background) {
+        this.loading.set(false);
+      }
     }
   }
 

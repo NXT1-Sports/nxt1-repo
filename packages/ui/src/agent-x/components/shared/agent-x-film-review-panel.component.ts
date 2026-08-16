@@ -5395,10 +5395,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.librarySearchQuery.set('');
   }
 
-  public async refreshData(): Promise<void> {
+  public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
     const teamId = this.teamId?.trim() || null;
 
-    await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
+    await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit(), options);
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
   }
 
@@ -10316,7 +10316,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
     event.preventDefault();
 
-    const selectedPlayContexts = this.buildSelectedTimelinePlayContexts(review);
+    const selectedPlayContexts = this.selectedTimelinePlayDragContexts();
     if (selectedPlayContexts.length <= 0) {
       return;
     }
@@ -10742,24 +10742,27 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const selectedPlayIds = this.selectedTimelinePlayIds();
 
     if (selectedPlayIds.size > 1 && selectedPlayIds.has(playId)) {
-      return this.buildSelectedTimelinePlayContexts(review);
+      return this.selectedTimelinePlayDragContexts();
     }
 
     return this.buildFilmPlayDragContext(review, play, fallbackIndex);
   }
 
-  private buildSelectedTimelinePlayContexts(
-    review: FilmReviewDragSource
-  ): readonly AgentXSelectedContext[] {
-    const selectedIds = this.selectedTimelinePlayIds();
-    if (selectedIds.size === 0) return [];
+  protected readonly selectedTimelinePlayDragContexts = computed<readonly AgentXSelectedContext[]>(
+    () => {
+      const review = this.selectedReview();
+      if (!review) return [];
 
-    return this.filteredTimelineRows()
-      .filter((row) =>
-        selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
-      )
-      .map((row) => this.buildFilmPlayDragContext(review, row.play, row.originalIndex));
-  }
+      const selectedIds = this.selectedTimelinePlayIds();
+      if (selectedIds.size === 0) return [];
+
+      return this.filteredTimelineRows()
+        .filter((row) =>
+          selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+        )
+        .map((row) => this.buildFilmPlayDragContext(review, row.play, row.originalIndex));
+    }
+  );
 
   private resolveTimelinePlaySelectionId(play: FilmTimelinePlay, fallbackIndex: number): string {
     const explicitId = play.id?.trim();

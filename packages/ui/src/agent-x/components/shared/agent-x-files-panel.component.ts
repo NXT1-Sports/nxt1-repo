@@ -3772,8 +3772,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     return this.selectedViewerFile()?.name ?? 'Files';
   }
 
-  public async refreshData(): Promise<void> {
-    await this.filesService.loadFiles(this.teamId);
+  public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
+    await this.filesService.loadFiles(this.teamId, options);
     const validFolderIds = new Set([
       TEAM_FILES_UNASSIGNED_FOLDER_ID,
       ...this.filesService.folders().map((folder) => folder.id),

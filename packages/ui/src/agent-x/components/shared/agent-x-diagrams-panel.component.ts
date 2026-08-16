@@ -2137,13 +2137,13 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
     await this.deleteDiagram(diagram);
   }
 
-  protected async refresh(): Promise<void> {
-    await this.service.load({ sport: this.sport, kind: 'sport_play', limit: 75 });
+  protected async refresh(options?: { readonly background?: boolean }): Promise<void> {
+    await this.service.load({ sport: this.sport, kind: 'sport_play', limit: 75 }, options);
     this.imageFailed.set(false);
   }
 
-  public async reload(): Promise<void> {
-    await this.refresh();
+  public async reload(options?: { readonly background?: boolean }): Promise<void> {
+    await this.refresh(options);
   }
 
   public async openDiagramAssetModal(assetId: string): Promise<void> {

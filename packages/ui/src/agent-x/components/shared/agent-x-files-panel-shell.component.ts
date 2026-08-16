@@ -50,8 +50,8 @@ export class AgentXFilesPanelComponent {
     return this.innerPanel()?.getInlineHeaderTitle() ?? 'The Lab';
   }
 
-  public async refreshData(): Promise<void> {
-    await this.innerPanel()?.refreshData();
+  public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
+    await this.innerPanel()?.refreshData(options);
   }
 
   public async seekToTimestampMs(

@@ -92,8 +92,13 @@ export class AgentXDiagramService {
     );
   }
 
-  async load(request: DiagramAssetLoadRequest = {}): Promise<void> {
-    this._loading.set(true);
+  async load(
+    request: DiagramAssetLoadRequest = {},
+    options?: { readonly background?: boolean }
+  ): Promise<void> {
+    if (!options?.background) {
+      this._loading.set(true);
+    }
     this._error.set(null);
 
     this.logger.info('Loading diagram assets', {
@@ -159,7 +164,9 @@ export class AgentXDiagramService {
         kind: request.kind ?? 'all',
       });
     } finally {
-      this._loading.set(false);
+      if (!options?.background) {
+        this._loading.set(false);
+      }
     }
   }
 

@@ -110,8 +110,14 @@ export class PlaybooksService {
    * @param teamId Team ID to load playbooks for
    * @throws Error if loading fails
    */
-  async loadPlaybooks(teamId: string, sport?: string): Promise<void> {
-    this._loading.set(true);
+  async loadPlaybooks(
+    teamId: string,
+    sport?: string,
+    options?: { readonly background?: boolean }
+  ): Promise<void> {
+    if (!options?.background) {
+      this._loading.set(true);
+    }
     this._error.set(null);
 
     const normalizedSport = sport?.trim().toLowerCase();
@@ -173,7 +179,9 @@ export class PlaybooksService {
 
       throw err;
     } finally {
-      this._loading.set(false);
+      if (!options?.background) {
+        this._loading.set(false);
+      }
     }
   }
 

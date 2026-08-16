@@ -540,8 +540,13 @@ export class AgentXFilesService {
     return this._files().find((file) => file.id === selectedId) ?? null;
   });
 
-  async loadFiles(_teamId?: string | null): Promise<void> {
-    this._loading.set(true);
+  async loadFiles(
+    _teamId?: string | null,
+    options?: { readonly background?: boolean }
+  ): Promise<void> {
+    if (!options?.background) {
+      this._loading.set(true);
+    }
     this._error.set(null);
     this.breadcrumb.trackStateChange('agent-x-files:loading', { teamId: null });
 
@@ -572,7 +577,9 @@ export class AgentXFilesService {
       this.logger.error('Failed to load files', error, { teamId: null });
       this._error.set(message);
     } finally {
-      this._loading.set(false);
+      if (!options?.background) {
+        this._loading.set(false);
+      }
     }
   }
 

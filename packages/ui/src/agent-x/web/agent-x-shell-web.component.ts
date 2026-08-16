@@ -4922,15 +4922,54 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
   ): Promise<void> {
     const refreshTasks: Array<readonly [string, Promise<void> | undefined]> = [
-      ['playbooks', this.playbooksPanel()?.refreshData()],
-      ['files', this.filesPanel()?.refreshData()],
-      ['film-review', this.filmReviewPanel()?.refreshData()],
-      ['diagrams', this.diagramsPanel()?.reload()],
+      [
+        'playbooks',
+        this.playbooksPanel()?.refreshData({
+          background: trigger === 'background-update' || trigger === 'chat-response-complete',
+        }),
+      ],
+      [
+        'files',
+        this.filesPanel()?.refreshData({
+          background: trigger === 'background-update' || trigger === 'chat-response-complete',
+        }),
+      ],
+      [
+        'film-review',
+        this.filmReviewPanel()?.refreshData({
+          background: trigger === 'background-update' || trigger === 'chat-response-complete',
+        }),
+      ],
+      [
+        'diagrams',
+        this.diagramsPanel()?.reload({
+          background: trigger === 'background-update' || trigger === 'chat-response-complete',
+        }),
+      ],
     ];
+
+    console.log(
+      '[DEBUG] refreshAgentToolPanels called with trigger:',
+      trigger,
+      'context:',
+      context
+    );
+    console.log('[DEBUG] Found panels:', {
+      playbooks: !!this.playbooksPanel(),
+      files: !!this.filesPanel(),
+      filmReview: !!this.filmReviewPanel(),
+      diagrams: !!this.diagramsPanel(),
+    });
 
     const activeTasks = refreshTasks.filter(([, task]) => task !== undefined) as Array<
       readonly [string, Promise<void>]
     >;
+
+    console.log(
+      '[DEBUG] Active tasks to run:',
+      activeTasks.map(([name]) => name)
+    );
+
     if (activeTasks.length === 0) return;
 
     const results = await Promise.allSettled(activeTasks.map(([, task]) => task));
@@ -4938,7 +4977,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       result.status === 'rejected' ? [activeTasks[index]?.[0] ?? 'unknown'] : []
     );
 
-    if (failedPanels.length === 0) return;
+    if (failedPanels.length === 0) {
+      console.log('[DEBUG] Successfully refreshed all active panels');
+      return;
+    }
 
     this.logger.warn('Failed to refresh one or more Agent X tool panels after update', {
       trigger,
