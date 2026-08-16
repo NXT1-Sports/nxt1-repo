@@ -31,6 +31,7 @@ export interface AgentMediaAccessUrl {
 export class AgentMediaLifecycleService {
   static readonly DEFAULT_SIGNED_URL_TTL_MS = 24 * 60 * 60 * 1000;
   static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+  static readonly LARGE_PDF_SIGNED_PUT_THRESHOLD_BYTES = 10 * 1024 * 1024;
 
   private static readonly KNOWN_METADATA_PARSE_ERROR = 'parse error';
   private static readonly KNOWN_DIRECT_UPLOAD_FAILURE_MARKERS = [
@@ -121,6 +122,16 @@ export class AgentMediaLifecycleService {
         metadata: params.metadata,
       },
     });
+  }
+
+  private static shouldBypassDirectUpload(params: {
+    readonly mimeType: string;
+    readonly buffer: Buffer;
+  }): boolean {
+    return (
+      params.mimeType === 'application/pdf' &&
+      params.buffer.byteLength >= this.LARGE_PDF_SIGNED_PUT_THRESHOLD_BYTES
+    );
   }
 
   private static extractStoragePathFromFirebaseObjectPath(pathname: string): string | null {
@@ -220,6 +231,36 @@ export class AgentMediaLifecycleService {
     readonly signedUrlTtlMs?: number;
   }): Promise<AgentMediaAccessUrl> {
     const cacheControl = params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL;
+    if (
+      this.shouldBypassDirectUpload({
+        mimeType: params.mimeType,
+        buffer: params.buffer,
+      })
+    ) {
+      logger.info(
+        '[AgentMediaLifecycleService] Using signed PUT upload path for large PDF buffer',
+        {
+          storagePath: params.storagePath,
+          mimeType: params.mimeType,
+          sizeBytes: params.buffer.byteLength,
+        }
+      );
+
+      await this.uploadBufferViaSignedPut({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        buffer: params.buffer,
+        mimeType: params.mimeType,
+        cacheControl,
+      });
+
+      return this.issueFirebaseDownloadUrl({
+        bucket: params.bucket,
+        storagePath: params.storagePath,
+        signedUrlTtlMs: params.signedUrlTtlMs,
+      });
+    }
+
     const downloadToken = randomUUID();
 
     try {

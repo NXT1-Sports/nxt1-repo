@@ -119,6 +119,67 @@ describe('AgentMediaLifecycleService.saveBufferAndMakePublic', () => {
     expect(result.url).toContain(encodeURIComponent(storagePath));
     expect(result.url).toContain('?alt=media&token=');
   });
+
+  it('uses signed PUT immediately for large PDFs', async () => {
+    mockFetch.mockReset();
+    const storagePath = 'Users/user-1/uploads/pdf/unbound/123_large-playbook.pdf';
+    const file = {
+      save: vi.fn().mockResolvedValue(undefined),
+      getSignedUrl: vi
+        .fn()
+        .mockResolvedValueOnce(['https://signed.example/large-playbook.pdf?upload=1']),
+      exists: vi.fn().mockResolvedValue([true]),
+      getMetadata: vi.fn().mockResolvedValue([{ metadata: {} }]),
+      setMetadata: vi.fn().mockResolvedValue(undefined),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    const largePdfBuffer = Buffer.alloc(
+      AgentMediaLifecycleService.LARGE_PDF_SIGNED_PUT_THRESHOLD_BYTES,
+      'a'
+    );
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket,
+      storagePath,
+      buffer: largePdfBuffer,
+      mimeType: 'application/pdf',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    expect(file.save).not.toHaveBeenCalled();
+    expect(file.getSignedUrl).toHaveBeenCalledWith({
+      version: 'v4',
+      action: 'write',
+      expires: expect.any(Number),
+      contentType: 'application/pdf',
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [uploadUrl, uploadOptions] = mockFetch.mock.calls[0] ?? [];
+    expect(uploadUrl).toBe('https://signed.example/large-playbook.pdf?upload=1');
+    expect(uploadOptions).toMatchObject({
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
+    expect(uploadOptions?.body).toBeInstanceOf(Uint8Array);
+    expect((uploadOptions?.body as Uint8Array).byteLength).toBe(largePdfBuffer.byteLength);
+    expect(file.setMetadata).toHaveBeenCalledWith({
+      cacheControl: AgentMediaLifecycleService.POST_MEDIA_CACHE_CONTROL,
+      metadata: {
+        firebaseStorageDownloadTokens: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        ),
+      },
+    });
+    expect(result).toMatchObject({
+      storagePath,
+      kind: 'firebase-download-token',
+      durable: true,
+    });
+  });
 });
 
 describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {

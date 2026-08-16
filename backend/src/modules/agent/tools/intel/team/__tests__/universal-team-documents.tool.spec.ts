@@ -1056,6 +1056,78 @@ describe('universal team document Agent X tools', () => {
     );
   });
 
+  it('preserves page-by-page enrich_document_notes artifactNotes when later patches send condensed notes', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const pageByPageNotes = [
+      '# AI Notes: Offense.pdf',
+      '',
+      'Processed pages: 2',
+      'Analyzed pages: 2',
+      'Failed pages: 0',
+      '',
+      '## Page-by-page notes',
+      '',
+      '### Page 1',
+      '- Formation install notes',
+      '',
+      '### Page 2',
+      '- Route concept notes',
+    ].join('\n');
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'upload-page-notes',
+        exists: true,
+        data: () => ({
+          id: 'upload-page-notes',
+          teamId: '',
+          type: 'file',
+          ownerUserId: 'test-user',
+          title: 'Offense.pdf',
+          normalizedTitle: 'offense.pdf',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            storagePath: 'Users/test-user/uploads/pdf/unbound/123_offense.pdf',
+            mimeType: 'application/pdf',
+          },
+          artifactClassification: {
+            kind: 'ai_page_notes',
+            source: 'enrich_document_notes',
+            pageCount: 2,
+            analyzedPageCount: 2,
+            failedPageCount: 0,
+          },
+          artifactSummary: 'Original summary',
+          artifactNotes: pageByPageNotes,
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'upload-page-notes',
+        patch: {
+          artifactSummary: 'Condensed coaching synthesis.',
+          artifactNotes: 'Condensed coaching synthesis with key takeaways.',
+        },
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactSummary: 'Condensed coaching synthesis.',
+        artifactNotes: pageByPageNotes,
+      })
+    );
+  });
+
   it('rejects document share updates from non-owners without team-manage access', async () => {
     mockCanManageTeamMutationForUser.mockResolvedValue(false);
     const { db, universalSet } = createDb({

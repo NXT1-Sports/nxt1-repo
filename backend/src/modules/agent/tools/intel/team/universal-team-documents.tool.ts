@@ -625,6 +625,40 @@ function getArtifactMetadataSummary(
   return Object.keys(metadata).length > 0 ? metadata : undefined;
 }
 
+function isPageByPageArtifactNotes(value: unknown): boolean {
+  const notes = normalizeString(value);
+  if (!notes) return false;
+
+  return (
+    /^# AI Notes:/i.test(notes) &&
+    /## Page-by-page notes/i.test(notes) &&
+    /### Page \d+/i.test(notes)
+  );
+}
+
+function hasEnrichDocumentNotesClassification(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+
+  const record = value as Record<string, unknown>;
+  return (
+    normalizeString(record['kind']) === 'ai_page_notes' &&
+    normalizeString(record['source']) === 'enrich_document_notes'
+  );
+}
+
+function shouldPreserveExistingPageByPageArtifactNotes(params: {
+  readonly existingRecord: Record<string, unknown>;
+  readonly nextArtifactNotes: string | undefined;
+  readonly patchTouchedArtifactNotes: boolean;
+}): boolean {
+  if (!params.patchTouchedArtifactNotes) return false;
+  if (!params.nextArtifactNotes) return false;
+  if (isPageByPageArtifactNotes(params.nextArtifactNotes)) return false;
+  if (!isPageByPageArtifactNotes(params.existingRecord['artifactNotes'])) return false;
+
+  return hasEnrichDocumentNotesClassification(params.existingRecord['artifactClassification']);
+}
+
 function isManagedUniversalDocument(document: UniversalFileDoc): boolean {
   return (
     document.type === 'file' && document.payloadKind === 'native' && !!getDocumentText(document)
@@ -1801,6 +1835,17 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
           };
 
       const updatedArtifact = pruneUndefinedDeep({
+        ...(shouldPreserveExistingPageByPageArtifactNotes({
+          existingRecord: existing as unknown as Record<string, unknown>,
+          nextArtifactNotes: normalizeString(patch.artifactNotes),
+          patchTouchedArtifactNotes: hasOwnPatch(patch, 'artifactNotes'),
+        })
+          ? {
+              artifactNotes: normalizeString(
+                (existing as unknown as Record<string, unknown>)['artifactNotes']
+              ),
+            }
+          : {}),
         ...existing,
         ...(hasOwnPatch(patch, 'artifactClassification')
           ? {
@@ -1813,7 +1858,15 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
           ? { artifactSummary: normalizeString(patch.artifactSummary) }
           : {}),
         ...(hasOwnPatch(patch, 'artifactNotes')
-          ? { artifactNotes: normalizeString(patch.artifactNotes) }
+          ? {
+              artifactNotes: shouldPreserveExistingPageByPageArtifactNotes({
+                existingRecord: existing as unknown as Record<string, unknown>,
+                nextArtifactNotes: normalizeString(patch.artifactNotes),
+                patchTouchedArtifactNotes: true,
+              })
+                ? normalizeString((existing as unknown as Record<string, unknown>)['artifactNotes'])
+                : normalizeString(patch.artifactNotes),
+            }
           : {}),
         ...(hasOwnPatch(patch, 'artifactTags')
           ? { artifactTags: normalizeStringArray(patch.artifactTags, true) }
@@ -1885,9 +1938,18 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
     const nextArtifactSummary = hasOwnPatch(patch, 'artifactSummary')
       ? normalizeString(patch.artifactSummary)
       : normalizeString(existingRecord['artifactSummary']);
-    const nextArtifactNotes = hasOwnPatch(patch, 'artifactNotes')
+    const requestedArtifactNotes = hasOwnPatch(patch, 'artifactNotes')
       ? normalizeString(patch.artifactNotes)
-      : normalizeString(existingRecord['artifactNotes']);
+      : undefined;
+    const nextArtifactNotes = shouldPreserveExistingPageByPageArtifactNotes({
+      existingRecord,
+      nextArtifactNotes: requestedArtifactNotes,
+      patchTouchedArtifactNotes: hasOwnPatch(patch, 'artifactNotes'),
+    })
+      ? normalizeString(existingRecord['artifactNotes'])
+      : hasOwnPatch(patch, 'artifactNotes')
+        ? requestedArtifactNotes
+        : normalizeString(existingRecord['artifactNotes']);
     const nextArtifactTags = hasOwnPatch(patch, 'artifactTags')
       ? normalizeStringArray(patch.artifactTags, true)
       : normalizeStringArray(existingRecord['artifactTags'], true);

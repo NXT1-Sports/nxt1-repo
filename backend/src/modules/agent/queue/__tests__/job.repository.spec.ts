@@ -55,6 +55,7 @@ interface MockQuerySnapshot {
 interface MockQueryRef {
   readonly __kind: 'query';
   readonly operationId: string;
+  readonly collectionName: string;
   readonly direction: 'asc' | 'desc';
   readonly limitCount?: number;
   orderBy(field: string, nextDirection: 'asc' | 'desc'): MockQueryRef;
@@ -65,6 +66,7 @@ interface MockQueryRef {
 interface MockEventDocRef {
   readonly __kind: 'event-doc';
   readonly operationId: string;
+  readonly collectionName: string;
   readonly id: string;
   set(payload: Record<string, unknown>, options?: { merge?: boolean }): Promise<void>;
 }
@@ -92,7 +94,10 @@ function createMockFirestore() {
     get: (field: string) => doc?.[field],
   });
 
-  const makeEventDocs = (operationId: string) => events.get(operationId) ?? [];
+  const subcollectionKey = (operationId: string, collectionName: string) =>
+    `${operationId}:${collectionName}`;
+  const makeEventDocs = (operationId: string, collectionName = 'events') =>
+    events.get(subcollectionKey(operationId, collectionName)) ?? [];
 
   const makeEventDocView = (data: Record<string, unknown>) => ({
     data: () => data,
@@ -101,21 +106,23 @@ function createMockFirestore() {
 
   const makeEventsQuery = (
     operationId: string,
+    collectionName = 'events',
     direction: 'asc' | 'desc' = 'asc',
     limitCount?: number
   ): MockQueryRef => ({
     __kind: 'query' as const,
     operationId,
+    collectionName,
     direction,
     limitCount,
     orderBy(_field: string, nextDirection: 'asc' | 'desc') {
-      return makeEventsQuery(operationId, nextDirection, limitCount);
+      return makeEventsQuery(operationId, collectionName, nextDirection, limitCount);
     },
     limit(nextLimit: number) {
-      return makeEventsQuery(operationId, direction, nextLimit);
+      return makeEventsQuery(operationId, collectionName, direction, nextLimit);
     },
     async get(): Promise<MockQuerySnapshot> {
-      const sorted = [...makeEventDocs(operationId)].sort((a, b) => {
+      const sorted = [...makeEventDocs(operationId, collectionName)].sort((a, b) => {
         const aSeq = Number(a['seq'] ?? -1);
         const bSeq = Number(b['seq'] ?? -1);
         return direction === 'asc' ? aSeq - bSeq : bSeq - aSeq;
@@ -127,17 +134,19 @@ function createMockFirestore() {
     },
   });
 
-  const makeEventCollection = (operationId: string) => ({
+  const makeEventCollection = (operationId: string, collectionName = 'events') => ({
     __kind: 'collection' as const,
     operationId,
+    collectionName,
     doc(explicitId?: string) {
       const id = explicitId ?? `evt-${autoId++}`;
       return {
         __kind: 'event-doc' as const,
         operationId,
+        collectionName,
         id,
         async set(payload: Record<string, unknown>) {
-          const list = makeEventDocs(operationId);
+          const list = makeEventDocs(operationId, collectionName);
           const existingIndex = list.findIndex(
             (entry) => entry['eventId'] === id || entry['id'] === id
           );
@@ -146,18 +155,18 @@ function createMockFirestore() {
           } else {
             list.push({ ...payload, id });
           }
-          events.set(operationId, list);
+          events.set(subcollectionKey(operationId, collectionName), list);
         },
       } satisfies MockEventDocRef;
     },
     async add(payload: Record<string, unknown>) {
-      const list = makeEventDocs(operationId);
+      const list = makeEventDocs(operationId, collectionName);
       list.push({ ...payload, id: `evt-${autoId++}` });
-      events.set(operationId, list);
+      events.set(subcollectionKey(operationId, collectionName), list);
       return { id: `evt-${autoId - 1}` };
     },
     orderBy(_field: string, direction: 'asc' | 'desc') {
-      return makeEventsQuery(operationId, direction);
+      return makeEventsQuery(operationId, collectionName, direction);
     },
   });
 
@@ -172,8 +181,10 @@ function createMockFirestore() {
     __kind: 'job-doc' as const,
     operationId,
     collection(name: string) {
-      if (name !== 'events') throw new Error(`Unexpected subcollection: ${name}`);
-      return makeEventCollection(operationId);
+      if (name !== 'events' && name !== 'result_chunks') {
+        throw new Error(`Unexpected subcollection: ${name}`);
+      }
+      return makeEventCollection(operationId, name);
     },
     async get(): Promise<MockDocSnapshot> {
       return makeDocSnapshot(jobs.get(operationId));
@@ -210,9 +221,9 @@ function createMockFirestore() {
         },
         async commit() {
           for (const op of operations) {
-            const list = makeEventDocs(op.ref.operationId);
+            const list = makeEventDocs(op.ref.operationId, op.ref.collectionName);
             list.push({ ...op.payload, id: `evt-${autoId++}` });
-            events.set(op.ref.operationId, list);
+            events.set(subcollectionKey(op.ref.operationId, op.ref.collectionName), list);
           }
         },
       };
@@ -233,9 +244,9 @@ function createMockFirestore() {
           },
           set(ref: MockEventDocRef, payload: Record<string, unknown>) {
             if (ref?.__kind !== 'event-doc') throw new Error('Unsupported transaction set target');
-            const list = makeEventDocs(ref.operationId);
+            const list = makeEventDocs(ref.operationId, ref.collectionName);
             list.push({ ...payload, id: ref.id });
-            events.set(ref.operationId, list);
+            events.set(subcollectionKey(ref.operationId, ref.collectionName), list);
           },
           update(ref: MockJobDocRef, payload: Record<string, unknown>) {
             if (ref?.__kind !== 'job-doc') {
@@ -456,6 +467,55 @@ describe('AgentJobRepository sequencing', () => {
     const job = await repository.getById('op-seq-1');
 
     expect(job?.result).toMatchObject({ success: true });
+  });
+
+  it('round-trips oversized completion results without losing nested artifact data', async () => {
+    const fullResult = {
+      summary: 'Full playbook analysis completed.',
+      data: {
+        document: {
+          id: 'offense-playbook',
+          artifactNotes: 'play-by-play detail '.repeat(90_000),
+          evidenceTrace: Array.from({ length: 250 }, (_, index) => ({
+            page: index + 1,
+            finding: `Formation and assignment ${index + 1}`,
+          })),
+        },
+        toolCallRecords: Array.from({ length: 100 }, (_, index) => ({
+          toolName: 'enrich_document_notes',
+          status: 'success',
+          output: { page: index + 1, detail: `Page ${index + 1} analyzed` },
+        })),
+      },
+    };
+
+    await repository.markCompleted('op-seq-1', fullResult);
+
+    const parent = firestore.readJob('op-seq-1');
+    expect(parent?.['resultStorage']).toBe('subcollection');
+    expect(parent?.['resultChunkCount']).toBeGreaterThan(1);
+    expect((parent?.['result'] as { data?: unknown }).data).toBeUndefined();
+
+    const job = await repository.getById('op-seq-1');
+    expect(job?.result).toEqual({ ...fullResult, success: true });
+  });
+
+  it('clears stale failure alert state when a later completion succeeds', async () => {
+    firestore.seedJob('op-seq-1', {
+      ...firestore.readJob('op-seq-1'),
+      failureAlertStatus: 'sent',
+      failureAlertError: 'Previous attempt failed',
+      failureSlackAlertStatus: 'sent',
+      failureSlackAlertError: 'Previous attempt failed',
+    });
+
+    await repository.markCompleted('op-seq-1', { summary: 'Recovered successfully.' });
+
+    const parent = firestore.readJob('op-seq-1');
+    expect(parent?.['failureAlertStatus']).toBeNull();
+    expect(parent?.['failureAlertError']).toBeNull();
+    expect(parent?.['failureSlackAlertStatus']).toBeNull();
+    expect(parent?.['failureSlackAlertError']).toBeNull();
   });
 
   it('updates progress for non-locked statuses', async () => {

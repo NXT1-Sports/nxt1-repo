@@ -108,6 +108,7 @@ function buildTeamFilesArtifactNotesIntent(fileName: string): string {
     'These notes are a saved reference for this file for Agent X and future users.',
     'Save the notes back to this same Team Files record. Do not create a separate document, do not move the file, and do not ask the user to save or promote it manually.',
     'Write the notes to the same record using artifact metadata fields such as artifactSummary, artifactNotes, artifactTags, artifactStatus, and artifactGeneratedAt.',
+    'If page-by-page AI notes already exist in artifactNotes from enrich_document_notes, preserve them. Put your condensed synthesis in artifactSummary instead of overwriting the page-by-page artifactNotes.',
   ].join(' ');
 }
 

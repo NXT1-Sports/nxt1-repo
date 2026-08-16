@@ -44,9 +44,12 @@ import { trackAgentJobTerminalEvent } from '../services/ga4-agent-job.service.js
 export const AGENT_JOBS_COLLECTION = 'AgentJobs' as const;
 export const AGENT_WEEKLY_RECAP_JOBS_COLLECTION = 'AgentWeeklyRecapJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
+const RESULT_CHUNKS_SUBCOLLECTION = 'result_chunks' as const;
 const JOB_EVENT_SCHEMA_VERSION = 2;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
+const RESULT_INLINE_THRESHOLD_BYTES = 600_000;
+const RESULT_CHUNK_BASE64_LENGTH = 400_000;
 const FAILURE_ALERT_TERMINAL_STATUSES = new Set(['pending', 'sent']);
 const LOCKED_FAILURE_STATUSES = new Set<AgentOperationStatus>(['completed', 'failed', 'cancelled']);
 const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
@@ -76,6 +79,21 @@ function buildTerminalProgress(params: {
     currentStep: 1,
     totalSteps: 1,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+function serializedByteLength(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+}
+
+function buildSpilledResultPreview(result: AgentOperationResult): AgentOperationResult {
+  return {
+    ...(typeof result.title === 'string' ? { title: result.title.slice(0, 1_000) } : {}),
+    summary: result.summary.slice(0, 4_000),
+    success: result.success,
+    ...(typeof result.errorMessage === 'string'
+      ? { errorMessage: result.errorMessage.slice(0, 4_000) }
+      : {}),
   };
 }
 
@@ -356,6 +374,12 @@ export interface AgentJobDocument {
   readonly status: AgentOperationStatus;
   readonly progress: AgentJobProgress | null;
   readonly result: AgentOperationResult | null;
+  /** Storage location of `result`; subcollection results are hydrated by getById. */
+  readonly resultStorage?: 'inline' | 'subcollection';
+  /** Number of ordered, lossless result chunks when resultStorage is subcollection. */
+  readonly resultChunkCount?: number;
+  /** UTF-8 byte length of the serialized full result. */
+  readonly resultByteLength?: number;
   readonly error: string | null;
   readonly failureAlertStatus?: 'pending' | 'sent' | 'failed' | null;
   readonly failureAlertQueuedAt?: FirebaseFirestore.Timestamp | null;
@@ -445,6 +469,77 @@ export class AgentJobRepository {
 
   private jobRef(operationId: string): FirebaseFirestore.DocumentReference {
     return this.collectionRef().doc(operationId);
+  }
+
+  private resultChunksRef(operationId: string): FirebaseFirestore.CollectionReference {
+    return this.jobRef(operationId).collection(RESULT_CHUNKS_SUBCOLLECTION);
+  }
+
+  private async writeFullResultChunks(
+    operationId: string,
+    serializedResult: string
+  ): Promise<number> {
+    const encodedResult = Buffer.from(serializedResult, 'utf8').toString('base64');
+    const chunks = Array.from(
+      { length: Math.ceil(encodedResult.length / RESULT_CHUNK_BASE64_LENGTH) },
+      (_, index) =>
+        encodedResult.slice(
+          index * RESULT_CHUNK_BASE64_LENGTH,
+          (index + 1) * RESULT_CHUNK_BASE64_LENGTH
+        )
+    );
+    const expiresAt = ttlFromNow(TERMINAL_JOB_RETENTION_DAYS);
+
+    await Promise.all(
+      chunks.map((payload, index) =>
+        this.resultChunksRef(operationId).doc(index.toString().padStart(6, '0')).set({
+          index,
+          payload,
+          encoding: 'base64-json',
+          expiresAt,
+        })
+      )
+    );
+
+    return chunks.length;
+  }
+
+  private async readFullResultChunks(
+    operationId: string,
+    expectedChunkCount: number
+  ): Promise<AgentOperationResult | null> {
+    const snapshot = await this.resultChunksRef(operationId).orderBy('index', 'asc').get();
+    if (snapshot.docs.length !== expectedChunkCount) return null;
+
+    const payload = snapshot.docs
+      .map((doc) => doc.data() as { index?: unknown; payload?: unknown })
+      .sort((left, right) => Number(left.index) - Number(right.index));
+
+    if (
+      payload.some((chunk, index) => chunk.index !== index || typeof chunk.payload !== 'string')
+    ) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(
+        Buffer.from(payload.map((chunk) => chunk.payload).join(''), 'base64').toString('utf8')
+      ) as AgentOperationResult;
+    } catch (err) {
+      logger.error('[AgentJobs] Failed to hydrate spilled job result', {
+        operationId,
+        expectedChunkCount,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  private async hydrateResult(job: AgentJobDocument): Promise<AgentJobDocument> {
+    if (job.resultStorage !== 'subcollection' || !job.resultChunkCount) return job;
+
+    const result = await this.readFullResultChunks(job.operationId, job.resultChunkCount);
+    return result ? { ...job, result } : job;
   }
 
   private buildEventWritePayload(
@@ -599,14 +694,40 @@ export class AgentJobRepository {
     const snapshot = await this.jobRef(operationId).get();
     const currentData = snapshot.data() as Partial<AgentJobDocument> | undefined;
     const shouldTrackCompletion = currentData?.status !== 'completed';
+    const serializedResult = JSON.stringify(safeResult);
+    const resultByteLength = serializedByteLength(safeResult);
+    const inlineDocumentByteLength = serializedByteLength({
+      ...currentData,
+      result: safeResult,
+    });
+    const shouldSpillResult =
+      resultByteLength > RESULT_INLINE_THRESHOLD_BYTES ||
+      inlineDocumentByteLength > RESULT_INLINE_THRESHOLD_BYTES;
+    const resultChunkCount = shouldSpillResult
+      ? await this.writeFullResultChunks(operationId, serializedResult)
+      : 0;
+    const storedResult = shouldSpillResult ? buildSpilledResultPreview(safeResult) : safeResult;
 
     try {
       await this.jobRef(operationId).update({
         status: 'completed' satisfies AgentOperationStatus,
         error: null,
-        result: safeResult,
+        result: storedResult,
+        resultStorage: shouldSpillResult ? 'subcollection' : 'inline',
+        resultChunkCount: shouldSpillResult ? resultChunkCount : null,
+        resultByteLength,
         progress,
         yieldState: null,
+        failureAlertStatus: null,
+        failureAlertQueuedAt: null,
+        failureAlertSentAt: null,
+        failureAlertFailedAt: null,
+        failureAlertError: null,
+        failureSlackAlertStatus: null,
+        failureSlackAlertQueuedAt: null,
+        failureSlackAlertSentAt: null,
+        failureSlackAlertFailedAt: null,
+        failureSlackAlertError: null,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
         expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
@@ -1140,7 +1261,9 @@ export class AgentJobRepository {
       .limit(limit)
       .get();
 
-    return snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+    return Promise.all(
+      snapshot.docs.map((doc) => this.hydrateResult(doc.data() as AgentJobDocument))
+    );
   }
 
   async getByUserPage(userId: string, limit = 20, beforeCreatedAt?: string): Promise<AgentJobPage> {
@@ -1155,7 +1278,9 @@ export class AgentJobRepository {
     }
 
     const snapshot = await query.limit(pageLimit + 1).get();
-    const docs = snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+    const docs = await Promise.all(
+      snapshot.docs.map((doc) => this.hydrateResult(doc.data() as AgentJobDocument))
+    );
     const hasMore = docs.length > pageLimit;
     const jobs = hasMore ? docs.slice(0, pageLimit) : docs;
     const lastJob = jobs[jobs.length - 1];
@@ -1239,8 +1364,9 @@ export class AgentJobRepository {
    */
   async getById(operationId: string): Promise<AgentJobDocument | null> {
     const doc = await this.jobRef(operationId).get();
+    if (!doc.exists) return null;
 
-    return doc.exists ? (doc.data() as AgentJobDocument) : null;
+    return this.hydrateResult(doc.data() as AgentJobDocument);
   }
 
   /**
@@ -1327,7 +1453,8 @@ export class AgentJobRepository {
       .get();
 
     if (snapshot.empty) return null;
-    return snapshot.docs[0]?.data() as AgentJobDocument;
+    const job = snapshot.docs[0]?.data() as AgentJobDocument | undefined;
+    return job ? this.hydrateResult(job) : null;
   }
 
   // ─── Event Subcollection (Real-Time Streaming) ──────────────────────────

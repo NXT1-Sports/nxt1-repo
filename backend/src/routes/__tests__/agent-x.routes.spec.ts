@@ -3823,6 +3823,9 @@ describe('Agent X Routes', () => {
       'Review the selected Team Files item titled "Shared Report" and write clean, useful notes.'
     );
     expect(payload.displayIntent).toContain('Save the notes back to this same Team Files record.');
+    expect(payload.displayIntent).toContain(
+      'preserve them. Put your condensed synthesis in artifactSummary instead of overwriting the page-by-page artifactNotes.'
+    );
     expect(payload.context?.['skipBilling']).toBe(true);
     expect(payload.context?.['billingExemptionReason']).toBe('team_files_same_record_artifact');
 
