@@ -2124,12 +2124,8 @@ export class AgentXVideoUploadService {
       const fallbackTimeoutId = setTimeout(() => {
         cancellation.clearXhr(xhr);
         xhr.abort();
-        reject(
-          new Error(
-            `Video upload timed out (fallback) after 30 seconds. Chrome network thread stalled.`
-          )
-        );
-      }, 30000); // 30s timeout for fail-fast debugging
+        reject(new Error(`Video upload timed out (fallback). Chrome network thread stalled.`));
+      }, AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs + 5000); // Wait 5s longer than XHR timeout before fallback abort
 
       const originalResolve = resolve;
       resolve = (value: void | PromiseLike<void>) => {
