@@ -10309,7 +10309,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onAskAgentPromptSelect(
-    review: FilmReviewDragSource,
+    _review: FilmReviewDragSource,
     promptId: FilmReviewAskAgentPromptId,
     event: Event
   ): void {
