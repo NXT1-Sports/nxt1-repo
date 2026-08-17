@@ -1,14 +1,15 @@
 /**
- * @fileoverview Export Service — PDF, CSV & XLSX Document Generation
+ * @fileoverview Export Service — PDF, CSV, XLSX & PPTX Document Generation
  * @module @nxt1/backend/modules/agent/services
  *
- * Centralised service for generating PDF, CSV, and XLSX documents from structured data.
+ * Centralised service for generating PDF, CSV, XLSX, and PPTX documents from structured data.
  * Used by both the Agent X DynamicExportTool and the REST analytics/export endpoint.
  *
  * Design decisions:
  * - Uses `pdfmake` for PDF generation (declarative JSON → PDF, no coordinate math).
  * - Uses `csv-stringify/sync` for CSV generation (fast, synchronous, Buffer-native).
  * - Uses `exceljs` for XLSX generation (native workbook output with lightweight styling).
+ * - Uses `pptxgenjs` for PPTX generation (editable slide decks from the same structured payload).
  * - All output is returned as a `Buffer` — callers handle storage/upload.
  * - CSVs include a UTF-8 BOM so they open correctly in Excel/Sheets/Numbers.
  * - PDFs include NXT1 branding header, page numbers, and professional formatting.
@@ -19,6 +20,7 @@
  *   ExportService.generatePdf(opts)   → Buffer (PDF)
  *   ExportService.generateCsv(opts)   → Buffer (CSV)
  *   ExportService.generateXlsx(opts)  → Buffer (XLSX)
+ *   ExportService.generatePptx(opts)  → Buffer (PPTX)
  *        ↓
  *   Caller uploads Buffer → Firebase Storage → signed URL
  */
@@ -26,15 +28,46 @@
 import pdfmakeModule from 'pdfmake';
 import { stringify } from 'csv-stringify/sync';
 import ExcelJS from 'exceljs';
+import PptxGenJS from 'pptxgenjs';
 import type { Content, TableCell } from 'pdfmake';
 import { resolve, dirname } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, realpathSync } from 'node:fs';
+import { GammaClient, type GammaPresentationGenerator } from './gamma-client.service.js';
+import { logger } from '../../../utils/logger.js';
+
+interface PptxSlideLike {
+  background?: { color: string };
+  addShape(shapeName: string, options: Record<string, unknown>): void;
+  addText(text: string, options: Record<string, unknown>): void;
+  addImage(options: Record<string, unknown>): void;
+  addTable(rows: readonly unknown[][], options: Record<string, unknown>): void;
+}
+
+interface PptxDeckLike {
+  author: string;
+  company: string;
+  subject: string;
+  title: string;
+  lang: string;
+  theme: {
+    headFontFace: string;
+    bodyFontFace: string;
+    lang: string;
+  };
+  layout: string;
+  defineLayout(layout: { name: string; width: number; height: number }): void;
+  addSlide(): PptxSlideLike;
+  write(props: { outputType: 'nodebuffer' }): Promise<string | ArrayBuffer | Blob | Uint8Array>;
+}
+
+type PptxConstructor = new () => PptxDeckLike;
 
 // pdfmake 0.3.x is CJS — handle ESM interop (singleton API)
 const pdfmake =
   (pdfmakeModule as unknown as { default?: typeof pdfmakeModule }).default ?? pdfmakeModule;
+const PptxGenJSCtor = PptxGenJS as unknown as PptxConstructor;
 
 // Extract TDocumentDefinitions from createPdf signature (not re-exported by @types/pdfmake root)
 type TDocumentDefinitions = Parameters<typeof pdfmakeModule.createPdf>[0];
@@ -201,12 +234,62 @@ export interface XlsxExportOptions {
   readonly sections?: readonly ExportSection[];
 }
 
+/** Options for PPTX generation. */
+export interface PptxExportOptions {
+  /** Optional deck title used for the cover slide or first content slide. */
+  readonly title?: string;
+  /** Optional deck subtitle/description. */
+  readonly description?: string;
+  /** Optional Gamma template file ID for preserving an existing layout. */
+  readonly templateGammaId?: string;
+  /** Optional Gamma theme ID for applying workspace branding. */
+  readonly themeId?: string;
+  /** Optional extra guidance passed to Gamma for look-and-feel. */
+  readonly additionalInstructions?: string;
+  /** Optional slide layout mode. Defaults to standard stacked content. */
+  readonly layoutMode?: 'standard' | 'multi_column_grid';
+  /** Optional slide orientation. Defaults to landscape. */
+  readonly pageOrientation?: 'portrait' | 'landscape';
+  /** Optional page size hint. */
+  readonly pageSize?: 'LETTER' | 'LEGAL' | 'TABLOID';
+  /** Optional deck-level table columns. */
+  readonly columns?: readonly ExportColumn[];
+  /** Optional deck-level table rows. */
+  readonly rows?: readonly ExportRow[];
+  /** Optional deck-level narrative paragraphs. */
+  readonly bodyParagraphs?: readonly string[];
+  /** Optional deck-level bullet points. */
+  readonly bulletPoints?: readonly string[];
+  /** Optional deck-level images. */
+  readonly imageUrls?: readonly string[];
+  /** Optional team/org display name for branded decks. */
+  readonly organizationName?: string;
+  /** Optional primary accent color (hex, e.g. #0055AA). */
+  readonly brandPrimaryColor?: string;
+  /** Optional secondary accent color (hex, e.g. #D9A441). */
+  readonly brandSecondaryColor?: string;
+  /** Optional branded background treatment mode for Gamma-backed decks. */
+  readonly brandBackgroundMode?: 'auto' | 'neutral' | 'balanced' | 'alternating' | 'bold';
+  /** Optional team/org logo URL (HTTPS or data:image/*) rendered on the cover slide. */
+  readonly logoUrl?: string;
+  /** Optional multi-section slide content. */
+  readonly sections?: readonly ExportSection[];
+}
+
 /** Options for PDF generation. */
 export interface PdfExportOptions {
   /** Document title (rendered as the main heading). */
   readonly title: string;
   /** Optional subtitle or description below the title. */
   readonly description?: string;
+  /** Optional Gamma PDF format preference. Defaults to auto, which prefers document output. */
+  readonly gammaPdfFormat?: 'auto' | 'document' | 'presentation';
+  /** Optional Gamma template file ID for preserving an existing layout. */
+  readonly templateGammaId?: string;
+  /** Optional Gamma theme ID for applying workspace branding. */
+  readonly themeId?: string;
+  /** Optional extra guidance passed to Gamma for look-and-feel. */
+  readonly additionalInstructions?: string;
   /** When true, render a data table. Requires columns + rows. */
   readonly includeTable?: boolean;
   /** Column definitions for the table. */
@@ -230,6 +313,10 @@ export interface PdfExportOptions {
   readonly logoUrl?: string;
   /** Optional primary accent color (hex, e.g. #0055AA). */
   readonly brandPrimaryColor?: string;
+  /** Optional secondary accent color (hex, e.g. #D9A441). */
+  readonly brandSecondaryColor?: string;
+  /** Optional branded background treatment mode for Gamma-backed exports. */
+  readonly brandBackgroundMode?: 'auto' | 'neutral' | 'balanced' | 'alternating' | 'bold';
   /** Optional PDF layout mode. Defaults to standard vertical sections. */
   readonly layoutMode?: 'standard' | 'multi_column_grid';
   /** Deprecated and ignored. Watermarks are disabled for PDF exports. */
@@ -307,6 +394,22 @@ interface LoadedImageAsset {
   readonly extension: 'png' | 'jpeg' | 'gif';
 }
 
+interface PptxPalette {
+  readonly primary: string;
+  readonly primarySoft: string;
+  readonly surface: string;
+  readonly border: string;
+  readonly ink: string;
+  readonly muted: string;
+  readonly onPrimary: string;
+}
+
+interface PptxLayoutDefinition {
+  readonly name: string;
+  readonly width: number;
+  readonly height: number;
+}
+
 /** Light theme — white page, dark text, neutral accents for readable default exports */
 const LIGHT_PALETTE = {
   background: '#FFFFFF', // white page
@@ -339,9 +442,15 @@ const CALLSHEET_AUTO_COLORS = [
   '#4338CA',
 ] as const;
 
+const PPTX_SLIDE_MARGIN_X = 0.55;
+const PPTX_SLIDE_MARGIN_Y = 0.5;
+const PPTX_COVER_BODY_Y = 2.1;
+
 // ─── Service ───────────────────────────────────────────────────────────────
 
 export class ExportService {
+  constructor(private readonly gammaClient: GammaPresentationGenerator = new GammaClient()) {}
+
   // ── CSV ────────────────────────────────────────────────────────────────
 
   /**
@@ -524,6 +633,173 @@ export class ExportService {
     return Buffer.from(rawBuffer);
   }
 
+  // ── PPTX ───────────────────────────────────────────────────────────────
+
+  /**
+   * Generate a PPTX buffer from the same structured content model used by PDF/XLSX exports.
+   * Produces an editable slide deck with a branded cover and section slides.
+   */
+  async generatePptx(opts: PptxExportOptions): Promise<Buffer> {
+    if (this.gammaClient.isEnabled) {
+      try {
+        return await this.gammaClient.generatePptx({
+          title: this.normalizePdfText(opts.title?.trim() || 'NXT1 Export'),
+          description: opts.description ? this.normalizePdfText(opts.description) : undefined,
+          templateGammaId: opts.templateGammaId,
+          themeId: opts.themeId,
+          additionalInstructions: opts.additionalInstructions,
+          columns: opts.columns,
+          rows: opts.rows,
+          sections: opts.sections,
+          bodyParagraphs: opts.bodyParagraphs,
+          bulletPoints: opts.bulletPoints,
+          imageUrls: opts.imageUrls,
+          organizationName: opts.organizationName,
+          brandPrimaryColor: opts.brandPrimaryColor,
+          brandSecondaryColor: opts.brandSecondaryColor,
+          brandBackgroundMode: opts.brandBackgroundMode,
+          logoUrl: opts.logoUrl,
+          pageOrientation: opts.pageOrientation,
+          pageSize: opts.pageSize,
+        });
+      } catch (error) {
+        logger.warn('[ExportService] Gamma PPTX generation failed; using local renderer', {
+          errorCode: error instanceof Error && 'code' in error ? error.code : undefined,
+          errorMessage: error instanceof Error ? error.message : 'Unknown Gamma error',
+        });
+      }
+    }
+
+    return this.generatePptxLocally(opts);
+  }
+
+  private async generatePptxLocally(opts: PptxExportOptions): Promise<Buffer> {
+    const deck = new PptxGenJSCtor();
+    const layout = this.resolvePptxLayout(opts.pageOrientation, opts.pageSize);
+    const deckTitle = this.normalizePdfText(opts.title?.trim() || 'NXT1 Export');
+    const deckDescription = opts.description ? this.normalizePdfText(opts.description) : undefined;
+    const organizationName = this.normalizePdfText(opts.organizationName?.trim() || 'NXT1');
+    const palette = this.buildPptxPalette(opts.brandPrimaryColor, opts.brandSecondaryColor);
+    const normalizedSections = this.normalizeSections(opts);
+    const coverImageUrls = this.normalizeImageUrls(opts.imageUrls);
+    const loadedCoverAssets = await this.loadImageAssets([
+      ...(opts.logoUrl ? [opts.logoUrl] : []),
+      ...coverImageUrls,
+    ]);
+    const coverLogo = opts.logoUrl
+      ? loadedCoverAssets.find((image) => image.sourceUrl === opts.logoUrl)
+      : undefined;
+    const coverImages = coverImageUrls
+      .map((url) => loadedCoverAssets.find((image) => image.sourceUrl === url))
+      .filter((image): image is LoadedImageAsset => Boolean(image));
+
+    deck.author = 'NXT1';
+    deck.company = 'NXT1';
+    deck.subject = deckDescription ?? 'Structured presentation export generated by NXT1';
+    deck.title = deckTitle;
+    deck.lang = 'en-US';
+    deck.theme = {
+      headFontFace: 'Arial',
+      bodyFontFace: 'Arial',
+      lang: 'en-US',
+    };
+    deck.defineLayout({
+      name: layout.name,
+      width: layout.width,
+      height: layout.height,
+    });
+    deck.layout = layout.name;
+
+    if (normalizedSections.length <= 1) {
+      const slide = deck.addSlide();
+      this.decoratePptxSlide(slide, palette);
+      this.renderPptxCoverHeader({
+        slide,
+        layout,
+        palette,
+        title: deckTitle,
+        description: deckDescription,
+        organizationName,
+        logo: coverLogo,
+      });
+
+      const singleSection = normalizedSections[0];
+      if (singleSection) {
+        await this.renderPptxSectionSlide({
+          slide,
+          section: {
+            ...singleSection,
+            imageUrls: singleSection.imageUrls?.length ? singleSection.imageUrls : coverImageUrls,
+          },
+          layout,
+          palette,
+          layoutMode: opts.layoutMode,
+          coverImages,
+          startY: PPTX_COVER_BODY_Y,
+        });
+      } else if (coverImages.length > 0) {
+        this.renderPptxImageStrip({
+          slide,
+          images: coverImages,
+          layout,
+          startY: PPTX_COVER_BODY_Y,
+          palette,
+        });
+      }
+    } else {
+      const coverSlide = deck.addSlide();
+      this.decoratePptxSlide(coverSlide, palette);
+      this.renderPptxCoverHeader({
+        slide: coverSlide,
+        layout,
+        palette,
+        title: deckTitle,
+        description: deckDescription,
+        organizationName,
+        logo: coverLogo,
+      });
+      this.renderPptxDeckSummary({
+        slide: coverSlide,
+        layout,
+        palette,
+        sectionCount: normalizedSections.length,
+      });
+      if (coverImages.length > 0) {
+        this.renderPptxImageStrip({
+          slide: coverSlide,
+          images: coverImages,
+          layout,
+          startY: 4.35,
+          palette,
+        });
+      }
+
+      for (const section of normalizedSections) {
+        const slide = deck.addSlide();
+        this.decoratePptxSlide(slide, palette);
+        await this.renderPptxSectionSlide({
+          slide,
+          section,
+          layout,
+          palette,
+          layoutMode: opts.layoutMode,
+          coverImages: [],
+        });
+      }
+    }
+
+    const rawBuffer = await deck.write({ outputType: 'nodebuffer' });
+    if (Buffer.isBuffer(rawBuffer)) {
+      return rawBuffer;
+    }
+
+    if (rawBuffer instanceof Uint8Array) {
+      return Buffer.from(rawBuffer);
+    }
+
+    return Buffer.from(rawBuffer as ArrayBuffer);
+  }
+
   // ── PDF ────────────────────────────────────────────────────────────────
 
   /**
@@ -531,6 +807,40 @@ export class ExportService {
    * Returns a Promise because pdfmake streams the document.
    */
   async generatePdf(opts: PdfExportOptions): Promise<Buffer> {
+    if (this.gammaClient.isEnabled) {
+      try {
+        return await this.gammaClient.generatePdf({
+          title: this.normalizePdfText(opts.title.trim()),
+          description: opts.description ? this.normalizePdfText(opts.description) : undefined,
+          footerText: this.normalizePdfText(
+            opts.footerText ?? 'Generated by NXT1 - nxt1sports.com'
+          ),
+          templateGammaId: opts.templateGammaId,
+          themeId: opts.themeId,
+          additionalInstructions: opts.additionalInstructions,
+          columns: opts.columns,
+          rows: opts.rows,
+          sections: opts.sections,
+          bodyParagraphs: opts.bodyParagraphs,
+          bulletPoints: opts.bulletPoints,
+          imageUrls: opts.imageUrls,
+          organizationName: opts.organizationName,
+          brandPrimaryColor: opts.brandPrimaryColor,
+          brandSecondaryColor: opts.brandSecondaryColor,
+          brandBackgroundMode: opts.brandBackgroundMode,
+          logoUrl: opts.logoUrl,
+          pageOrientation: opts.pageOrientation,
+          pageSize: opts.pageSize,
+          format: this.resolveGammaPdfFormat(opts),
+        });
+      } catch (error) {
+        logger.warn('[ExportService] Gamma PDF generation failed; using local renderer', {
+          errorCode: error instanceof Error && 'code' in error ? error.code : undefined,
+          errorMessage: error instanceof Error ? error.message : 'Unknown Gamma error',
+        });
+      }
+    }
+
     // PDFs are hard-locked to a light print-friendly palette.
     const basePalette: PdfPalette = LIGHT_PALETTE;
     const brandPrimary = this.normalizeHexColor(opts.brandPrimaryColor);
@@ -675,6 +985,34 @@ export class ExportService {
     return this.renderPdfToBuffer(docDefinition);
   }
 
+  private resolveGammaPdfFormat(opts: PdfExportOptions): 'presentation' | 'document' {
+    if (opts.gammaPdfFormat === 'presentation') {
+      return 'presentation';
+    }
+
+    if (opts.gammaPdfFormat === 'document') {
+      return 'document';
+    }
+
+    return this.looksLikePresentationPdf(opts) ? 'presentation' : 'document';
+  }
+
+  private looksLikePresentationPdf(opts: PdfExportOptions): boolean {
+    return this.containsPresentationCue([
+      opts.title,
+      opts.description,
+      opts.additionalInstructions,
+    ]);
+  }
+
+  private containsPresentationCue(values: readonly (string | undefined)[]): boolean {
+    return values.some((value) =>
+      typeof value === 'string'
+        ? /\b(slide|slides|deck|presentation|pitch deck|briefing deck)\b/i.test(value)
+        : false
+    );
+  }
+
   // ── Private Helpers ────────────────────────────────────────────────────
 
   private async buildPdfContent(opts: PdfExportOptions, palette: PdfPalette): Promise<Content[]> {
@@ -736,6 +1074,401 @@ export class ExportService {
     }
 
     return content;
+  }
+
+  private buildPptxPalette(brandPrimaryColor?: string, brandSecondaryColor?: string): PptxPalette {
+    const primary = this.normalizeHexColor(brandPrimaryColor) ?? NEUTRAL_PRIMARY;
+    const secondary = this.normalizeHexColor(brandSecondaryColor);
+    return {
+      primary,
+      primarySoft: secondary ?? '#F3F4F6',
+      surface: '#FFFFFF',
+      border: '#D1D5DB',
+      ink: '#111111',
+      muted: '#4B5563',
+      onPrimary: this.getContrastTextColor(primary),
+    };
+  }
+
+  private resolvePptxLayout(
+    pageOrientation?: PptxExportOptions['pageOrientation'],
+    pageSize?: PptxExportOptions['pageSize']
+  ): PptxLayoutDefinition {
+    const orientation = pageOrientation ?? 'landscape';
+    const normalizedPageSize = pageSize ?? 'LETTER';
+    const sizeMap: Record<NonNullable<PptxExportOptions['pageSize']>, [number, number]> = {
+      LETTER: [13.333, 7.5],
+      LEGAL: [13.333, 7.5],
+      TABLOID: [13.333, 7.5],
+    };
+    const [landscapeWidth, landscapeHeight] = sizeMap[normalizedPageSize];
+    const width = orientation === 'portrait' ? landscapeHeight : landscapeWidth;
+    const height = orientation === 'portrait' ? landscapeWidth : landscapeHeight;
+    return {
+      name: `NXT1_${normalizedPageSize}_${orientation.toUpperCase()}`,
+      width,
+      height,
+    };
+  }
+
+  private decoratePptxSlide(slide: PptxSlideLike, palette: PptxPalette): void {
+    slide.background = { color: 'FFFFFF' };
+    slide.addShape('rect', {
+      x: 0,
+      y: 0,
+      w: '100%',
+      h: 0.14,
+      line: { color: palette.primary, transparency: 100 },
+      fill: { color: palette.primary },
+    });
+  }
+
+  private renderPptxCoverHeader(params: {
+    readonly slide: PptxSlideLike;
+    readonly layout: PptxLayoutDefinition;
+    readonly palette: PptxPalette;
+    readonly title: string;
+    readonly description?: string;
+    readonly organizationName: string;
+    readonly logo?: LoadedImageAsset;
+  }): void {
+    const { slide, layout, palette, title, description, organizationName, logo } = params;
+    const logoWidth = logo ? 0.7 : 0;
+    const logoOffset = logo ? 0.85 : 0;
+
+    slide.addText(organizationName, {
+      x: PPTX_SLIDE_MARGIN_X + logoOffset,
+      y: PPTX_SLIDE_MARGIN_Y,
+      w: Math.max(2.8, layout.width - PPTX_SLIDE_MARGIN_X * 2 - logoOffset),
+      h: 0.3,
+      fontFace: 'Arial',
+      fontSize: 12,
+      bold: true,
+      color: palette.primary.replace('#', ''),
+      margin: 0,
+    });
+
+    if (logo) {
+      slide.addImage({
+        data: `data:image/${logo.extension};base64,${logo.buffer.toString('base64')}`,
+        x: PPTX_SLIDE_MARGIN_X,
+        y: 0.42,
+        w: logoWidth,
+        h: 0.7,
+      });
+    }
+
+    slide.addText(title, {
+      x: PPTX_SLIDE_MARGIN_X,
+      y: 1.15,
+      w: layout.width - PPTX_SLIDE_MARGIN_X * 2,
+      h: 0.9,
+      fontFace: 'Arial',
+      fontSize: 24,
+      bold: true,
+      color: palette.ink.replace('#', ''),
+      fit: 'shrink',
+      margin: 0,
+      valign: 'mid',
+    });
+
+    if (description) {
+      slide.addText(description, {
+        x: PPTX_SLIDE_MARGIN_X,
+        y: 1.95,
+        w: layout.width - PPTX_SLIDE_MARGIN_X * 2,
+        h: 0.55,
+        fontFace: 'Arial',
+        fontSize: 11,
+        color: palette.muted.replace('#', ''),
+        fit: 'shrink',
+        margin: 0,
+        valign: 'mid',
+      });
+    }
+  }
+
+  private renderPptxDeckSummary(params: {
+    readonly slide: PptxSlideLike;
+    readonly layout: PptxLayoutDefinition;
+    readonly palette: PptxPalette;
+    readonly sectionCount: number;
+  }): void {
+    const { slide, layout, palette, sectionCount } = params;
+    slide.addShape('roundRect', {
+      x: PPTX_SLIDE_MARGIN_X,
+      y: 3.05,
+      w: layout.width - PPTX_SLIDE_MARGIN_X * 2,
+      h: 0.9,
+      rectRadius: 0.08,
+      line: { color: palette.border.replace('#', ''), pt: 1 },
+      fill: { color: palette.surface.replace('#', '') },
+    });
+    slide.addText(
+      `${sectionCount} section${sectionCount === 1 ? '' : 's'} ready for staff review`,
+      {
+        x: PPTX_SLIDE_MARGIN_X + 0.22,
+        y: 3.28,
+        w: layout.width - PPTX_SLIDE_MARGIN_X * 2 - 0.44,
+        h: 0.24,
+        fontFace: 'Arial',
+        fontSize: 12,
+        bold: true,
+        color: palette.ink.replace('#', ''),
+        margin: 0,
+      }
+    );
+  }
+
+  private async renderPptxSectionSlide(params: {
+    readonly slide: PptxSlideLike;
+    readonly section: ExportSection;
+    readonly layout: PptxLayoutDefinition;
+    readonly palette: PptxPalette;
+    readonly layoutMode?: PptxExportOptions['layoutMode'];
+    readonly coverImages: readonly LoadedImageAsset[];
+    readonly startY?: number;
+  }): Promise<void> {
+    const { slide, section, layout, palette, layoutMode } = params;
+    let cursorY = params.startY ?? PPTX_SLIDE_MARGIN_Y + 0.18;
+    const contentWidth = layout.width - PPTX_SLIDE_MARGIN_X * 2;
+
+    if (section.title) {
+      slide.addText(section.title, {
+        x: PPTX_SLIDE_MARGIN_X,
+        y: cursorY,
+        w: contentWidth,
+        h: 0.4,
+        fontFace: 'Arial',
+        fontSize: 18,
+        bold: true,
+        color: (section.themeColor ?? palette.primary).replace('#', ''),
+        fit: 'shrink',
+        margin: 0,
+      });
+      cursorY += 0.45;
+    }
+
+    if (section.description) {
+      slide.addText(section.description, {
+        x: PPTX_SLIDE_MARGIN_X,
+        y: cursorY,
+        w: contentWidth,
+        h: 0.35,
+        fontFace: 'Arial',
+        fontSize: 10,
+        color: palette.muted.replace('#', ''),
+        fit: 'shrink',
+        margin: 0,
+      });
+      cursorY += 0.38;
+    }
+
+    const hasNarrative = Boolean(section.bodyParagraphs?.length || section.bulletPoints?.length);
+    const hasTable = Boolean(section.columns?.length && section.rows?.length);
+    const imageUrls = section.imageUrls?.length ? section.imageUrls : undefined;
+    const sectionImages = imageUrls?.length
+      ? await this.loadImageAssets(imageUrls)
+      : params.coverImages;
+
+    if (layoutMode === 'multi_column_grid' && hasNarrative && hasTable) {
+      const leftX = PPTX_SLIDE_MARGIN_X;
+      const rightX = layout.width * 0.46;
+      const leftWidth = layout.width * 0.34;
+      const rightWidth = layout.width - rightX - PPTX_SLIDE_MARGIN_X;
+      const leftBottom = this.renderPptxNarrativeBlock({
+        slide,
+        section,
+        palette,
+        x: leftX,
+        y: cursorY,
+        w: leftWidth,
+        maxHeight: layout.height - cursorY - 2.1,
+      });
+      const rightBottom = this.renderPptxTableBlock({
+        slide,
+        section,
+        palette,
+        x: rightX,
+        y: cursorY,
+        w: rightWidth,
+      });
+      cursorY = Math.max(leftBottom, rightBottom) + 0.2;
+    } else {
+      if (hasNarrative) {
+        cursorY =
+          this.renderPptxNarrativeBlock({
+            slide,
+            section,
+            palette,
+            x: PPTX_SLIDE_MARGIN_X,
+            y: cursorY,
+            w: contentWidth,
+            maxHeight: Math.max(1.4, layout.height - cursorY - 2.3),
+          }) + 0.12;
+      }
+      if (hasTable) {
+        cursorY =
+          this.renderPptxTableBlock({
+            slide,
+            section,
+            palette,
+            x: PPTX_SLIDE_MARGIN_X,
+            y: cursorY,
+            w: contentWidth,
+          }) + 0.15;
+      }
+    }
+
+    if (sectionImages.length > 0) {
+      this.renderPptxImageStrip({
+        slide,
+        images: sectionImages,
+        layout,
+        startY: cursorY,
+        palette,
+      });
+    }
+  }
+
+  private renderPptxNarrativeBlock(params: {
+    readonly slide: PptxSlideLike;
+    readonly section: ExportSection;
+    readonly palette: PptxPalette;
+    readonly x: number;
+    readonly y: number;
+    readonly w: number;
+    readonly maxHeight: number;
+  }): number {
+    const { slide, section, palette, x, y, w, maxHeight } = params;
+    const paragraphs = section.bodyParagraphs ?? [];
+    const bullets = section.bulletPoints ?? [];
+    const blocks = [
+      ...paragraphs.map((paragraph) => this.normalizePdfText(paragraph)),
+      ...bullets.map((bullet) => `• ${this.normalizePdfText(bullet)}`),
+    ].filter((block) => block.length > 0);
+
+    if (blocks.length === 0) {
+      return y;
+    }
+
+    const estimatedHeight = Math.min(maxHeight, Math.max(0.6, blocks.length * 0.38 + 0.25));
+    slide.addText(blocks.join('\n\n'), {
+      x,
+      y,
+      w,
+      h: estimatedHeight,
+      fontFace: 'Arial',
+      fontSize: 10,
+      color: palette.ink.replace('#', ''),
+      breakLine: false,
+      fit: 'shrink',
+      margin: 0.04,
+      valign: 'top',
+      bold: false,
+    });
+
+    return y + estimatedHeight;
+  }
+
+  private renderPptxTableBlock(params: {
+    readonly slide: PptxSlideLike;
+    readonly section: ExportSection;
+    readonly palette: PptxPalette;
+    readonly x: number;
+    readonly y: number;
+    readonly w: number;
+  }): number {
+    const { slide, section, palette, x, y, w } = params;
+    if (!section.columns?.length || !section.rows?.length) {
+      return y;
+    }
+
+    const tableRows = [
+      section.columns.map((column) => ({
+        text: column.label,
+        options: {
+          bold: true,
+          color: palette.onPrimary.replace('#', ''),
+          fill: palette.primary.replace('#', ''),
+          margin: 0.04,
+          align: 'left',
+          valign: 'mid',
+        },
+      })),
+      ...section.rows.map((row, rowIndex) =>
+        section.columns!.map((_, columnIndex) => ({
+          text: this.formatPptxCellValue(row[columnIndex]),
+          options: {
+            color: palette.ink.replace('#', ''),
+            fill: (rowIndex + 1) % 2 === 0 ? palette.surface.replace('#', '') : 'FFFFFF',
+            margin: 0.04,
+            align: 'left',
+            valign: 'top',
+          },
+        }))
+      ),
+    ];
+
+    slide.addTable(tableRows, {
+      x,
+      y,
+      w,
+      border: { pt: 1, color: palette.border.replace('#', '') },
+      fontFace: 'Arial',
+      fontSize: 9,
+      color: palette.ink.replace('#', ''),
+      margin: 0.04,
+      autoFit: true,
+      rowH: 0.28,
+    });
+
+    const estimatedHeight = Math.min(3.8, 0.42 + tableRows.length * 0.3);
+    return y + estimatedHeight;
+  }
+
+  private renderPptxImageStrip(params: {
+    readonly slide: PptxSlideLike;
+    readonly images: readonly LoadedImageAsset[];
+    readonly layout: PptxLayoutDefinition;
+    readonly startY: number;
+    readonly palette: PptxPalette;
+  }): void {
+    const { slide, images, layout, startY, palette } = params;
+    const usableImages = images.slice(0, 2);
+    if (usableImages.length === 0) return;
+
+    const cardY = Math.min(startY, layout.height - 2.15);
+    const gap = 0.22;
+    const cardWidth =
+      (layout.width - PPTX_SLIDE_MARGIN_X * 2 - gap * (usableImages.length - 1)) /
+      usableImages.length;
+    const cardHeight = Math.max(1.35, Math.min(2, layout.height - cardY - 0.55));
+
+    usableImages.forEach((image, index) => {
+      const x = PPTX_SLIDE_MARGIN_X + index * (cardWidth + gap);
+      slide.addShape('roundRect', {
+        x,
+        y: cardY,
+        w: cardWidth,
+        h: cardHeight,
+        rectRadius: 0.08,
+        line: { color: palette.border.replace('#', ''), pt: 1 },
+        fill: { color: palette.surface.replace('#', '') },
+      });
+      slide.addImage({
+        data: `data:image/${image.extension};base64,${image.buffer.toString('base64')}`,
+        x: x + 0.08,
+        y: cardY + 0.08,
+        w: cardWidth - 0.16,
+        h: cardHeight - 0.16,
+      });
+    });
+  }
+
+  private formatPptxCellValue(value: string | number | boolean | null | undefined): string {
+    if (value == null) return '';
+    return typeof value === 'string' ? this.normalizePdfText(value) : String(value);
   }
 
   private hasExplicitSections(opts: { readonly sections?: readonly ExportSection[] }): boolean {

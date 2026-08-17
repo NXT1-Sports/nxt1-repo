@@ -2,7 +2,7 @@
  * @fileoverview Dynamic Export Tool
  * @module @nxt1/backend/modules/agent/tools/data
  *
- * Fully unconstrained Agent X tool for generating PDF, CSV, or XLSX documents
+ * Fully unconstrained Agent X tool for generating PDF, CSV, XLSX, or PPTX documents
  * from any structured data the LLM assembles on-the-fly.
  *
  * Unlike fixed-schema tools, this tool accepts dynamic columns/rows/body
@@ -15,7 +15,7 @@
  *       ↓
  *   DynamicExportTool validates & delegates to ExportService
  *       ↓
- *   ExportService generates Buffer (PDF, CSV, or XLSX)
+ *   ExportService generates Buffer (PDF, CSV, XLSX, or PPTX)
  *       ↓
  *   Tool uploads Buffer to Firebase Storage (thread-scoped)
  *       ↓
@@ -79,23 +79,25 @@ const ExportSectionSchema = z.object({
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
   readonly description =
-    'Generates a downloadable PDF, CSV, or XLSX document from any structured data. ' +
+    'Generates a downloadable PDF, CSV, XLSX, or PPTX document from any structured data. ' +
     'Use this tool whenever the user asks to export, download, save, create a spreadsheet, ' +
     'create a report, produce a document, or needs data in a portable file format. ' +
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
     'branding, and cloud hosting.\n\n' +
     'HOW TO FORMAT LIKE A PRO:\n' +
     '- NEVER use emojis in the data or titles. They break the PDF and Excel generators. Use text only.\n' +
-    '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
+    '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/PPTX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
     '- For Practice Scripts/Schedules: Divide the schedule into multiple `sections` (e.g. "Period 1: Flex", "Period 2: 7on7") instead of one massive table. Default these to XLSX or native saved documents unless the user explicitly asks for PDF/print-ready delivery. Pass `pageOrientation: "landscape"` so it prints well in Excel/PDF.\n' +
     '- For Callsheets / Rosters / Multi-Panel Boards: Pass `layoutMode: "multi_column_grid"`, `pageSize: "LEGAL"`, and `pageOrientation: "landscape"`. Default coaching sheets like callsheets to XLSX or native saved documents unless the user explicitly asks for PDF, printing, or share-ready output. You can optionally set `gridColumn: 1` or `2` etc on each section so it builds a perfect side-by-side coach board instead of a vertical stack. Use section.themeColor to visually separate different types of plays (e.g., Red Zone, Run Game).\n' +
+    '- HARD FORMAT RULE: If the user explicitly asks for PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, or a file to open in PowerPoint, call this tool with `format: "pptx"` unless you are using a connected native Microsoft PowerPoint tool. Do not substitute PDF or XLSX for an explicit PowerPoint/PPTX/card-deck request.\n' +
+    '- For Presentation Decks / Scout Cards / Flash Cards: Use PPTX when the output is meant to be presented slide-by-slide, used in a staff meeting, shared as flash cards, player cards, scout cards, recruiting pitch deck, opponent briefing deck, parent meeting deck, or visual packet. Build one logical card/section per slide with `sections[]`; use `imageUrls` for charts, diagrams, logos, or player visuals.\n' +
     '- For Scout Reports: Use `pageSize: "LETTER"`, `pageOrientation: "portrait"`, and break down the opponent into `sections` with paragraphs and bullet points.\n\n' +
     'Works for: recruiting lists, scout reports, workout plans, compliance checklists, ' +
     'comparison tables, analytics summaries, team rosters, film breakdowns, budgets, ' +
     'schedules, or literally anything the user asks for.';
 
   readonly parameters = z.object({
-    format: z.enum(['pdf', 'csv', 'xlsx']),
+    format: z.enum(['pdf', 'csv', 'xlsx', 'pptx']),
     fileName: z.string().trim().min(1),
     title: z.string().trim().min(1).optional(),
     description: z.string().trim().min(1).optional(),
@@ -134,12 +136,49 @@ export class DynamicExportTool extends BaseTool {
       .trim()
       .optional()
       .describe('Optional team/organization primary color (hex like #0055AA).'),
+    brandSecondaryColor: z
+      .string()
+      .trim()
+      .optional()
+      .describe(
+        'Optional team/organization secondary color (hex like #D9A441) for richer branded backgrounds and accents.'
+      ),
+    brandBackgroundMode: z
+      .enum(['auto', 'neutral', 'balanced', 'alternating', 'bold'])
+      .optional()
+      .describe(
+        'Optional background styling mode for Gamma-backed decks. Auto prefers balanced branded backgrounds when both org colors are available.'
+      ),
     organizationName: z
       .string()
       .trim()
       .min(1)
       .optional()
       .describe('Optional organization/team display name for PDF header branding.'),
+    themeId: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Optional Gamma theme ID for branded PPTX or visual PDF exports.'),
+    gammaPdfFormat: z
+      .enum(['auto', 'document', 'presentation'])
+      .optional()
+      .describe(
+        'Optional Gamma PDF rendering mode. Defaults to auto, which prefers document pages unless slide/deck output is explicitly requested.'
+      ),
+    templateGammaId: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Optional Gamma template file ID for preserving an existing PPTX or PDF layout.'),
+    additionalInstructions: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe('Optional visual/style instructions for Gamma-generated PPTX or PDF exports.'),
     logoUrl: z
       .string()
       .trim()
@@ -199,7 +238,10 @@ export class DynamicExportTool extends BaseTool {
     // ── Validate required params ──────────────────────────────────────
     const format = this.resolveFormat(input['format']);
     if (!format) {
-      return { success: false, error: 'Parameter "format" must be "pdf", "csv", or "xlsx".' };
+      return {
+        success: false,
+        error: 'Parameter "format" must be "pdf", "csv", "xlsx", or "pptx".',
+      };
     }
 
     const requestedTitle = this.str(input, 'title');
@@ -225,7 +267,13 @@ export class DynamicExportTool extends BaseTool {
     const pageSize = this.resolvePageSize(input['pageSize']);
     const pageOrientation = this.resolvePageOrientation(input['pageOrientation']);
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
+    const brandSecondaryColor = this.str(input, 'brandSecondaryColor') ?? undefined;
+    const brandBackgroundMode = this.resolveBrandBackgroundMode(input['brandBackgroundMode']);
     const organizationName = this.str(input, 'organizationName') ?? undefined;
+    const themeId = this.str(input, 'themeId') ?? undefined;
+    const gammaPdfFormat = this.resolveGammaPdfFormat(input['gammaPdfFormat']);
+    const templateGammaId = this.str(input, 'templateGammaId') ?? undefined;
+    const additionalInstructions = this.str(input, 'additionalInstructions') ?? undefined;
     const watermarkText = undefined;
     const relatedDocumentId = this.str(input, 'relatedDocumentId') ?? undefined;
     const sourceDocumentIds = this.parseStringArray(input, 'sourceDocumentIds');
@@ -245,7 +293,7 @@ export class DynamicExportTool extends BaseTool {
       }
     }
 
-    if (format === 'pdf') {
+    if (format === 'pdf' || format === 'pptx') {
       const hasTable = this.hasTabularExportContent(columns, rows, sections);
       const hasBody =
         bodyParagraphs?.length ||
@@ -256,8 +304,7 @@ export class DynamicExportTool extends BaseTool {
       if (!hasTable && !hasBody) {
         return {
           success: false,
-          error:
-            'PDF exports require at least one of: columns+rows (table), bodyParagraphs, bulletPoints, or description.',
+          error: `${format.toUpperCase()} exports require at least one of: columns+rows (table), bodyParagraphs, bulletPoints, or description.`,
         };
       }
     }
@@ -312,6 +359,37 @@ export class DynamicExportTool extends BaseTool {
         });
         mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         extension = 'xlsx';
+      } else if (format === 'pptx') {
+        const rowCount = this.resolveRowCount(rows, sections);
+        emitStage?.('submitting_job', {
+          icon: 'document',
+          rowCount,
+          format: 'pptx',
+          phase: 'build_presentation_deck',
+        });
+        buffer = await this.exportService.generatePptx({
+          title,
+          description,
+          columns: columns ?? undefined,
+          rows: rows ?? undefined,
+          sections: sections ?? undefined,
+          bodyParagraphs: bodyParagraphs ?? undefined,
+          bulletPoints: bulletPoints ?? undefined,
+          imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+          layoutMode,
+          pageSize,
+          pageOrientation,
+          brandPrimaryColor,
+          brandSecondaryColor,
+          brandBackgroundMode,
+          organizationName,
+          themeId,
+          templateGammaId,
+          additionalInstructions,
+          logoUrl,
+        });
+        mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        extension = 'pptx';
       } else {
         const rowCount = rows?.length ?? 0;
         emitStage?.('submitting_job', {
@@ -334,7 +412,13 @@ export class DynamicExportTool extends BaseTool {
           pageSize,
           pageOrientation,
           brandPrimaryColor,
+          brandSecondaryColor,
+          brandBackgroundMode,
           organizationName,
+          gammaPdfFormat,
+          themeId,
+          templateGammaId,
+          additionalInstructions,
           watermarkText,
           logoUrl,
         });
@@ -616,12 +700,13 @@ export class DynamicExportTool extends BaseTool {
     );
   }
 
-  private resolveFormat(raw: unknown): 'pdf' | 'csv' | 'xlsx' | null {
+  private resolveFormat(raw: unknown): 'pdf' | 'csv' | 'xlsx' | 'pptx' | null {
     if (typeof raw !== 'string') return null;
     const normalized = raw.trim().toLowerCase();
     if (normalized === 'pdf') return 'pdf';
     if (normalized === 'csv') return 'csv';
     if (normalized === 'xlsx') return 'xlsx';
+    if (normalized === 'pptx') return 'pptx';
     return null;
   }
 
@@ -647,6 +732,26 @@ export class DynamicExportTool extends BaseTool {
     }
 
     return undefined;
+  }
+
+  private resolveGammaPdfFormat(raw: unknown): 'auto' | 'document' | 'presentation' | undefined {
+    if (raw === 'auto' || raw === 'document' || raw === 'presentation') {
+      return raw;
+    }
+
+    return undefined;
+  }
+
+  private resolveBrandBackgroundMode(
+    raw: unknown
+  ): 'auto' | 'neutral' | 'balanced' | 'alternating' | 'bold' | undefined {
+    return raw === 'auto' ||
+      raw === 'neutral' ||
+      raw === 'balanced' ||
+      raw === 'alternating' ||
+      raw === 'bold'
+      ? raw
+      : undefined;
   }
 
   private resolveOptionalImageUrl(raw: string | null): string | undefined {

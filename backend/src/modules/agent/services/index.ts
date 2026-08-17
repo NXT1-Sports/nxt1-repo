@@ -35,7 +35,16 @@ export {
   type ExportRow,
   type CsvExportOptions,
   type PdfExportOptions,
+  type PptxExportOptions,
+  type XlsxExportOptions,
 } from './export.service.js';
+export {
+  GammaClient,
+  type GammaClientConfig,
+  type GammaPresentationGenerator,
+  type GammaPdfInput,
+  type GammaPptxInput,
+} from './gamma-client.service.js';
 export * from './analytics/index.js';
 export {
   buildEliteContext,

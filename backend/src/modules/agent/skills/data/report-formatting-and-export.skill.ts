@@ -10,7 +10,7 @@ import { BaseSkill, type SkillCategory } from '../base.skill.js';
 export class ReportFormattingAndExportSkill extends BaseSkill {
   readonly name = 'report_formatting_and_export';
   readonly description =
-    'Report formatting, executive summaries, table normalization, CSV/PDF/XLSX export readiness, ' +
+    'Report formatting, executive summaries, table normalization, CSV/PDF/XLSX/PPTX export readiness, ' +
     'field ordering, schema consistency, and decision-ready output packaging.';
   readonly category: SkillCategory = 'data';
 
@@ -33,6 +33,7 @@ export class ReportFormattingAndExportSkill extends BaseSkill {
 ### Export Readiness Rules
 - For CSV: flattened rows, no merged cell assumptions, UTF-8 safe output
 - For PDF-style output: concise section headings and consistent row grouping
+- For PPTX-style output: one clear idea/card per slide, strong section titles, short bullets, and charts/images embedded via imageUrls when useful
 - Always include generated-at timestamp and source attribution
 - Flag missing critical fields instead of silently omitting them
 
@@ -41,10 +42,12 @@ export class ReportFormattingAndExportSkill extends BaseSkill {
 - Each section should represent one logical block such as summary, script periods, situational menu, adjustment triggers, call group, or coaching notes.
 - Use tables only where a table improves scan speed; keep narrative notes, bullets, and coaching cues in their own sections instead of forcing them into cells.
 - Choose format by staff workflow, not by presentation polish alone: if the artifact is meant to be edited, printed from a grid, mirrored from an existing staff sheet, or matched closely to a sample board/matrix, prefer XLSX or the native saved team document path before PDF.
+- Choose PPTX when coaches need flash cards, flashcards, a card deck, a slide-by-slide deck, scout-card packet, player-card packet, opponent briefing deck, recruiting pitch deck, parent/staff meeting deck, or presentation-first visual packet.
 - Callsheets, practice scripts, install sheets, scouting boards, wristband menus, and other coaching sheets should default to XLSX or native saved docs when the user does not explicitly name PDF.
 - Words like professional, polished, clean, organized, or branded do not by themselves justify switching a coaching sheet to PDF.
 - If the user provides a sample image/screenshot and asks to match it exactly, do not default to PDF first unless the sample is clearly a print-style report. Grid-heavy staff boards, callsheets, and practice matrices should usually route to XLSX.
-- When team or organization branding is known, include organizationName, brandPrimaryColor, and logoUrl for PDF exports so the output is presentation-ready without manual rework.
+- When team or organization branding is known, include organizationName, brandPrimaryColor, brandSecondaryColor, and logoUrl for PDF/PPTX exports so the output is presentation-ready without manual rework.
+- For PPTX or slide-style exports, if both brand colors are known and the user did not ask for a minimal white deck, prefer \`brandBackgroundMode: "balanced"\` so the deck uses tasteful branded section backgrounds instead of staying entirely white.
 - If the user provides a sample layout, preserve its heading order, section names, abbreviations, and column labels unless they explicitly ask for a redesign.
 
 ### Quality Gate

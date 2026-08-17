@@ -1598,6 +1598,125 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['imageUrls']).toEqual(['https://cdn.example.com/tendency-chart.png']);
   });
 
+  it('auto-injects recent chart images into dynamic_export PPTX calls', () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      {
+        role: 'tool',
+        tool_call_id: 'chart_1',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            chartUrl: 'https://cdn.example.com/scout-card-chart.png',
+            chartToolName: 'generate_bar_chart',
+            imageUrls: ['https://cdn.example.com/scout-card-chart.png'],
+          },
+        }),
+      },
+    ];
+    const toolCall: LLMToolCall = {
+      id: 'export_1',
+      type: 'function',
+      function: {
+        name: 'dynamic_export',
+        arguments: JSON.stringify({
+          format: 'pptx',
+          fileName: 'Scout Cards.pptx',
+          title: 'Scout Cards',
+          sections: [
+            {
+              title: 'QB Card',
+              bodyParagraphs: ['Quick-reference evaluation card.'],
+            },
+          ],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(
+      toolCall,
+      messages,
+      createMockContext()
+    );
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['imageUrls']).toEqual(['https://cdn.example.com/scout-card-chart.png']);
+  });
+
+  it('auto-injects current chat image attachments into dynamic_export scout-card calls', () => {
+    const agent = new FakeAgent();
+    const toolCall: LLMToolCall = {
+      id: 'export_1',
+      type: 'function',
+      function: {
+        name: 'dynamic_export',
+        arguments: JSON.stringify({
+          format: 'pptx',
+          fileName: 'Scout Cards.pptx',
+          title: 'Scout Cards',
+          sections: [
+            {
+              title: 'Red Zone Card',
+              bodyParagraphs: ['Use the attached play diagram for this scout card.'],
+            },
+          ],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], {
+      ...createMockContext(),
+      attachments: [
+        {
+          url: 'https://cdn.example.com/red-zone-play-diagram.png',
+          mimeType: 'image/png',
+          name: 'red-zone-play-diagram.png',
+        },
+      ],
+    });
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['imageUrls']).toEqual(['https://cdn.example.com/red-zone-play-diagram.png']);
+  });
+
+  it('merges chat images with explicit export images without duplicates', () => {
+    const agent = new FakeAgent();
+    const toolCall: LLMToolCall = {
+      id: 'export_1',
+      type: 'function',
+      function: {
+        name: 'dynamic_export',
+        arguments: JSON.stringify({
+          format: 'pdf',
+          fileName: 'Scout Packet.pdf',
+          title: 'Scout Packet',
+          imageUrls: ['https://cdn.example.com/explicit-diagram.png'],
+          bodyParagraphs: ['Use both diagrams in the packet.'],
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], {
+      ...createMockContext(),
+      attachments: [
+        {
+          url: 'https://cdn.example.com/explicit-diagram.png',
+          mimeType: 'image/png',
+        },
+        {
+          url: 'https://cdn.example.com/attached-diagram.png',
+          mimeType: 'image/png',
+        },
+      ],
+    });
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['imageUrls']).toEqual([
+      'https://cdn.example.com/explicit-diagram.png',
+      'https://cdn.example.com/attached-diagram.png',
+    ]);
+  });
+
   it('auto-injects a single recent Files document id into dynamic_export calls', () => {
     const agent = new FakeAgent();
     const messages: LLMMessage[] = [

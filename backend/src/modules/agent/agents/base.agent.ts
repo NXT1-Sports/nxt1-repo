@@ -4880,7 +4880,7 @@ export abstract class BaseAgent {
       };
 
       const format = typeof input['format'] === 'string' ? input['format'].toLowerCase() : '';
-      if (format !== 'pdf' && format !== 'xlsx') return toolCall;
+      if (format !== 'pdf' && format !== 'xlsx' && format !== 'pptx') return toolCall;
 
       const existingRelatedDocumentId =
         typeof input['relatedDocumentId'] === 'string' &&
@@ -4895,6 +4895,13 @@ export abstract class BaseAgent {
         : [];
       const hasExistingImages =
         existingTopLevelImages.length > 0 || existingSectionImages.length > 0;
+      const chatImageCandidates = (context?.attachments ?? [])
+        .filter(
+          (attachment) =>
+            attachment.mimeType.toLowerCase().startsWith('image/') &&
+            typeof attachment.url === 'string'
+        )
+        .map((attachment) => attachment.url);
 
       const toolNameByCallId = new Map<string, string>();
       const collectToolCallNames = (history: readonly LLMMessage[]): void => {
@@ -4998,22 +5005,30 @@ export abstract class BaseAgent {
         }
       }
 
+      const chatImageUrls = dedupeUrls(chatImageCandidates).slice(0, 12);
       const chartImageUrls = hasExistingImages ? [] : dedupeUrls(chartImageCandidates).slice(0, 12);
+      const mergedImageUrls = dedupeUrls([
+        ...existingTopLevelImages,
+        ...chatImageUrls,
+        ...chartImageUrls,
+      ]).slice(0, 12);
       const uniqueRelatedDocumentIds = [...new Set(relatedDocumentCandidates)];
       const inferredRelatedDocumentId =
         !existingRelatedDocumentId && uniqueRelatedDocumentIds.length === 1
           ? uniqueRelatedDocumentIds[0]
           : undefined;
-      if (chartImageUrls.length === 0 && !inferredRelatedDocumentId) return toolCall;
+      if (mergedImageUrls.length === 0 && !inferredRelatedDocumentId) return toolCall;
 
       const augmentedInput = {
         ...input,
-        ...(chartImageUrls.length > 0 ? { imageUrls: chartImageUrls } : {}),
+        ...(mergedImageUrls.length > 0 ? { imageUrls: mergedImageUrls } : {}),
         ...(inferredRelatedDocumentId ? { relatedDocumentId: inferredRelatedDocumentId } : {}),
       };
       logger.info('[BaseAgent] Augmented dynamic_export with recent artifacts', {
         agentId: this.id,
-        imageCount: chartImageUrls.length,
+        imageCount: mergedImageUrls.length,
+        chatImageCount: chatImageUrls.length,
+        chartImageCount: chartImageUrls.length,
         relatedDocumentId: inferredRelatedDocumentId,
         format,
       });
