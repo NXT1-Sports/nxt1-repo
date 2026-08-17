@@ -576,6 +576,94 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
   return typeof value === 'string' && AGENT_IDENTIFIER_SET.has(value as AgentIdentifier);
 }
 
+type BillableCoordinatorId = Exclude<AgentIdentifier, 'router'>;
+
+function isBillableCoordinatorId(value: unknown): value is BillableCoordinatorId {
+  return isAgentIdentifier(value) && value !== 'router';
+}
+
+function addBillingCoordinatorCandidate(
+  candidates: Set<BillableCoordinatorId>,
+  value: unknown
+): void {
+  if (isBillableCoordinatorId(value)) {
+    candidates.add(value);
+  }
+}
+
+function collectBillingCoordinatorsFromToolRecords(
+  toolCallRecords: unknown,
+  candidates: Set<BillableCoordinatorId>
+): void {
+  if (!Array.isArray(toolCallRecords)) {
+    return;
+  }
+
+  for (const record of toolCallRecords) {
+    if (!record || typeof record !== 'object') continue;
+    const toolRecord = record as Record<string, unknown>;
+    const status = toolRecord['status'];
+    if (typeof status === 'string' && status !== 'success') continue;
+
+    if (toolRecord['toolName'] === 'delegate_to_coordinator') {
+      const input =
+        toolRecord['input'] && typeof toolRecord['input'] === 'object'
+          ? (toolRecord['input'] as Record<string, unknown>)
+          : undefined;
+      addBillingCoordinatorCandidate(candidates, input?.['coordinatorId']);
+    }
+
+    const output =
+      toolRecord['output'] && typeof toolRecord['output'] === 'object'
+        ? (toolRecord['output'] as Record<string, unknown>)
+        : undefined;
+    collectBillingCoordinatorsFromToolRecords(
+      output?.['coordinator_tool_call_records'],
+      candidates
+    );
+  }
+}
+
+function collectBillingCoordinatorsFromResultData(
+  resultData: Record<string, unknown> | undefined,
+  candidates: Set<BillableCoordinatorId>
+): void {
+  if (!resultData) {
+    return;
+  }
+
+  collectBillingCoordinatorsFromToolRecords(resultData['toolCallRecords'], candidates);
+
+  const plan = resultData['plan'];
+  const tasks =
+    plan && typeof plan === 'object' && Array.isArray((plan as { tasks?: unknown }).tasks)
+      ? ((plan as { tasks: unknown[] }).tasks ?? [])
+      : [];
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object') continue;
+    addBillingCoordinatorCandidate(candidates, (task as { assignedAgent?: unknown }).assignedAgent);
+  }
+}
+
+function resolveBillingCoordinatorId(
+  payload: AgentJobPayload,
+  resultData: Record<string, unknown> | undefined,
+  observedCandidates: ReadonlySet<BillableCoordinatorId>
+): BillableCoordinatorId | undefined {
+  if (isBillableCoordinatorId(payload.agent)) {
+    return payload.agent;
+  }
+
+  const candidates = new Set<BillableCoordinatorId>(observedCandidates);
+  collectBillingCoordinatorsFromResultData(resultData, candidates);
+
+  if (candidates.size === 1) {
+    return candidates.values().next().value;
+  }
+
+  return undefined;
+}
+
 function shouldSuppressCompletionPushWhenActivelyViewing(payload: AgentJobPayload): boolean {
   const explicitPolicy = payload.notificationPolicy?.suppressPushWhenActivelyViewing;
   if (typeof explicitPolicy === 'boolean') {
@@ -2426,6 +2514,7 @@ export class AgentWorker {
     let totalSteps = 1; // Updated once the plan is created
     const invokedTools: string[] = [];
     const successfulTools: string[] = [];
+    const billingCoordinatorCandidates = new Set<BillableCoordinatorId>();
     let primaryFirstDeltaLogged = false;
 
     // Build the onUpdate callback that feeds progress into BullMQ and Firestore
@@ -2441,6 +2530,9 @@ export class AgentWorker {
       if (eventPayload?.['eventType'] === 'task_started') {
         stepIndex++;
       }
+
+      addBillingCoordinatorCandidate(billingCoordinatorCandidates, update.agentId);
+      addBillingCoordinatorCandidate(billingCoordinatorCandidates, update.step.agentId);
 
       const progress: AgentJobProgress = {
         status: update.status,
@@ -2656,6 +2748,8 @@ export class AgentWorker {
     // forward tokens in real-time, giving the frontend the same streaming UX
     // regardless of whether the LLM loop runs inline or in BullMQ.
     const onStreamEvent = (event: StreamEvent): void => {
+      addBillingCoordinatorCandidate(billingCoordinatorCandidates, event.agentId);
+
       if (event.toolName && (event.type === 'tool_call' || event.type === 'step_active')) {
         invokedTools.push(event.toolName);
       }
@@ -3392,6 +3486,11 @@ export class AgentWorker {
       : isAgentIdentifier(payload.agent)
         ? payload.agent
         : 'router';
+    const billingCoordinatorId = resolveBillingCoordinatorId(
+      payload,
+      resultData,
+      billingCoordinatorCandidates
+    );
     const terminalOutcomeCode = isTerminalFailure ? 'task_failed' : 'success_default';
 
     // ── Flush remaining deltas and write terminal events ─────────────────
@@ -3693,7 +3792,7 @@ export class AgentWorker {
         db: billingDb,
         userId: payload.userId,
         operationId: payload.operationId,
-        coordinatorId: finalAgentId,
+        coordinatorId: billingCoordinatorId ?? finalAgentId,
         agentTools: invokedTools,
         successfulTools,
         environment: job.data.environment,
@@ -3701,7 +3800,12 @@ export class AgentWorker {
         teamId: contextTeamId,
         organizationId: contextOrgId,
         skipGenericAgentExecutionCharge: payload.origin === 'user',
-        metadata: { agent: finalAgentId, agentTools: invokedTools, successfulTools },
+        metadata: {
+          agent: finalAgentId,
+          ...(billingCoordinatorId ? { billingCoordinatorId } : {}),
+          agentTools: invokedTools,
+          successfulTools,
+        },
       });
     }
 

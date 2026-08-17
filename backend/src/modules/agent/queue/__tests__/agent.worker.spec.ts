@@ -1697,9 +1697,44 @@ describe('AgentWorker', () => {
     expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
       expect.objectContaining({
         operationId: 'op-worker-test',
-        coordinatorId: 'router',
+        coordinatorId: 'brand_coordinator',
         metadata: expect.objectContaining({
           agent: 'router',
+          billingCoordinatorId: 'brand_coordinator',
+        }),
+      })
+    );
+  });
+
+  it('should recover the delegated coordinator from tool call records when progress stayed on router', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      data: {
+        ...mockRouterResult.data,
+        toolCallRecords: [
+          {
+            toolName: 'delegate_to_coordinator',
+            input: { coordinatorId: 'strategy_coordinator' },
+            output: { success: true },
+            status: 'success',
+            timestamp: '2026-03-10T00:00:00Z',
+          },
+        ],
+      },
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-worker-test',
+        coordinatorId: 'strategy_coordinator',
+        metadata: expect.objectContaining({
+          agent: 'router',
+          billingCoordinatorId: 'strategy_coordinator',
         }),
       })
     );
