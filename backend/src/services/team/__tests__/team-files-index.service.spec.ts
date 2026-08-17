@@ -98,6 +98,34 @@ describe('team files index service', () => {
     expect(payload.payload.kind).toBe('pdf');
   });
 
+  it('classifies uploaded PowerPoint decks as pptx files in Universal Files', async () => {
+    const { db, set } = createMockDb();
+
+    await upsertTeamFileFromAttachment({
+      db,
+      teamId: 'team-1',
+      userId: 'user-1',
+      origin: 'files_upload',
+      uploadTarget: 'file',
+      attachment: {
+        id: 'attachment-pptx-1',
+        url: 'https://cdn.example.com/staff-deck.pptx',
+        name: 'Staff Deck.pptx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        type: 'doc',
+        sizeBytes: 4096,
+      },
+    });
+
+    const payload = set.mock.calls[0]?.[0] as Record<string, unknown>;
+
+    expect(payload.payload.kind).toBe('pptx');
+    expect(payload.payload.asset).toMatchObject({
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      kind: 'pptx',
+    });
+  });
+
   it('derives a Cloudflare thumbnail URL when a video file has a Cloudflare ID but no thumbnail', async () => {
     const { db, set } = createMockDb();
 
@@ -176,6 +204,41 @@ describe('team files index service', () => {
           sizeBytes: 4096,
           url: 'https://cdn.example.com/strategy.xlsx',
           storagePath: 'Users/user-1/threads/thread-1/exports/strategy.xlsx',
+        }),
+      })
+    );
+  });
+
+  it('attaches generated PPTX exports as pptx assets on the existing universal document', async () => {
+    const { db, update } = createMockDb({ exists: true });
+
+    const attached = await attachExportAssetToUniversalDocument({
+      db,
+      documentId: 'staff-deck-doc-1',
+      userId: 'user-1',
+      origin: 'agent_chat_output',
+      sourceThreadId: 'thread-1',
+      sourceOperationId: 'operation-pptx-1',
+      attachment: {
+        id: 'export-pptx-1',
+        url: 'https://cdn.example.com/staff-deck.pptx',
+        storagePath: 'Users/user-1/threads/thread-1/exports/staff-deck.pptx',
+        name: 'Staff Deck.pptx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        type: 'doc',
+        sizeBytes: 16384,
+        artifactRole: 'export',
+        relatedDocumentId: 'staff-deck-doc-1',
+      },
+    });
+
+    expect(attached).toBe(true);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        'payload.asset': expect.objectContaining({
+          mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          kind: 'pptx',
+          storagePath: 'Users/user-1/threads/thread-1/exports/staff-deck.pptx',
         }),
       })
     );

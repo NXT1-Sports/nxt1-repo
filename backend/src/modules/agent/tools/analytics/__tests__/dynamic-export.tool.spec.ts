@@ -123,6 +123,34 @@ function xlsxInput(overrides?: Record<string, unknown>): Record<string, unknown>
   };
 }
 
+function pptxInput(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    format: 'pptx',
+    fileName: 'Staff Presentation',
+    title: 'Staff Presentation',
+    description: 'Generated from Agent X.',
+    sections: [
+      {
+        title: 'Overview',
+        bodyParagraphs: ['Use motion to identify leverage and create easy answers.'],
+        bulletPoints: ['Attack the flats', 'Protect the launch point'],
+      },
+      {
+        title: 'Data Summary',
+        columns: [
+          { key: 'metric', label: 'Metric' },
+          { key: 'value', label: 'Value' },
+        ],
+        rows: [
+          ['Explosive Plays', '7'],
+          ['3rd Down', '6/11'],
+        ],
+      },
+    ],
+    ...overrides,
+  };
+}
+
 function sectionedXlsxInput(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
     format: 'xlsx',
@@ -366,6 +394,30 @@ describe('DynamicExportTool', () => {
       const [buffer] = mockSave.mock.calls[0];
       expect(Buffer.isBuffer(buffer)).toBe(true);
       expect((buffer as Buffer).toString('binary')).toContain('xl/media/image1.png');
+    });
+  });
+
+  // ── PPTX Generation ──────────────────────────────────────────────────────
+
+  describe('PPTX export', () => {
+    it('should generate PPTX and upload to Firebase Storage', async () => {
+      const result = await tool.execute(pptxInput(), context);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Staff Presentation.pptx');
+      expect(data['mimeType']).toBe(
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      );
+      expect(data['format']).toBe('pptx');
+      expect(mockSave).toHaveBeenCalledOnce();
+      const [buffer, opts] = mockSave.mock.calls[0];
+      expect(Buffer.isBuffer(buffer)).toBe(true);
+      expect((buffer as Buffer).subarray(0, 2).toString('utf8')).toBe('PK');
+      expect((buffer as Buffer).toString('binary')).toContain('ppt/presentation.xml');
+      expect(opts.contentType).toBe(
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+      );
     });
   });
 

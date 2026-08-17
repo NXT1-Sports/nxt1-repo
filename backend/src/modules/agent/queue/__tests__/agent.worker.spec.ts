@@ -1053,6 +1053,97 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('attaches direct PPTX exports to the immediately preceding created Files document', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-direct-test-pptx-123' },
+      intent: 'create me a quick staff presentation and save it as a document please',
+    });
+    const job = makeMockJob(payload);
+    const pptxUrl = 'https://cdn.example.com/Staff_Presentation.pptx';
+    const storagePath = 'Users/user-abc/threads/thread-direct-test-pptx-123/exports/staff.pptx';
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'All done. Here is your staff presentation.',
+      data: {
+        attachments: [
+          {
+            url: pptxUrl,
+            storagePath,
+            name: 'Staff_Presentation.pptx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+            type: 'doc',
+            sizeBytes: 22044,
+            artifactRole: 'export',
+          },
+        ],
+        toolCallRecords: [
+          {
+            toolName: 'create_universal_team_document',
+            status: 'success',
+            input: { title: 'Staff Presentation' },
+            output: {
+              document: {
+                id: 'doc-direct-test-pptx-1',
+                title: 'Staff Presentation',
+              },
+            },
+          },
+          {
+            toolName: 'dynamic_export',
+            status: 'success',
+            input: {
+              format: 'pptx',
+              fileName: 'Staff_Presentation',
+            },
+            output: {
+              downloadUrl: pptxUrl,
+              storagePath,
+              fileName: 'Staff_Presentation.pptx',
+              mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+              format: 'pptx',
+              sizeBytes: 22044,
+              artifactRole: 'export',
+              attachments: [
+                {
+                  url: pptxUrl,
+                  storagePath,
+                  name: 'Staff_Presentation.pptx',
+                  mimeType:
+                    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                  type: 'doc',
+                  sizeBytes: 22044,
+                  artifactRole: 'export',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-direct-test-pptx-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-direct-test-pptx-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-direct-test-pptx-1',
+          artifactGroupId: 'op-worker-test',
+          mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          type: 'doc',
+          storagePath,
+          name: 'Staff_Presentation.pptx',
+        }),
+      })
+    );
+  });
+
   it('persists generated video links with poster metadata for markdown reloads', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-video-123' },

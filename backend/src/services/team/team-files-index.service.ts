@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   UNIVERSAL_FILES_COLLECTION,
   type AgentXAttachment,
+  type TeamFileKind,
   type TeamFileFolderDoc,
   type TeamFileOrigin,
   type TeamFileStatus,
@@ -155,9 +156,10 @@ export async function attachExportAssetToUniversalDocument(
       ? { sourceOperationId: params.sourceOperationId?.trim() }
       : {}),
   };
+  const resolvedKind = inferAttachmentFileKind(params.attachment);
   const asset = {
     mimeType: params.attachment.mimeType,
-    kind: params.attachment.type,
+    kind: resolvedKind,
     origin: params.origin,
     sizeBytes: params.attachment.sizeBytes,
     url: params.attachment.url,
@@ -254,6 +256,7 @@ function buildUniversalFilePayload(params: {
   const filmReviewPayload = shouldAttachFilmReview
     ? buildNativeFilmReviewPayload(params.attachment)
     : null;
+  const resolvedKind = inferAttachmentFileKind(params.attachment);
 
   return {
     ...(normalizeTrimmedString(params.teamId) ? { teamId: params.teamId?.trim() } : {}),
@@ -304,7 +307,7 @@ function buildUniversalFilePayload(params: {
     ...(artifactGroupId ? { artifactGroupId } : {}),
     payload: {
       mimeType: params.attachment.mimeType,
-      kind: params.attachment.type,
+      kind: resolvedKind,
       origin: params.origin,
       sizeBytes: params.attachment.sizeBytes,
       url: params.attachment.url,
@@ -330,7 +333,7 @@ function buildUniversalFilePayload(params: {
       ...(filmReviewPayload ? { filmReview: filmReviewPayload } : {}),
       asset: {
         mimeType: params.attachment.mimeType,
-        kind: params.attachment.type,
+        kind: resolvedKind,
         origin: params.origin,
         sizeBytes: params.attachment.sizeBytes,
         url: params.attachment.url,
@@ -359,6 +362,27 @@ function buildUniversalFilePayload(params: {
     updatedAt: FieldValue.serverTimestamp(),
     lastSeenAt: FieldValue.serverTimestamp(),
   };
+}
+
+function inferAttachmentFileKind(attachment: AgentXAttachment): TeamFileKind {
+  if (attachment.type === 'image') return 'image';
+  if (attachment.type === 'video') return 'video';
+  if (attachment.type === 'pdf') return 'pdf';
+  if (attachment.type === 'csv') return 'csv';
+  if (attachment.type === 'app') return 'app';
+
+  const normalizedMimeType = attachment.mimeType.trim().toLowerCase();
+  const normalizedName = attachment.name.trim().toLowerCase();
+  if (
+    normalizedMimeType ===
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    normalizedMimeType === 'application/vnd.ms-powerpoint' ||
+    /\.pptx?$/i.test(normalizedName)
+  ) {
+    return 'pptx';
+  }
+
+  return 'doc';
 }
 
 function normalizeTrimmedStringArray(

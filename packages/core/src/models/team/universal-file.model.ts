@@ -2,7 +2,7 @@ import type { PortableTimestamp } from '../portable-timestamp.model';
 import type { TeamFilmReviewDoc, TeamFilmReviewStatus } from './team-film-review.model';
 import type { TeamGamePlanDoc, TeamGamePlanStatus } from './team-gameplan.model';
 
-export type TeamFileKind = 'image' | 'video' | 'pdf' | 'csv' | 'doc' | 'app';
+export type TeamFileKind = 'image' | 'video' | 'pdf' | 'csv' | 'pptx' | 'doc' | 'app';
 
 export type TeamFileOrigin = 'files_upload' | 'agent_chat_input' | 'agent_chat_output';
 

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DynamicExportTool } from '../dynamic-export.tool.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
+import { ToolRegistry } from '../../tool-registry.js';
 
 describe('DynamicExportTool', () => {
   const generateXlsx = vi.fn();
@@ -181,6 +182,23 @@ describe('DynamicExportTool', () => {
       expect.objectContaining({
         watermarkText: undefined,
       })
+    );
+  });
+
+  it('exposes PPTX as a first-class dynamic_export format to performance coordinator tools', () => {
+    const registry = new ToolRegistry();
+    registry.register(tool);
+
+    const definition = registry
+      .getDefinitions('performance_coordinator')
+      .find((candidate) => candidate.name === 'dynamic_export');
+    const parameters = definition?.parameters as
+      | { readonly properties?: Record<string, { readonly enum?: readonly string[] }> }
+      | undefined;
+
+    expect(definition).toBeDefined();
+    expect(parameters?.properties?.['format']?.enum).toEqual(
+      expect.arrayContaining(['pdf', 'csv', 'xlsx', 'pptx'])
     );
   });
 });

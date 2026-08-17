@@ -43,7 +43,7 @@ export enum UploadPurpose {
 export class InitiateUploadDto {
   @IsString()
   @IsNotEmpty()
-  @Matches(/^[a-zA-Z0-9._-]+\.(jpg|jpeg|png|gif|webp|mp4|mov|avi|pdf|doc|docx)$/i, {
+  @Matches(/^[a-zA-Z0-9._-]+\.(jpg|jpeg|png|gif|webp|mp4|mov|avi|pdf|doc|docx|ppt|pptx)$/i, {
     message: 'Invalid filename format or unsupported file type',
   })
   filename!: string;

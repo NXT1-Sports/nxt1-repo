@@ -1391,6 +1391,9 @@ function buildAttachmentArrays(
           a.mimeType === 'text/plain' ||
           a.mimeType === 'application/vnd.ms-excel' ||
           a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+          a.mimeType === 'application/vnd.ms-powerpoint' ||
+          a.mimeType ===
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
           a.mimeType === 'application/msword' ||
           a.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     )
@@ -4954,6 +4957,9 @@ router.post(
               a.mimeType === 'text/plain' ||
               a.mimeType === 'application/vnd.ms-excel' ||
               a.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+              a.mimeType === 'application/vnd.ms-powerpoint' ||
+              a.mimeType ===
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
               a.mimeType === 'application/msword' ||
               a.mimeType ===
                 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')

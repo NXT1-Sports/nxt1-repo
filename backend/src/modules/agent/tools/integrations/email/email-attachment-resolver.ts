@@ -29,6 +29,8 @@ const ALLOWED_ATTACHMENT_MIME_TYPES = new Set([
   'application/msword',
   'application/pdf',
   'application/vnd.ms-excel',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'image/gif',

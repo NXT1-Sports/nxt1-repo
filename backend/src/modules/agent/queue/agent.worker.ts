@@ -514,7 +514,7 @@ function isGeneratedExportAttachment(
   if (attachment.artifactRole === 'export') return true;
   if (attachment.storagePath?.includes('/exports/')) return true;
   const lowerName = attachment.name.toLowerCase();
-  return /\.(?:xlsx|csv|pdf)$/i.test(lowerName) && attachment.type !== 'image';
+  return /\.(?:xlsx|csv|pdf|pptx)$/i.test(lowerName) && attachment.type !== 'image';
 }
 
 function inferGeneratedArtifactRelationships(params: {

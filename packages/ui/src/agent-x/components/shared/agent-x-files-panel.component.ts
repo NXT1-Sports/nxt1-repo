@@ -6694,6 +6694,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return 'image';
       case 'csv':
         return 'list';
+      case 'pptx':
+        return 'documentText';
       case 'app':
         return 'sparkles';
       case 'pdf':
@@ -6746,7 +6748,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       }
     }
 
-    if (file.kind === 'pdf' || file.kind === 'doc' || file.kind === 'csv' || file.kind === 'app') {
+    if (
+      file.kind === 'pdf' ||
+      file.kind === 'doc' ||
+      file.kind === 'csv' ||
+      file.kind === 'pptx' ||
+      file.kind === 'app'
+    ) {
       const generatedThumbnailUrl = this.buildGeneratedListThumbnailUrl(file);
       return failedKeys.has(this.buildListThumbnailFailureKey(file, generatedThumbnailUrl))
         ? null
@@ -6817,6 +6825,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return 'PDF';
       case 'csv':
         return 'CSV';
+      case 'pptx':
+        return 'PPTX';
       case 'app':
         return 'APP';
       case 'doc':
@@ -6860,6 +6870,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
           surface: '#f7fcf7',
           accent: '#1f7a3e',
           ink: '#204b2f',
+        };
+      case 'pptx':
+        return {
+          background: '#ffedd5',
+          surface: '#fff7ed',
+          accent: '#ea580c',
+          ink: '#7c2d12',
         };
       case 'app':
         return {
@@ -6946,6 +6963,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         return 'film-list-item__thumb-placeholder--pdf';
       case 'csv':
         return 'film-list-item__thumb-placeholder--csv';
+      case 'pptx':
+        return 'film-list-item__thumb-placeholder--doc';
       case 'app':
         return 'film-list-item__thumb-placeholder--app';
       case 'doc':
@@ -7830,6 +7849,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     switch (file.kind) {
       case 'pdf':
         return 'PDF Document';
+      case 'pptx':
+        return 'Presentation Deck';
       case 'video':
         return 'Video Asset';
       case 'image':

@@ -105,7 +105,7 @@ export class AdminCoordinatorAgent extends BaseAgent {
       '',
       'EXECUTION FLOW:',
       '  1. Generate compliance content (calendar, checklist, verification)',
-      '  2. IMMEDIATELY call `dynamic_export` with the best-fit format: XLSX for editable grids/workbooks/tracking sheets, PDF for print-first readable summaries, CSV for flat raw tables',
+      '  2. IMMEDIATELY call `dynamic_export` with the best-fit format: PPTX for compliance briefing decks, parent/staff meeting decks, and slide-by-slide education packets; XLSX for editable grids/workbooks/tracking sheets; PDF for print-first readable summaries; CSV for flat raw tables',
       '     - fileName: descriptive (e.g., "NCAA-Recruiting-Calendar-Football-2026.pdf" or "NCAA-Recruiting-Calendar-Football-2026.xlsx")',
       '     - title: user-friendly heading',
       '     - columns/rows/bodyParagraphs: the compliance content',

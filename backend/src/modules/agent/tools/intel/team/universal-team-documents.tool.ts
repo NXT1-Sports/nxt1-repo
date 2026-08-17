@@ -66,7 +66,7 @@ const ClassificationObjectSchema = z.object({
 const ClassificationInputSchema = z.union([z.string().trim().min(1), ClassificationObjectSchema]);
 const UniversalMetadataSchema = z.record(z.string(), z.unknown());
 const AccessKeyArraySchema = z.array(z.string().trim().min(1)).max(250);
-const TeamFileKindSchema = z.enum(['image', 'video', 'pdf', 'csv', 'doc', 'app']);
+const TeamFileKindSchema = z.enum(['image', 'video', 'pdf', 'csv', 'pptx', 'doc', 'app']);
 const TeamFileOriginSchema = z.enum(['files_upload', 'agent_chat_input', 'agent_chat_output']);
 const SourceFileInputSchema = z
   .object({
@@ -1234,6 +1234,14 @@ function inferTeamFileKind(mimeType: string, fileName?: string): TeamFileKind {
   if (normalizedMimeType.startsWith('video/')) return 'video';
   if (normalizedMimeType === 'application/pdf' || normalizedFileName.endsWith('.pdf')) return 'pdf';
   if (normalizedMimeType.includes('csv') || normalizedFileName.endsWith('.csv')) return 'csv';
+  if (
+    normalizedMimeType ===
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||
+    normalizedMimeType === 'application/vnd.ms-powerpoint' ||
+    /\.pptx?$/i.test(normalizedFileName)
+  ) {
+    return 'pptx';
+  }
   if (
     normalizedMimeType.includes('word') ||
     normalizedMimeType.includes('document') ||

@@ -69,18 +69,25 @@ Result: User gets the actual diagram instead of text describing one.
 
 Choose the artifact tool based on output shape:
 
-| Output Shape                      | Primary Tool                                                       | Examples                                                                    |
-| --------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Connected native document/table   | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs        |
-| Readable document or table export | `dynamic_export`                                                   | Training plans, reports, rosters, checklists, calendars, comparison tables  |
-| Data visualization / chart        | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps |
-| Play / drill / tactical diagram   | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                    |
-| Creative media asset              | `generate_graphic`, Runway, FFmpeg, media tools                    | Commitment graphics, promos, edited clips, thumbnails, captions             |
+| Output Shape                      | Primary Tool                                                       | Examples                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Connected native document/table   | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs                           |
+| Readable document or table export | `dynamic_export`                                                   | Training plans, reports, rosters, checklists, calendars, comparison tables, presentation decks |
+| Data visualization / chart        | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps                    |
+| Play / drill / tactical diagram   | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                                       |
+| Creative media asset              | `generate_graphic`, Runway, FFmpeg, media tools                    | Commitment graphics, promos, edited clips, thumbnails, captions                                |
 
 **Connected workspace first rule:** If the user has Microsoft 365 connected and
 the requested output is best expressed as a native document, spreadsheet, or
 presentation, use the Microsoft workspace tool surface first so the artifact
-lives in Word, Excel, or PowerPoint instead of only as a generic PDF.
+lives in Word, Excel, or PowerPoint instead of only as a generic export.
+
+**Downloadable presentation fallback:** When the user wants a downloadable deck
+that should be persisted back into Team Files, use `dynamic_export` with
+`format="pptx"`. This follows the same artifact persistence flow as PDF/XLSX:
+create or update the Team Files document first when possible, then pass
+`relatedDocumentId` into `dynamic_export` so the generated presentation attaches
+back to the saved record.
 
 ## When to Export
 
@@ -188,7 +195,7 @@ User: "Create a social media content calendar for Q1"
   `bodyParagraphs`, and `bulletPoints`
 - **Preferred multi-section exports** using `sections[]`, where each section can
   carry its own heading, description, table, narrative, bullets, and embedded
-  PDF/XLSX images
+  PDF/XLSX/PPTX images
 
 Use `sections` by default for coach-facing artifacts like callsheets, practice
 scripts, game plans, install schedules, scouting packets, and multi-block
@@ -199,8 +206,8 @@ single-block PDFs.
 
 ```typescript
 dynamic_export({
-  format: "pdf" | "csv" | "xlsx",
-  fileName: "descriptive-name.pdf",        // e.g., "QB-Training-Plan.pdf" or "Saturday-Callsheet.xlsx"
+  format: "pdf" | "csv" | "xlsx" | "pptx",
+  fileName: "descriptive-name.pdf",        // e.g., "QB-Training-Plan.pdf", "Saturday-Callsheet.xlsx", or "Scout-Cards.pptx"
   title: "User-Friendly Title",            // e.g., "12-Week QB Off-Season Training Plan"
   description: "Optional context",         // e.g., "May 2026 – July/August camp season"
   sections?: [
