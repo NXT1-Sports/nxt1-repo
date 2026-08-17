@@ -27,14 +27,30 @@ router.use((_req, res, next) => {
 });
 
 async function refreshStorageUrl(
-  media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>
+  media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>,
+  options?: {
+    readonly bucketName?: string;
+    readonly storageInstance?: Storage;
+  }
 ): Promise<Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>> {
   const storagePath =
     media.storagePath ?? AgentMediaLifecycleService.extractStoragePathFromUrl(media.url);
-  return {
-    ...media,
-    ...(storagePath ? { storagePath } : {}),
-  };
+  if (!storagePath) {
+    return media;
+  }
+
+  try {
+    const bucket = options?.storageInstance
+      ? options.storageInstance.bucket(options.bucketName)
+      : getStorage().bucket(options?.bucketName);
+    const url = await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
+      bucket,
+      storagePath,
+    });
+    return { ...media, url, storagePath };
+  } catch {
+    return { ...media, storagePath };
+  }
 }
 
 function isVideoAttachment(attachment: AgentXAttachment): boolean {
@@ -70,7 +86,11 @@ function extractVideoUrlsFromContent(content: string | undefined): string[] {
   return videoUrls;
 }
 
-export async function refreshMessageContentMedia(content: string): Promise<string> {
+export async function refreshMessageContentMedia(
+  content: string,
+  bucketName?: string,
+  storageInstance?: Storage
+): Promise<string> {
   if (!content.trim()) return content;
 
   const rawUrls = content.match(/https?:\/\/[^\s<>"'\])]+/gi) ?? [];
@@ -83,7 +103,10 @@ export async function refreshMessageContentMedia(content: string): Promise<strin
     const storagePath = extractImageStoragePathFromUrl(url);
     if (!storagePath) continue;
 
-    const refreshed = await refreshStorageUrl({ url, storagePath });
+    const refreshed = await refreshStorageUrl(
+      { url, storagePath },
+      { bucketName, storageInstance }
+    );
     if (refreshed.url !== url) {
       replacements.set(url, refreshed.url);
     }
@@ -99,7 +122,9 @@ export async function refreshMessageContentMedia(content: string): Promise<strin
 }
 
 export async function refreshMessagePartsMedia(
-  parts: AgentMessage['parts']
+  parts: AgentMessage['parts'],
+  bucketName?: string,
+  storageInstance?: Storage
 ): Promise<AgentMessage['parts']> {
   if (!parts?.length) return parts;
 
@@ -107,7 +132,11 @@ export async function refreshMessagePartsMedia(
   const refreshedParts = await Promise.all(
     parts.map(async (part) => {
       if (part.type === 'text') {
-        const refreshedContent = await refreshMessageContentMedia(part.content);
+        const refreshedContent = await refreshMessageContentMedia(
+          part.content,
+          bucketName,
+          storageInstance
+        );
         if (refreshedContent === part.content) return part;
         changed = true;
         return { ...part, content: refreshedContent };
@@ -117,7 +146,10 @@ export async function refreshMessagePartsMedia(
         const storagePath = extractImageStoragePathFromUrl(part.url);
         if (!storagePath) return part;
 
-        const refreshed = await refreshStorageUrl({ url: part.url, storagePath });
+        const refreshed = await refreshStorageUrl(
+          { url: part.url, storagePath },
+          { bucketName, storageInstance }
+        );
         if (refreshed.url === part.url) return part;
 
         changed = true;
@@ -135,13 +167,31 @@ function basenameFromStoragePath(path: string): string {
   return path.split('/').filter(Boolean).pop() ?? 'video.mp4';
 }
 
-async function findSiblingVideoThumbnailUrl(_params: {
+async function findSiblingVideoThumbnailUrl(params: {
   readonly attachment: AgentXAttachment;
   readonly bucketName: string;
   readonly storageInstance: Storage;
   readonly videoStoragePath?: string;
 }): Promise<string | null> {
-  return null;
+  const videoStoragePath = params.videoStoragePath;
+  if (!videoStoragePath) return null;
+
+  const separatorIndex = videoStoragePath.lastIndexOf('/');
+  if (separatorIndex === -1) return null;
+
+  const prefix = `${videoStoragePath.slice(0, separatorIndex + 1)}`;
+  const [files] = await params.storageInstance.bucket(params.bucketName).getFiles({ prefix });
+  const thumbnail = files.find(
+    (file) => file.name !== videoStoragePath && isImageStoragePath(file.name)
+  );
+  if (!thumbnail) return null;
+
+  const [thumbnailUrl] = await thumbnail.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + 15 * 60 * 1000,
+  });
+  return thumbnailUrl;
 }
 
 export async function refreshAttachmentUrl(
@@ -149,24 +199,29 @@ export async function refreshAttachmentUrl(
   bucketName: string,
   storageInstance: Storage
 ): Promise<AgentXAttachment> {
-  const refreshedMedia = await refreshStorageUrl({
-    url: attachment.url,
-    ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
-  });
+  const refreshedMedia = await refreshStorageUrl(
+    {
+      url: attachment.url,
+      ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+    },
+    { bucketName, storageInstance }
+  );
 
   const inferredThumbnailUrl =
     typeof attachment.thumbnailUrl === 'string' && attachment.thumbnailUrl.trim().length > 0
       ? null
-      : await findSiblingVideoThumbnailUrl({
-          attachment,
-          bucketName,
-          storageInstance,
-          videoStoragePath: refreshedMedia.storagePath,
-        });
+      : !isVideoAttachment(attachment)
+        ? null
+        : await findSiblingVideoThumbnailUrl({
+            attachment,
+            bucketName,
+            storageInstance,
+            videoStoragePath: refreshedMedia.storagePath,
+          });
 
   const refreshedThumbnail =
     typeof attachment.thumbnailUrl === 'string' && attachment.thumbnailUrl.trim().length > 0
-      ? await refreshStorageUrl({ url: attachment.thumbnailUrl })
+      ? await refreshStorageUrl({ url: attachment.thumbnailUrl }, { bucketName, storageInstance })
       : null;
 
   return {
@@ -180,14 +235,19 @@ export async function refreshAttachmentUrl(
 }
 
 export async function refreshMessageResultDataMedia(
-  resultData: AgentMessage['resultData']
+  resultData: AgentMessage['resultData'],
+  bucketName?: string,
+  storageInstance?: Storage
 ): Promise<AgentMessage['resultData']> {
   if (!resultData) return resultData;
 
   const refreshUrlIfNeeded = async (value: string): Promise<string> => {
-    const refreshed = await refreshStorageUrl({
-      url: value,
-    });
+    const refreshed = await refreshStorageUrl(
+      {
+        url: value,
+      },
+      { bucketName, storageInstance }
+    );
     return refreshed.url;
   };
 
@@ -276,8 +336,12 @@ export async function refreshMessageAttachments(
   bucketName: string,
   storageInstance: Storage
 ): Promise<AgentMessage> {
-  const refreshedContent = await refreshMessageContentMedia(message.content);
-  const refreshedParts = await refreshMessagePartsMedia(message.parts);
+  const refreshedContent = await refreshMessageContentMedia(
+    message.content,
+    bucketName,
+    storageInstance
+  );
+  const refreshedParts = await refreshMessagePartsMedia(message.parts, bucketName, storageInstance);
   const attachments =
     message.attachments && message.attachments.length > 0 ? message.attachments : null;
   const refreshedAttachments = attachments
@@ -287,7 +351,11 @@ export async function refreshMessageAttachments(
         )
       )
     : null;
-  const refreshedResultData = await refreshMessageResultDataMedia(message.resultData);
+  const refreshedResultData = await refreshMessageResultDataMedia(
+    message.resultData,
+    bucketName,
+    storageInstance
+  );
   const syntheticContentAttachments: AgentXAttachment[] = [];
 
   if (!refreshedAttachments?.some((attachment) => isVideoAttachment(attachment))) {

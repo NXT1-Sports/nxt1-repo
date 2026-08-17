@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { GammaClient } from '../gamma-client.service.js';
 
@@ -9,6 +9,10 @@ function response(body: BodyInit | null, init: ResponseInit = {}): Response {
 }
 
 describe('GammaClient', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('uses environment-scoped staging configuration by default', async () => {
     vi.stubEnv('NODE_ENV', 'staging');
     vi.stubEnv('STAGING_GAMMA_ENABLED', 'true');

@@ -9,6 +9,7 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 import { ExportService } from '../export.service.js';
+import type { GammaPresentationGenerator } from '../gamma-client.service.js';
 import type {
   CsvExportOptions,
   PdfExportOptions,
@@ -150,7 +151,12 @@ describe('ExportService', () => {
   let service: ExportService;
 
   beforeEach(() => {
-    service = new ExportService();
+    const gammaClient: GammaPresentationGenerator = {
+      isEnabled: false,
+      generatePdf: vi.fn(),
+      generatePptx: vi.fn(),
+    };
+    service = new ExportService(gammaClient);
   });
 
   // ── CSV ──────────────────────────────────────────────────────────────────

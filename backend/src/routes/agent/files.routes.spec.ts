@@ -5,6 +5,7 @@ import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agen
 import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
 import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
 
+const getSignedUrlWithTimeoutMock = vi.fn();
 const notifyDirectFileShareMock = vi.fn().mockResolvedValue({
   dispatched: true,
   notificationId: 'notif-1',
@@ -45,16 +46,26 @@ vi.mock('../../services/team/roster-entry.service.js', () => ({
 }));
 
 vi.mock('../../utils/gcs-signed-url.js', () => ({
-  getSignedUrlWithTimeout: vi.fn(),
+  getSignedUrlWithTimeout: getSignedUrlWithTimeoutMock,
 }));
 
 vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () => ({
   AgentMediaLifecycleService: {
     extractStoragePathFromUrl: vi.fn().mockReturnValue(null),
+    isFirebaseDownloadTokenUrl: vi.fn().mockReturnValue(false),
     requiresDurablePromotion: vi.fn().mockReturnValue(false),
     promoteOwnedObjectToDurableUploadPath: vi.fn(),
     buildStoragePath: vi.fn(),
     saveBufferAndSignRead: vi.fn(),
+    ensureFirebaseDownloadUrl: async (params: {
+      bucket: { file: (path: string) => { getSignedUrl: () => Promise<[string]> } };
+      storagePath: string;
+    }) => {
+      const [signedUrl] = await getSignedUrlWithTimeoutMock(() =>
+        params.bucket.file(params.storagePath).getSignedUrl()
+      );
+      return signedUrl;
+    },
   },
 }));
 
@@ -1351,7 +1362,7 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
           storagePath: 'Users/owner-1/uploads/video/source-2.mp4',
         })
       );
-      expect(getSignedUrlWithTimeout).toHaveBeenCalledTimes(2);
+      expect(getSignedUrlWithTimeout).toHaveBeenCalledTimes(3);
     });
   });
 });

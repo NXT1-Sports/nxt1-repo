@@ -36,6 +36,7 @@ vi.mock('firebase-admin/storage', () => ({
 vi.mock('../../modules/agent/tools/media/agent-media-lifecycle.service.js', () => ({
   AgentMediaLifecycleService: {
     extractStoragePathFromUrl: extractStoragePathFromUrlMock,
+    isFirebaseDownloadTokenUrl: vi.fn().mockReturnValue(false),
     ensureFirebaseDownloadUrl: async (params: {
       bucket: { file: (p: string) => { getSignedUrl: (o: unknown) => Promise<[string]> } };
       storagePath: string;
@@ -65,6 +66,9 @@ describe('threads.routes media refresh helpers', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    fileMock.mockReset();
+    getFilesMock.mockReset();
+    extractStoragePathFromUrlMock.mockReset();
     getSignedUrlWithTimeoutMock.mockImplementation(async (fn: () => Promise<string[]>) => fn());
   });
 
@@ -150,7 +154,7 @@ describe('threads.routes media refresh helpers', () => {
     const videoUrl =
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
 
-    extractStoragePathFromUrlMock.mockReturnValueOnce(
+    extractStoragePathFromUrlMock.mockReturnValue(
       'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
     );
     fileMock.mockReturnValueOnce({
