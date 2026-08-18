@@ -6,7 +6,14 @@ import type {
   AgentTaskStatus,
 } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
-import { sanitizeForFirestore } from './job.repository.js';
+import {
+  sanitizeForFirestore,
+  RESULT_INLINE_THRESHOLD_BYTES,
+  RESULT_CHUNK_BASE64_LENGTH,
+  TERMINAL_JOB_RETENTION_DAYS,
+  serializedByteLength,
+  ttlFromNow,
+} from './job.repository.js';
 
 const COLLECTION = 'AgentPlans' as const;
 const JOB_COLLECTION = 'AgentJobs' as const;
@@ -23,6 +30,8 @@ export interface AgentPlanDocument {
   readonly summary: string;
   readonly planHash: string;
   readonly tasks: readonly AgentTask[];
+  readonly tasksStorage?: 'inline' | 'subcollection';
+  readonly tasksChunkCount?: number;
   readonly createdAt: string;
   readonly approvedAt?: string;
   readonly updatedAt?: string;
@@ -72,8 +81,24 @@ export class AgentPlanRepository {
       updatedAt: now,
     };
 
+    let finalDoc = doc;
+    const serializedTasks = JSON.stringify(input.tasks);
+    if (serializedByteLength(serializedTasks) > RESULT_INLINE_THRESHOLD_BYTES) {
+      const chunkCount = await this.writeFullTasksChunks(
+        input.planId,
+        serializedTasks,
+        input.environment
+      );
+      finalDoc = {
+        ...doc,
+        tasks: [],
+        tasksStorage: 'subcollection',
+        tasksChunkCount: chunkCount,
+      };
+    }
+
     const firestore = this.getDb(input.environment);
-    await firestore.collection(COLLECTION).doc(input.planId).set(sanitizeForFirestore(doc));
+    await firestore.collection(COLLECTION).doc(input.planId).set(sanitizeForFirestore(finalDoc));
     await firestore
       .collection(JOB_COLLECTION)
       .doc(input.originOperationId)
@@ -115,11 +140,14 @@ export class AgentPlanRepository {
 
     if (candidates.length === 0) return null;
 
-    return candidates.sort((a, b) => {
-      const aTs = Date.parse(a.updatedAt ?? a.createdAt);
-      const bTs = Date.parse(b.updatedAt ?? b.createdAt);
-      return Number.isFinite(bTs) && Number.isFinite(aTs) ? bTs - aTs : 0;
-    })[0] as AgentPlanDocument;
+    return this.hydrateTasks(
+      candidates.sort((a, b) => {
+        const aTs = Date.parse(a.updatedAt ?? a.createdAt);
+        const bTs = Date.parse(b.updatedAt ?? b.createdAt);
+        return Number.isFinite(bTs) && Number.isFinite(aTs) ? bTs - aTs : 0;
+      })[0] as AgentPlanDocument,
+      environment
+    );
   }
 
   async reviseDraft(input: RevisePlanDraftInput): Promise<AgentPlanDocument> {
@@ -141,8 +169,24 @@ export class AgentPlanRepository {
       updatedAt: now,
     };
 
+    let finalDoc = doc;
+    const serializedTasks = JSON.stringify(input.tasks);
+    if (serializedByteLength(serializedTasks) > RESULT_INLINE_THRESHOLD_BYTES) {
+      const chunkCount = await this.writeFullTasksChunks(
+        doc.planId,
+        serializedTasks,
+        input.environment
+      );
+      finalDoc = {
+        ...doc,
+        tasks: [],
+        tasksStorage: 'subcollection',
+        tasksChunkCount: chunkCount,
+      };
+    }
+
     const firestore = this.getDb(input.environment);
-    await firestore.collection(COLLECTION).doc(doc.planId).set(sanitizeForFirestore(doc));
+    await firestore.collection(COLLECTION).doc(doc.planId).set(sanitizeForFirestore(finalDoc));
     await firestore
       .collection(JOB_COLLECTION)
       .doc(input.originOperationId)
@@ -164,7 +208,7 @@ export class AgentPlanRepository {
   ): Promise<AgentPlanDocument | null> {
     const snapshot = await this.getDb(environment).collection(COLLECTION).doc(planId).get();
     if (!snapshot.exists) return null;
-    return snapshot.data() as AgentPlanDocument;
+    return this.hydrateTasks(snapshot.data() as AgentPlanDocument, environment);
   }
 
   async updateApprovalStatus(input: {
@@ -219,20 +263,34 @@ export class AgentPlanRepository {
     readonly executionOperationId?: string;
   }): Promise<void> {
     const now = new Date().toISOString();
+    let finalPayload: Record<string, unknown> = {
+      tasks: input.tasks,
+      updatedAt: now,
+      status: derivePlanStatus(input.tasks),
+      ...(input.executionOperationId
+        ? { approvedExecutionOperationId: input.executionOperationId }
+        : {}),
+    };
+
+    const serializedTasks = JSON.stringify(input.tasks);
+    if (serializedByteLength(serializedTasks) > RESULT_INLINE_THRESHOLD_BYTES) {
+      const chunkCount = await this.writeFullTasksChunks(
+        input.planId,
+        serializedTasks,
+        input.environment
+      );
+      finalPayload = {
+        ...finalPayload,
+        tasks: [],
+        tasksStorage: 'subcollection',
+        tasksChunkCount: chunkCount,
+      };
+    }
+
     await this.getDb(input.environment)
       .collection(COLLECTION)
       .doc(input.planId)
-      .set(
-        sanitizeForFirestore({
-          tasks: input.tasks,
-          updatedAt: now,
-          status: derivePlanStatus(input.tasks),
-          ...(input.executionOperationId
-            ? { approvedExecutionOperationId: input.executionOperationId }
-            : {}),
-        }),
-        { merge: true }
-      );
+      .set(sanitizeForFirestore(finalPayload), { merge: true });
   }
 
   async markTerminal(input: {
@@ -243,20 +301,34 @@ export class AgentPlanRepository {
     readonly executionOperationId?: string;
   }): Promise<void> {
     const now = new Date().toISOString();
+    let finalPayload: Record<string, unknown> = {
+      status: input.status,
+      tasks: input.tasks,
+      updatedAt: now,
+      ...(input.executionOperationId
+        ? { approvedExecutionOperationId: input.executionOperationId }
+        : {}),
+    };
+
+    const serializedTasks = JSON.stringify(input.tasks);
+    if (serializedByteLength(serializedTasks) > RESULT_INLINE_THRESHOLD_BYTES) {
+      const chunkCount = await this.writeFullTasksChunks(
+        input.planId,
+        serializedTasks,
+        input.environment
+      );
+      finalPayload = {
+        ...finalPayload,
+        tasks: [],
+        tasksStorage: 'subcollection',
+        tasksChunkCount: chunkCount,
+      };
+    }
+
     await this.getDb(input.environment)
       .collection(COLLECTION)
       .doc(input.planId)
-      .set(
-        sanitizeForFirestore({
-          status: input.status,
-          tasks: input.tasks,
-          updatedAt: now,
-          ...(input.executionOperationId
-            ? { approvedExecutionOperationId: input.executionOperationId }
-            : {}),
-        }),
-        { merge: true }
-      );
+      .set(sanitizeForFirestore(finalPayload), { merge: true });
   }
 
   private getDb(environment?: 'staging' | 'production'): Firestore {
@@ -264,6 +336,81 @@ export class AgentPlanRepository {
       return this.stagingDb;
     }
     return this.db;
+  }
+
+  private async writeFullTasksChunks(
+    planId: string,
+    serializedTasks: string,
+    environment?: 'staging' | 'production'
+  ): Promise<number> {
+    const encodedTasks = Buffer.from(serializedTasks, 'utf8').toString('base64');
+    const chunks = Array.from(
+      { length: Math.ceil(encodedTasks.length / RESULT_CHUNK_BASE64_LENGTH) },
+      (_, index) =>
+        encodedTasks.slice(
+          index * RESULT_CHUNK_BASE64_LENGTH,
+          (index + 1) * RESULT_CHUNK_BASE64_LENGTH
+        )
+    );
+    const expiresAt = ttlFromNow(TERMINAL_JOB_RETENTION_DAYS);
+
+    const firestore = this.getDb(environment);
+    const chunksRef = firestore.collection(COLLECTION).doc(planId).collection('plan_tasks_chunks');
+
+    await Promise.all(
+      chunks.map((payload, index) =>
+        chunksRef.doc(index.toString().padStart(6, '0')).set({
+          index,
+          payload,
+          encoding: 'base64-json',
+          expiresAt,
+        })
+      )
+    );
+
+    return chunks.length;
+  }
+
+  private async hydrateTasks(
+    plan: AgentPlanDocument,
+    environment?: 'staging' | 'production'
+  ): Promise<AgentPlanDocument> {
+    if (plan.tasksStorage !== 'subcollection' || typeof plan.tasksChunkCount !== 'number') {
+      return plan;
+    }
+
+    const firestore = this.getDb(environment);
+    const chunksRef = firestore
+      .collection(COLLECTION)
+      .doc(plan.planId)
+      .collection('plan_tasks_chunks');
+    const snapshot = await chunksRef.orderBy('index', 'asc').get();
+
+    if (snapshot.docs.length !== plan.tasksChunkCount) {
+      return plan;
+    }
+
+    const payload = snapshot.docs
+      .map((doc) => doc.data() as { index?: unknown; payload?: unknown })
+      .sort((left, right) => Number(left.index) - Number(right.index));
+
+    if (
+      payload.some((chunk, index) => chunk.index !== index || typeof chunk.payload !== 'string')
+    ) {
+      return plan;
+    }
+
+    const base64Data = payload.map((chunk) => chunk.payload as string).join('');
+    try {
+      const jsonString = Buffer.from(base64Data, 'base64').toString('utf8');
+      const parsedTasks = JSON.parse(jsonString) as AgentTask[];
+      return {
+        ...plan,
+        tasks: parsedTasks,
+      };
+    } catch {
+      return plan;
+    }
   }
 }
 

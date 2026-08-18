@@ -45,11 +45,12 @@ export const AGENT_JOBS_COLLECTION = 'AgentJobs' as const;
 export const AGENT_WEEKLY_RECAP_JOBS_COLLECTION = 'AgentWeeklyRecapJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
 const RESULT_CHUNKS_SUBCOLLECTION = 'result_chunks' as const;
+const ERROR_CHUNKS_SUBCOLLECTION = 'error_chunks' as const;
 const JOB_EVENT_SCHEMA_VERSION = 2;
-const ACTIVE_JOB_RETENTION_DAYS = 14;
-const TERMINAL_JOB_RETENTION_DAYS = 30;
-const RESULT_INLINE_THRESHOLD_BYTES = 600_000;
-const RESULT_CHUNK_BASE64_LENGTH = 400_000;
+export const ACTIVE_JOB_RETENTION_DAYS = 14;
+export const TERMINAL_JOB_RETENTION_DAYS = 30;
+export const RESULT_INLINE_THRESHOLD_BYTES = 600_000;
+export const RESULT_CHUNK_BASE64_LENGTH = 400_000;
 const FAILURE_ALERT_TERMINAL_STATUSES = new Set(['pending', 'sent']);
 const LOCKED_FAILURE_STATUSES = new Set<AgentOperationStatus>(['completed', 'failed', 'cancelled']);
 const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
@@ -82,8 +83,14 @@ function buildTerminalProgress(params: {
   };
 }
 
-function serializedByteLength(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value), 'utf8');
+export function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
+  const ttl = new Date();
+  ttl.setDate(ttl.getDate() + days);
+  return Timestamp.fromDate(ttl);
+}
+
+export function serializedByteLength(obj: unknown): number {
+  return Buffer.byteLength(JSON.stringify(obj), 'utf8');
 }
 
 function buildSpilledResultPreview(result: AgentOperationResult): AgentOperationResult {
@@ -212,11 +219,6 @@ export interface JobEvent {
   readonly createdAt: FirebaseFirestore.Timestamp;
   /** TTL field for Firestore automatic expiration. */
   readonly expiresAt?: FirebaseFirestore.Timestamp;
-}
-
-function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
-  const expiresAtMs = Date.now() + days * 24 * 60 * 60 * 1000;
-  return Timestamp.fromMillis(expiresAtMs);
 }
 
 function isTerminalEventStatus(status: JobEvent['status'] | undefined): boolean {
@@ -381,6 +383,8 @@ export interface AgentJobDocument {
   /** UTF-8 byte length of the serialized full result. */
   readonly resultByteLength?: number;
   readonly error: string | null;
+  readonly errorStorage?: 'inline' | 'subcollection';
+  readonly errorChunkCount?: number;
   readonly failureAlertStatus?: 'pending' | 'sent' | 'failed' | null;
   readonly failureAlertQueuedAt?: FirebaseFirestore.Timestamp | null;
   readonly failureAlertSentAt?: FirebaseFirestore.Timestamp | null;
@@ -475,6 +479,10 @@ export class AgentJobRepository {
     return this.jobRef(operationId).collection(RESULT_CHUNKS_SUBCOLLECTION);
   }
 
+  private errorChunksRef(operationId: string): FirebaseFirestore.CollectionReference {
+    return this.jobRef(operationId).collection(ERROR_CHUNKS_SUBCOLLECTION);
+  }
+
   private async writeFullResultChunks(
     operationId: string,
     serializedResult: string
@@ -535,11 +543,75 @@ export class AgentJobRepository {
     }
   }
 
-  private async hydrateResult(job: AgentJobDocument): Promise<AgentJobDocument> {
-    if (job.resultStorage !== 'subcollection' || !job.resultChunkCount) return job;
+  private async readFullErrorChunks(
+    operationId: string,
+    expectedChunkCount: number
+  ): Promise<string | null> {
+    const snapshot = await this.errorChunksRef(operationId).orderBy('index', 'asc').get();
+    if (snapshot.docs.length !== expectedChunkCount) return null;
 
-    const result = await this.readFullResultChunks(job.operationId, job.resultChunkCount);
-    return result ? { ...job, result } : job;
+    const payload = snapshot.docs
+      .map((doc) => doc.data() as { index?: unknown; payload?: unknown })
+      .sort((left, right) => Number(left.index) - Number(right.index));
+
+    if (
+      payload.some((chunk, index) => chunk.index !== index || typeof chunk.payload !== 'string')
+    ) {
+      return null;
+    }
+
+    try {
+      return Buffer.from(payload.map((chunk) => chunk.payload).join(''), 'base64').toString('utf8');
+    } catch (err) {
+      logger.error('[AgentJobs] Failed to hydrate spilled job error', {
+        operationId,
+        expectedChunkCount,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  }
+
+  private async writeFullErrorChunks(operationId: string, errorString: string): Promise<number> {
+    const encodedError = Buffer.from(errorString, 'utf8').toString('base64');
+    const chunks = Array.from(
+      { length: Math.ceil(encodedError.length / RESULT_CHUNK_BASE64_LENGTH) },
+      (_, index) =>
+        encodedError.slice(
+          index * RESULT_CHUNK_BASE64_LENGTH,
+          (index + 1) * RESULT_CHUNK_BASE64_LENGTH
+        )
+    );
+    const expiresAt = ttlFromNow(TERMINAL_JOB_RETENTION_DAYS);
+
+    await Promise.all(
+      chunks.map((payload, index) =>
+        this.errorChunksRef(operationId).doc(index.toString().padStart(6, '0')).set({
+          index,
+          payload,
+          encoding: 'base64-utf8',
+          expiresAt,
+        })
+      )
+    );
+
+    return chunks.length;
+  }
+
+  private async hydrateResult(job: AgentJobDocument): Promise<AgentJobDocument> {
+    let hydratedJob = job;
+
+    if (job.resultStorage === 'subcollection' && job.resultChunkCount) {
+      const result = await this.readFullResultChunks(job.operationId, job.resultChunkCount);
+      if (result) hydratedJob = { ...hydratedJob, result };
+    }
+
+    if (job.errorStorage === 'subcollection' && job.errorChunkCount) {
+      const fullError = await this.readFullErrorChunks(job.operationId, job.errorChunkCount);
+      if (fullError) hydratedJob = { ...hydratedJob, error: fullError };
+    }
+
+    return hydratedJob;
   }
 
   private buildEventWritePayload(
@@ -771,12 +843,6 @@ export class AgentJobRepository {
    * Mark the job as failed and store the error message.
    */
   async markFailed(operationId: string, error: string): Promise<void> {
-    const progress = buildTerminalProgress({
-      status: 'failed',
-      message: error,
-      outcomeCode: 'task_failed',
-    });
-
     const jobRef = this.jobRef(operationId);
     let alertInput: {
       operationId: string;
@@ -826,10 +892,23 @@ export class AgentJobRepository {
           typeof existingAlertStatus === 'string' ? existingAlertStatus : ''
         );
 
+      let safeError = error;
+      let errorChunkCount = 0;
+      const shouldSpillError = error && serializedByteLength(error) > RESULT_INLINE_THRESHOLD_BYTES;
+      if (shouldSpillError) {
+        errorChunkCount = await this.writeFullErrorChunks(operationId, error);
+        safeError = '[Error payload too large — check error_chunks subcollection]';
+      }
+
       const update: Record<string, unknown> = {
         status: 'failed' satisfies AgentOperationStatus,
-        error,
-        progress,
+        error: safeError,
+        ...(shouldSpillError ? { errorStorage: 'subcollection', errorChunkCount } : {}),
+        progress: buildTerminalProgress({
+          status: 'failed',
+          message: safeError,
+          outcomeCode: 'task_failed',
+        }),
         yieldState: null,
         updatedAt: FieldValue.serverTimestamp(),
         completedAt: FieldValue.serverTimestamp(),
