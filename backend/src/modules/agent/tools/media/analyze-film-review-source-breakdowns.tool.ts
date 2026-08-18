@@ -3,6 +3,7 @@ import {
   getTeamFilmReviewRevision,
   getTeamFilmReviewSportTagDefinitions,
   isTeamFilmReviewSportTagValueValid,
+  type TeamFilmReviewDoc,
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewSourceBreakdownPatch,
   type TeamFilmReviewSourceBreakdownPatchTagValue,
@@ -160,6 +161,26 @@ function resolveTargetRow(input: {
   };
 }
 
+function getToolResultDataRecord(result: ToolResult): Record<string, unknown> {
+  return result.data && typeof result.data === 'object' && !Array.isArray(result.data)
+    ? (result.data as Record<string, unknown>)
+    : {};
+}
+
+function isRevisionConflictResult(result: ToolResult): boolean {
+  return getToolResultDataRecord(result)['code'] === 'REVISION_CONFLICT';
+}
+
+function summarizeWriteConflict(input: {
+  readonly writeResult: ToolResult;
+  readonly retryableSourceIds: readonly string[];
+  readonly updatedSourceIds: readonly string[];
+}): readonly string[] {
+  return isRevisionConflictResult(input.writeResult)
+    ? [...new Set([...input.retryableSourceIds, ...input.updatedSourceIds])]
+    : input.retryableSourceIds;
+}
+
 export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
   readonly name = 'analyze_film_review_source_breakdowns';
   readonly description =
@@ -176,6 +197,63 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
     private readonly db: Firestore
   ) {
     super();
+  }
+
+  private async loadWritableReview(
+    filmReviewId: string,
+    userId: string
+  ): Promise<{ review: TeamFilmReviewDoc } | { error: string }> {
+    const review = await loadUniversalFilmReview(this.db, filmReviewId);
+    if (!review) {
+      return { error: `Film review ${filmReviewId} was not found.` };
+    }
+
+    const permission = await assertReviewAccess(this.db, review, userId, 'write');
+    if (!permission.ok) return { error: permission.error };
+
+    return { review };
+  }
+
+  private async persistPatchesWithFreshRevision(input: {
+    readonly filmReviewId: string;
+    readonly userId: string;
+    readonly patches: readonly TeamFilmReviewSourceBreakdownPatch[];
+    readonly context: ToolExecutionContext;
+  }): Promise<ToolResult> {
+    let lastConflict: ToolResult | null = null;
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const latestReviewResult = await this.loadWritableReview(input.filmReviewId, input.userId);
+      if ('error' in latestReviewResult) {
+        return {
+          success: false,
+          error: latestReviewResult.error,
+          isValidationError: true,
+        };
+      }
+
+      const writeResult = await this.patchSourceBreakdowns.execute(
+        {
+          filmReviewId: input.filmReviewId,
+          expectedRevision: getTeamFilmReviewRevision(latestReviewResult.review),
+          patches: input.patches,
+        },
+        input.context
+      );
+
+      if (writeResult.success || !isRevisionConflictResult(writeResult)) {
+        return writeResult;
+      }
+
+      lastConflict = writeResult;
+    }
+
+    return (
+      lastConflict ?? {
+        success: false,
+        error: 'Failed to persist source breakdown patches.',
+      }
+    );
   }
 
   async execute(
@@ -206,13 +284,14 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
     }
 
     const sourceIds = [...new Set(parsed.data.sourceIds)];
-    const review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
-    if (!review) {
-      return { success: false, error: `Film review ${parsed.data.filmReviewId} was not found.` };
+    const initialReviewResult = await this.loadWritableReview(
+      parsed.data.filmReviewId,
+      context.userId
+    );
+    if ('error' in initialReviewResult) {
+      return { success: false, error: initialReviewResult.error };
     }
-
-    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
-    if (!permission.ok) return { success: false, error: permission.error };
+    const review = initialReviewResult.review;
 
     const sportTagSchema = getTeamFilmReviewSportTagDefinitions(review.sport);
     const sportTagsById = new Map(sportTagSchema.map((tag) => [tag.id, tag]));
@@ -611,18 +690,17 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
       };
     }
 
-    const writeResult = await this.patchSourceBreakdowns.execute(
-      {
-        filmReviewId: parsed.data.filmReviewId,
-        expectedRevision: getTeamFilmReviewRevision(review),
-        patches,
-      },
-      context
-    );
+    const writeResult = await this.persistPatchesWithFreshRevision({
+      filmReviewId: parsed.data.filmReviewId,
+      userId: context.userId,
+      patches,
+      context,
+    });
     if (!writeResult.success) {
       return {
         success: false,
         error: writeResult.error ?? 'Failed to persist source breakdown patches.',
+        ...(isRevisionConflictResult(writeResult) ? { isValidationError: true } : {}),
         data: {
           coverage,
           sourceResults,
@@ -632,7 +710,11 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
           insufficientSourceIds,
           unavailableSourceIds,
           failedSourceIds,
-          retryableSourceIds: [...new Set([...retryableSourceIds, ...updatedSourceIds])],
+          retryableSourceIds: summarizeWriteConflict({
+            writeResult,
+            retryableSourceIds,
+            updatedSourceIds,
+          }),
         },
       };
     }

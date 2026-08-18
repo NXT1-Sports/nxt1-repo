@@ -212,6 +212,27 @@ function runCronTaskInBackground(taskKey: string, task: () => Promise<void>): bo
   return true;
 }
 
+async function sendAgentCronFailureAlert(input: {
+  environment: 'staging' | 'production';
+  title: string;
+  summary: string;
+  route: string;
+  error: Error;
+}): Promise<void> {
+  await sendSlackAlert({
+    target: 'agent',
+    environment: input.environment,
+    severity: 'error',
+    title: input.title,
+    summary: input.summary,
+    fields: [
+      { label: 'Route', value: input.route },
+      { label: 'Environment', value: input.environment },
+      { label: 'Error', value: input.error.message },
+    ],
+  });
+}
+
 // ─── POST /cron/daily-briefings ───────────────────────────────────────────
 
 router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Response) => {
@@ -329,78 +350,110 @@ router.post('/cron/weekly-recaps', cronGuard, async (_req: Request, res: Respons
 });
 
 // ─── POST /cron/summarize-threads ─────────────────────────────────────────
+// Thread memory extraction can take several minutes (up to 5 threads × LLM +
+// embedding calls). Respond immediately and run the heavy work in the
+// background — same fire-and-forget pattern used by /cron/refresh-help-center
+// and /cron/compress-old-videos to avoid a 30-second gateway timeout.
 
-router.post('/cron/summarize-threads', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    if (!llmService) {
-      res.status(503).json({ success: false, error: 'LLM service not initialized' });
-      return;
-    }
-
-    const { MemorySummarizationService } =
-      await import('../../modules/agent/memory/memory-summarization.service.js');
-    const { VectorMemoryService } = await import('../../modules/agent/memory/vector.service.js');
-    const { getRuntimeEnvironment } = await import('../../config/runtime-environment.js');
-    const { db: appDb } = await import('../../utils/firebase.js');
-    const { stagingDb } = await import('../../utils/firebase-staging.js');
-
-    const runtimeFirestore = getRuntimeEnvironment() === 'production' ? appDb : stagingDb;
-    const vectorMemory = new VectorMemoryService(llmService);
-    const summarizer = new MemorySummarizationService(
-      llmService,
-      vectorMemory,
-      undefined,
-      runtimeFirestore
-    );
-    const result = await summarizer.summarizeInactiveThreads();
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON summarize-threads failed', { error: error.message, stack: error.stack });
-    res.status(500).json({
-      success: false,
-      error: 'Thread summarization failed',
-      detail: error.message,
-      stack: error.stack,
-    });
+router.post('/cron/summarize-threads', cronGuard, async (req: Request, res: Response) => {
+  if (!llmService) {
+    res.status(503).json({ success: false, error: 'LLM service not initialized' });
+    return;
   }
+
+  const environment = req.isStaging ? 'staging' : 'production';
+
+  // Respond immediately so the Cloud Function fetch() does not time out while
+  // MemorySummarizationService processes threads sequentially.
+  res.json({ success: true, message: 'Thread summarization started', status: 'running' });
+
+  // Fire-and-forget — errors are caught and logged; they must not crash the process.
+  (async () => {
+    try {
+      const { MemorySummarizationService } =
+        await import('../../modules/agent/memory/memory-summarization.service.js');
+      const { VectorMemoryService } = await import('../../modules/agent/memory/vector.service.js');
+      const { db: appDb } = await import('../../utils/firebase.js');
+      const { stagingDb } = await import('../../utils/firebase-staging.js');
+
+      const runtimeFirestore = environment === 'production' ? appDb : stagingDb;
+      const vectorMemory = new VectorMemoryService(llmService!);
+      const summarizer = new MemorySummarizationService(
+        llmService!,
+        vectorMemory,
+        undefined,
+        runtimeFirestore
+      );
+      const result = await summarizer.summarizeInactiveThreads();
+      logger.info('CRON summarize-threads completed', { ...result });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON summarize-threads failed', { error: error.message, stack: error.stack });
+      await sendAgentCronFailureAlert({
+        environment,
+        title: 'Thread Summarization Failed',
+        summary:
+          'The nightly thread summarization cron accepted the request but failed while running in the backend background task.',
+        route: '/api/v1/agent-x/cron/summarize-threads',
+        error,
+      });
+    }
+  })();
 });
 
 // ─── POST /cron/scan-timeline-posts ──────────────────────────────────────
+// Timeline scanning can fan out into several Firestore reads, LLM extraction
+// calls, and vector writes. Return immediately to avoid gateway request
+// timeouts; the scanner logs its own completion/failure in the background.
 
-router.post('/cron/scan-timeline-posts', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    if (!llmService) {
-      res.status(503).json({ success: false, error: 'LLM service not initialized' });
-      return;
-    }
-
-    const { getFirestore } = await import('firebase-admin/firestore');
-    const { VectorMemoryService } = await import('../../modules/agent/memory/vector.service.js');
-    const { TimelineScanService, TIMELINE_SCAN_LOOKBACK_HOURS, MAX_USERS_PER_CRON_RUN } =
-      await import('../../modules/agent/memory/timeline-scan.service.js');
-
-    const db = getFirestore();
-    const vectorMemory = new VectorMemoryService(llmService);
-    const timelineScanner = new TimelineScanService(db, llmService, vectorMemory);
-
-    const result = await timelineScanner.scanActiveUsers(
-      TIMELINE_SCAN_LOOKBACK_HOURS,
-      MAX_USERS_PER_CRON_RUN
-    );
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON scan-timeline-posts failed', { error: error.message, stack: error.stack });
-    res.status(500).json({
-      success: false,
-      error: 'Timeline scan failed',
-      detail: error.message,
-      stack: error.stack,
-    });
+router.post('/cron/scan-timeline-posts', cronGuard, async (req: Request, res: Response) => {
+  if (!llmService) {
+    res.status(503).json({ success: false, error: 'LLM service not initialized' });
+    return;
   }
+
+  const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
+  const environment = req.isStaging ? 'staging' : 'production';
+  if (!db) {
+    logger.warn('Firestore context not attached to request');
+    res.status(503).json({ success: false, error: 'Firestore not available' });
+    return;
+  }
+
+  const started = runCronTaskInBackground('scan-timeline-posts', async () => {
+    try {
+      const { VectorMemoryService } = await import('../../modules/agent/memory/vector.service.js');
+      const { TimelineScanService, TIMELINE_SCAN_LOOKBACK_HOURS, MAX_USERS_PER_CRON_RUN } =
+        await import('../../modules/agent/memory/timeline-scan.service.js');
+
+      const vectorMemory = new VectorMemoryService(llmService!);
+      const timelineScanner = new TimelineScanService(db, llmService!, vectorMemory);
+
+      const result = await timelineScanner.scanActiveUsers(
+        TIMELINE_SCAN_LOOKBACK_HOURS,
+        MAX_USERS_PER_CRON_RUN
+      );
+
+      logger.info('CRON scan-timeline-posts completed', { ...result });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON scan-timeline-posts failed', { error: error.message, stack: error.stack });
+      await sendAgentCronFailureAlert({
+        environment,
+        title: 'Timeline Post Scan Failed',
+        summary:
+          'The nightly timeline post scan cron accepted the request but failed while running in the backend background task.',
+        route: '/api/v1/agent-x/cron/scan-timeline-posts',
+        error,
+      });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Timeline post scan started' : 'Timeline post scan already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/cleanup-thread-media ─────────────────────────────────────
@@ -471,38 +524,44 @@ router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: 
 // Called every 15 minutes by the cleanupStaleAgentJobs Cloud Function.
 
 router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Response) => {
-  try {
-    const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
-    if (!db) {
-      logger.warn('Firestore context not attached to request');
-      res.status(503).json({ success: false, error: 'Firestore not available' });
-      return;
-    }
+  const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
+  const environment = req.isStaging ? 'staging' : 'production';
+  if (!db) {
+    logger.warn('Firestore context not attached to request');
+    res.status(503).json({ success: false, error: 'Firestore not available' });
+    return;
+  }
 
+  // Respond immediately — Firestore bulk queries can take several seconds and
+  // must not block Cloud Scheduler's HTTP timeout window.
+  const started = runCronTaskInBackground('cleanup-stale-jobs', async () => {
     logger.info('CRON cleanup-stale-jobs starting', {
       queuedThresholdMinutes: STALE_QUEUED_THRESHOLD_MS / 60_000,
       systemCronYieldedThresholdHours: STALE_SYSTEM_CRON_YIELDED_THRESHOLD_MS / 3_600_000,
       userYieldedThresholdHours: STALE_USER_YIELDED_THRESHOLD_MS / 3_600_000,
     });
+    try {
+      const result = await cleanupStaleAgentJobs({ db });
+      logger.info('CRON cleanup-stale-jobs completed', { ...result });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON cleanup-stale-jobs failed', { error: error.message, stack: error.stack });
+      await sendAgentCronFailureAlert({
+        environment,
+        title: 'Cleanup Stale Jobs Failed',
+        summary:
+          'The stale Agent X jobs cleanup cron accepted the request but failed while running in the backend background task.',
+        route: '/api/v1/agent-x/cron/cleanup-stale-jobs',
+        error,
+      });
+    }
+  });
 
-    const result = await cleanupStaleAgentJobs({ db });
-
-    logger.info('CRON cleanup-stale-jobs completed', {
-      ...result,
-    });
-
-    res.json({
-      success: true,
-      data: result,
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON cleanup-stale-jobs failed', {
-      error: error.message,
-      stack: error.stack,
-    });
-    res.status(500).json({ success: false, error: 'Stale job cleanup failed' });
-  }
+  res.json({
+    success: true,
+    message: started ? 'Stale job cleanup started' : 'Stale job cleanup already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/resolve-failed-jobs ───────────────────────────────────────
@@ -845,28 +904,44 @@ router.post(
   '/cron/approval-expiry-notifications',
   cronGuard,
   async (req: Request, res: Response) => {
-    try {
-      const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
-      if (!db) {
-        res.status(503).json({ success: false, error: 'Firestore not available' });
-        return;
-      }
-
-      const { ApprovalGateService } =
-        await import('../../modules/agent/services/approval-gate.service.js');
-      const approvalGate = new ApprovalGateService(db);
-      const result = await approvalGate.notifyExpiringSoon();
-
-      logger.info('CRON approval-expiry-notifications completed', result);
-      res.json({ success: true, data: result });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('CRON approval-expiry-notifications failed', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Approval expiry notifications failed' });
+    const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
+    const environment = req.isStaging ? 'staging' : 'production';
+    if (!db) {
+      res.status(503).json({ success: false, error: 'Firestore not available' });
+      return;
     }
+
+    // Respond immediately — this cron fires every minute; must not block on
+    // Firestore reads + push notification calls within the HTTP timeout window.
+    const started = runCronTaskInBackground('approval-expiry-notifications', async () => {
+      try {
+        const { ApprovalGateService } =
+          await import('../../modules/agent/services/approval-gate.service.js');
+        const approvalGate = new ApprovalGateService(db);
+        const result = await approvalGate.notifyExpiringSoon();
+        logger.info('CRON approval-expiry-notifications completed', result);
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error('CRON approval-expiry-notifications failed', {
+          error: error.message,
+          stack: error.stack,
+        });
+        await sendAgentCronFailureAlert({
+          environment,
+          title: 'Approval Expiry Notifications Failed',
+          summary:
+            'The approval expiry notifications cron accepted the request but failed while running in the backend background task.',
+          route: '/api/v1/agent-x/cron/approval-expiry-notifications',
+          error,
+        });
+      }
+    });
+
+    res.json({
+      success: true,
+      message: started ? 'Approval expiry check started' : 'Approval expiry check already running',
+      status: started ? 'running' : 'already_running',
+    });
   }
 );
 
@@ -882,81 +957,96 @@ router.post(
 const QUEUE_WAITING_ALERT_THRESHOLD = 20;
 const QUEUE_FAILED_ALERT_THRESHOLD = 50;
 
-router.post('/cron/queue-depth-check', cronGuard, async (_req: Request, res: Response) => {
+router.post('/cron/queue-depth-check', cronGuard, async (req: Request, res: Response) => {
   if (!queueService) {
     res.status(503).json({ success: false, error: 'Queue service not initialized' });
     return;
   }
 
-  try {
-    const counts = await queueService.getCounts();
-    const waiting = counts['waiting'] ?? 0;
-    const active = counts['active'] ?? 0;
-    const failed = counts['failed'] ?? 0;
-    const delayed = counts['delayed'] ?? 0;
+  const environment = req.isStaging ? 'staging' : 'production';
 
-    logger.info('CRON queue-depth-check', { waiting, active, failed, delayed });
+  // Respond immediately — Redis getCounts() + Slack alerts must not block the
+  // Cloud Scheduler HTTP window; dedup guard prevents overlapping 5-min ticks.
+  const started = runCronTaskInBackground('queue-depth-check', async () => {
+    try {
+      const counts = await queueService!.getCounts();
+      const waiting = counts['waiting'] ?? 0;
+      const active = counts['active'] ?? 0;
+      const failed = counts['failed'] ?? 0;
+      const delayed = counts['delayed'] ?? 0;
 
-    const alerts: Promise<boolean>[] = [];
+      logger.info('CRON queue-depth-check', { waiting, active, failed, delayed });
 
-    if (waiting > QUEUE_WAITING_ALERT_THRESHOLD) {
-      logger.warn('Queue depth exceeded threshold — sending Slack alert', {
-        waiting,
-        threshold: QUEUE_WAITING_ALERT_THRESHOLD,
-      });
-      alerts.push(
-        sendSlackAlert({
-          target: 'agent',
-          severity: 'critical',
-          title: 'Agent Queue Backlog Alert',
-          summary: `BullMQ waiting queue depth has exceeded the alert threshold. The worker may be down or traffic has spiked.`,
-          fields: [
-            { label: 'Waiting', value: String(waiting) },
-            { label: 'Active', value: String(active) },
-            { label: 'Delayed', value: String(delayed) },
-            { label: 'Threshold', value: String(QUEUE_WAITING_ALERT_THRESHOLD) },
-          ],
-          linkText: 'Queue Stats',
-          linkUrl: `${process.env['BACKEND_URL'] ?? ''}/api/v1/agent/queue-stats`,
-        })
-      );
-    }
+      const alerts: Promise<boolean>[] = [];
 
-    if (failed > QUEUE_FAILED_ALERT_THRESHOLD) {
-      logger.warn('Dead-letter backlog exceeded threshold — sending Slack alert', {
-        failed,
-        threshold: QUEUE_FAILED_ALERT_THRESHOLD,
-      });
-      alerts.push(
-        sendSlackAlert({
-          target: 'agent',
-          severity: 'warning',
-          title: 'Agent Queue Dead-Letter Backlog Alert',
-          summary: `The failed job count has exceeded the alert threshold. Review and clear stale entries to keep Redis memory healthy.`,
-          fields: [
-            { label: 'Failed Jobs', value: String(failed) },
-            { label: 'Threshold', value: String(QUEUE_FAILED_ALERT_THRESHOLD) },
-          ],
-          linkText: 'Queue Stats',
-          linkUrl: `${process.env['BACKEND_URL'] ?? ''}/api/v1/agent/queue-stats`,
-        })
-      );
-    }
+      if (waiting > QUEUE_WAITING_ALERT_THRESHOLD) {
+        logger.warn('Queue depth exceeded threshold — sending Slack alert', {
+          waiting,
+          threshold: QUEUE_WAITING_ALERT_THRESHOLD,
+        });
+        alerts.push(
+          sendSlackAlert({
+            target: 'agent',
+            severity: 'critical',
+            title: 'Agent Queue Backlog Alert',
+            summary: `BullMQ waiting queue depth has exceeded the alert threshold. The worker may be down or traffic has spiked.`,
+            fields: [
+              { label: 'Waiting', value: String(waiting) },
+              { label: 'Active', value: String(active) },
+              { label: 'Delayed', value: String(delayed) },
+              { label: 'Threshold', value: String(QUEUE_WAITING_ALERT_THRESHOLD) },
+            ],
+            linkText: 'Queue Stats',
+            linkUrl: `${process.env['BACKEND_URL'] ?? ''}/api/v1/agent/queue-stats`,
+          })
+        );
+      }
 
-    await Promise.allSettled(alerts);
+      if (failed > QUEUE_FAILED_ALERT_THRESHOLD) {
+        logger.warn('Dead-letter backlog exceeded threshold — sending Slack alert', {
+          failed,
+          threshold: QUEUE_FAILED_ALERT_THRESHOLD,
+        });
+        alerts.push(
+          sendSlackAlert({
+            target: 'agent',
+            severity: 'warning',
+            title: 'Agent Queue Dead-Letter Backlog Alert',
+            summary: `The failed job count has exceeded the alert threshold. Review and clear stale entries to keep Redis memory healthy.`,
+            fields: [
+              { label: 'Failed Jobs', value: String(failed) },
+              { label: 'Threshold', value: String(QUEUE_FAILED_ALERT_THRESHOLD) },
+            ],
+            linkText: 'Queue Stats',
+            linkUrl: `${process.env['BACKEND_URL'] ?? ''}/api/v1/agent/queue-stats`,
+          })
+        );
+      }
 
-    res.json({
-      success: true,
-      data: {
+      await Promise.allSettled(alerts);
+      logger.info('CRON queue-depth-check completed', {
         counts: { waiting, active, failed, delayed },
         alertsFired: alerts.length,
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON queue-depth-check failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Queue depth check failed' });
-  }
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON queue-depth-check failed', { error: error.message, stack: error.stack });
+      await sendAgentCronFailureAlert({
+        environment,
+        title: 'Queue Depth Check Failed',
+        summary:
+          'The queue depth check cron accepted the request but failed while running in the backend background task.',
+        route: '/api/v1/agent-x/cron/queue-depth-check',
+        error,
+      });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Queue depth check started' : 'Queue depth check already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/compress-old-videos ──────────────────────────────────────

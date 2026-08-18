@@ -578,8 +578,8 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
   it('does not merge a preserved inline approval row when persisted history has that approval card', () => {
     const approvalCard: AgentXRichCard = {
       type: 'confirmation',
+      agentId: 'router',
       title: 'Review and Approve Email',
-      status: 'pending',
       payload: {
         approvalId: 'approval-1',
         toolCallId: 'tool-1',

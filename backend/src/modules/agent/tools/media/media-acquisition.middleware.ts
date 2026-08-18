@@ -83,6 +83,7 @@ export function checkMediaAcquisitionRouting(
   return {
     success: false,
     error: message,
+    isValidationError: true,
   };
 }
 
@@ -101,6 +102,7 @@ export function checkTwitterSingleTweetIntent(url: string): ToolResult | null {
     error:
       `Routing mismatch: URL is not a Twitter/X single tweet permalink. ` +
       `Use: ${classification.correctiveExample}`,
+    isValidationError: true,
   };
 }
 
@@ -121,6 +123,7 @@ export function checkSocialDomainBlock(url: string): ToolResult | null {
     error:
       `Routing mismatch: scrape_webpage cannot be used for ${new URL(url).hostname}. ` +
       `Use: ${classification.correctiveExample}`,
+    isValidationError: true,
   };
 }
 

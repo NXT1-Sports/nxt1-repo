@@ -19,7 +19,8 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
-import { buildBackendUrl } from './utils/backendCronRequest';
+import { postBackendCronJson } from './utils/backendCronRequest';
+import { sendScheduledSlackAlert } from './utils/slackAlert';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -44,36 +45,42 @@ export const scanTimelinePosts = onSchedule(
   async () => {
     logger.info('Starting nightly timeline post scan (safety net)');
 
-    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/scan-timeline-posts');
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-cron-secret': CRON_SECRET.value(),
-        },
+      const result = await postBackendCronJson({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/scan-timeline-posts',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'scanTimelinePosts',
+        // Backend responds immediately and scans in the background; this only
+        // needs to cover cold starts and transient gateway delays.
+        timeoutMs: 15_000,
+        maxAttempts: 3,
       });
 
-      if (!response.ok) {
-        const body = await response.text();
-        // Use warn (not error) so the scheduler wrapper doesn't create a
-        // duplicate Error Reporting group — the outer catch logs the single
-        // authoritative error entry.
-        logger.warn('Backend returned non-OK response', {
-          status: response.status,
-          body: body.slice(0, 500),
+      if (result === null) {
+        logger.warn('scanTimelinePosts: backend unavailable after retries — skipping run');
+        await sendScheduledSlackAlert({
+          title: 'Timeline Post Scan Backend Unavailable',
+          summary:
+            'The nightly timeline post scan function could not hand off work to the backend after retrying.',
+          route: '/api/v1/agent-x/cron/scan-timeline-posts',
+          error: 'Backend unavailable after retries',
         });
-        throw new Error(
-          `Timeline post scan: backend returned ${response.status}: ${body.slice(0, 500)}`
-        );
+        return;
       }
 
-      const result = await response.json();
-      logger.info('Nightly timeline post scan completed', { result });
+      logger.info('Nightly timeline post scan accepted by backend', { result: result.data });
     } catch (error) {
-      logger.error('Nightly timeline post scan failed', { error });
-      throw error; // Re-throw so Cloud Scheduler retries
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      logger.error('Nightly timeline post scan failed', { error: normalized.message });
+      await sendScheduledSlackAlert({
+        title: 'Timeline Post Scan Request Failed',
+        summary:
+          'The nightly timeline post scan function failed before the backend accepted the request.',
+        route: '/api/v1/agent-x/cron/scan-timeline-posts',
+        error: normalized.message,
+      });
+      throw normalized;
     }
   }
 );

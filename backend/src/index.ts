@@ -252,6 +252,27 @@ app.use(
   })
 );
 
+// Block well-known credential/config probe paths before any middleware runs.
+// These are automated scanner requests (e.g. /.aws/config, /.env) that must
+// not reach SSR or backend routes — they force cold starts and waste resources.
+const BLOCKED_PROBE_PATHS = new Set([
+  '/.aws/config',
+  '/.aws/credentials',
+  '/.env',
+  '/.env.local',
+  '/.git/config',
+  '/wp-login.php',
+  '/phpinfo.php',
+  '/xmlrpc.php',
+]);
+app.use((req, res, next) => {
+  if (BLOCKED_PROBE_PATHS.has(req.path)) {
+    res.status(404).end();
+    return;
+  }
+  next();
+});
+
 // Capture raw body for Stripe webhook signature verification (MUST be before body parsers)
 app.use(webhookRawBodyMiddleware);
 

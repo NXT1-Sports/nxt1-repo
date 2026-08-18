@@ -14,6 +14,7 @@ describe('media-acquisition.middleware', () => {
 
     expect(result).not.toBeNull();
     expect(result?.success).toBe(false);
+    expect(result?.isValidationError).toBe(true);
     expect(result?.error ?? '').toContain('scrape_twitter({ mode: "single_tweet"');
   });
 
@@ -34,6 +35,7 @@ describe('media-acquisition.middleware', () => {
 
     expect(result).not.toBeNull();
     expect(result?.success).toBe(false);
+    expect(result?.isValidationError).toBe(true);
     expect(result?.error ?? '').toContain('scrape_instagram({ url:');
   });
 
@@ -42,6 +44,7 @@ describe('media-acquisition.middleware', () => {
 
     expect(result).not.toBeNull();
     expect(result?.success).toBe(false);
+    expect(result?.isValidationError).toBe(true);
     expect(result?.error ?? '').toContain('scrape_twitter({ mode: "profile_tweets"');
   });
 
@@ -53,6 +56,7 @@ describe('media-acquisition.middleware', () => {
 
     expect(result).not.toBeNull();
     expect(result?.success).toBe(false);
+    expect(result?.isValidationError).toBe(true);
     expect(result?.error ?? '').toContain('parse_document({ url:');
   });
 });

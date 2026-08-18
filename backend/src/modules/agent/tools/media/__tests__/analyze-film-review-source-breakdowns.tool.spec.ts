@@ -9,9 +9,11 @@ function createDb(
     readonly sources?: readonly string[];
     readonly timeline?: readonly Record<string, unknown>[];
     readonly reviewRevision?: number;
+    readonly reviewRevisions?: readonly number[];
   } = {}
 ) {
   const sources = options.sources ?? sourceIds;
+  let reviewReadCount = 0;
   return {
     collection: vi.fn(() => ({
       doc: vi.fn((id: string) => ({
@@ -41,7 +43,12 @@ function createDb(
                 videoUrl: 'https://cdn.example.com/source-1.mp4',
                 source: 'team_files',
                 schemaVersion: 2,
-                reviewRevision: options.reviewRevision ?? 0,
+                reviewRevision:
+                  options.reviewRevisions?.[
+                    Math.min(reviewReadCount++, options.reviewRevisions.length - 1)
+                  ] ??
+                  options.reviewRevision ??
+                  0,
                 sources: sources.map((sourceId) => ({
                   id: sourceId,
                   title: sourceId,
@@ -165,6 +172,80 @@ describe('AnalyzeFilmReviewSourceBreakdownsTool', () => {
       retryableSourceIds: [],
     });
     expect(context.emitToolStep).toHaveBeenCalledTimes(6);
+  });
+
+  it('refreshes the review revision after analysis before persisting patches', async () => {
+    const analyzeVideo = {
+      execute: vi.fn().mockResolvedValue({
+        success: true,
+        data: { analysis: observation({ tags: { defFront: 'Odd' } }) },
+      }),
+    };
+    const patchSourceBreakdowns = { execute: vi.fn().mockResolvedValue({ success: true }) };
+    const tool = new AnalyzeFilmReviewSourceBreakdownsTool(
+      analyzeVideo as never,
+      patchSourceBreakdowns as never,
+      createDb({ sources: ['source-1'], reviewRevisions: [0, 1] }) as never
+    );
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        sourceIds: ['source-1'],
+        requestedTagIds: ['defFront'],
+        concurrency: 1,
+      },
+      createContext()
+    );
+
+    expect(result.success).toBe(true);
+    expect(patchSourceBreakdowns.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRevision: 1,
+        patches: [expect.objectContaining({ sourceId: 'source-1', tags: { defFront: 'Odd' } })],
+      }),
+      expect.any(Object)
+    );
+  });
+
+  it('retries once when patch persistence reports a revision conflict', async () => {
+    const analyzeVideo = {
+      execute: vi.fn().mockResolvedValue({
+        success: true,
+        data: { analysis: observation({ tags: { defFront: 'Odd' } }) },
+      }),
+    };
+    const patchSourceBreakdowns = {
+      execute: vi
+        .fn()
+        .mockResolvedValueOnce({
+          success: false,
+          error: 'Film review revision conflict: expected 1, found 2.',
+          data: { code: 'REVISION_CONFLICT', currentRevision: 2 },
+        })
+        .mockResolvedValueOnce({ success: true }),
+    };
+    const tool = new AnalyzeFilmReviewSourceBreakdownsTool(
+      analyzeVideo as never,
+      patchSourceBreakdowns as never,
+      createDb({ sources: ['source-1'], reviewRevisions: [0, 1, 2] }) as never
+    );
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        sourceIds: ['source-1'],
+        requestedTagIds: ['defFront'],
+        concurrency: 1,
+      },
+      createContext()
+    );
+
+    expect(result.success).toBe(true);
+    expect(patchSourceBreakdowns.execute).toHaveBeenCalledTimes(2);
+    expect(
+      patchSourceBreakdowns.execute.mock.calls.map(([input]) => input.expectedRevision)
+    ).toEqual([1, 2]);
   });
 
   it('rejects selections larger than 5 clips and returns batching guidance', async () => {

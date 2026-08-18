@@ -145,6 +145,37 @@ def _format_command(cmd: list[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in cmd)
 
 
+def _is_ffmpeg_banner_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if stripped.startswith(("ffmpeg version ", "built with ", "configuration: ")):
+        return True
+    return bool(re.match(r"^lib(?:av|sw|postproc|avfilter|avdevice)\w*\s+\d", stripped))
+
+
+def _summarize_command_failure(cmd: list[str], result: subprocess.CompletedProcess[bytes]) -> str:
+    stderr_text = result.stderr.decode(errors="replace").strip()
+    stderr_lines = [line.strip() for line in stderr_text.splitlines() if line.strip()]
+    actionable_lines = [line for line in stderr_lines if not _is_ffmpeg_banner_line(line)]
+    selected_lines = actionable_lines[-14:] if actionable_lines else stderr_lines[-14:]
+    stderr_summary = "\n".join(selected_lines)
+
+    command_preview = _format_command(cmd[:18])
+    if len(cmd) > 18:
+        command_preview += " ..."
+
+    summary_lines = [
+        f"exit_code={result.returncode}",
+        f"command={command_preview}",
+    ]
+    if stderr_summary:
+        summary_lines.append(f"stderr:\n{stderr_summary[-1800:]}")
+    else:
+        summary_lines.append("stderr=<empty>")
+    return "\n".join(summary_lines)
+
+
 def _run_ffmpeg_command(
     cmd: list[str],
     *,
@@ -157,8 +188,7 @@ def _run_ffmpeg_command(
     _log_video_pipeline("Exact FFmpeg command", command=_format_command(cmd))
     result = subprocess.run(cmd, capture_output=True, timeout=timeout)
     if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1200:]
-        raise RuntimeError(f"{failure_label}: {err}")
+        raise RuntimeError(f"{failure_label}: {_summarize_command_failure(cmd, result)}")
     _log_video_pipeline("Normalization completed", inputPath=input_path, outputPath=output_path)
     return result
 
@@ -182,6 +212,7 @@ def _truthy(value) -> bool:
 _STREAMING_EXTENSIONS = {".m3u8", ".m3u", ".mpd"}
 # Streaming URL path keywords (for URLs without an obvious extension)
 _STREAMING_PATH_KEYWORDS = ("/manifest/", "/playlist.", "/stream.", ".m3u8", ".mpd")
+_VIDEO_FILE_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
 
 
 def _is_url(value: str) -> bool:
@@ -250,6 +281,71 @@ def _url_extension(url: str) -> str:
     return suffix if suffix in {".mp4", ".mov", ".webm", ".mkv", ".avi", ".mp3", ".aac", ".wav", ".jpg", ".png", ".srt", ".ass", ".vtt"} else ".mp4"
 
 
+def _expected_content_length(resp) -> int | None:
+    try:
+        raw = resp.headers.get("Content-Length")
+        if not raw:
+            return None
+        parsed = int(raw)
+        return parsed if parsed >= 0 else None
+    except Exception:
+        return None
+
+
+def _assert_downloaded_input(local_path: str, *, url: str, expected_bytes: int | None = None) -> None:
+    path = Path(local_path)
+    if not path.exists():
+        raise RuntimeError(f"Downloaded input file is missing: {local_path}")
+
+    size = path.stat().st_size
+    if size <= 0:
+        raise RuntimeError(f"Downloaded input file is empty: {local_path}")
+
+    if expected_bytes is not None and size != expected_bytes:
+        raise RuntimeError(
+            "Downloaded input file is incomplete: "
+            f"expected {expected_bytes} bytes, got {size} bytes"
+        )
+
+    if path.suffix.lower() not in _VIDEO_FILE_EXTENSIONS:
+        return
+
+    result = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name,width,height",
+            "-of",
+            "json",
+            local_path,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        err = (result.stderr or "").strip()[-1200:] or "ffprobe returned no stderr"
+        raise RuntimeError(
+            "Downloaded video is not readable before FFmpeg processing: "
+            f"path={local_path}, size={size} bytes, error={err}"
+        )
+
+    try:
+        payload = json.loads(result.stdout or "{}")
+        streams = payload.get("streams") or []
+    except Exception:
+        streams = []
+    if not streams:
+        raise RuntimeError(
+            "Downloaded video has no readable video stream before FFmpeg processing: "
+            f"path={local_path}, size={size} bytes, source={url[:160]}"
+        )
+
+
 def _sanitize_upload_prefix(prefix: str | None) -> str | None:
     if not prefix:
         return None
@@ -278,14 +374,17 @@ def _download_url(url: str) -> str:
 
     if _is_streaming_url(url):
         # Use FFmpeg to download HLS/DASH — the only reliable method for streaming URLs
+        cmd = ["ffmpeg", "-hide_banner", "-y", "-i", url, "-c", "copy", local_path]
         result = subprocess.run(
-            ["ffmpeg", "-y", "-i", url, "-c", "copy", local_path],
+            cmd,
             capture_output=True,
             timeout=300,
         )
         if result.returncode != 0:
-            err = result.stderr.decode(errors="replace")[-600:]
-            raise RuntimeError(f"FFmpeg failed to download streaming URL: {err}")
+            raise RuntimeError(
+                f"FFmpeg failed to download streaming URL: {_summarize_command_failure(cmd, result)}"
+            )
+        _assert_downloaded_input(local_path, url=url)
         return local_path
 
     # Direct file URL — try urllib first
@@ -301,8 +400,13 @@ def _download_url(url: str) -> str:
 
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=120) as resp, open(local_path, "wb") as f:
+            status = getattr(resp, "status", None) or resp.getcode()
+            if status is not None and (status < 200 or status >= 300):
+                raise RuntimeError(f"download returned HTTP {status}")
+            expected_bytes = _expected_content_length(resp)
             while chunk := resp.read(65536):
                 f.write(chunk)
+        _assert_downloaded_input(local_path, url=url, expected_bytes=expected_bytes)
         return local_path
     except Exception as exc:
         raise RuntimeError(f"Failed to download input URL: {exc}") from exc
