@@ -12,6 +12,7 @@ import { describe, it, expect } from 'vitest';
 import {
   FEATURE_FLAG_REGISTRY,
   TEAM_FLAGS,
+  CONTENT_FLAGS,
   AGENT_FLAGS,
   EXPERIMENTAL_FLAGS,
   InvalidFlagValueError,
@@ -25,7 +26,7 @@ describe('Feature Flag Registry', () => {
     it('should have all flags defined', () => {
       const flags = Object.values(FEATURE_FLAG_REGISTRY.flags);
       expect(flags.length).toBeGreaterThan(0);
-      expect(flags.length).toBe(34); // Keep in sync when feature flags are added or removed intentionally.
+      expect(flags.length).toBe(35); // Keep in sync when feature flags are added or removed intentionally.
     });
 
     it('should have unique flag keys', () => {
@@ -136,6 +137,12 @@ describe('Feature Flag Registry', () => {
       expect(AGENT_FLAGS.primaryEnabled).toBeDefined();
       expect(AGENT_FLAGS.coordinatorScout).toBeDefined();
       expect(AGENT_FLAGS.toolsDisabled).toBeDefined();
+    });
+
+    it('should export CONTENT_FLAGS', () => {
+      expect(CONTENT_FLAGS.graphicsAi).toBeDefined();
+      expect(CONTENT_FLAGS.welcomeGraphics).toBeDefined();
+      expect(CONTENT_FLAGS.videoEditor).toBeDefined();
     });
 
     it('should export EXPERIMENTAL_FLAGS', () => {

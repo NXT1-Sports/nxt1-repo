@@ -12,6 +12,7 @@
 import type { DocumentReference, Firestore } from 'firebase-admin/firestore';
 import type { AgentJobPayload, UserRole } from '@nxt1/core';
 import { buildAthleteWelcomePrompt, buildTeamWelcomePrompt } from '@nxt1/core';
+import { getFeatureFlagsService } from '../../../config/feature-flags/index.js';
 import { enqueueWithOutbox } from '../queue/outbox.service.js';
 import { logger } from '../../../utils/logger.js';
 
@@ -36,6 +37,7 @@ export interface WelcomeGraphicGateResult {
   readonly status: 'enqueued' | 'skipped';
   readonly reason:
     | 'enqueued'
+    | 'feature_disabled'
     | 'already_queued'
     | 'waiting_for_first_sync'
     | 'missing_image'
@@ -263,6 +265,13 @@ export async function enqueueWelcomeGraphicIfReady(
   input: { readonly userId: string },
   environment: 'staging' | 'production' = 'production'
 ): Promise<WelcomeGraphicGateResult> {
+  const welcomeGraphicsEnabled = await getFeatureFlagsService(db).isEnabled(
+    'content.welcome.graphics.enabled'
+  );
+  if (!welcomeGraphicsEnabled) {
+    return { status: 'skipped', reason: 'feature_disabled' };
+  }
+
   if (!queueService || !jobRepository) {
     return { status: 'skipped', reason: 'queue_unavailable' };
   }

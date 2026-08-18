@@ -148,6 +148,18 @@ const CONTENT_GRAPHICS_AI_FLAG: FeatureFlagDefinition<boolean> = {
   tags: ['ai', 'creative', 'premium'],
 };
 
+const CONTENT_WELCOME_GRAPHICS_FLAG: FeatureFlagDefinition<boolean> = {
+  key: 'content.welcome.graphics.enabled',
+  title: 'Welcome Graphic Auto Generation',
+  description:
+    'Enable automatic welcome graphic generation from onboarding, profile completion, and first-sync flows.',
+  scope: 'content',
+  type: 'boolean',
+  defaultValue: false,
+  requiresAudit: true,
+  tags: ['ai', 'creative', 'onboarding'],
+};
+
 const CONTENT_VIDEO_EDITOR_FLAG: FeatureFlagDefinition<boolean> = {
   key: 'content.video.editor.enabled',
   title: 'Video Editor',
@@ -444,6 +456,7 @@ const ALL_FLAGS = {
 
   // Content
   'content.graphics.ai.enabled': CONTENT_GRAPHICS_AI_FLAG,
+  'content.welcome.graphics.enabled': CONTENT_WELCOME_GRAPHICS_FLAG,
   'content.video.editor.enabled': CONTENT_VIDEO_EDITOR_FLAG,
   'content.templates.premium.enabled': CONTENT_TEMPLATES_PREMIUM_FLAG,
 
@@ -584,6 +597,7 @@ export const SCOUT_FLAGS = {
 /** All content-related feature flags */
 export const CONTENT_FLAGS = {
   graphicsAi: CONTENT_GRAPHICS_AI_FLAG,
+  welcomeGraphics: CONTENT_WELCOME_GRAPHICS_FLAG,
   videoEditor: CONTENT_VIDEO_EDITOR_FLAG,
   templatesPremium: CONTENT_TEMPLATES_PREMIUM_FLAG,
 } as const;

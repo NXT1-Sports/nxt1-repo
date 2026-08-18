@@ -62,6 +62,7 @@ export type ScoutFlagKey =
 /** Content creation flags */
 export type ContentFlagKey =
   | 'content.graphics.ai.enabled'
+  | 'content.welcome.graphics.enabled'
   | 'content.video.editor.enabled'
   | 'content.templates.premium.enabled';
 
