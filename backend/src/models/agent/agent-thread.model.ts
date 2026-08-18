@@ -57,6 +57,12 @@ interface AgentThreadDocument extends AgentThread {
   mediaCleaned?: boolean;
   latestPausedYieldState?: AgentYieldState;
   /**
+   * Monotonic counter for allocating per-message `seq` values on this thread.
+   * Incremented atomically by `AgentChatService.addMessage` for every
+   * persisted row so message ordering never depends on wall-clock `createdAt`.
+   */
+  messageSeqCounter?: number;
+  /**
    * Phase K (coordinator encapsulation): when set, this thread is a
    * coordinator-owned child thread spawned by `delegate_to_coordinator`.
    * The parent thread's UI hides child threads from the sidebar; debug
@@ -100,6 +106,12 @@ const AgentThreadSchema = new Schema<AgentThreadDocument>(
      * Prevents re-processing on subsequent cron runs.
      */
     mediaCleaned: { type: Boolean, default: false },
+    /**
+     * Monotonic per-thread counter for allocating message `seq` values.
+     * Every persisted message increments this atomically so ordering is
+     * deterministic and independent of wall-clock `createdAt`.
+     */
+    messageSeqCounter: { type: Number, default: 0 },
     /**
      * Stores the active pause yield state for a paused operation on this thread.
      * Persisted when operation is paused so Resume card survives session re-entry.

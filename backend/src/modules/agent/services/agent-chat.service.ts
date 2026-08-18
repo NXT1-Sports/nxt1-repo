@@ -259,6 +259,8 @@ type MessageMapperInput = Pick<
   | 'restoreTokenId'
   | 'createdAt'
   | 'semanticPhase'
+  | 'seq'
+  | 'turnSeq'
 > & {
   _id: unknown;
   deletedAt?: Date | string | null;
@@ -730,6 +732,92 @@ export class AgentChatService {
   // ─── Message Operations ─────────────────────────────────────────────────
 
   /**
+   * Atomically allocate the next monotonic write sequence for a thread.
+   * Returns undefined (and logs) if the thread is missing or the increment
+   * fails — callers then fall back to `createdAt` ordering for that row.
+   */
+  private async allocateThreadSeq(threadId: string, userId: string): Promise<number | undefined> {
+    try {
+      const updated = await AgentThreadModel.findOneAndUpdate(
+        { _id: threadId, userId },
+        { $inc: { messageSeqCounter: 1 } },
+        { new: true }
+      )
+        .select('messageSeqCounter')
+        .lean()
+        .exec();
+      const value = (updated as { messageSeqCounter?: number } | null)?.messageSeqCounter;
+      return typeof value === 'number' ? value : undefined;
+    } catch (err) {
+      logger.warn('[AgentChatService] Failed to allocate thread seq — falling back to createdAt', {
+        threadId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve the turn-anchor sequence for an assistant/tool row. Assistant rows
+   * inherit the `turnSeq` of the user message that started their operation
+   * (matched by operationId), so a late `assistant_final` sorts inside its own
+   * turn rather than after a subsequent user message. Falls back to the row's
+   * own seq when no anchor user row exists (orphan/resumed/background rows).
+   */
+  private async resolveTurnSeqForOperation(
+    threadId: string,
+    operationId: string | undefined,
+    fallbackSeq: number
+  ): Promise<number> {
+    const trimmed = operationId?.trim();
+    if (!trimmed) return fallbackSeq;
+    try {
+      const anchor = await AgentMessageModel.findOne(
+        { threadId, operationId: trimmed, role: 'user' },
+        { turnSeq: 1, seq: 1 }
+      )
+        .sort({ turnSeq: 1, seq: 1, createdAt: 1 })
+        .lean()
+        .exec();
+      const anchorTurnSeq = (anchor as { turnSeq?: number; seq?: number } | null)?.turnSeq;
+      if (typeof anchorTurnSeq === 'number') return anchorTurnSeq;
+      const anchorSeq = (anchor as { turnSeq?: number; seq?: number } | null)?.seq;
+      if (typeof anchorSeq === 'number') return anchorSeq;
+      return fallbackSeq;
+    } catch (err) {
+      logger.warn('[AgentChatService] Failed to resolve turn anchor — using own seq', {
+        threadId,
+        operationId: trimmed,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return fallbackSeq;
+    }
+  }
+
+  /**
+   * Link a persisted user message to the operation it triggered. Called by the
+   * chat route once the operationId is minted (the user row is written before
+   * the id exists). This backfill is what lets late assistant rows anchor to
+   * their originating turn for deterministic ordering. No-op if already set.
+   */
+  async linkUserMessageToOperation(messageId: string, operationId: string): Promise<void> {
+    const trimmed = operationId?.trim();
+    if (!messageId || !trimmed) return;
+    try {
+      await AgentMessageModel.updateOne(
+        { _id: messageId, operationId: { $in: [null, ''] } },
+        { $set: { operationId: trimmed } }
+      ).exec();
+    } catch (err) {
+      logger.warn('[AgentChatService] Failed to link user message to operation', {
+        messageId,
+        operationId: trimmed,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
    * Add a message to a thread and update thread metadata.
    * This is the primary write path — called for both user prompts
    * and assistant replies.
@@ -783,6 +871,18 @@ export class AgentChatService {
     const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
     const isAssistantToolCallPhase = params.semanticPhase === 'assistant_tool_call';
 
+    // Deterministic ordering: allocate a monotonic per-thread seq and resolve
+    // the turn anchor so a late-completing assistant row sorts inside its own
+    // turn instead of after a follow-up user message (the pause/resume reorder
+    // bug). Falls back silently to createdAt ordering when allocation fails.
+    const seq = await this.allocateThreadSeq(params.threadId, params.userId);
+    const turnSeq =
+      seq === undefined
+        ? undefined
+        : params.role === 'user'
+          ? seq
+          : await this.resolveTurnSeqForOperation(params.threadId, params.operationId, seq);
+
     const docFields = {
       threadId: params.threadId,
       userId: params.userId,
@@ -803,6 +903,8 @@ export class AgentChatService {
       tokenUsage: params.tokenUsage,
       semanticPhase: params.semanticPhase,
       createdAt: now,
+      ...(seq !== undefined ? { seq } : {}),
+      ...(turnSeq !== undefined ? { turnSeq } : {}),
     };
 
     // Create the message document. When an idempotencyKey is supplied we do
@@ -996,9 +1098,30 @@ export class AgentChatService {
     const hasMore = docs.length > limit;
     const page = docs.slice(0, limit);
     const nextCursor = hasMore ? page[page.length - 1]?.createdAt : undefined;
-    const items = page.reverse().map((d) => this.toMessage(d));
+    const items = this.orderMessagesForDisplay(page.reverse().map((d) => this.toMessage(d)));
 
     return { items, hasMore, nextCursor };
+  }
+
+  /**
+   * Stable deterministic display order: `(turnSeq, seq)` for rows that carry
+   * the ordering fields; rows missing them keep their incoming `createdAt`
+   * position (comparator returns 0 → V8 stable sort preserves order). This
+   * keeps fully-legacy threads and mixed threads rendering correctly during
+   * the deterministic-ordering rollout.
+   */
+  private orderMessagesForDisplay(items: readonly AgentMessage[]): AgentMessage[] {
+    return [...items].sort((a, b) => {
+      const at = a.turnSeq;
+      const bt = b.turnSeq;
+      if (typeof at === 'number' && typeof bt === 'number') {
+        if (at !== bt) return at - bt;
+        const as = a.seq ?? 0;
+        const bs = b.seq ?? 0;
+        if (as !== bs) return as - bs;
+      }
+      return 0;
+    });
   }
 
   /**
@@ -1655,6 +1778,8 @@ export class AgentChatService {
       restoreTokenId: doc.restoreTokenId,
       createdAt: doc.createdAt,
       semanticPhase: doc.semanticPhase,
+      seq: doc.seq,
+      turnSeq: doc.turnSeq,
     };
   }
 }

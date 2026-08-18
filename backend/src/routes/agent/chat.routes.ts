@@ -5273,6 +5273,14 @@ router.post(
       const operationId = `chat-${crypto.randomUUID()}`;
       const trimmedMessage = message.trim();
 
+      // Anchor the persisted user row to this operation. The user message is
+      // written before the operationId exists, so we backfill it now — this is
+      // what lets a late-completing assistant_final inherit its turn's ordering
+      // sequence instead of sorting after a follow-up user message.
+      if (chatService && persistedUserMessageId) {
+        await chatService.linkUserMessageToOperation(persistedUserMessageId, operationId);
+      }
+
       // ── Attachment Stub Resolution ────────────────────────────────────────
       // When the user hits Send while a video is still uploading, the client
       // sends `attachmentStubs` (id/name/mimeType/sizeBytes — no URL yet).

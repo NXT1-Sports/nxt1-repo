@@ -179,6 +179,11 @@ const AgentMessageSchema = new Schema<AgentMessage>(
 // Chronological listing within a thread (primary query)
 AgentMessageSchema.index({ threadId: 1, createdAt: 1 });
 
+// Deterministic conversational ordering within a thread: turn anchor first,
+// then monotonic write sequence. Sparse — only rows written after the
+// deterministic-ordering rollout carry seq/turnSeq.
+AgentMessageSchema.index({ threadId: 1, turnSeq: 1, seq: 1 }, { sparse: true });
+
 // Cross-thread search sorted by recency
 AgentMessageSchema.index({ userId: 1, createdAt: -1 });
 
@@ -218,6 +223,18 @@ AgentMessageSchema.add({
    * Sparse index — only tagged rows are indexed.
    */
   semanticPhase: { type: String },
+  /**
+   * Monotonic per-thread write sequence, allocated atomically from
+   * `AgentThread.messageSeqCounter`. Definitive intra-turn tiebreaker.
+   */
+  seq: { type: Number },
+  /**
+   * Turn-anchor sequence — the `seq` of the triggering user turn. Assistant/
+   * tool rows inherit their user turn's value (matched by operationId) so a
+   * late `assistant_final` sorts inside its own turn. Display order is
+   * `(turnSeq, seq)`.
+   */
+  turnSeq: { type: Number },
 });
 
 // Prevents duplicate persists on worker retry or concurrent calls.

@@ -287,6 +287,20 @@ export class AgentXOperationChatSessionFacade {
     );
   }
 
+  /**
+   * Freeze a persisted operation's tool steps for display on reload. Any step
+   * still marked `active`/`pending` from an operation that is no longer the
+   * live one is collapsed to `success` so it renders frozen instead of
+   * spinning as if it were still running.
+   */
+  private freezeInterruptedToolSteps(steps: readonly AgentXToolStep[]): AgentXToolStep[] {
+    return steps.map((step) =>
+      step.status === 'active' || step.status === 'pending'
+        ? { ...step, status: 'success' as const }
+        : { ...step }
+    );
+  }
+
   private stepSignature(steps: readonly AgentXToolStep[] | undefined): string {
     if (!steps || steps.length === 0) return '';
     return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
@@ -1521,6 +1535,30 @@ export class AgentXOperationChatSessionFacade {
    * Non-user/assistant rows pass through untouched. Orphan assistants
    * (none preceding user) are appended at their natural position.
    */
+  /**
+   * Deterministic turn ordering. When every persisted row carries the
+   * server-assigned `(turnSeq, seq)` pair, sort by it directly — this is the
+   * authoritative conversational order and fixes pause/resume reordering.
+   * Falls back to the legacy pairing heuristic only for legacy threads whose
+   * rows predate deterministic ordering (missing seq/turnSeq).
+   */
+  private orderMappedTurnsForDisplay(messages: readonly OperationMessage[]): OperationMessage[] {
+    const allOrdered =
+      messages.length > 0 &&
+      messages.every(
+        (message) => typeof message.turnSeq === 'number' && typeof message.seq === 'number'
+      );
+
+    if (!allOrdered) {
+      return this.reorderTurnsByPairing(messages);
+    }
+
+    return [...messages].sort((a, b) => {
+      if (a.turnSeq !== b.turnSeq) return a.turnSeq! - b.turnSeq!;
+      return a.seq! - b.seq!;
+    });
+  }
+
   private reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[] {
     const result: OperationMessage[] = [];
     // Track each user's landing index in `result` and how many assistants
@@ -3231,6 +3269,17 @@ export class AgentXOperationChatSessionFacade {
 
     const canonicalItems = this.resolveCanonicalAssistantRows(items);
 
+    // Steps only keep spinning while their operation is the live, in-progress
+    // one. Any persisted row from a paused/abandoned/finished operation must
+    // render frozen on reload — otherwise a paused op's steps reappear as
+    // "running" above a newer turn when the user leaves and returns.
+    const liveOperationId = host.getCurrentOperationId()?.trim() ?? '';
+    const liveStatus = host.getOperationStatus();
+    const liveOperationIsActive =
+      liveStatus === 'processing' ||
+      liveStatus === 'awaiting_input' ||
+      liveStatus === 'awaiting_approval';
+
     const mapped: OperationMessage[] = canonicalItems
       .filter(
         (message): message is typeof message & { role: 'user' | 'assistant' } =>
@@ -3246,11 +3295,20 @@ export class AgentXOperationChatSessionFacade {
         );
       })
       .map((message) => {
-        const persistedSteps: AgentXToolStep[] = (message.steps ?? []).filter(
-          (step): step is AgentXToolStep =>
-            typeof step.label === 'string' &&
-            step.label.trim().length > 0 &&
-            step.stageType === 'tool'
+        const rowIsLive =
+          liveOperationIsActive &&
+          !!liveOperationId &&
+          (message.operationId?.trim() ?? '') === liveOperationId;
+        const freezeSteps = (steps: readonly AgentXToolStep[]): AgentXToolStep[] =>
+          rowIsLive ? [...steps] : this.freezeInterruptedToolSteps(steps);
+
+        const persistedSteps: AgentXToolStep[] = freezeSteps(
+          (message.steps ?? []).filter(
+            (step): step is AgentXToolStep =>
+              typeof step.label === 'string' &&
+              step.label.trim().length > 0 &&
+              step.stageType === 'tool'
+          )
         );
         const assistantMedia =
           message.role === 'assistant' ? this.collectMessageMedia(message) : {};
@@ -3260,11 +3318,13 @@ export class AgentXOperationChatSessionFacade {
             part.type === 'tool-steps'
               ? {
                   type: 'tool-steps' as const,
-                  steps: part.steps.filter(
-                    (step): step is AgentXToolStep =>
-                      typeof step.label === 'string' &&
-                      step.label.trim().length > 0 &&
-                      step.stageType === 'tool'
+                  steps: freezeSteps(
+                    part.steps.filter(
+                      (step): step is AgentXToolStep =>
+                        typeof step.label === 'string' &&
+                        step.label.trim().length > 0 &&
+                        step.stageType === 'tool'
+                    )
                   ),
                 }
               : part.type === 'card'
@@ -3390,6 +3450,8 @@ export class AgentXOperationChatSessionFacade {
           ...(persistedYieldState ? { yieldState: persistedYieldState } : {}),
           ...(effectiveYieldCardState ? { yieldCardState: effectiveYieldCardState } : {}),
           ...(effectiveYieldResolvedText ? { yieldResolvedText: effectiveYieldResolvedText } : {}),
+          ...(typeof message.seq === 'number' ? { seq: message.seq } : {}),
+          ...(typeof message.turnSeq === 'number' ? { turnSeq: message.turnSeq } : {}),
           ...persistedMedia,
         };
       });
@@ -3428,7 +3490,7 @@ export class AgentXOperationChatSessionFacade {
         dedupedMediaMessageIds: mediaAssistantRowsAfter.map((message) => message.id),
       });
     }
-    const reorderedMapped = this.reorderTurnsByPairing(dedupedMapped);
+    const reorderedMapped = this.orderMappedTurnsForDisplay(dedupedMapped);
 
     const existingMessages = this.messageFacade.messages();
     const existingTyping = existingMessages.find((m) => m.id === 'typing');

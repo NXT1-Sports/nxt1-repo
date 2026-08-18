@@ -23,6 +23,7 @@ vi.mock('../../../../models/agent/agent-message.model.js', () => ({
     create: vi.fn(),
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
+    updateOne: vi.fn(),
     find: vi.fn(),
     countDocuments: vi.fn(),
   },
@@ -315,6 +316,166 @@ describe('AgentChatService', () => {
     expect(result.id).toBe('msg-tool-call');
     expect(AgentThreadModel.updateOne).not.toHaveBeenCalled();
     expect(queueService.enqueueThreadSummarization).not.toHaveBeenCalled();
+  });
+
+  it('assigns seq and turnSeq for a user message (turnSeq equals seq)', async () => {
+    const service = new AgentChatService();
+    const message = {
+      _id: 'msg-user-1',
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'user',
+      content: 'hi',
+      origin: 'user',
+      createdAt: '2026-07-01T00:00:00.000Z',
+    };
+
+    vi.mocked(AgentThreadModel.findOneAndUpdate).mockReturnValueOnce({
+      select: vi.fn().mockReturnValue(leanExecResult({ messageSeqCounter: 5 })),
+    } as never);
+    vi.mocked(AgentMessageModel.create).mockResolvedValueOnce(message as never);
+    vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+      execResult({ acknowledged: true }) as never
+    );
+
+    await service.addMessage({
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'user',
+      content: 'hi',
+      origin: 'user',
+    });
+
+    expect(AgentThreadModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: 'thread-1', userId: 'user-1' },
+      { $inc: { messageSeqCounter: 1 } },
+      { new: true }
+    );
+    expect(AgentMessageModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ seq: 5, turnSeq: 5 })
+    );
+  });
+
+  it('anchors a late assistant_final row to its triggering user turn via operationId', async () => {
+    const service = new AgentChatService();
+    const message = {
+      _id: 'msg-final',
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'assistant',
+      content: 'done',
+      origin: 'agent_chain',
+      agentId: 'router',
+      operationId: 'chat-op-1',
+      createdAt: '2026-07-01T00:05:00.000Z',
+    };
+
+    vi.mocked(AgentThreadModel.findOneAndUpdate).mockReturnValueOnce({
+      select: vi.fn().mockReturnValue(leanExecResult({ messageSeqCounter: 9 })),
+    } as never);
+    // Anchor lookup: the user row that started chat-op-1 opened turn 3.
+    vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+      sortedLeanExecResult({ turnSeq: 3, seq: 3 }) as never
+    );
+    vi.mocked(AgentMessageModel.create).mockResolvedValueOnce(message as never);
+    vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+      execResult({ acknowledged: true }) as never
+    );
+
+    await service.addMessage({
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'assistant',
+      content: 'done',
+      origin: 'agent_chain',
+      agentId: 'router',
+      operationId: 'chat-op-1',
+      semanticPhase: 'assistant_final',
+    });
+
+    // Late final gets a high write seq but inherits its turn's anchor (3), so it
+    // sorts inside turn 3 rather than after a follow-up user message.
+    expect(AgentMessageModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ seq: 9, turnSeq: 3 })
+    );
+  });
+
+  it('orders getThreadMessages by (turnSeq, seq) so a late final sorts inside its turn', async () => {
+    const service = new AgentChatService();
+    // Descending-createdAt page as returned by the DB query. final1 has the
+    // latest createdAt (completed after user2) but its turnSeq anchors it to
+    // turn 1.
+    const descRows = [
+      {
+        _id: 'f1',
+        threadId: 't',
+        userId: 'u',
+        role: 'assistant',
+        content: 'final',
+        origin: 'agent_chain',
+        createdAt: '2026-07-01T00:04:00.000Z',
+        seq: 4,
+        turnSeq: 1,
+      },
+      {
+        _id: 'u2',
+        threadId: 't',
+        userId: 'u',
+        role: 'user',
+        content: 'b',
+        origin: 'user',
+        createdAt: '2026-07-01T00:02:00.000Z',
+        seq: 3,
+        turnSeq: 3,
+      },
+      {
+        _id: 'p1',
+        threadId: 't',
+        userId: 'u',
+        role: 'assistant',
+        content: 'partial',
+        origin: 'agent_chain',
+        createdAt: '2026-07-01T00:01:00.000Z',
+        seq: 2,
+        turnSeq: 1,
+      },
+      {
+        _id: 'u1',
+        threadId: 't',
+        userId: 'u',
+        role: 'user',
+        content: 'a',
+        origin: 'user',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        seq: 1,
+        turnSeq: 1,
+      },
+    ];
+
+    vi.mocked(AgentMessageModel.find).mockReturnValueOnce({
+      sort: vi.fn().mockReturnThis(),
+      limit: vi.fn().mockReturnThis(),
+      lean: vi.fn().mockReturnThis(),
+      exec: vi.fn().mockResolvedValue(descRows),
+    } as never);
+
+    const result = await service.getThreadMessages({ threadId: 't' });
+
+    expect(result.items.map((m) => m.id)).toEqual(['u1', 'p1', 'f1', 'u2']);
+  });
+
+  it('linkUserMessageToOperation stamps operationId only on an unlinked user row', async () => {
+    const service = new AgentChatService();
+    vi.mocked(AgentMessageModel.updateOne).mockReturnValueOnce(
+      execResult({ modifiedCount: 1 }) as never
+    );
+
+    await service.linkUserMessageToOperation('msg-user-1', 'chat-op-9');
+
+    expect(AgentMessageModel.updateOne).toHaveBeenCalledWith(
+      { _id: 'msg-user-1', operationId: { $in: [null, ''] } },
+      { $set: { operationId: 'chat-op-9' } }
+    );
   });
 
   it('replaces short fresh placeholder titles with generated titles', async () => {

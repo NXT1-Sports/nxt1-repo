@@ -69,6 +69,13 @@ export interface OperationMessage {
   readonly selectedAction?: AgentXSelectedAction;
   readonly interruptedReason?: 'paused' | 'cancelled';
   readonly semanticPhase?: AgentMessageSemanticPhase;
+  /**
+   * Deterministic ordering fields mirrored from the persisted row. When every
+   * loaded row carries both, the load pipeline sorts by `(turnSeq, seq)` and
+   * skips the legacy pairing heuristic. Absent on live/optimistic rows.
+   */
+  readonly seq?: number;
+  readonly turnSeq?: number;
 }
 
 export interface StreamTurnWatermark {

@@ -212,6 +212,21 @@ export interface AgentMessage {
   /** Recovery token used to restore soft-deleted messages (undo). */
   readonly restoreTokenId?: string;
   readonly createdAt: string;
+  /**
+   * Monotonic per-thread write sequence, assigned atomically at persist time.
+   * Definitive intra-turn tiebreaker. Absent on legacy rows written before
+   * deterministic ordering — consumers fall back to `createdAt` for those.
+   */
+  readonly seq?: number;
+  /**
+   * Turn-anchor sequence. For `user` rows this equals the row's own `seq`
+   * (it opens a new turn). For assistant/tool rows produced by an operation
+   * it inherits the `turnSeq` of the triggering user turn (matched by
+   * `operationId`), so a late-completing `assistant_final` sorts inside its
+   * own turn instead of after a follow-up user message. Display order is
+   * `(turnSeq, seq)`.
+   */
+  readonly turnSeq?: number;
   /** Backend-only: MongoDB TTL expiration date. */
   readonly expiresAt?: Date;
   /**

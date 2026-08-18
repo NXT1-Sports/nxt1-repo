@@ -11,6 +11,8 @@ type Canonicalizer = {
   trimUnstableInitialBoundaryRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
+  orderMappedTurnsForDisplay(messages: readonly OperationMessage[]): OperationMessage[];
+  freezeInterruptedToolSteps(steps: readonly AgentXToolStep[]): AgentXToolStep[];
   dedupeConsecutiveAssistantMessages(messages: readonly OperationMessage[]): OperationMessage[];
   shouldPreserveInlineYieldRowDuringReload(params: {
     readonly message: OperationMessage;
@@ -2527,5 +2529,71 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(facade.hasMongoFinalForOperation([finalForPreviousOperation], 'op-current')).toBe(false);
     expect(facade.hasMongoFinalForOperation([finalForCurrentOperation], 'op-current')).toBe(true);
     expect(facade.hasMongoFinalForOperation([finalForPreviousOperation], null)).toBe(true);
+  });
+});
+
+describe('AgentXOperationChatSessionFacade step + turn ordering', () => {
+  const facade = Object.create(AgentXOperationChatSessionFacade.prototype) as Canonicalizer;
+
+  it('freezes active/pending steps to success and leaves terminal steps untouched', () => {
+    const steps: AgentXToolStep[] = [
+      { id: 's1', label: 'Reviewing scheduled automations', status: 'active', stageType: 'tool' },
+      { id: 's2', label: 'Fetching data', status: 'pending', stageType: 'tool' },
+      { id: 's3', label: 'Searching database', status: 'success', stageType: 'tool' },
+      { id: 's4', label: 'Failed lookup', status: 'error', stageType: 'tool' },
+    ];
+
+    const frozen = facade.freezeInterruptedToolSteps(steps);
+
+    expect(frozen.map((step) => step.status)).toEqual(['success', 'success', 'success', 'error']);
+  });
+
+  it('orders mapped turns by (turnSeq, seq) when every row carries the fields', () => {
+    const rows: OperationMessage[] = [
+      { id: 'f1', role: 'assistant', content: 'final', timestamp: new Date(), turnSeq: 1, seq: 4 },
+      { id: 'u2', role: 'user', content: 'b', timestamp: new Date(), turnSeq: 3, seq: 3 },
+      {
+        id: 'p1',
+        role: 'assistant',
+        content: 'partial',
+        timestamp: new Date(),
+        turnSeq: 1,
+        seq: 2,
+      },
+      { id: 'u1', role: 'user', content: 'a', timestamp: new Date(), turnSeq: 1, seq: 1 },
+    ];
+
+    const ordered = facade.orderMappedTurnsForDisplay(rows);
+
+    // Late final (seq 4) sorts inside turn 1, ahead of the turn-3 user message.
+    expect(ordered.map((message) => message.id)).toEqual(['u1', 'p1', 'f1', 'u2']);
+  });
+
+  it('falls back to the pairing heuristic when any row lacks ordering fields', () => {
+    const pausedUser: OperationMessage = {
+      id: 'user-old',
+      role: 'user',
+      content: 'Make me a graphic',
+      operationId: 'chat-old',
+      timestamp: new Date('2026-05-05T12:00:00.000Z'),
+    };
+    const newUser: OperationMessage = {
+      id: 'user-new',
+      role: 'user',
+      content: 'Write a caption instead',
+      operationId: 'chat-new',
+      timestamp: new Date('2026-05-05T12:01:00.000Z'),
+    };
+    const newAssistant: OperationMessage = {
+      id: 'assistant-new',
+      role: 'assistant',
+      content: 'Here is a caption.',
+      operationId: 'chat-new',
+      timestamp: new Date('2026-05-05T12:01:30.000Z'),
+    };
+
+    const ordered = facade.orderMappedTurnsForDisplay([pausedUser, newUser, newAssistant]);
+
+    expect(ordered.map((message) => message.id)).toEqual(['user-old', 'user-new', 'assistant-new']);
   });
 });
