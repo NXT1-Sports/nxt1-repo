@@ -99,6 +99,9 @@ export interface UserPreferences {
 
   theme?: Theme;
   language?: string;
+
+  /** Highest semantic release version seen in the What's New modal, e.g. "1.98.0" */
+  lastSeenReleaseVersion?: string;
 }
 
 // ============================================

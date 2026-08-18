@@ -1182,6 +1182,15 @@ export { QrCodeService, QrCodeBottomSheetService } from './qr-code';
 export type { QrCodeConfig, QrCodeResult } from './qr-code';
 
 // ============================================
+// RELEASE NOTES (What's New Modal - Shared Web & Mobile)
+// ============================================
+export {
+  NxtReleaseNotesContentComponent,
+  NxtReleaseNotesModalComponent,
+  ReleaseNotesModalService,
+} from './release-notes';
+
+// ============================================
 // USAGE (Usage Dashboard & Billing - Shared Web & Mobile)
 // ============================================
 export {

@@ -84,6 +84,7 @@ export { BadgeCountService } from './state/badge-count.service';
  * Register in app.config.ts: `provideBadgeBridge()`
  */
 export { provideBadgeBridge } from './state/badge-bridge.initializer';
+export { provideReleaseNotesCheck } from './state/release-notes.initializer';
 
 // ============================================
 // API ADAPTERS (consolidated from features/)
@@ -93,6 +94,7 @@ export { ActivityApiService, ACTIVITY_API_BASE_URL } from './api/activity-api.se
 export { ProfileService } from './api/profile-api.service';
 export { HelpCenterApiService } from './api/help-center-api.service';
 export { SettingsApiService } from './api/settings-api.service';
+export { ReleaseNotesApiService } from './api/release-notes-api.service';
 
 // ============================================
 // WEB SERVICES (consolidated from features/)

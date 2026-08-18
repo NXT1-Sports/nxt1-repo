@@ -1500,6 +1500,32 @@ export const DIAGRAMS_LAB_TEST_IDS = {
   REFRESH_BUTTON: 'diagrams-lab-refresh-button',
 } as const;
 
+// ============================================
+// RELEASE NOTES TEST IDS
+// ============================================
+export const RELEASE_NOTES_TEST_IDS = {
+  MODAL_CONTAINER: 'release-notes-modal-container',
+  CONTENT_CONTAINER: 'release-notes-content-container',
+  HEADER: 'release-notes-header',
+  VERSION_BADGE: 'release-notes-version-badge',
+  TITLE: 'release-notes-title',
+  SUMMARY: 'release-notes-summary',
+  SECTION_FEATURES: 'release-notes-section-features',
+  SECTION_ENHANCEMENTS: 'release-notes-section-enhancements',
+  SECTION_FIXES: 'release-notes-section-fixes',
+  ITEM_FEATURE: 'release-notes-item-feature',
+  ITEM_ENHANCEMENT: 'release-notes-item-enhancement',
+  ITEM_FIX: 'release-notes-item-fix',
+  PRIMARY_CTA: 'release-notes-primary-cta',
+  DISMISS_BUTTON: 'release-notes-dismiss-btn',
+  HISTORY_LINK: 'release-notes-history-link',
+  HISTORY_LIST: 'release-notes-history-list',
+  HISTORY_ITEM: 'release-notes-history-item',
+  EMPTY_STATE: 'release-notes-empty-state',
+  ERROR_STATE: 'release-notes-error-state',
+  LOADING_SKELETON: 'release-notes-loading-skeleton',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1539,6 +1565,7 @@ export const TEST_IDS = {
   PLAYBOOK: PLAYBOOK_TEST_IDS,
   FILM_REVIEW: FILM_REVIEW_TEST_IDS,
   DIAGRAMS_LAB: DIAGRAMS_LAB_TEST_IDS,
+  RELEASE_NOTES: RELEASE_NOTES_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

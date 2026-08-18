@@ -1365,3 +1365,9 @@ export * from './intel';
 // ============================================
 
 export * from './live-update';
+
+// ============================================
+// RELEASE NOTES (AI-Generated Release Notes & What's New)
+// ============================================
+
+export * from './release-notes';

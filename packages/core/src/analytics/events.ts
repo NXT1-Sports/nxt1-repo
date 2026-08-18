@@ -1069,6 +1069,18 @@ export const APP_EVENTS = {
   AGENT_X_PLAY_CREATED: 'agent_x_play_created',
   /** Play added to game plan reference */
   AGENT_X_PLAY_LINKED: 'agent_x_play_linked',
+
+  // ============================================
+  // RELEASE NOTES / WHAT'S NEW EVENTS
+  // ============================================
+  /** User viewed the What's New release notes modal */
+  RELEASE_NOTES_VIEWED: 'release_notes_viewed',
+  /** User dismissed the What's New release notes modal */
+  RELEASE_NOTES_DISMISSED: 'release_notes_dismissed',
+  /** User clicked primary CTA inside What's New modal */
+  RELEASE_NOTES_CTA_CLICKED: 'release_notes_cta_clicked',
+  /** User viewed the release notes archive / history page */
+  RELEASE_NOTES_HISTORY_VIEWED: 'release_notes_history_viewed',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

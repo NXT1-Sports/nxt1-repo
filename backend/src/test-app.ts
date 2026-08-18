@@ -14,6 +14,7 @@ import analyticsRoutes from './routes/analytics/index.js';
 import inviteRoutes from './routes/core/invite.routes.js';
 import settingsRoutes from './routes/core/settings.routes.js';
 import helpCenterRoutes from './routes/platform/help-center.routes.js';
+import releaseNotesRoutes from './routes/platform/release-notes.routes.js';
 import editProfileRoutes from './routes/profile/edit-profile.routes.js';
 import agentXRoutes from './routes/agent/index.js';
 import billingRoutes from './routes/billing/billing.routes.js';
@@ -470,6 +471,7 @@ const routeConfigs = [
   ['/cloudflare-webhook', cloudflareWebhookRoutes],
   ['/firecrawl-monitor-webhook', firecrawlMonitorWebhookRoutes],
   ['/usage', usageRoutes],
+  ['/system/release-notes', releaseNotesRoutes],
 ] as const;
 
 for (const [path, handler] of routeConfigs) {

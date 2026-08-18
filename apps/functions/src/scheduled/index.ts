@@ -29,6 +29,7 @@ export { monthlyInsights } from './monthlyInsights';
 export { weeklyFinancialInsights } from './weeklyFinancialInsights';
 export { monthlyFinancialInsights } from './monthlyFinancialInsights';
 export { weeklyPlaybooks } from './weeklyPlaybooks';
+export { weeklyReleaseNotes } from './weeklyReleaseNotes';
 export { playbookNudge } from './playbookNudge';
 export { weeklyRecaps } from './weeklyRecaps';
 export { summarizeInactiveThreads } from './summarizeInactiveThreads';

@@ -15,6 +15,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtThemeService } from '@nxt1/ui/services/theme';
 import { UsageBottomSheetService } from '@nxt1/ui/usage';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
+import { ReleaseNotesModalService } from '@nxt1/ui/release-notes';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   NativeAppService,
@@ -29,6 +30,7 @@ import {
 import { BiometricService, AuthFlowService } from './core/services/auth';
 import { AUTH_ROUTES, AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { filter } from 'rxjs/operators';
+import { ReleaseNotesApiService } from './core/services/api/release-notes-api.service';
 
 @Component({
   selector: 'app-root',
@@ -200,6 +202,8 @@ export class AppComponent {
   private readonly usageBottomSheet = inject(UsageBottomSheetService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly liveUpdate = inject(LiveUpdateService);
+  private readonly releaseNotesModal = inject(ReleaseNotesModalService);
+  private readonly releaseNotesApi = inject(ReleaseNotesApiService);
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
@@ -339,6 +343,17 @@ export class AppComponent {
             this.deepLink.processPendingDeepLink();
           }, 300);
           // ── END TIMING FIX ────────────────────────────────────────────────────
+
+          // Check for new release notes and show What's New modal if needed.
+          const rawPrefs = (user as unknown as Record<string, unknown>)?.['preferences'] as
+            | Record<string, unknown>
+            | undefined;
+          const lastSeenVersion = rawPrefs?.['lastSeenReleaseVersion'] as string | undefined;
+          void this.releaseNotesModal.checkAndPrompt(
+            () => this.releaseNotesApi.getLatest(),
+            lastSeenVersion ?? null,
+            (version) => this.releaseNotesApi.markSeen(version)
+          );
         })
         .catch((err) => {
           this.logger.error('Navigation to home failed', err);

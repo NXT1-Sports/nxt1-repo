@@ -137,7 +137,6 @@ router.patch(
     const { key } = req.params as { key: string };
     const { value } = req.body as { value: unknown };
 
-    // Allowlist of top-level preference keys
     const ALLOWED_KEYS: Array<keyof UserPreferences> = [
       'notifications',
       'activityTracking',
@@ -145,6 +144,7 @@ router.patch(
       'biometricLogin',
       'theme',
       'language',
+      'lastSeenReleaseVersion',
     ];
 
     if (!ALLOWED_KEYS.includes(key as keyof UserPreferences)) {
@@ -236,6 +236,7 @@ router.patch(
       'biometricLogin',
       'theme',
       'language',
+      'lastSeenReleaseVersion',
     ];
 
     const invalidKeys = Object.keys(body).filter(
