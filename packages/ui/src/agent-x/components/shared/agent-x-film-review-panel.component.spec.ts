@@ -118,11 +118,13 @@ type FilmReviewPanelTestAccess = {
   onSeekPointerUp: () => void;
   onSeekTime: (nextTime: number) => void;
   onPlayerTimeUpdate: () => void;
+  onPlayerPlay: () => void;
   seekToTimestampMs: (
     timeMs: number,
     options?: { readonly filmReviewId?: string | null; readonly sourceId?: string | null }
   ) => Promise<void>;
   updatePlayerTimeSignal: (currentTimeSec: number, skipOverlayRender?: boolean) => void;
+  jumpTo: (seconds: number) => void;
   focusTextEffectInput: (selectAll?: boolean) => void;
   buildDefaultTextEffectBounds: () => FilmReviewPanelTestDrawAnnotationBounds;
   drawModeEnabled: () => boolean;
@@ -134,6 +136,9 @@ type FilmReviewPanelTestAccess = {
   currentTextEffectText: () => string;
   currentTextEffectPanelWindowLabel: () => string;
   onDrawToolToggle: (kind: FilmReviewPanelTestDrawAnnotationKind) => void;
+  onDrawPointerDown: (event: PointerEvent) => void;
+  onDrawPointerMove: (event: PointerEvent) => void;
+  onDrawPointerUp: (event: PointerEvent) => void;
   hasDrawing: () => boolean;
   hasClearableDrawOverlay: () => boolean;
   clearDrawOverlay: () => void;
@@ -142,6 +147,8 @@ type FilmReviewPanelTestAccess = {
   restoreEditableDrawAnnotation: (
     annotation: TeamFilmReviewPlayAnnotation
   ) => FilmReviewPanelTestEditableDrawAnnotation | null;
+  shouldRenderCurrentDrawAnnotation: () => boolean;
+  shouldRenderDrawOverlayAtCurrentTime: () => boolean;
   onDeleteConfirm: (review: TeamFilmReviewDoc, event: Event) => Promise<void>;
   selectedLibraryReviewIds: WritableSignal<ReadonlySet<string>>;
   buildFilmReviewDragContextsForLibrary: (
@@ -978,6 +985,325 @@ describe('AgentXFilmReviewPanelComponent', () => {
     }
   });
 
+  it('delegates a freehand drawing draft to the film-review drawing persistence service', async () => {
+    vi.useFakeTimers();
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const drawingState = component as unknown as { hasDrawing: WritableSignal<boolean> };
+    componentAccess.onDrawToolToggle('freehand');
+    componentAccess.drawAnnotation = {
+      kind: 'freehand',
+      bounds: { minX: 0.1, minY: 0.2, maxX: 0.4, maxY: 0.5 },
+      strokes: [
+        [
+          { x: 0.1, y: 0.2 },
+          { x: 0.2, y: 0.3 },
+        ],
+        [{ x: 0.4, y: 0.5 }],
+      ],
+    };
+    componentAccess.currentDrawEffectWindow = { startSec: 1, endSec: 2 };
+    drawingState.hasDrawing.set(true);
+
+    (
+      componentAccess as unknown as {
+        scheduleCurrentPlayAnnotationPersistence: () => void;
+      }
+    ).scheduleCurrentPlayAnnotationPersistence();
+    vi.advanceTimersByTime(180);
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledWith('review-1', 0, [
+      expect.objectContaining({
+        kind: 'freehand',
+        strokeCount: 2,
+        strokes: [
+          [
+            { x: 0.1, y: 0.2 },
+            { x: 0.2, y: 0.3 },
+          ],
+          [{ x: 0.4, y: 0.5 }],
+        ],
+      }),
+    ]);
+    vi.useRealTimers();
+  });
+
+  it('selects an existing visible circle annotation before starting a new draw', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'circle',
+              bounds: {
+                minX: 0.2,
+                minY: 0.2,
+                maxX: 0.5,
+                maxY: 0.5,
+              },
+              strokeCount: 1,
+              activeFromSec: 0,
+              activeUntilSec: 4,
+            },
+          ],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      drawCanvas?: {
+        nativeElement: HTMLCanvasElement & { setPointerCapture?: (pointerId: number) => void };
+      };
+      toNormalizedDrawPoint: () => { x: number; y: number } | null;
+      syncDrawCanvasCursor: () => void;
+      ensureDrawCanvasSize: () => void;
+      renderDrawOverlay: () => void;
+    };
+
+    const canvas = document.createElement('canvas');
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 400 });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 300 });
+    canvas.style.cursor = 'default';
+    componentAccess.drawCanvas = { nativeElement: canvas };
+    componentAccess.toNormalizedDrawPoint = () => ({ x: 0.3, y: 0.3 });
+    componentAccess.syncDrawCanvasCursor = () => undefined;
+    componentAccess.ensureDrawCanvasSize = () => undefined;
+    componentAccess.renderDrawOverlay = () => undefined;
+
+    componentAccess.onDrawToolToggle('circle');
+    componentAccess.drawAnnotation = null;
+    componentAccess.currentDrawAnnotationIndex = null;
+
+    componentAccess.onDrawPointerDown({
+      pointerId: 1,
+      preventDefault: () => undefined,
+    } as PointerEvent);
+
+    expect(componentAccess.currentDrawAnnotationIndex).toBe(0);
+    expect(componentAccess.drawAnnotation).toEqual({
+      kind: 'circle',
+      bounds: {
+        minX: 0.2,
+        minY: 0.2,
+        maxX: 0.5,
+        maxY: 0.5,
+      },
+    });
+  });
+
+  it('resizes an existing visible circle annotation from its corner handle', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'circle',
+              bounds: {
+                minX: 0.2,
+                minY: 0.2,
+                maxX: 0.5,
+                maxY: 0.5,
+              },
+              strokeCount: 1,
+              activeFromSec: 0,
+              activeUntilSec: 4,
+            },
+          ],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      drawCanvas?: {
+        nativeElement: HTMLCanvasElement & {
+          setPointerCapture?: (pointerId: number) => void;
+          releasePointerCapture?: (pointerId: number) => void;
+        };
+      };
+      toNormalizedDrawPoint: () => { x: number; y: number } | null;
+      syncDrawCanvasCursor: () => void;
+      ensureDrawCanvasSize: () => void;
+      renderDrawOverlay: () => void;
+    };
+
+    const canvas = document.createElement('canvas');
+    Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 400 });
+    Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 300 });
+    canvas.setPointerCapture = vi.fn();
+    canvas.releasePointerCapture = vi.fn();
+    componentAccess.drawCanvas = { nativeElement: canvas };
+    let pointer = { x: 0.5, y: 0.5 };
+    componentAccess.toNormalizedDrawPoint = () => pointer;
+    componentAccess.syncDrawCanvasCursor = () => undefined;
+    componentAccess.ensureDrawCanvasSize = () => undefined;
+    componentAccess.renderDrawOverlay = () => undefined;
+
+    componentAccess.onDrawToolToggle('circle');
+    componentAccess.drawAnnotation = null;
+    componentAccess.currentDrawAnnotationIndex = null;
+
+    componentAccess.onDrawPointerDown({
+      pointerId: 1,
+      preventDefault: () => undefined,
+    } as PointerEvent);
+
+    pointer = { x: 0.65, y: 0.65 };
+    componentAccess.onDrawPointerMove({
+      pointerId: 1,
+      preventDefault: () => undefined,
+    } as PointerEvent);
+
+    expect(componentAccess.currentDrawAnnotationIndex).toBe(0);
+    expect(componentAccess.drawAnnotation).toEqual({
+      kind: 'circle',
+      bounds: {
+        minX: 0.2,
+        minY: 0.2,
+        maxX: 0.65,
+        maxY: 0.65,
+      },
+    });
+    expect(canvas.setPointerCapture).toHaveBeenCalledWith(1);
+  });
+
+  it('preserves saved drawing identity when persisting a resized circle annotation', async () => {
+    vi.useFakeTimers();
+    const savedAnnotation: TeamFilmReviewPlayAnnotation = {
+      kind: 'circle',
+      drawingId: 'drawing-1',
+      drawingRevision: 4,
+      bounds: {
+        minX: 0.2,
+        minY: 0.2,
+        maxX: 0.5,
+        maxY: 0.5,
+      },
+      strokeCount: 1,
+      activeFromSec: 0,
+      activeUntilSec: 4,
+    };
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [savedAnnotation],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const drawingState = component as unknown as { hasDrawing: WritableSignal<boolean> };
+    const editableAnnotation = componentAccess.restoreEditableDrawAnnotation(savedAnnotation);
+    if (!editableAnnotation) {
+      throw new Error('Expected editable saved annotation');
+    }
+
+    componentAccess.onDrawToolToggle('circle');
+    componentAccess.currentDrawAnnotationIndex = 0;
+    componentAccess.drawAnnotation = {
+      ...editableAnnotation,
+      bounds: {
+        minX: 0.2,
+        minY: 0.2,
+        maxX: 0.65,
+        maxY: 0.65,
+      },
+    };
+    componentAccess.currentDrawEffectWindow = { startSec: 0, endSec: 4 };
+    drawingState.hasDrawing.set(true);
+
+    (
+      componentAccess as unknown as {
+        scheduleCurrentPlayAnnotationPersistence: () => void;
+      }
+    ).scheduleCurrentPlayAnnotationPersistence();
+    vi.advanceTimersByTime(180);
+    await Promise.resolve();
+
+    expect(saveTimelinePlayAnnotations).toHaveBeenCalledWith('review-1', 0, [
+      expect.objectContaining({
+        kind: 'circle',
+        drawingId: 'drawing-1',
+        drawingRevision: 4,
+        bounds: {
+          minX: 0.2,
+          minY: 0.2,
+          maxX: 0.65,
+          maxY: 0.65,
+        },
+      }),
+    ]);
+    vi.useRealTimers();
+  });
+
+  it('hides an active draft draw effect after its timing window ends', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 8,
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    const drawingState = component as unknown as { hasDrawing: WritableSignal<boolean> };
+
+    componentAccess.onDrawToolToggle('circle');
+    componentAccess.currentDrawAnnotationIndex = null;
+    componentAccess.drawAnnotation = {
+      kind: 'circle',
+      bounds: { minX: 0.2, minY: 0.2, maxX: 0.5, maxY: 0.5 },
+    };
+    componentAccess.currentDrawEffectWindow = { startSec: 2, endSec: 5 };
+    drawingState.hasDrawing.set(true);
+
+    componentAccess.playerCurrentTime.set(4.99);
+    expect(componentAccess.shouldRenderCurrentDrawAnnotation()).toBe(true);
+
+    componentAccess.playerCurrentTime.set(5.01);
+    expect(componentAccess.shouldRenderCurrentDrawAnnotation()).toBe(false);
+  });
+
   it('waits for in-flight queued annotation persistence before saving a draw effect duration change', async () => {
     vi.useFakeTimers();
 
@@ -1209,7 +1535,8 @@ describe('AgentXFilmReviewPanelComponent', () => {
     ).toBeGreaterThan(0);
   });
 
-  it('pauses playback when it reaches a draw effect marker', () => {
+  it('pauses at a draw effect marker and keeps it visible while paused', () => {
+    vi.useFakeTimers();
     vi.stubGlobal('requestAnimationFrame', vi.fn().mockReturnValue(1));
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
 
@@ -1244,7 +1571,10 @@ describe('AgentXFilmReviewPanelComponent', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
     const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
       onPlayerTimeUpdate: () => void;
+      renderDrawOverlay: () => void;
     };
+    const renderDrawOverlay = vi.fn();
+    componentAccess.renderDrawOverlay = renderDrawOverlay;
     const player = {
       currentTime: 1.9,
       duration: 10,
@@ -1256,17 +1586,181 @@ describe('AgentXFilmReviewPanelComponent', () => {
       canPlayType: vi.fn().mockReturnValue('probably'),
     };
     componentAccess.filmPlayer = { nativeElement: player };
+    expect(componentAccess.hasDrawing()).toBe(false);
 
     componentAccess.onPlayerTimeUpdate();
 
     player.currentTime = 2.2;
     componentAccess.onPlayerTimeUpdate();
 
+    player.currentTime = 1.999;
+    componentAccess.updatePlayerTimeSignal(1.999, true);
+
     expect(pause).toHaveBeenCalledTimes(1);
-    expect(player.currentTime).toBe(2);
-    expect(componentAccess.playerCurrentTime()).toBe(2);
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+    expect(renderDrawOverlay).toHaveBeenCalled();
+
+    vi.advanceTimersByTime(3000);
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
 
     vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('shows a paused draw effect again when jumping back to its timestamp', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('requestAnimationFrame', vi.fn().mockReturnValue(1));
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'square',
+              bounds: {
+                minX: 0.1,
+                minY: 0.1,
+                maxX: 0.3,
+                maxY: 0.3,
+              },
+              strokeCount: 1,
+              activeFromSec: 2,
+              activeUntilSec: 3,
+            },
+          ],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      onPlayerTimeUpdate: () => void;
+    };
+    const player = {
+      currentTime: 1.9,
+      duration: 10,
+      paused: false,
+      ended: false,
+      pause: vi.fn(),
+      removeAttribute: vi.fn(),
+      load: vi.fn(),
+      canPlayType: vi.fn().mockReturnValue('probably'),
+    };
+    componentAccess.filmPlayer = { nativeElement: player };
+    componentAccess.onPlayerTimeUpdate();
+    player.currentTime = 2.2;
+    componentAccess.onPlayerTimeUpdate();
+
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+    vi.advanceTimersByTime(3000);
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+
+    componentAccess.jumpTo(1.5);
+    componentAccess.jumpTo(2);
+
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('shows a paused draw effect again when playback resumes through its timestamp', () => {
+    vi.useFakeTimers();
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'square',
+              bounds: {
+                minX: 0.1,
+                minY: 0.1,
+                maxX: 0.3,
+                maxY: 0.3,
+              },
+              strokeCount: 1,
+              activeFromSec: 2,
+              activeUntilSec: 3,
+            },
+          ],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      pausedDrawEffectMarkerId: string | null;
+    };
+
+    componentAccess.playerCurrentTime.set(2);
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+
+    componentAccess.pausedDrawEffectMarkerId = 'play-0-annotation-0';
+    vi.advanceTimersByTime(3000);
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+
+    componentAccess.onPlayerPlay();
+    expect(componentAccess.shouldRenderDrawOverlayAtCurrentTime()).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it('keeps a selected draw effect visible while playback is paused on its marker', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 4,
+          annotations: [
+            {
+              kind: 'square',
+              bounds: {
+                minX: 0.1,
+                minY: 0.1,
+                maxX: 0.3,
+                maxY: 0.3,
+              },
+              strokeCount: 1,
+              activeFromSec: 2,
+              activeUntilSec: 3,
+            },
+          ],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess & {
+      pausedDrawEffectMarkerId: string | null;
+    };
+    const editable = componentAccess.restoreEditableDrawAnnotation(
+      reviewSignal()!.timeline![0]!.annotations![0]!
+    );
+    if (!editable) {
+      throw new Error('Expected editable draw annotation');
+    }
+
+    componentAccess.currentDrawAnnotationIndex = 0;
+    componentAccess.drawAnnotation = editable;
+    componentAccess.playerCurrentTime.set(1.999);
+    componentAccess.pausedDrawEffectMarkerId = 'play-0-annotation-0';
+
+    expect(componentAccess.shouldRenderCurrentDrawAnnotation()).toBe(true);
   });
 
   it('keeps manual scrub position on the full video timeline after release', () => {

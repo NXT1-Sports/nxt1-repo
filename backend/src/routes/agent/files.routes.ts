@@ -7,6 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type {
   AgentXAttachment,
+  CreateFilmReviewDrawingRequest,
   TeamFileFolderDoc,
   TeamFileOrigin,
   TeamFilmReviewAnnotation,
@@ -19,6 +20,7 @@ import type {
   TeamFilmReviewTagCategory,
   TeamFilmReviewTimelineTag,
   TeamFilmReviewUploadMode,
+  UpdateFilmReviewDrawingRequest,
   UniversalBinaryFilePayload,
   UniversalFileDoc,
   UniversalFilmReviewPayload,
@@ -78,6 +80,13 @@ import {
   removeFilmReviewProjectionFromUniversalFileData,
   updateUniversalFileFilmReviewAtomically,
 } from '../../services/team/universal-files-sync.service.js';
+import {
+  createFilmReviewDrawing,
+  deleteFilmReviewDrawing,
+  FilmReviewDrawingRevisionConflictError,
+  listFilmReviewDrawings,
+  updateFilmReviewDrawing,
+} from '../../services/team/film-review-annotation-sidecar.service.js';
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -276,6 +285,75 @@ const TeamFileFilmReviewAnnotationCreateBodySchema = z.object({
   atSec: z.number().finite().nonnegative(),
   color: z.string().trim().min(1).optional(),
 });
+
+const FilmReviewDrawingBoundsSchema = z.object({
+  minX: z.number().finite().min(0).max(1),
+  minY: z.number().finite().min(0).max(1),
+  maxX: z.number().finite().min(0).max(1),
+  maxY: z.number().finite().min(0).max(1),
+});
+const FILM_REVIEW_DRAWING_MAX_POINTS = 600;
+const FILM_REVIEW_DRAWING_MAX_STROKES = 100;
+
+const FilmReviewDrawingBaseBodySchema = z.object({
+  teamId: z.string().trim().min(1).optional(),
+  playId: z.string().trim().min(1),
+  sourceId: z.string().trim().min(1).optional(),
+  bounds: FilmReviewDrawingBoundsSchema,
+  activeFromSec: z.number().finite().nonnegative().optional(),
+  activeUntilSec: z.number().finite().nonnegative().optional(),
+});
+
+const TeamFileFilmReviewDrawingCreateBodySchema = z.discriminatedUnion('kind', [
+  FilmReviewDrawingBaseBodySchema.extend({
+    kind: z.literal('freehand'),
+    points: z
+      .array(
+        z.object({ x: z.number().finite().min(0).max(1), y: z.number().finite().min(0).max(1) })
+      )
+      .min(1)
+      .max(FILM_REVIEW_DRAWING_MAX_POINTS),
+    strokeStartIndexes: z
+      .array(z.number().int().nonnegative())
+      .min(1)
+      .max(FILM_REVIEW_DRAWING_MAX_STROKES),
+  }),
+  FilmReviewDrawingBaseBodySchema.extend({
+    kind: z.enum(['square', 'circle']),
+    strokeCount: z.number().int().positive().optional(),
+  }),
+  FilmReviewDrawingBaseBodySchema.extend({
+    kind: z.literal('text'),
+    text: z.string().trim().min(1),
+  }),
+]);
+
+const TeamFileFilmReviewDrawingUpdateBodySchema = z.discriminatedUnion('kind', [
+  FilmReviewDrawingBaseBodySchema.extend({
+    kind: z.literal('freehand'),
+    expectedRevision: z.number().int().positive(),
+    points: z
+      .array(
+        z.object({ x: z.number().finite().min(0).max(1), y: z.number().finite().min(0).max(1) })
+      )
+      .min(1)
+      .max(FILM_REVIEW_DRAWING_MAX_POINTS),
+    strokeStartIndexes: z
+      .array(z.number().int().nonnegative())
+      .min(1)
+      .max(FILM_REVIEW_DRAWING_MAX_STROKES),
+  }),
+  FilmReviewDrawingBaseBodySchema.extend({
+    kind: z.enum(['square', 'circle']),
+    expectedRevision: z.number().int().positive(),
+    strokeCount: z.number().int().positive().optional(),
+  }),
+  FilmReviewDrawingBaseBodySchema.extend({
+    kind: z.literal('text'),
+    expectedRevision: z.number().int().positive(),
+    text: z.string().trim().min(1),
+  }),
+]);
 
 const TeamFileSemanticSearchQuerySchema = z.object({
   teamId: z.string().trim().min(1).optional(),
@@ -1908,6 +1986,16 @@ async function mutateNativeFilmReviewAtomically(params: {
 }
 
 function sendFilmReviewMutationError(res: Response, error: Error, fallbackMessage: string): void {
+  if (error instanceof FilmReviewDrawingRevisionConflictError) {
+    res.status(409).json({
+      success: false,
+      error: error.message,
+      code: 'REVISION_CONFLICT',
+      currentRevision: error.currentRevision,
+    });
+    return;
+  }
+
   if (error instanceof TeamFilmReviewSourceBreakdownPatchError) {
     const status =
       error.code === 'ACCESS_DENIED' ? 403 : error.code === 'REVISION_CONFLICT' ? 409 : 400;
@@ -1920,6 +2008,39 @@ function sendFilmReviewMutationError(res: Response, error: Error, fallbackMessag
     return;
   }
   res.status(500).json({ success: false, error: fallbackMessage });
+}
+
+async function authorizeFilmReviewDrawingAccess(params: {
+  readonly db: NonNullable<Request['firebase']>['db'];
+  readonly fileId: string;
+  readonly teamId?: string;
+  readonly userId: string;
+  readonly write: boolean;
+}): Promise<
+  { readonly ok: true } | { readonly ok: false; readonly status: number; readonly error: string }
+> {
+  const nativeReview = await resolveNativeFilmReviewForFileMutation({
+    db: params.db,
+    fileId: params.fileId,
+    teamId: params.teamId,
+  });
+  if (!nativeReview.ok) return nativeReview;
+
+  const grantedAccessKeys = await resolveGrantedFileAccessKeys(params.db, params.userId);
+  const canAccess = params.write
+    ? await canWriteAccessControlledRecord({
+        db: params.db,
+        authUid: params.userId,
+        teamId: params.teamId,
+        data: nativeReview.file as unknown as Record<string, unknown>,
+        acl: nativeReview.file.acl,
+        grantedAccessKeys,
+      })
+    : canReadAccessControlledRecord(nativeReview.file as unknown as Record<string, unknown>, {
+        acl: nativeReview.file.acl,
+        grantedAccessKeys,
+      });
+  return canAccess ? { ok: true } : { ok: false, status: 403, error: 'Forbidden' };
 }
 
 function buildFilmReviewDownloadExportFileStem(
@@ -5862,6 +5983,209 @@ router.delete('/files/:fileId/film-review', appGuard, async (req: Request, res: 
     sendFilmReviewMutationError(res, error, 'Failed to delete film review');
   }
 });
+
+router.post(
+  '/files/:fileId/film-review/drawings',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      const parsedBody = TeamFileFilmReviewDrawingCreateBodySchema.safeParse(req.body ?? {});
+      const db = req.firebase?.db;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!fileId || !parsedBody.success) {
+        res
+          .status(400)
+          .json({ success: false, error: fileId ? 'Invalid request body' : 'fileId is required' });
+        return;
+      }
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+      const access = await authorizeFilmReviewDrawingAccess({
+        db,
+        fileId,
+        teamId: parsedBody.data.teamId,
+        userId: user.uid,
+        write: true,
+      });
+      if (!access.ok) {
+        res.status(access.status).json({ success: false, error: access.error });
+        return;
+      }
+      const drawing = await createFilmReviewDrawing({
+        db,
+        fileId,
+        drawingId: `draw_${randomUUID()}`,
+        request: parsedBody.data as CreateFilmReviewDrawingRequest,
+        userId: user.uid,
+        now: new Date().toISOString(),
+      });
+      res.status(201).json({ success: true, data: { drawing } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to create film review drawing', {
+        error: error.message,
+        stack: error.stack,
+      });
+      sendFilmReviewMutationError(res, error, 'Failed to create film review drawing');
+    }
+  }
+);
+
+router.get('/files/:fileId/film-review/drawings', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : undefined;
+    const playId = typeof req.query['playId'] === 'string' ? req.query['playId'].trim() : '';
+    const sourceId =
+      typeof req.query['sourceId'] === 'string' ? req.query['sourceId'].trim() : undefined;
+    const db = req.firebase?.db;
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!fileId || !playId) {
+      res.status(400).json({ success: false, error: 'fileId and playId are required' });
+      return;
+    }
+    if (!db) {
+      res.status(500).json({ success: false, error: 'Firestore unavailable' });
+      return;
+    }
+    const access = await authorizeFilmReviewDrawingAccess({
+      db,
+      fileId,
+      teamId,
+      userId: user.uid,
+      write: false,
+    });
+    if (!access.ok) {
+      res.status(access.status).json({ success: false, error: access.error });
+      return;
+    }
+    const drawings = await listFilmReviewDrawings({ db, fileId, playId, sourceId });
+    res.json({ success: true, data: { drawings } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to list film review drawings', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to load film review drawings' });
+  }
+});
+
+router.patch(
+  '/files/:fileId/film-review/drawings/:drawingId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      const drawingId =
+        typeof req.params['drawingId'] === 'string' ? req.params['drawingId'].trim() : '';
+      const parsedBody = TeamFileFilmReviewDrawingUpdateBodySchema.safeParse(req.body ?? {});
+      const db = req.firebase?.db;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!fileId || !drawingId || !parsedBody.success) {
+        res.status(400).json({ success: false, error: 'Invalid drawing update request' });
+        return;
+      }
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+      const access = await authorizeFilmReviewDrawingAccess({
+        db,
+        fileId,
+        teamId: parsedBody.data.teamId,
+        userId: user.uid,
+        write: true,
+      });
+      if (!access.ok) {
+        res.status(access.status).json({ success: false, error: access.error });
+        return;
+      }
+      const drawing = await updateFilmReviewDrawing({
+        db,
+        fileId,
+        drawingId,
+        request: parsedBody.data as UpdateFilmReviewDrawingRequest,
+        userId: user.uid,
+        now: new Date().toISOString(),
+      });
+      res.json({ success: true, data: { drawing } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to update film review drawing', {
+        error: error.message,
+        stack: error.stack,
+      });
+      sendFilmReviewMutationError(res, error, 'Failed to update film review drawing');
+    }
+  }
+);
+
+router.delete(
+  '/files/:fileId/film-review/drawings/:drawingId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      const drawingId =
+        typeof req.params['drawingId'] === 'string' ? req.params['drawingId'].trim() : '';
+      const teamId =
+        typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : undefined;
+      const expectedRevision = Number(req.query['expectedRevision']);
+      const db = req.firebase?.db;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!fileId || !drawingId || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+        res
+          .status(400)
+          .json({ success: false, error: 'fileId, drawingId, and expectedRevision are required' });
+        return;
+      }
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+      const access = await authorizeFilmReviewDrawingAccess({
+        db,
+        fileId,
+        teamId,
+        userId: user.uid,
+        write: true,
+      });
+      if (!access.ok) {
+        res.status(access.status).json({ success: false, error: access.error });
+        return;
+      }
+      await deleteFilmReviewDrawing({ db, fileId, drawingId, expectedRevision });
+      res.json({ success: true, data: {} });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to delete film review drawing', {
+        error: error.message,
+        stack: error.stack,
+      });
+      sendFilmReviewMutationError(res, error, 'Failed to delete film review drawing');
+    }
+  }
+);
 
 router.post(
   '/files/:fileId/film-review/annotations',

@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { of, throwError } from 'rxjs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentXFilmReviewService } from '../agent-x-film-review.service';
 import {
@@ -53,7 +54,13 @@ describe('AgentXFilmReviewService', () => {
     setUserProperties: vi.fn(),
   };
 
-  const httpMock = {};
+  const httpMock = {
+    get: vi.fn(),
+    post: vi.fn(),
+    put: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
+  };
   const filesServiceMock = {
     requestFilmReviewDownloadExport: vi.fn(),
     refreshFile: vi.fn().mockResolvedValue(undefined),
@@ -423,20 +430,27 @@ describe('AgentXFilmReviewService', () => {
   });
 
   describe('revision conflicts', () => {
-    it('retries timeline play annotation saves against the refreshed review once', async () => {
+    it('saves freehand drawings through the sidecar API without PATCHing the review timeline', async () => {
       const annotation: TeamFilmReviewPlayAnnotation = {
-        kind: 'circle',
-        strokeCount: 1,
+        kind: 'freehand',
+        strokeCount: 2,
         bounds: {
-          x: 0.12,
-          y: 0.18,
-          width: 0.24,
-          height: 0.2,
+          minX: 0.12,
+          minY: 0.18,
+          maxX: 0.36,
+          maxY: 0.38,
         },
         activeFromSec: 12,
         activeUntilSec: 13.5,
+        strokes: [
+          [
+            { x: 0.12, y: 0.18 },
+            { x: 0.2, y: 0.24 },
+          ],
+          [{ x: 0.36, y: 0.38 }],
+        ],
       };
-      const staleReview = createReviewDoc({
+      const review = createReviewDoc({
         reviewRevision: 3,
         timeline: [
           {
@@ -449,70 +463,235 @@ describe('AgentXFilmReviewService', () => {
           },
         ],
       });
-      const latestReview = createReviewDoc({
-        reviewRevision: 4,
-        title: 'Updated by another coach',
-        timeline: [
-          {
-            ...staleReview.timeline![0],
-            label: 'Updated by another coach',
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const updateLinkedFileReviewSpy = vi.spyOn(
+        service as never,
+        'updateLinkedFileReview' as never
+      );
+      httpMock.post.mockReturnValue(
+        of({
+          success: true,
+          data: {
+            drawing: {
+              id: 'drawing-1',
+              playId: 'play-1',
+              kind: 'freehand',
+              bounds: annotation.bounds,
+              strokeCount: 2,
+              points: [
+                { x: 0.12, y: 0.18 },
+                { x: 0.2, y: 0.24 },
+                { x: 0.36, y: 0.38 },
+              ],
+              strokeStartIndexes: [0, 2],
+              revision: 1,
+              createdBy: 'user-123',
+              createdAt: '2026-07-30T00:00:00.000Z',
+              updatedBy: 'user-123',
+              updatedAt: '2026-07-30T00:00:00.000Z',
+            },
           },
-        ],
+        })
+      );
+
+      await service.ensureReviewDetails(review.id, review.teamId);
+      await service.saveTimelinePlayAnnotations(review.id, 0, [annotation]);
+
+      expect(httpMock.post).toHaveBeenCalledWith(
+        '/api/v1/staging/agent-x/files/review-123/film-review/drawings',
+        expect.objectContaining({
+          points: [
+            { x: 0.12, y: 0.18 },
+            { x: 0.2, y: 0.24 },
+            { x: 0.36, y: 0.38 },
+          ],
+          strokeStartIndexes: [0, 2],
+        })
+      );
+      const request = httpMock.post.mock.calls[0]?.[1] as Record<string, unknown>;
+      expect(request['strokes']).toBeUndefined();
+      expect(updateLinkedFileReviewSpy).not.toHaveBeenCalled();
+      const savedAnnotations = service.reviews()[0]?.timeline?.[0]?.annotations ?? [];
+      expect(savedAnnotations).toHaveLength(1);
+      expect(savedAnnotations[0]).toMatchObject({
+        kind: 'freehand',
+        drawingId: 'drawing-1',
+        drawingRevision: 1,
       });
-      const updatedReview = createReviewDoc({
-        reviewRevision: 5,
-        title: latestReview.title,
-        timeline: [
-          {
-            ...latestReview.timeline![0],
-            annotation,
-            annotations: [annotation],
+
+      httpMock.patch.mockReturnValueOnce(
+        of({
+          success: true,
+          data: {
+            drawing: {
+              id: 'drawing-1',
+              playId: 'play-1',
+              kind: 'freehand',
+              bounds: { minX: 0.14, minY: 0.2, maxX: 0.38, maxY: 0.4 },
+              strokeCount: 2,
+              points: [
+                { x: 0.14, y: 0.2 },
+                { x: 0.22, y: 0.26 },
+                { x: 0.38, y: 0.4 },
+              ],
+              strokeStartIndexes: [0, 2],
+              revision: 2,
+              createdBy: 'user-123',
+              createdAt: '2026-07-30T00:00:00.000Z',
+              updatedBy: 'user-123',
+              updatedAt: '2026-07-30T00:01:00.000Z',
+            },
           },
-        ],
+        })
+      );
+
+      await service.saveTimelinePlayAnnotations(review.id, 0, [
+        {
+          ...savedAnnotations[0]!,
+          bounds: { minX: 0.14, minY: 0.2, maxX: 0.38, maxY: 0.4 },
+          strokes: [
+            [
+              { x: 0.14, y: 0.2 },
+              { x: 0.22, y: 0.26 },
+            ],
+            [{ x: 0.38, y: 0.4 }],
+          ],
+        },
+      ]);
+
+      expect(httpMock.post).toHaveBeenCalledTimes(1);
+      expect(httpMock.patch).toHaveBeenCalledWith(
+        '/api/v1/staging/agent-x/files/review-123/film-review/drawings/drawing-1',
+        expect.objectContaining({
+          expectedRevision: 1,
+          bounds: { minX: 0.14, minY: 0.2, maxX: 0.38, maxY: 0.4 },
+        })
+      );
+      expect(service.reviews()[0]?.timeline?.[0]?.annotations?.[0]).toMatchObject({
+        drawingId: 'drawing-1',
+        drawingRevision: 2,
       });
-      const getReviewSpy = vi
-        .spyOn(service as never, 'getNativeFilmReview' as never)
-        .mockResolvedValueOnce(staleReview)
-        .mockResolvedValueOnce(latestReview);
-      const updateLinkedFileReviewSpy = vi
-        .spyOn(service as never, 'updateLinkedFileReview' as never)
-        .mockRejectedValueOnce(
-          new HttpErrorResponse({
-            status: 409,
-            error: {
-              success: false,
-              code: 'REVISION_CONFLICT',
-              currentRevision: 4,
+
+      httpMock.patch
+        .mockReturnValueOnce(
+          throwError(
+            () =>
+              new HttpErrorResponse({
+                status: 409,
+                error: {
+                  success: false,
+                  code: 'REVISION_CONFLICT',
+                  currentRevision: 20,
+                },
+              })
+          )
+        )
+        .mockReturnValueOnce(
+          of({
+            success: true,
+            data: {
+              drawing: {
+                id: 'drawing-1',
+                playId: 'play-1',
+                kind: 'freehand',
+                bounds: { minX: 0.16, minY: 0.22, maxX: 0.4, maxY: 0.42 },
+                strokeCount: 2,
+                points: [
+                  { x: 0.16, y: 0.22 },
+                  { x: 0.24, y: 0.28 },
+                  { x: 0.4, y: 0.42 },
+                ],
+                strokeStartIndexes: [0, 2],
+                revision: 21,
+                createdBy: 'user-123',
+                createdAt: '2026-07-30T00:00:00.000Z',
+                updatedBy: 'user-123',
+                updatedAt: '2026-07-30T00:02:00.000Z',
+              },
             },
           })
-        )
-        .mockResolvedValueOnce(updatedReview);
+        );
 
-      await service.ensureReviewDetails(staleReview.id, staleReview.teamId);
-      await service.saveTimelinePlayAnnotations(staleReview.id, 0, [annotation]);
+      await service.saveTimelinePlayAnnotations(review.id, 0, [
+        {
+          ...service.reviews()[0]!.timeline![0]!.annotations![0]!,
+          bounds: { minX: 0.16, minY: 0.22, maxX: 0.4, maxY: 0.42 },
+          strokes: [
+            [
+              { x: 0.16, y: 0.22 },
+              { x: 0.24, y: 0.28 },
+            ],
+            [{ x: 0.4, y: 0.42 }],
+          ],
+        },
+      ]);
 
-      expect(getReviewSpy).toHaveBeenCalledTimes(2);
-      expect(updateLinkedFileReviewSpy).toHaveBeenNthCalledWith(
-        1,
-        staleReview.id,
+      expect(httpMock.patch).toHaveBeenLastCalledWith(
+        '/api/v1/staging/agent-x/files/review-123/film-review/drawings/drawing-1',
         expect.objectContaining({
-          expectedRevision: 3,
+          expectedRevision: 20,
+          bounds: { minX: 0.16, minY: 0.22, maxX: 0.4, maxY: 0.42 },
         })
       );
-      expect(updateLinkedFileReviewSpy).toHaveBeenNthCalledWith(
-        2,
-        staleReview.id,
-        expect.objectContaining({
-          expectedRevision: 4,
-          timeline: updatedReview.timeline,
-        })
-      );
-      expect(service.reviews()[0]).toMatchObject({
-        reviewRevision: 5,
-        title: latestReview.title,
-        timeline: updatedReview.timeline,
+      expect(service.reviews()[0]?.timeline?.[0]?.annotations?.[0]).toMatchObject({
+        drawingId: 'drawing-1',
+        drawingRevision: 21,
       });
-      expect(service.error()).toBeNull();
+    });
+
+    it('does not re-embed hydrated sidecar drawings when a timeline play is renamed', async () => {
+      const drawingAnnotation: TeamFilmReviewPlayAnnotation = {
+        kind: 'freehand',
+        drawingId: 'drawing-1',
+        drawingRevision: 1,
+        strokeCount: 1,
+        bounds: { minX: 0.12, minY: 0.18, maxX: 0.36, maxY: 0.38 },
+        strokes: [
+          [
+            { x: 0.12, y: 0.18 },
+            { x: 0.36, y: 0.38 },
+          ],
+        ],
+      };
+      const review = createReviewDoc({
+        reviewRevision: 3,
+        timeline: [
+          {
+            id: 'play-1',
+            number: 1,
+            label: 'Inside Zone',
+            startSec: 12,
+            endSec: 19,
+            annotations: [drawingAnnotation],
+          },
+        ],
+      });
+      const updatedReview = {
+        ...review,
+        timeline: [
+          {
+            ...review.timeline![0],
+            label: 'Outside Zone',
+            annotation: null,
+            annotations: null,
+          },
+        ],
+      } satisfies TeamFilmReviewDoc;
+
+      vi.spyOn(service as never, 'getNativeFilmReview' as never).mockResolvedValue(review);
+      const updateLinkedFileReviewSpy = vi
+        .spyOn(service as never, 'updateLinkedFileReview' as never)
+        .mockResolvedValue(updatedReview);
+
+      await service.ensureReviewDetails(review.id, review.teamId);
+      await service.renameTimelinePlay(review.id, 0, 'Outside Zone');
+
+      const request = updateLinkedFileReviewSpy.mock.calls[0]?.[1] as UpdateTeamFilmReviewRequest;
+      expect(request.timeline?.[0]).toMatchObject({ label: 'Outside Zone' });
+      expect(request.timeline?.[0]?.annotations).toBeNull();
+      expect(request.timeline?.[0]?.annotation).toBeNull();
+      expect(JSON.stringify(request.timeline)).not.toContain('drawing-1');
+      expect(JSON.stringify(request.timeline)).not.toContain('strokes');
     });
 
     it('reloads the latest review and reports a targeted conflict message', async () => {

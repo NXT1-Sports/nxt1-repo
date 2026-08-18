@@ -527,6 +527,13 @@ type DrawHitTarget =
   | { kind: 'body' }
   | { kind: 'handle'; handle: DrawResizeHandle };
 
+type StoredDrawSelectionTarget = {
+  readonly annotationIndex: number;
+  readonly annotation: EditableDrawAnnotation;
+  readonly window: { startSec: number; endSec: number } | null;
+  readonly hitTarget: Exclude<DrawHitTarget, { kind: 'none' }>;
+};
+
 type DrawInteractionState =
   | { mode: 'draw-freehand'; pointerId: number }
   | {
@@ -4759,6 +4766,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private currentDrawEffectWindow: { startSec: number; endSec: number } | null = null;
   private currentDrawAnnotationIndex: number | null = null;
   private lastDrawEffectPauseCheckSec: number | null = null;
+  private pausedDrawEffectMarkerId: string | null = null;
   private readonly auth = inject(Auth, { optional: true });
   private readonly nativePlaybackSourcePlayIndex = signal<number | null>(null);
   protected readonly selectedCameraAngle = signal<TeamFilmReviewCameraAngle>('wide');
@@ -11032,6 +11040,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!this.resolveCloudflareBaseEmbedUrl(review, play)) return false;
 
     const nextTime = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    this.clearPausedDrawEffectMarker();
     this.stopSmoothProgressTracking();
     this.isPlaying.set(false);
     this.cloudflareStartTimeSec.set(nextTime);
@@ -11052,6 +11061,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
     const shouldResume = !player.paused && !player.ended;
+    this.clearPausedDrawEffectMarker();
 
     this.logSeekDebug('jump-to-before', player, {
       requestedTime: seconds,
@@ -11532,6 +11542,32 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const storedSelection = this.resolveStoredDrawSelectionTarget(point, canvas);
+    if (storedSelection) {
+      this.drawAnnotation = storedSelection.annotation;
+      this.currentDrawAnnotationIndex = storedSelection.annotationIndex;
+      this.currentDrawEffectWindow = storedSelection.window;
+      this.selectedDrawTool.set(storedSelection.annotation.kind);
+      this.hasDrawing.set(true);
+      this.drawInteraction =
+        storedSelection.hitTarget.kind === 'handle'
+          ? {
+              mode: 'resize',
+              pointerId: event.pointerId,
+              startPoint: point,
+              origin: this.cloneEditableDrawAnnotation(storedSelection.annotation),
+              handle: storedSelection.hitTarget.handle,
+            }
+          : null;
+      this.activeStroke = [];
+      if (storedSelection.hitTarget.kind === 'handle') {
+        canvas.setPointerCapture?.(event.pointerId);
+      }
+      this.syncDrawCanvasCursor(point);
+      this.renderDrawOverlay();
+      return;
+    }
+
     canvas.setPointerCapture?.(event.pointerId);
     this.currentDrawAnnotationIndex = null;
     this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
@@ -11956,6 +11992,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return null;
     }
 
+    const drawingIdentity = this.resolveCurrentDrawingPersistenceIdentity(play);
+
     const effectWindow =
       this.currentDrawEffectWindow ??
       this.resolveDrawEffectWindowForPlay(play, this.resolvePrimaryPlayAnnotation(play)) ??
@@ -11974,6 +12012,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
       return {
         kind: 'text',
+        ...drawingIdentity,
         bounds,
         text,
         activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
@@ -11992,6 +12031,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
       return {
         kind: this.drawAnnotation.kind,
+        ...drawingIdentity,
         bounds,
         strokeCount: 1,
         activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
@@ -12008,6 +12048,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     return {
       kind: 'freehand',
+      ...drawingIdentity,
       bounds,
       strokeCount: strokes.length,
       points: this.compactDrawPointsFromStrokes(strokes, this.maxContextAnnotationPoints),
@@ -12015,6 +12056,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
       activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
     };
+  }
+
+  private resolveCurrentDrawingPersistenceIdentity(
+    play: FilmTimelinePlay
+  ): Pick<TeamFilmReviewPlayAnnotation, 'drawingId' | 'drawingRevision'> {
+    if (this.currentDrawAnnotationIndex === null) {
+      return {};
+    }
+
+    const existingAnnotation =
+      this.resolveStoredPlayAnnotations(play)[this.currentDrawAnnotationIndex];
+    const drawingId = existingAnnotation?.drawingId?.trim();
+    const drawingRevision = existingAnnotation?.drawingRevision;
+    return drawingId && Number.isInteger(drawingRevision) ? { drawingId, drawingRevision } : {};
   }
 
   private resolveCurrentPlayAnnotationsForPersistence(): readonly TeamFilmReviewPlayAnnotation[] {
@@ -12384,7 +12439,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     point: DrawAnnotationPoint,
     canvas: HTMLCanvasElement
   ): DrawHitTarget {
-    const annotation = this.drawAnnotation;
+    return this.resolveDrawHitTargetForAnnotation(point, canvas, this.drawAnnotation);
+  }
+
+  private resolveDrawHitTargetForAnnotation(
+    point: DrawAnnotationPoint,
+    canvas: HTMLCanvasElement,
+    annotation: EditableDrawAnnotation | null | undefined,
+    includeHandles = true
+  ): DrawHitTarget {
     if (!annotation) {
       return { kind: 'none' };
     }
@@ -12399,14 +12462,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientHeight, 1);
     const handles = this.resolveDrawHandlePositions(annotation.bounds);
 
-    for (const [handle, handlePoint] of Object.entries(handles) as Array<
-      [DrawResizeHandle, DrawAnnotationPoint]
-    >) {
-      if (
-        Math.abs(point.x - handlePoint.x) <= hitPaddingX &&
-        Math.abs(point.y - handlePoint.y) <= hitPaddingY
-      ) {
-        return { kind: 'handle', handle };
+    if (includeHandles) {
+      for (const [handle, handlePoint] of Object.entries(handles) as Array<
+        [DrawResizeHandle, DrawAnnotationPoint]
+      >) {
+        if (
+          Math.abs(point.x - handlePoint.x) <= hitPaddingX &&
+          Math.abs(point.y - handlePoint.y) <= hitPaddingY
+        ) {
+          return { kind: 'handle', handle };
+        }
       }
     }
 
@@ -12420,6 +12485,48 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     return { kind: 'none' };
+  }
+
+  private resolveStoredDrawSelectionTarget(
+    point: DrawAnnotationPoint,
+    canvas: HTMLCanvasElement
+  ): StoredDrawSelectionTarget | null {
+    const play = this.currentPlay();
+    if (!play) {
+      return null;
+    }
+
+    const currentTime = this.playerCurrentTime();
+    const annotations = this.resolveStoredPlayAnnotations(play);
+
+    for (let index = annotations.length - 1; index >= 0; index -= 1) {
+      const annotation = annotations[index];
+      if (!annotation || annotation.kind === 'text') {
+        continue;
+      }
+
+      const window = this.resolveDrawEffectWindowForPlay(play, annotation);
+      if (window && (currentTime < window.startSec || currentTime > window.endSec)) {
+        continue;
+      }
+
+      const restoredAnnotation = this.restoreEditableDrawAnnotation(annotation);
+      if (!restoredAnnotation) {
+        continue;
+      }
+
+      const hitTarget = this.resolveDrawHitTargetForAnnotation(point, canvas, restoredAnnotation);
+      if (hitTarget.kind === 'body' || hitTarget.kind === 'handle') {
+        return {
+          annotationIndex: index,
+          annotation: restoredAnnotation,
+          window,
+          hitTarget,
+        };
+      }
+    }
+
+    return null;
   }
 
   private roundNormalizedPoint(value: number): number {
@@ -12558,6 +12665,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onPlayerPlay(): void {
+    this.clearPausedDrawEffectMarker();
     this.isPlaying.set(true);
     this.startSmoothProgressTracking();
   }
@@ -12585,6 +12693,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!player) return;
 
     if (player.paused) {
+      this.clearPausedDrawEffectMarker();
       this.isPlaying.set(true);
       this.startSmoothProgressTracking();
       await this.playWhenReady(player).catch(() => {
@@ -12746,6 +12855,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private seekVideoTo(player: HTMLVideoElement, nextTime: number): void {
     this.logSeekDebug('seek-commit-before', player, { requestedTime: nextTime });
     const committedTime = commitMediaSeek(player, nextTime);
+    this.clearPausedDrawEffectMarker();
     this.lastDrawEffectPauseCheckSec = committedTime;
     this.updatePlayerTimeSignal(committedTime, true);
     this.syncSeekUi(committedTime);
@@ -12804,16 +12914,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return timeline[sourceIndex] ?? this.currentPlay();
   }
 
-  private clampToActiveSeekBounds(nextTime: number, player: HTMLVideoElement): number {
-    const playBounds = this.getActiveTimelineSeekBounds();
-    if (playBounds) {
-      return Math.max(playBounds.startSec, Math.min(nextTime, playBounds.endSec));
-    }
-
-    const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
-    return Math.max(0, Math.min(nextTime, duration));
-  }
-
   private enforceTimelinePlayBoundary(player: HTMLVideoElement, currentSec: number): boolean {
     const playBounds = this.getActiveTimelineSeekBounds();
     if (!playBounds) return false;
@@ -12848,33 +12948,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const previousSec = this.lastDrawEffectPauseCheckSec;
     this.lastDrawEffectPauseCheckSec = currentSec;
 
-    if (!Number.isFinite(currentSec)) {
-      return false;
-    }
-
+    if (!Number.isFinite(currentSec)) return false;
     if (previousSec === null || !Number.isFinite(previousSec) || currentSec <= previousSec) {
       return false;
     }
 
     const play = this.currentPlay();
-    if (!play) {
-      return false;
-    }
+    if (!play) return false;
 
-    const pauseTargetSec = this.resolveDrawEffectPauseTarget(play, previousSec, currentSec);
-    if (pauseTargetSec === null) {
-      return false;
-    }
+    const pauseTarget = this.resolveDrawEffectPauseTarget(play, previousSec, currentSec);
+    if (!pauseTarget) return false;
 
-    const committedTime = commitMediaSeek(
-      player,
-      this.clampToActiveSeekBounds(pauseTargetSec, player)
-    );
+    const committedTime = commitMediaSeek(player, pauseTarget.startSec);
     player.pause();
     this.isPlaying.set(false);
     this.stopSmoothProgressTracking();
+    this.pausedDrawEffectMarkerId = pauseTarget.markerId;
     this.updatePlayerTimeSignal(committedTime, true);
     this.syncSeekUi(committedTime);
+    this.showPausedDrawEffectMarker(pauseTarget.markerId);
     return true;
   }
 
@@ -12882,14 +12974,44 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     play: FilmTimelinePlay,
     previousSec: number,
     currentSec: number
-  ): number | null {
-    const nextEffectStart = this.resolveStoredPlayAnnotations(play)
-      .map((annotation) => this.resolveDrawEffectWindowForPlay(play, annotation)?.startSec ?? null)
-      .filter((startSec): startSec is number => Number.isFinite(startSec))
-      .sort((left, right) => left - right)
-      .find((startSec) => previousSec < startSec && currentSec >= startSec);
+  ): { readonly markerId: string; readonly startSec: number; readonly durationSec: number } | null {
+    return (
+      this.resolveStoredPlayAnnotations(play)
+        .map((annotation, annotationIndex) => {
+          const window = this.resolveDrawEffectWindowForPlay(play, annotation);
+          if (!window) return null;
+          const markerId = this.buildDrawEffectMarkerId(this.currentPlayIndex(), annotationIndex);
+          return {
+            markerId,
+            startSec: window.startSec,
+            durationSec: Math.max(0.05, window.endSec - window.startSec),
+          };
+        })
+        .filter(
+          (
+            target
+          ): target is {
+            readonly markerId: string;
+            readonly startSec: number;
+            readonly durationSec: number;
+          } => target !== null
+        )
+        .sort((left, right) => left.startSec - right.startSec)
+        .find((target) => previousSec < target.startSec && currentSec >= target.startSec) ?? null
+    );
+  }
 
-    return nextEffectStart ?? null;
+  private showPausedDrawEffectMarker(markerId: string): void {
+    this.pausedDrawEffectMarkerId = markerId;
+    this.renderDrawOverlay();
+  }
+
+  private clearPausedDrawEffectMarker(): void {
+    const hadPausedMarker = this.pausedDrawEffectMarkerId !== null;
+    this.pausedDrawEffectMarkerId = null;
+    if (hadPausedMarker) {
+      this.renderDrawOverlay();
+    }
   }
 
   private async playWhenReady(player: HTMLVideoElement): Promise<void> {
@@ -12938,8 +13060,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private maybeRenderDrawOverlayForPlayback(now: number, force: boolean): void {
-    if (!this.hasDrawing()) return;
-
     const shouldRenderImmediately =
       force || this.isScrubbing || this.drawInteraction !== null || this.drawModeEnabled();
     const drawOverlayVisible =
@@ -13720,8 +13840,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           continue;
         }
 
+        const isPausedMarker = this.isPausedDrawEffectMarker(index);
         const window = this.resolveDrawEffectWindowForPlay(play, annotation);
-        if (!window || currentTime < window.startSec || currentTime > window.endSec) {
+        if (
+          (!window || currentTime < window.startSec || currentTime > window.endSec) &&
+          !isPausedMarker
+        ) {
           continue;
         }
 
@@ -13752,12 +13876,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return true;
     }
 
-    if (this.currentDrawAnnotationIndex === null) {
+    const play = this.currentPlay();
+    if (!play) {
       return true;
     }
 
-    const play = this.currentPlay();
-    if (!play) {
+    if (this.currentDrawAnnotationIndex === null) {
+      if (!this.currentDrawEffectWindow) {
+        return true;
+      }
+
+      const currentTime = this.playerCurrentTime();
+      return (
+        currentTime >= this.currentDrawEffectWindow.startSec &&
+        currentTime <= this.currentDrawEffectWindow.endSec
+      );
+    }
+
+    if (this.isPausedDrawEffectMarker(this.currentDrawAnnotationIndex)) {
       return true;
     }
 
@@ -14009,11 +14145,22 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const currentSec = this.playerCurrentTime();
     return this.resolveStoredPlayAnnotations(play).some((annotation, index) => {
+      if (this.isPausedDrawEffectMarker(index)) {
+        return true;
+      }
+
       const window =
         (index === this.currentDrawAnnotationIndex ? this.currentDrawEffectWindow : null) ??
         this.resolveDrawEffectWindowForPlay(play, annotation);
       return !!window && currentSec >= window.startSec && currentSec <= window.endSec;
     });
+  }
+
+  private isPausedDrawEffectMarker(annotationIndex: number): boolean {
+    return (
+      this.pausedDrawEffectMarkerId ===
+      this.buildDrawEffectMarkerId(this.currentPlayIndex(), annotationIndex)
+    );
   }
 
   private resolveDrawEffectWindowForPlay(

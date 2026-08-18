@@ -181,6 +181,9 @@ interface TeamFilmReviewTimedPlayEffectBase {
   readonly bounds: AgentXSelectedContextAnnotationBounds;
   readonly activeFromSec?: number;
   readonly activeUntilSec?: number;
+  /** Set only for a drawing hydrated from the UniversalFiles sidecar. */
+  readonly drawingId?: string;
+  readonly drawingRevision?: number;
 }
 
 export interface TeamFilmReviewDrawAnnotation extends TeamFilmReviewTimedPlayEffectBase {
@@ -198,6 +201,47 @@ export interface TeamFilmReviewTextAnnotation extends TeamFilmReviewTimedPlayEff
 export type TeamFilmReviewPlayAnnotation =
   | TeamFilmReviewDrawAnnotation
   | TeamFilmReviewTextAnnotation;
+
+export type TeamFilmReviewDrawingKind = TeamFilmReviewDrawAnnotationKind | 'text';
+
+interface TeamFilmReviewDrawingBase extends TeamFilmReviewTimedPlayEffectBase {
+  readonly id: string;
+  readonly playId: string;
+  readonly sourceId?: string;
+  readonly kind: TeamFilmReviewDrawingKind;
+  readonly revision: number;
+  readonly createdBy: string;
+  readonly createdAt: PortableTimestamp;
+  readonly updatedBy: string;
+  readonly updatedAt: PortableTimestamp;
+}
+
+/**
+ * Durable visual drawing stored in
+ * UniversalFiles/{fileId}/filmReviewAnnotations/{annotationId}.
+ * Freehand geometry is deliberately flat because Firestore forbids nested arrays.
+ */
+export interface TeamFilmReviewFreehandDrawing extends TeamFilmReviewDrawingBase {
+  readonly kind: 'freehand';
+  readonly strokeCount: number;
+  readonly points: readonly AgentXSelectedContextAnnotationPoint[];
+  readonly strokeStartIndexes: readonly number[];
+}
+
+export interface TeamFilmReviewShapeDrawing extends TeamFilmReviewDrawingBase {
+  readonly kind: 'square' | 'circle';
+  readonly strokeCount: number;
+}
+
+export interface TeamFilmReviewTextDrawing extends TeamFilmReviewDrawingBase {
+  readonly kind: 'text';
+  readonly text: string;
+}
+
+export type TeamFilmReviewDrawing =
+  | TeamFilmReviewFreehandDrawing
+  | TeamFilmReviewShapeDrawing
+  | TeamFilmReviewTextDrawing;
 
 export type TeamFilmReviewPlayTagValue = string | number | boolean | null;
 

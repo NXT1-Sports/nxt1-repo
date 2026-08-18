@@ -10,6 +10,7 @@ import type { HttpAdapter } from '../api/http-adapter';
 import type { AgentXAttachment } from './agent-x.types';
 import type {
   TeamFilmReviewDownloadExport,
+  TeamFilmReviewDrawing,
   TeamFilmReviewDoc,
   TeamFilmReviewPlaylistDoc,
   TeamFilmReviewPlaySegment,
@@ -145,6 +146,34 @@ export interface RequestFilmReviewDownloadExportResponse {
   readonly downloadUrl?: string;
 }
 
+export interface ListFilmReviewDrawingsRequest {
+  readonly teamId?: string;
+  readonly playId: string;
+  readonly sourceId?: string;
+}
+
+export interface CreateFilmReviewDrawingRequest {
+  readonly teamId?: string;
+  readonly playId: string;
+  readonly sourceId?: string;
+  readonly kind: TeamFilmReviewDrawing['kind'];
+  readonly bounds: TeamFilmReviewDrawing['bounds'];
+  readonly activeFromSec?: number;
+  readonly activeUntilSec?: number;
+  readonly strokeCount?: number;
+  readonly points?: TeamFilmReviewDrawing extends infer Drawing
+    ? Drawing extends { readonly points: infer Points }
+      ? Points
+      : never
+    : never;
+  readonly strokeStartIndexes?: readonly number[];
+  readonly text?: string;
+}
+
+export interface UpdateFilmReviewDrawingRequest extends CreateFilmReviewDrawingRequest {
+  readonly expectedRevision: number;
+}
+
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -165,6 +194,8 @@ function ensureSuccess<T>(response: ApiResponse<T>, fallbackMessage: string): T 
 
 export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
   const playlistsEndpoint = `${baseUrl}/film-review-playlists`;
+  const drawingsEndpoint = (fileId: string) =>
+    `${baseUrl}/files/${encodeURIComponent(fileId)}/film-review/drawings`;
 
   return {
     async listPlaylistsPage(
@@ -209,6 +240,59 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
         `${playlistsEndpoint}/${encodeURIComponent(playlistId)}`
       );
       return ensureSuccess(response, 'Failed to delete film review playlist');
+    },
+
+    async listDrawings(
+      fileId: string,
+      request: ListFilmReviewDrawingsRequest
+    ): Promise<readonly TeamFilmReviewDrawing[]> {
+      const query = buildQuery({
+        teamId: request.teamId,
+        playId: request.playId,
+        sourceId: request.sourceId,
+      });
+      const response = await http.get<ApiResponse<{ drawings: readonly TeamFilmReviewDrawing[] }>>(
+        `${drawingsEndpoint(fileId)}${query}`
+      );
+      return ensureSuccess(response, 'Failed to load film review drawings').drawings;
+    },
+
+    async createDrawing(
+      fileId: string,
+      request: CreateFilmReviewDrawingRequest
+    ): Promise<TeamFilmReviewDrawing> {
+      const response = await http.post<ApiResponse<{ drawing: TeamFilmReviewDrawing }>>(
+        drawingsEndpoint(fileId),
+        request
+      );
+      return ensureSuccess(response, 'Failed to create film review drawing').drawing;
+    },
+
+    async updateDrawing(
+      fileId: string,
+      drawingId: string,
+      request: UpdateFilmReviewDrawingRequest
+    ): Promise<TeamFilmReviewDrawing> {
+      const response = await http.patch<ApiResponse<{ drawing: TeamFilmReviewDrawing }>>(
+        `${drawingsEndpoint(fileId)}/${encodeURIComponent(drawingId)}`,
+        request
+      );
+      return ensureSuccess(response, 'Failed to update film review drawing').drawing;
+    },
+
+    async deleteDrawing(
+      fileId: string,
+      drawingId: string,
+      request: Pick<ListFilmReviewDrawingsRequest, 'teamId'> & { readonly expectedRevision: number }
+    ): Promise<void> {
+      const query = buildQuery({
+        teamId: request.teamId,
+        expectedRevision: request.expectedRevision,
+      });
+      const response = await http.delete<ApiResponse<Record<string, never>>>(
+        `${drawingsEndpoint(fileId)}/${encodeURIComponent(drawingId)}${query}`
+      );
+      ensureSuccess(response, 'Failed to delete film review drawing');
     },
   } as const;
 }
