@@ -18,6 +18,8 @@ import { AgentXOperationEventService } from './agent-x-operation-event.service';
 const ENQUEUE_HYDRATION_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000, 10_000] as const;
 const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 const INITIAL_HISTORY_LIMIT = 50;
+/** How recently a terminal row must have finished to count as "just completed". */
+const FRESH_TERMINAL_WINDOW_MS = 2 * 60 * 1000;
 const OPERATIONS_LOG_NO_CACHE_OPTIONS = {
   headers: {
     'X-No-Cache': '1',
@@ -755,6 +757,9 @@ export class AgentXOperationsLogStateService {
     nextEntries: readonly OperationLogEntry[]
   ): void {
     const terminalStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
+    // With no prior snapshot there is nothing to diff against, so treat this pass
+    // as a baseline and never surface pre-existing rows as freshly completed.
+    const isBaselineSnapshot = previousEntries.length === 0;
     const previousByThread = new Map<string, OperationLogEntry>();
     const previousByOperation = new Map<string, OperationLogEntry>();
 
@@ -778,18 +783,20 @@ export class AgentXOperationsLogStateService {
       const previous =
         (operationId ? previousByOperation.get(operationId) : undefined) ??
         previousByThread.get(threadId);
-      const isFreshTerminalUpdate =
-        !previous ||
-        previous.status !== entry.status ||
-        previous.timestamp !== entry.timestamp ||
-        (previous.operationId?.trim() ?? '') !== (operationId ?? '');
-
-      if (!isFreshTerminalUpdate) continue;
 
       const notificationKey = this.buildThreadRefreshNotificationKey(entry);
       if (!notificationKey || this._httpNotifiedTerminalRefreshKeys.has(notificationKey)) continue;
 
       this._httpNotifiedTerminalRefreshKeys.add(notificationKey);
+      if (isBaselineSnapshot) continue;
+
+      const transitionedToTerminal = !!previous && previous.status !== entry.status;
+      const rowFinishedAgain =
+        !!previous && previous.timestamp !== entry.timestamp && this.isRecentTerminalEntry(entry);
+      const appearedAsRecentCompletion = !previous && this.isRecentTerminalEntry(entry);
+
+      if (!transitionedToTerminal && !rowFinishedAgain && !appearedAsRecentCompletion) continue;
+
       this._unreadThreadIds.update((set) => {
         const next = new Set(set);
         next.add(threadId);
@@ -802,6 +809,12 @@ export class AgentXOperationsLogStateService {
         entry.status
       );
     }
+  }
+
+  private isRecentTerminalEntry(entry: OperationLogEntry): boolean {
+    const finishedAt = this.parseEntryTimestamp(entry);
+    if (!finishedAt) return false;
+    return Date.now() - finishedAt <= FRESH_TERMINAL_WINDOW_MS;
   }
 
   private buildThreadRefreshNotificationKey(entry: OperationLogEntry): string {

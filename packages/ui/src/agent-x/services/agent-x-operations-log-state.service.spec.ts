@@ -149,6 +149,127 @@ describe('AgentXOperationsLogStateService', () => {
     expect(service.unreadThreadIds().has('thread-123')).toBe(false);
   });
 
+  it('does not mark existing completed history unread when refreshing without a prior snapshot', async () => {
+    const get = vi.fn().mockReturnValue(
+      of({
+        success: true,
+        data: [
+          createEntry({
+            id: 'op-1',
+            operationId: 'op-1',
+            threadId: 'thread-1',
+            status: 'complete',
+            timestamp: '2026-06-01T11:00:00.000Z',
+          }),
+          createEntry({
+            id: 'op-2',
+            operationId: 'op-2',
+            threadId: 'thread-2',
+            status: 'complete',
+            timestamp: '2026-06-01T10:00:00.000Z',
+          }),
+        ],
+        scheduled: [],
+        pageInfo: { hasMore: false },
+      })
+    );
+    const emitThreadMessagesUpdated = vi.fn();
+    const service = createService({ get }, { emitThreadMessagesUpdated });
+
+    await service.refresh();
+
+    expect(service.unreadThreadIds().size).toBe(0);
+    expect(emitThreadMessagesUpdated).not.toHaveBeenCalled();
+  });
+
+  it('does not re-mark reviewed completed history unread when only operation id changes', async () => {
+    const get = vi
+      .fn()
+      .mockReturnValueOnce(
+        of({
+          success: true,
+          data: [
+            createEntry({
+              id: 'op-old',
+              operationId: 'op-old',
+              threadId: 'thread-1',
+              status: 'complete',
+              timestamp: '2026-06-01T11:00:00.000Z',
+            }),
+          ],
+          scheduled: [],
+          pageInfo: { hasMore: false },
+        })
+      )
+      .mockReturnValueOnce(
+        of({
+          success: true,
+          data: [
+            createEntry({
+              id: 'op-new',
+              operationId: 'op-new',
+              threadId: 'thread-1',
+              status: 'complete',
+              timestamp: '2026-06-01T11:00:00.000Z',
+            }),
+          ],
+          scheduled: [],
+          pageInfo: { hasMore: false },
+        })
+      );
+    const emitThreadMessagesUpdated = vi.fn();
+    const service = createService({ get }, { emitThreadMessagesUpdated });
+
+    await service.ensureLoaded(true);
+    await service.refresh();
+
+    expect(service.unreadThreadIds().has('thread-1')).toBe(false);
+    expect(emitThreadMessagesUpdated).not.toHaveBeenCalled();
+  });
+
+  it('marks a thread unread when it transitions to complete during a refresh', async () => {
+    const get = vi
+      .fn()
+      .mockReturnValueOnce(
+        of({
+          success: true,
+          data: [
+            createEntry({
+              id: 'op-1',
+              operationId: 'op-1',
+              threadId: 'thread-1',
+              status: 'in-progress',
+              timestamp: '2026-06-01T11:00:00.000Z',
+            }),
+          ],
+          scheduled: [],
+          pageInfo: { hasMore: false },
+        })
+      )
+      .mockReturnValueOnce(
+        of({
+          success: true,
+          data: [
+            createEntry({
+              id: 'op-1',
+              operationId: 'op-1',
+              threadId: 'thread-1',
+              status: 'complete',
+              timestamp: '2026-06-01T11:05:00.000Z',
+            }),
+          ],
+          scheduled: [],
+          pageInfo: { hasMore: false },
+        })
+      );
+    const service = createService({ get });
+
+    await service.ensureLoaded(true);
+    await service.refresh();
+
+    expect(service.unreadThreadIds().has('thread-1')).toBe(true);
+  });
+
   it('preserves previously loaded older history during refresh', async () => {
     const get = vi
       .fn()
