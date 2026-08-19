@@ -342,6 +342,7 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('connect my Hudl');
     expect(prompt).toContain('route to `data_coordinator` for connected-source handling');
     expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
+    expect(prompt).toContain('at the top next to Action Plan');
     expect(prompt).toContain('This is fallback-only guidance');
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(

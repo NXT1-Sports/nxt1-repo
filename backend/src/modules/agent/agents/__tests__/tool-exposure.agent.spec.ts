@@ -151,6 +151,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('save or monitor the Hudl source');
     expect(prompt).toContain('Hudl fallback boundary');
     expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
+    expect(prompt).toContain('at the top next to Action Plan');
     expect(prompt).toContain('This fallback is for inaccessible/private assets only');
     expect(prompt).toContain('present outcomes in clean product language');
     expect(prompt).toContain('### Social URL Exception (CRITICAL)');
