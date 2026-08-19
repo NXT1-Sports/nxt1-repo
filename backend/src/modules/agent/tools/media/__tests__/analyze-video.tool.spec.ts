@@ -136,7 +136,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Bounded clip analysis',
       toolCalls: [],
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.7-flash',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,
@@ -208,7 +208,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Tendency read with timestamped evidence',
       toolCalls: [],
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.7-flash',
       usage: { inputTokens: 120, outputTokens: 80, totalTokens: 200 },
       latencyMs: 1300,
       costUsd: 0.001,
@@ -298,7 +298,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Detailed Gemini Files football play analysis',
       toolCalls: [],
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.7-flash',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,
@@ -327,7 +327,7 @@ describe('AnalyzeVideoTool', () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         analysis: 'Detailed Gemini Files football play analysis',
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-3.7-flash',
         sourceVideoUrls: ['https://cdn.example.com/game-film.mp4'],
         videoUrls: ['https://cdn.example.com/game-film.mp4'],
       })
@@ -349,7 +349,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Hudl video analyzed through Gemini Files',
       toolCalls: [],
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.7-flash',
       usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
       latencyMs: 1000,
       costUsd: 0.001,
@@ -633,7 +633,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Cloudflare-backed film analyzed through Gemini Files',
       toolCalls: [],
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.7-flash',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,
@@ -691,7 +691,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Cached Cloudflare download analyzed directly',
       toolCalls: [],
-      model: 'gemini-3.1-pro-preview',
+      model: 'gemini-3.7-flash',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,

@@ -55,19 +55,21 @@ const EXTENSION_TO_MIME: Readonly<Record<string, string>> = {
   flv: 'video/x-flv',
 };
 
-/** Gemini model used for video analysis (matches the video_analysis tier). */
-const GEMINI_VIDEO_MODEL = 'gemini-3.1-pro-preview';
-const GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS = 1_000_000;
+/** Gemini model used for direct Files API video analysis. */
+const GEMINI_VIDEO_MODEL = 'gemini-3.7-flash';
+const GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS = 1_048_576;
 
 /**
- * Gemini 3.1 Pro Preview wholesale pricing (USD per token).
- * Source: https://ai.google.dev/pricing — Gemini 3.1 Pro Preview standard tier.
- * Prompts up to 200k tokens: $2.00 / 1M input, $12.00 / 1M output.
- * We use these rates for all video analyses; the 3× platform margin in
- * calculateChargeAmount() absorbs any variation from longer-context pricing.
+ * Gemini 3.7 Flash wholesale pricing (USD per token).
+ * Source: https://ai.google.dev/pricing — Gemini 3.7 Flash standard tier.
+ * Through 2026-12-31: $0.75 / 1M input, $3.75 / 1M output.
+ * Starting 2027-01-01: $1.50 / 1M input, $7.50 / 1M output.
  */
-const GEMINI_3_1_PRO_PREVIEW_INPUT_COST_PER_TOKEN = 2 / 1_000_000; // $0.00000200
-const GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN = 12 / 1_000_000; // $0.00001200
+const GEMINI_3_7_FLASH_INPUT_COST_PER_TOKEN_2026 = 0.75 / 1_000_000;
+const GEMINI_3_7_FLASH_OUTPUT_COST_PER_TOKEN_2026 = 3.75 / 1_000_000;
+const GEMINI_3_7_FLASH_INPUT_COST_PER_TOKEN_2027 = 1.5 / 1_000_000;
+const GEMINI_3_7_FLASH_OUTPUT_COST_PER_TOKEN_2027 = 7.5 / 1_000_000;
+const GEMINI_3_7_FLASH_PRICE_CHANGE_AT_MS = Date.UTC(2027, 0, 1, 0, 0, 0, 0);
 
 /** System prompt for video analysis — same as OpenRouter path. */
 const VIDEO_ANALYSIS_SYSTEM_PROMPT =
@@ -182,6 +184,23 @@ interface GeminiContextCacheMetadata {
   readonly expiresAt?: string;
   readonly lastUsedAt?: string;
   readonly hitCount: number;
+}
+
+function getGeminiVideoModelTokenPricing(now = new Date()): {
+  readonly inputCostPerToken: number;
+  readonly outputCostPerToken: number;
+} {
+  if (now.getTime() >= GEMINI_3_7_FLASH_PRICE_CHANGE_AT_MS) {
+    return {
+      inputCostPerToken: GEMINI_3_7_FLASH_INPUT_COST_PER_TOKEN_2027,
+      outputCostPerToken: GEMINI_3_7_FLASH_OUTPUT_COST_PER_TOKEN_2027,
+    };
+  }
+
+  return {
+    inputCostPerToken: GEMINI_3_7_FLASH_INPUT_COST_PER_TOKEN_2026,
+    outputCostPerToken: GEMINI_3_7_FLASH_OUTPUT_COST_PER_TOKEN_2026,
+  };
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -328,9 +347,9 @@ export class GeminiFilesService {
 
     const inputTokens = usageMeta?.promptTokenCount ?? 0;
     const outputTokens = usageMeta?.candidatesTokenCount ?? 0;
+    const pricing = getGeminiVideoModelTokenPricing();
     const costUsd =
-      inputTokens * GEMINI_3_1_PRO_PREVIEW_INPUT_COST_PER_TOKEN +
-      outputTokens * GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN;
+      inputTokens * pricing.inputCostPerToken + outputTokens * pricing.outputCostPerToken;
 
     logger.info('[GeminiFilesService] Computed video analysis cost', {
       sourceUrls,
@@ -519,9 +538,9 @@ export class GeminiFilesService {
 
       const inputTokens = usageMeta?.promptTokenCount ?? 0;
       const outputTokens = usageMeta?.candidatesTokenCount ?? 0;
+      const pricing = getGeminiVideoModelTokenPricing();
       const costUsd =
-        inputTokens * GEMINI_3_1_PRO_PREVIEW_INPUT_COST_PER_TOKEN +
-        outputTokens * GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN;
+        inputTokens * pricing.inputCostPerToken + outputTokens * pricing.outputCostPerToken;
 
       logger.info('[GeminiFilesService] Video analysis complete via context cache', {
         sourceUrls,

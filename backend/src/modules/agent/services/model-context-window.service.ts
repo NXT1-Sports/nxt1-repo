@@ -53,6 +53,7 @@ const FALLBACK_MODEL_CONTEXT_WINDOWS: Readonly<Record<string, number>> = {
   'deepseek/deepseek-v4-pro': 128_000,
   'google/gemini-2.5-flash': 1_000_000,
   'google/gemini-2.5-pro': 1_000_000,
+  'google/gemini-3.7-flash': 1_048_576,
   'google/gemini-3.1-pro-preview': 1_000_000,
 } as const;
 
