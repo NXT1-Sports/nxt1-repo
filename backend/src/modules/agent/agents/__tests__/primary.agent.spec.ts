@@ -314,6 +314,11 @@ describe('PrimaryAgent delegation control flow', () => {
     const prompt = agent.getSystemPrompt(createMockContext());
 
     expect(prompt).toContain('Primary Operating Contract (2026)');
+    expect(prompt).toContain('CROSS-TEAM PRIVATE DATA REFUSAL');
+    expect(prompt).toContain('STOP. Do NOT delegate');
+    expect(prompt).toContain('do NOT call `query_nxt1_platform_data`');
+    expect(prompt).toContain('if one entity type fails try the others');
+    expect(prompt).toContain("you cannot access another program's private NXT1 roster");
     expect(prompt).toContain('simple_routing');
     expect(prompt).toContain('numeric_or_aggregation');
     expect(prompt).toContain('sketch the likely steps to finish the request');

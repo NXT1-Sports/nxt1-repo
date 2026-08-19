@@ -4,6 +4,11 @@ import type { ToolStage } from '@nxt1/core';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import { stagingDb } from '../../../../utils/firebase-staging.js';
 import { logger } from '../../../../utils/logger.js';
+import {
+  resolvePlatformAccessScope,
+  type PlatformAccessScope,
+  type PlatformAccessScopeResolver,
+} from './platform-access-scope.js';
 import { z } from 'zod';
 
 const DEFAULT_LIMIT = 10;
@@ -66,6 +71,44 @@ export const PLATFORM_ENTITY_TYPES = [
 ] as const;
 
 type PlatformEntityType = (typeof PLATFORM_ENTITY_TYPES)[number];
+
+/**
+ * Entity types backed by team-private collections. Records are only returned
+ * when they belong to a team/organization the caller is a member of, or to the
+ * caller themselves. Everything else (`users`, `teams`, `organizations`) maps to
+ * the public directory fields already exposed on public profile/team pages.
+ */
+const TEAM_PRIVATE_ENTITY_TYPES: ReadonlySet<PlatformEntityType> = new Set([
+  'team_files',
+  'playbooks',
+  'roster_entries',
+  'team_stats',
+  'schedule',
+  'events',
+]);
+
+/** Entity types whose `teamId` / `organizationId` filters are public lookups. */
+const PUBLIC_DIRECTORY_ENTITY_TYPES: ReadonlySet<PlatformEntityType> = new Set([
+  'users',
+  'teams',
+  'organizations',
+]);
+
+/** Record fields that can identify the individual owner of a document. */
+const RECORD_OWNER_USER_FIELDS = [
+  'userId',
+  'ownerUserId',
+  'createdByUserId',
+  'createdBy',
+  'authorId',
+  'uploadedByUserId',
+] as const;
+
+/** Record fields that can identify the owning team of a document. */
+const RECORD_OWNER_TEAM_FIELDS = ['teamId', 'ownerId'] as const;
+
+/** Access-key prefixes used by UniversalFiles legacy lists and the ACL key sets. */
+const ACCESS_KEY_FIELDS = ['readAccessKeys', 'writeAccessKeys'] as const;
 
 /**
  * Alias keys are matched after trimming, lowercasing, and collapsing spaces or
@@ -230,6 +273,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     'EntityType "playbooks" is a compatibility read alias over Team Files strategy documents in UniversalFiles, not a separate legacy strategy collection. ' +
     'For `team_files` / UniversalFiles, this is an audit/count/sample surface only. Do NOT use it as the primary retrieval or revision path for saved Team Files artifacts when the universal-document tools are available. ' +
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
+    'AUTHORIZATION: team-private entity types (team_files, playbooks, roster_entries, team_stats, schedule, events) are hard-scoped to the teams and organizations the authenticated user belongs to. ' +
+    "Passing a teamId or organizationId outside that scope returns an authorization error — never attempt to read another program's roster, schedule, stats, playbooks, or files. " +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
 
   readonly parameters = QueryNxt1PlatformDataInputSchema;
@@ -240,7 +285,10 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
   readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
-  constructor(private readonly firestoreMap: PlatformFirestoreMap = {}) {
+  constructor(
+    private readonly firestoreMap: PlatformFirestoreMap = {},
+    private readonly scopeResolver: PlatformAccessScopeResolver = resolvePlatformAccessScope
+  ) {
     super();
   }
 
@@ -281,8 +329,40 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       };
     }
 
+    const callerUserId = context?.userId?.trim();
+    if (!callerUserId) {
+      return {
+        success: false,
+        error:
+          'Authenticated user context is required for query_nxt1_platform_data. Platform data cannot be read without a caller identity.',
+      };
+    }
+
     try {
       const db = this.resolveDb(context);
+
+      context?.emitStage?.('fetching_data', {
+        icon: 'database',
+        entityType,
+        phase: 'resolve_access_scope',
+      });
+      const scope = await this.scopeResolver(db, callerUserId);
+
+      const denial = this.checkFilterScope(entityType, filters, scope);
+      if (denial) {
+        logger.warn('[QueryNxt1PlatformDataTool] Cross-scope access denied', {
+          entityType,
+          callerUserId,
+          requestedTeamId: filters.teamId,
+          requestedOrganizationId: filters.organizationId,
+          allowedTeamIds: scope.teamIds,
+          allowedOrganizationIds: scope.organizationIds,
+          environment: context?.environment ?? 'production',
+          operationId: context?.operationId ?? null,
+          threadId: context?.threadId ?? null,
+        });
+        return { success: false, error: denial };
+      }
 
       if (entityType === 'user_bundle') {
         context?.emitStage?.('fetching_data', {
@@ -292,7 +372,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         });
         return {
           success: true,
-          data: await this.loadUserBundle(db, filters, context),
+          data: await this.loadUserBundle(db, filters, scope, context),
         };
       }
 
@@ -301,7 +381,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         entityType,
         phase: 'scan_platform_collection',
       });
-      const result = await this.queryEntityCollection(db, entityType, filters, context);
+      const result = await this.queryEntityCollection(db, entityType, filters, scope, context);
       return {
         success: true,
         data: {
@@ -309,6 +389,10 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           count: result.items.length,
           totalCount: result.totalCount,
           filtersApplied: this.serializeFilters(filters),
+          accessScope: {
+            teamIds: scope.teamIds,
+            organizationIds: scope.organizationIds,
+          },
           matchMode: 'collection_scan',
           items: result.items,
         },
@@ -369,10 +453,123 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     return this.firestoreMap.production ?? getFirestore();
   }
 
+  /**
+   * Rejects the request outright when the caller asks for a team or organization
+   * they do not belong to. This is the primary gate — it stops the agent from
+   * ever scanning another program's data, not just from displaying it.
+   */
+  private checkFilterScope(
+    entityType: PlatformEntityType,
+    filters: PlatformDataFilters,
+    scope: PlatformAccessScope
+  ): string | null {
+    if (scope.isPlatformAdmin || PUBLIC_DIRECTORY_ENTITY_TYPES.has(entityType)) {
+      return null;
+    }
+
+    if (filters.teamId && !scope.teamIds.includes(filters.teamId)) {
+      return (
+        `Access denied: teamId "${filters.teamId}" is outside your authorized NXT1 data scope. ` +
+        'You can only read data for teams you are an active member, coach, or administrator of. ' +
+        "Do not retry with a different entityType — tell the user this team's data is not accessible to them."
+      );
+    }
+
+    if (filters.organizationId && !scope.organizationIds.includes(filters.organizationId)) {
+      return (
+        `Access denied: organizationId "${filters.organizationId}" is outside your authorized NXT1 data scope. ` +
+        'You can only read data for organizations you belong to or administer. ' +
+        "Do not retry with a different entityType — tell the user this organization's data is not accessible to them."
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * Record-level gate for team-private collections. A record is only visible when
+   * it belongs to an in-scope team/organization, is owned by the caller, or grants
+   * the caller an explicit access key.
+   */
+  private isRecordInScope(
+    entityType: Exclude<PlatformEntityType, 'user_bundle'>,
+    record: Record<string, unknown>,
+    scope: PlatformAccessScope
+  ): boolean {
+    if (scope.isPlatformAdmin || !TEAM_PRIVATE_ENTITY_TYPES.has(entityType)) {
+      return true;
+    }
+
+    for (const field of RECORD_OWNER_TEAM_FIELDS) {
+      const value = this.str(record, field);
+      if (value && scope.teamIds.includes(value)) {
+        return true;
+      }
+    }
+
+    const organizationId = this.str(record, 'organizationId');
+    if (organizationId && scope.organizationIds.includes(organizationId)) {
+      return true;
+    }
+
+    for (const field of RECORD_OWNER_USER_FIELDS) {
+      if (this.str(record, field) === scope.userId) {
+        return true;
+      }
+    }
+
+    return this.hasGrantedAccessKey(record, scope);
+  }
+
+  private hasGrantedAccessKey(
+    record: Record<string, unknown>,
+    scope: PlatformAccessScope
+  ): boolean {
+    const granted = new Set<string>();
+    for (const field of ACCESS_KEY_FIELDS) {
+      const values = record[field];
+      if (Array.isArray(values)) {
+        for (const value of values) {
+          if (typeof value === 'string') granted.add(value);
+        }
+      }
+    }
+
+    const acl = this.obj(record, 'acl');
+    if (acl) {
+      for (const field of ['readKeys', 'manageKeys'] as const) {
+        const values = acl[field];
+        if (Array.isArray(values)) {
+          for (const value of values) {
+            if (typeof value === 'string') granted.add(value);
+          }
+        }
+      }
+    }
+
+    if (granted.size === 0) {
+      return false;
+    }
+
+    const candidates = [
+      `user:${scope.userId}`,
+      `u:${scope.userId}`,
+      ...scope.teamIds.flatMap((teamId) => [`team:${teamId}`, `t:${teamId}`, `tm:${teamId}`]),
+      ...scope.organizationIds.flatMap((organizationId) => [
+        `org:${organizationId}`,
+        `o:${organizationId}`,
+        `om:${organizationId}`,
+      ]),
+    ];
+
+    return candidates.some((candidate) => granted.has(candidate));
+  }
+
   private async queryEntityCollection(
     db: Firestore,
     entityType: Exclude<PlatformEntityType, 'user_bundle'>,
     filters: PlatformDataFilters,
+    scope: PlatformAccessScope,
     context?: ToolExecutionContext
   ): Promise<ScanResult> {
     return this.scanCollection(
@@ -380,6 +577,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       entityType,
       filters,
       filters.limit,
+      scope,
       context
     );
   }
@@ -387,6 +585,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
   private async loadUserBundle(
     db: Firestore,
     filters: PlatformDataFilters,
+    scope: PlatformAccessScope,
     context?: ToolExecutionContext
   ): Promise<Record<string, unknown>> {
     const resolution = await this.resolveUserForBundle(db, filters, context);
@@ -431,37 +630,43 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           db.collection(COLLECTIONS.POSTS).where('userId', '==', userId),
           'posts',
           relatedFilters,
-          filters.limit
+          filters.limit,
+          scope
         ),
         this.scanCollection(
           db.collection(COLLECTIONS.RECRUITING).where('userId', '==', userId),
           'recruiting',
           relatedFilters,
-          filters.limit
+          filters.limit,
+          scope
         ),
         this.scanCollection(
           db.collection(COLLECTIONS.PLAYER_STATS).where('userId', '==', userId),
           'season_stats',
           relatedFilters,
-          filters.limit
+          filters.limit,
+          scope
         ),
         this.scanCollection(
           db.collection(COLLECTIONS.PLAYER_METRICS).where('userId', '==', userId),
           'physical_metrics',
           relatedFilters,
-          filters.limit
+          filters.limit,
+          scope
         ),
         this.scanCollection(
           db.collection(COLLECTIONS.ROSTER_ENTRIES).where('userId', '==', userId),
           'roster_entries',
           relatedFilters,
-          filters.limit
+          filters.limit,
+          scope
         ),
         this.scanCollection(
           db.collection(COLLECTIONS.EVENTS).where('userId', '==', userId),
           'events',
           relatedFilters,
-          filters.limit
+          filters.limit,
+          scope
         ),
       ]);
 
@@ -655,6 +860,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     entityType: Exclude<PlatformEntityType, 'user_bundle'>,
     filters: PlatformDataFilters,
     limit: number,
+    scope: PlatformAccessScope,
     context?: ToolExecutionContext
   ): Promise<ScanResult> {
     let totalCount = 0;
@@ -686,6 +892,9 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           id: doc.id,
           ...(doc.data() as Record<string, unknown>),
         });
+        if (!this.isRecordInScope(entityType, record, scope)) {
+          continue;
+        }
         if (!this.matchesEntityFilters(entityType, record, filters)) {
           continue;
         }

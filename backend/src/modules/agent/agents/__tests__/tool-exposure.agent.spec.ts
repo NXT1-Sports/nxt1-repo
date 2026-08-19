@@ -594,22 +594,31 @@ describe('Agent tool exposure regressions', () => {
     const dataCoordinatorPrompt = new DataCoordinatorAgent().getSystemPrompt(context);
     expect(dataCoordinatorPrompt).toContain('query_nxt1_platform_data');
     expect(dataCoordinatorPrompt).toContain('search_nxt1_platform');
+    expect(dataCoordinatorPrompt).toContain('BEFORE ANY TOOL CALL');
+    expect(dataCoordinatorPrompt).toContain('The correct action is a direct refusal');
     expect(dataCoordinatorPrompt).not.toContain('query_platform_data');
     expect(dataCoordinatorPrompt).not.toContain('search_platform_registry');
     expect(dataCoordinatorPrompt).toContain('Own direct saved-profile field edits');
     expect(dataCoordinatorPrompt).toContain('use `update_core_identity` directly');
+
+    const strategyCoordinatorPrompt = new StrategyCoordinatorAgent().getSystemPrompt(context);
+    expect(strategyCoordinatorPrompt).toContain('## Cross-Team Private Data Boundary');
+    expect(strategyCoordinatorPrompt).toContain('refuse BEFORE using tools');
 
     const prompts = [
       dataCoordinatorPrompt,
       new BrandCoordinatorAgent().getSystemPrompt(context),
       new PerformanceCoordinatorAgent().getSystemPrompt(context),
       new RecruitingCoordinatorAgent().getSystemPrompt(context),
-      new StrategyCoordinatorAgent().getSystemPrompt(context),
+      strategyCoordinatorPrompt,
       new AdminCoordinatorAgent().getSystemPrompt(context),
     ];
 
     for (const prompt of prompts) {
       expect(prompt).toContain('## Ask User Decision Matrix (CRITICAL)');
+      expect(prompt).toContain('Cross-team private data boundary');
+      expect(prompt).toContain('refuse before using tools');
+      expect(prompt).toContain('Do NOT call `query_nxt1_platform_data`');
       expect(prompt).toContain('Call `ask_user` when required fields are missing');
       expect(prompt).toContain(
         'Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.'

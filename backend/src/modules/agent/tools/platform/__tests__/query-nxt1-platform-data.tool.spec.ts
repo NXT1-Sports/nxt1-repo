@@ -33,6 +33,24 @@ import {
   createInvalidPlatformEntityTypeMessage,
   normalizePlatformEntityType,
 } from '../query-nxt1-platform-data.tool.js';
+import type { PlatformAccessScopeResolver } from '../platform-access-scope.js';
+
+const CALLER_CONTEXT = { userId: 'user-1' } as const;
+
+function createScopeResolver(
+  overrides: {
+    teamIds?: string[];
+    organizationIds?: string[];
+    isPlatformAdmin?: boolean;
+  } = {}
+): PlatformAccessScopeResolver {
+  return vi.fn(async (_db: unknown, userId: string) => ({
+    userId,
+    teamIds: overrides.teamIds ?? [],
+    organizationIds: overrides.organizationIds ?? [],
+    isPlatformAdmin: overrides.isPlatformAdmin ?? false,
+  })) as unknown as PlatformAccessScopeResolver;
+}
 
 describe('QueryNxt1PlatformDataTool metadata', () => {
   it('describes team_files as audit-only and points callers to universal-document tools', () => {
@@ -216,12 +234,15 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({
-      entityType: 'posts',
-      postType: 'video',
-      sport: 'Football',
-    });
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never }, createScopeResolver());
+    const result = await tool.execute(
+      {
+        entityType: 'posts',
+        postType: 'video',
+        sport: 'Football',
+      },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(2);
@@ -245,8 +266,8 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'team' });
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never }, createScopeResolver());
+    const result = await tool.execute({ entityType: 'team' }, CALLER_CONTEXT);
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('teams');
@@ -275,8 +296,14 @@ describe('QueryNxt1PlatformDataTool', () => {
       ],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'team_documents', teamId: 'team-1' });
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: db as never },
+      createScopeResolver({ teamIds: ['team-1'] })
+    );
+    const result = await tool.execute(
+      { entityType: 'team_documents', teamId: 'team-1' },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team_files');
@@ -343,8 +370,14 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [{ id: 'event-1', userId: 'user-1', type: 'camp', title: 'Elite Camp' }],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'user_bundle', userId: 'user-1' });
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: db as never },
+      createScopeResolver({ teamIds: ['team-1'], organizationIds: ['org-1'] })
+    );
+    const result = await tool.execute(
+      { entityType: 'user_bundle', userId: 'user-1' },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['matched']).toBe(true);
@@ -377,7 +410,10 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ staging: stagingDb as never });
+    const tool = new QueryNxt1PlatformDataTool(
+      { staging: stagingDb as never },
+      createScopeResolver()
+    );
     const result = await tool.execute(
       { entityType: 'organizations', state: 'TX' },
       { userId: 'user-1', environment: 'staging' }
@@ -420,8 +456,14 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'team_stats', teamId: 'team-1' });
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: db as never },
+      createScopeResolver({ teamIds: ['team-1'] })
+    );
+    const result = await tool.execute(
+      { entityType: 'team_stats', teamId: 'team-1' },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
@@ -453,8 +495,14 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'teamStats', teamId: 'team-1' });
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: db as never },
+      createScopeResolver({ teamIds: ['team-1'] })
+    );
+    const result = await tool.execute(
+      { entityType: 'teamStats', teamId: 'team-1' },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team_stats');
@@ -483,8 +531,11 @@ describe('QueryNxt1PlatformDataTool', () => {
       Events: [],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'player_stats', userId: 'user-1' });
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never }, createScopeResolver());
+    const result = await tool.execute(
+      { entityType: 'player_stats', userId: 'user-1' },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('season_stats');
@@ -521,12 +572,18 @@ describe('QueryNxt1PlatformDataTool', () => {
       ],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({
-      entityType: 'universal_files',
-      teamId: '0ORPTNTxADr8wMmQkDrr',
-      query: '2ef913c65b803751afbf7c37e09221069cf1d351',
-    });
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: db as never },
+      createScopeResolver({ teamIds: ['0ORPTNTxADr8wMmQkDrr'] })
+    );
+    const result = await tool.execute(
+      {
+        entityType: 'universal_files',
+        teamId: '0ORPTNTxADr8wMmQkDrr',
+        query: '2ef913c65b803751afbf7c37e09221069cf1d351',
+      },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team_files');
@@ -580,13 +637,16 @@ describe('QueryNxt1PlatformDataTool', () => {
       ],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({
-      entityType: 'schedule',
-      userId: 'user-1',
-      sport: 'football',
-      source: 'maxpreps',
-    });
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never }, createScopeResolver());
+    const result = await tool.execute(
+      {
+        entityType: 'schedule',
+        userId: 'user-1',
+        sport: 'football',
+        source: 'maxpreps',
+      },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('schedule');
@@ -626,8 +686,11 @@ describe('QueryNxt1PlatformDataTool', () => {
       ],
     });
 
-    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
-    const result = await tool.execute({ entityType: 'schedule_events', userId: 'user-1' });
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never }, createScopeResolver());
+    const result = await tool.execute(
+      { entityType: 'schedule_events', userId: 'user-1' },
+      CALLER_CONTEXT
+    );
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['entityType']).toBe('schedule');
@@ -657,5 +720,160 @@ describe('QueryNxt1PlatformDataTool', () => {
         threadId: '6a556f274c478b61dc60744c',
       })
     );
+  });
+});
+
+describe('QueryNxt1PlatformDataTool organization-scope enforcement', () => {
+  const foreignTeamId = '7Z3EoBeVVdMPFHQR3hab';
+
+  function createForeignProgramDb() {
+    return createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [{ id: 'team-stat-1', teamId: foreignTeamId, season: '2025' }],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [
+        { id: 'roster-1', teamId: foreignTeamId, userId: 'their-athlete', displayName: 'Rival WR' },
+      ],
+      Events: [],
+      Schedule: [
+        { id: 'sched-1', teamId: foreignTeamId, ownerId: foreignTeamId, sport: 'football' },
+      ],
+      UniversalFiles: [
+        {
+          id: 'file-1',
+          teamId: foreignTeamId,
+          organizationId: '1CbTfHPLtmIKBbpkJvCD',
+          title: 'Defensive Call Sheet',
+          classification: { primary: 'play_call_sheet' },
+        },
+      ],
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each(['roster_entries', 'schedule', 'team_stats', 'team_files', 'playbooks'] as const)(
+    'denies %s reads for a teamId outside the caller scope',
+    async (entityType) => {
+      const tool = new QueryNxt1PlatformDataTool(
+        { production: createForeignProgramDb() as never },
+        createScopeResolver({ teamIds: ['my-team'], organizationIds: ['oe0lr1X9otZnZVDMdn8b'] })
+      );
+
+      const result = await tool.execute({ entityType, teamId: foreignTeamId }, CALLER_CONTEXT);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Access denied');
+      expect(result.error).toContain(foreignTeamId);
+      expect(result.data).toBeUndefined();
+    }
+  );
+
+  it('denies reads for an organizationId outside the caller scope', async () => {
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: createForeignProgramDb() as never },
+      createScopeResolver({ organizationIds: ['oe0lr1X9otZnZVDMdn8b'] })
+    );
+
+    const result = await tool.execute(
+      { entityType: 'team_files', organizationId: '1CbTfHPLtmIKBbpkJvCD' },
+      CALLER_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Access denied');
+  });
+
+  it('omits out-of-scope records from unfiltered team-private scans', async () => {
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: createForeignProgramDb() as never },
+      createScopeResolver({ teamIds: ['my-team'] })
+    );
+
+    const result = await tool.execute({ entityType: 'roster_entries' }, CALLER_CONTEXT);
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(0);
+    expect((result.data as Record<string, unknown>)['items']).toEqual([]);
+  });
+
+  it('logs a cross-scope denial for auditing', async () => {
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: createForeignProgramDb() as never },
+      createScopeResolver({ teamIds: ['my-team'] })
+    );
+
+    await tool.execute({ entityType: 'team_files', teamId: foreignTeamId }, CALLER_CONTEXT);
+
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      '[QueryNxt1PlatformDataTool] Cross-scope access denied',
+      expect.objectContaining({
+        entityType: 'team_files',
+        callerUserId: 'user-1',
+        requestedTeamId: foreignTeamId,
+      })
+    );
+  });
+
+  it('still allows in-scope team-private reads', async () => {
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: createForeignProgramDb() as never },
+      createScopeResolver({ teamIds: [foreignTeamId] })
+    );
+
+    const result = await tool.execute(
+      { entityType: 'roster_entries', teamId: foreignTeamId },
+      CALLER_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('keeps public directory lookups available for teams outside the caller scope', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [{ id: foreignTeamId, name: 'Hoover Buccaneers', sport: 'football' }],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: db as never },
+      createScopeResolver({ teamIds: ['my-team'] })
+    );
+
+    const result = await tool.execute(
+      { entityType: 'teams', teamId: foreignTeamId },
+      CALLER_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('requires an authenticated caller', async () => {
+    const tool = new QueryNxt1PlatformDataTool(
+      { production: createForeignProgramDb() as never },
+      createScopeResolver({ teamIds: [foreignTeamId] })
+    );
+
+    const result = await tool.execute({ entityType: 'roster_entries', teamId: foreignTeamId });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Authenticated user context is required');
   });
 });
