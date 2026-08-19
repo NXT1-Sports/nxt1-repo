@@ -99,7 +99,7 @@ describe('GeminiFilesService oversized video diagnostics', () => {
       'Video is too large for full Gemini analysis in one request'
     );
     expect(service.buildOversizeVideoAnalysisError(1054059).message).toContain(
-      '1,054,059 input tokens exceeds the 1,000,000 token limit'
+      '1,054,059 input tokens exceeds the 1,048,576 token limit for gemini-3.7-flash'
     );
   });
 });

@@ -8,7 +8,7 @@ import {
   extractGoogleWorkspacePayload,
   filterGoogleWorkspaceToolDefinitions,
   getGoogleWorkspaceToolMetadata,
-  isGoogleWorkspaceAllowedToolName,
+  isGoogleWorkspaceSupportedToolName,
 } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { resolveGoogleWorkspaceMcpUrl } from './google-workspace-env.js';
@@ -117,7 +117,7 @@ export class GoogleWorkspaceMcpSessionService {
     args: Record<string, unknown>,
     context: ToolExecutionContext
   ): Promise<unknown> {
-    if (!isGoogleWorkspaceAllowedToolName(toolName)) {
+    if (!isGoogleWorkspaceSupportedToolName(toolName)) {
       throw new AgentEngineError(
         'AGENT_TOOL_NOT_ALLOWED',
         `Google Workspace tool "${toolName}" is not allowed in Agent X.`,

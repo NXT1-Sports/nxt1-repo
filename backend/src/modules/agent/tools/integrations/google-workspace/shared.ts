@@ -13,7 +13,7 @@ export interface GoogleWorkspaceOAuthTokenDocument {
 
 type GoogleWorkspaceService = 'gmail' | 'calendar' | 'drive' | 'docs' | 'sheets' | 'slides';
 
-const GOOGLE_WORKSPACE_SUPPORTED_TOOL_NAMES = new Set(['gmail_send_email']);
+const GOOGLE_WORKSPACE_GENERIC_ALLOWED_TOOL_NAMES = new Set(['gmail_send_email']);
 
 export interface GoogleWorkspaceToolMetadata {
   readonly service: GoogleWorkspaceService;
@@ -408,12 +408,10 @@ function sanitizeGoogleWorkspaceInputSchema(
   return nextSchema;
 }
 
-function resolveGoogleWorkspaceToolMetadata(
+function resolveSupportedGoogleWorkspaceToolMetadata(
   name: string,
   description?: string
 ): GoogleWorkspaceResolvedToolMetadata | null {
-  if (!GOOGLE_WORKSPACE_SUPPORTED_TOOL_NAMES.has(name)) return null;
-
   const legacy =
     GOOGLE_WORKSPACE_TOOL_METADATA[name as keyof typeof GOOGLE_WORKSPACE_TOOL_METADATA];
   if (legacy) {
@@ -434,10 +432,24 @@ function resolveGoogleWorkspaceToolMetadata(
   };
 }
 
+function resolveAllowedGoogleWorkspaceToolMetadata(
+  name: string,
+  description?: string
+): GoogleWorkspaceResolvedToolMetadata | null {
+  if (!GOOGLE_WORKSPACE_GENERIC_ALLOWED_TOOL_NAMES.has(name)) return null;
+  return resolveSupportedGoogleWorkspaceToolMetadata(name, description);
+}
+
+export function isGoogleWorkspaceSupportedToolName(
+  value: string
+): value is GoogleWorkspaceAllowedToolName {
+  return resolveSupportedGoogleWorkspaceToolMetadata(value) !== null;
+}
+
 export function isGoogleWorkspaceAllowedToolName(
   value: string
 ): value is GoogleWorkspaceAllowedToolName {
-  return resolveGoogleWorkspaceToolMetadata(value) !== null;
+  return resolveAllowedGoogleWorkspaceToolMetadata(value) !== null;
 }
 
 export function isGoogleWorkspaceMutationTool(name: GoogleWorkspaceAllowedToolName): boolean {
@@ -447,7 +459,7 @@ export function isGoogleWorkspaceMutationTool(name: GoogleWorkspaceAllowedToolNa
 export function getGoogleWorkspaceToolMetadata(
   name: GoogleWorkspaceAllowedToolName
 ): GoogleWorkspaceResolvedToolMetadata {
-  const metadata = resolveGoogleWorkspaceToolMetadata(name);
+  const metadata = resolveSupportedGoogleWorkspaceToolMetadata(name);
   if (!metadata) {
     throw new AgentEngineError(
       'AGENT_VALIDATION_FAILED',
@@ -530,7 +542,10 @@ export function filterGoogleWorkspaceToolDefinitions(
     if (seenNames.has(definition.name)) return [];
     seenNames.add(definition.name);
 
-    const metadata = resolveGoogleWorkspaceToolMetadata(definition.name, definition.description);
+    const metadata = resolveAllowedGoogleWorkspaceToolMetadata(
+      definition.name,
+      definition.description
+    );
     if (!metadata) return [];
 
     const sanitizedSchema = sanitizeGoogleWorkspaceInputSchema(definition.inputSchema);
