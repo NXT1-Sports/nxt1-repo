@@ -915,11 +915,24 @@ export class MobileShellComponent implements OnInit, OnDestroy {
         };
       }>;
     } | null;
+    const authUser = this.authFlow.user() as unknown as {
+      readonly teamCode?: { readonly teamId?: string; readonly id?: string } | null;
+    } | null;
 
-    const team = user?.sports?.[sportIndex]?.team;
-    if (!team) return null;
+    const fromTeam = (team?: {
+      readonly teamId?: string;
+      readonly id?: string;
+      readonly organizationId?: string;
+    }): string | null =>
+      team?.teamId?.trim() || team?.organizationId?.trim() || team?.id?.trim() || null;
 
-    return team.teamId?.trim() || team.organizationId?.trim() || team.id?.trim() || null;
+    // Coaches have a synthetic sports[] that can rebuild empty/reindexed after a
+    // profile refresh, so fall back to teamCode and any other sport before giving up.
+    return (
+      fromTeam(user?.sports?.[sportIndex]?.team) ??
+      (authUser?.teamCode?.teamId?.trim() || authUser?.teamCode?.id?.trim() || null) ??
+      fromTeam(user?.sports?.find((sport) => sport.team)?.team)
+    );
   }
 
   /**

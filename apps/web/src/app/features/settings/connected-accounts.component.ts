@@ -24,6 +24,7 @@ import {
   ConnectedAccountsWebModalComponent,
   type ConnectedAccountsModalCloseData,
 } from '@nxt1/ui/components/connected-sources';
+import { ConnectedAccountsResyncService } from '@nxt1/ui/components/connected-sources/resync';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtToastService } from '@nxt1/ui/services/toast';
@@ -79,6 +80,7 @@ export class ConnectedAccountsComponent implements OnInit {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly emailConnectionService = inject(WebEmailConnectionService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
 
   protected readonly userRole = computed(() => this.auth.user?.()?.role ?? null);
   protected readonly userSports = computed(() => {
@@ -136,9 +138,14 @@ export class ConnectedAccountsComponent implements OnInit {
 
     if (result.success) {
       await this.auth.refreshUserProfile();
-      this.toast.success('Connected accounts updated');
+      if (data.resync) {
+        await this.connectedAccountsResync.request(data.sources ?? []);
+      } else {
+        this.toast.success('Connected accounts updated');
+      }
       this.logger.info('Connected accounts saved from page', {
         linkCount: connectedSources.length,
+        resync: data.resync === true,
       });
     } else {
       this.logger.error('Failed to save connected accounts from page', undefined, {

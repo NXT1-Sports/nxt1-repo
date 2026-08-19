@@ -397,6 +397,63 @@ export class ManageTeamService {
     void this.haptics.impact('light');
   }
 
+  /**
+   * Persist team connected accounts immediately (mirrors Agent X / Settings).
+   * Unlike {@link setConnectedSources}, this writes to the backend right away so
+   * the Connectors modal's own Save button is authoritative and links are never
+   * lost while waiting for a separate outer save.
+   */
+  async saveConnectedSources(
+    sources: NonNullable<
+      Parameters<ManageTeamApiClient['updateTeamBasicInfo']>[1]['connectedSources']
+    >,
+    teamIdOverride?: string | null
+  ): Promise<boolean> {
+    const teamId = teamIdOverride ?? this._teamId();
+    if (!teamId) {
+      this._error.set('Team data is not available');
+      this.toast.error('Team data is not available');
+      return false;
+    }
+
+    this._connectedSources.set([...sources]);
+    this._isSaving.set(true);
+    this._error.set(null);
+    this.logger.info('Saving team connected accounts', { teamId, count: sources.length });
+    this.breadcrumb.trackStateChange('manage-team:connected-sources-saving', {
+      teamId,
+      count: sources.length,
+    });
+
+    try {
+      await this.apiClient.updateTeamBasicInfo(teamId, { connectedSources: sources });
+
+      this._dirtyFields.update((fields) => {
+        const next = new Set(fields);
+        next.delete('accounts.connectedSources');
+        return next;
+      });
+      this.analytics?.trackEvent(APP_EVENTS.TEAM_MANAGED, {
+        action: 'connected-sources-saved',
+        teamId,
+        count: sources.length,
+      });
+      this.logger.info('Team connected accounts saved', { teamId, count: sources.length });
+      await this.refreshTeam();
+      await this.haptics.notification('success');
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save connected accounts';
+      this._error.set(message);
+      this.toast.error(message);
+      this.logger.error('Failed to save team connected accounts', err, { teamId });
+      await this.haptics.notification('error');
+      return false;
+    } finally {
+      this._isSaving.set(false);
+    }
+  }
+
   // ============================================
   // ACTIONS - SAVING
   // ============================================

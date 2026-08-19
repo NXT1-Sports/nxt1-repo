@@ -732,7 +732,8 @@ export class ManageTeamShellComponent implements OnInit {
       return;
     }
 
-    this.openInitialSectionIfNeeded();
+    // No team id resolved by the caller — recover from roster memberships (source of truth).
+    void this.service.loadCurrentUserTeam().then(() => this.openInitialSectionIfNeeded());
   }
 
   // ─── Actions ────────────────────────────────────────────────────────────────
@@ -741,7 +742,10 @@ export class ManageTeamShellComponent implements OnInit {
     const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
     if (teamIdValue) {
       this.service.loadTeam(teamIdValue as string);
+      return;
     }
+
+    void this.service.loadCurrentUserTeam();
   }
 
   emitAction(section: ManageTeamSectionId, action: string, data?: unknown): void {
@@ -785,6 +789,7 @@ export class ManageTeamShellComponent implements OnInit {
   protected async openConnectedAccounts(): Promise<void> {
     const sport = this.service.formData()?.basicInfo?.sport;
     const selectedSports = sport ? [sport] : [];
+    const teamIdValue = typeof this.teamId === 'function' ? this.teamId() : this.teamId;
 
     const linkSourcesData = this.buildTeamLinkSourcesData();
 
@@ -795,8 +800,10 @@ export class ManageTeamShellComponent implements OnInit {
       scope: 'team',
     });
 
+    const teamId = this.service.teamId() ?? teamIdValue ?? undefined;
+
+    // Resync-only (user tapped Re-sync without editing links) — enqueue and stop.
     if (result.resync && !result.linkSources) {
-      const teamId = this.service.teamId();
       await this.connectedAccountsResync.request(result.sources ?? [], teamId ?? undefined);
       return;
     }
@@ -805,13 +812,24 @@ export class ManageTeamShellComponent implements OnInit {
       return;
     }
 
+    // Persist immediately (mirrors Agent X / Settings) so links are never lost
+    // while waiting for a separate outer save.
     const connectedSources = mapToConnectedSources(result.linkSources.links);
     this.syncWebsiteFromConnectedSources(connectedSources);
-    this.service.setConnectedSources(connectedSources);
+    const saved = await this.service.saveConnectedSources(connectedSources, teamId);
+    if (!saved) {
+      return;
+    }
+
     this.emitAction('accounts', 'editConnectedAccounts', {
       count: connectedSources.length,
     });
     this.service.expandSection('accounts');
+
+    // Trigger re-sync when requested, even alongside link edits.
+    if (result.resync) {
+      await this.connectedAccountsResync.request(result.sources ?? [], teamId ?? undefined);
+    }
   }
 
   private buildTeamLinkSourcesData(): LinkSourcesFormData | null {

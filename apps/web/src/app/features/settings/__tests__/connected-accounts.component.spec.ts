@@ -4,6 +4,7 @@ import { Router } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectedSource } from '@nxt1/core';
 import { ConnectedAccountsWebModalComponent } from '@nxt1/ui/components/connected-sources';
+import { ConnectedAccountsResyncService } from '@nxt1/ui/components/connected-sources/resync';
 import { ConnectedAccountsComponent } from '../connected-accounts.component';
 import {
   AUTH_SERVICE,
@@ -83,6 +84,10 @@ describe('ConnectedAccountsComponent', () => {
         {
           provide: WebEmailConnectionService,
           useValue: { connectForLinkedAccounts: vi.fn().mockResolvedValue(true) },
+        },
+        {
+          provide: ConnectedAccountsResyncService,
+          useValue: { request: vi.fn().mockResolvedValue(true) },
         },
       ],
     })
