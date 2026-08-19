@@ -8,7 +8,7 @@ const ListGoogleWorkspaceToolsInputSchema = z.object({}).strict();
 export class ListGoogleWorkspaceToolsTool extends BaseTool {
   readonly name = 'list_google_workspace_tools';
   readonly description =
-    'Lists the Google Workspace MCP tools currently available for the authenticated user, including their descriptions, input schemas, and whether each tool mutates data. ' +
+    'Lists the supported Gmail MCP send tools currently available for the authenticated user, including their descriptions, input schemas, and whether each tool mutates data. ' +
     'Use this before executing a Google Workspace action when you need the exact tool name or parameter schema.';
 
   readonly parameters = ListGoogleWorkspaceToolsInputSchema;

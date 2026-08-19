@@ -17,7 +17,7 @@ const RunGoogleWorkspaceToolInputSchema = z.object({
 export class RunGoogleWorkspaceToolTool extends BaseTool {
   readonly name = 'run_google_workspace_tool';
   readonly description =
-    'Execute an allowed Google Workspace MCP tool on behalf of the authenticated user. ' +
+    'Execute the supported Gmail MCP send tool on behalf of the authenticated user. ' +
     'Always use list_google_workspace_tools first when you need the exact parameter schema. ' +
     describeAllowedGoogleWorkspaceTools();
 

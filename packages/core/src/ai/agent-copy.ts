@@ -50,11 +50,11 @@ function summarizeResourceMutation(toolName: string): AgentApprovalCopy | null {
 
 function summarizeWorkspaceAction(toolName: string): AgentApprovalCopy {
   if (toolName === 'run_google_workspace_tool') {
-    const actionSummary = "Run a Google Workspace action in the user's connected Google account.";
+    const actionSummary = "Run a Gmail send action in the user's connected Google account.";
     return {
       reasonCode: 'run_tool',
       actionSummary,
-      notificationTitle: 'Review Workspace Action',
+      notificationTitle: 'Review Gmail Action',
       notificationBody: actionSummary,
     };
   }

@@ -22,9 +22,7 @@ describe('google oauth constants', () => {
 
   it('recognizes new canonical workspace grants', () => {
     expect(
-      hasGrantedGoogleWorkspaceScopes(
-        'openid https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/calendar.readonly'
-      )
+      hasGrantedGoogleWorkspaceScopes('openid https://www.googleapis.com/auth/gmail.send')
     ).toBe(true);
   });
 

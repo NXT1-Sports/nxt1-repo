@@ -53,16 +53,7 @@ import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
 const OAUTH_TOKEN_SUBCOLLECTION = 'oauthTokens' as const;
 const GOOGLE_OAUTH_TOKEN_DOC_ID = 'google' as const;
 // Keep this in sync with packages/core/src/auth/google-oauth.constants.ts.
-const GOOGLE_OAUTH_SCOPES = [
-  // 'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
-  // 'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  // 'https://www.googleapis.com/auth/calendar.events',
-  // 'https://www.googleapis.com/auth/documents',
-  // 'https://www.googleapis.com/auth/spreadsheets',
-  // 'https://www.googleapis.com/auth/presentations',
-] as const;
+const GOOGLE_OAUTH_SCOPES = ['https://www.googleapis.com/auth/gmail.send'] as const;
 function hasGrantedGoogleWorkspaceScopes(grantedScopes: string): boolean {
   return GOOGLE_OAUTH_SCOPES.some((scope) => grantedScopes.includes(scope));
 }

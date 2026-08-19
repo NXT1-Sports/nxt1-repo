@@ -9,15 +9,15 @@ import {
 } from '../shared.js';
 
 describe('Google Workspace shared helpers', () => {
-  it('filters remote tool definitions down to supported Google Workspace services', () => {
+  it('filters remote tool definitions down to the supported Gmail send surface', () => {
     const result = filterGoogleWorkspaceToolDefinitions([
       {
-        name: 'query_gmail_emails',
-        description: 'Search messages',
+        name: 'gmail_send_email',
+        description: 'Send messages',
         inputSchema: { type: 'object' },
       },
       {
-        name: 'manage_gmail_filter',
+        name: 'query_gmail_emails',
         description: 'Unsupported for current scope set',
       },
       {
@@ -26,39 +26,26 @@ describe('Google Workspace shared helpers', () => {
       },
     ]);
 
-    expect(result).toHaveLength(3);
-    expect(result.map((tool) => tool.name)).toEqual([
-      'query_gmail_emails',
-      'manage_gmail_filter',
-      'docs_create_document',
-    ]);
+    expect(result).toHaveLength(1);
+    expect(result.map((tool) => tool.name)).toEqual(['gmail_send_email']);
     expect(result[0]).toMatchObject({
       service: 'gmail',
-      isMutation: false,
-      available: true,
-    });
-    expect(result[1]).toMatchObject({
-      service: 'gmail',
-      isMutation: true,
-      available: true,
-    });
-    expect(result[2]).toMatchObject({
-      service: 'docs',
       isMutation: true,
       available: true,
     });
   });
 
-  it('recognizes allowed tool names only', () => {
-    expect(isGoogleWorkspaceAllowedToolName('query_gmail_emails')).toBe(true);
-    expect(isGoogleWorkspaceAllowedToolName('get_events')).toBe(true);
-    expect(isGoogleWorkspaceAllowedToolName('search_gmail_messages')).toBe(true);
-    expect(isGoogleWorkspaceAllowedToolName('manage_gmail_filter')).toBe(true);
+  it('recognizes the send-only Google Workspace tool name', () => {
+    expect(isGoogleWorkspaceAllowedToolName('gmail_send_email')).toBe(true);
+    expect(isGoogleWorkspaceAllowedToolName('query_gmail_emails')).toBe(false);
+    expect(isGoogleWorkspaceAllowedToolName('get_events')).toBe(false);
+    expect(isGoogleWorkspaceAllowedToolName('search_gmail_messages')).toBe(false);
+    expect(isGoogleWorkspaceAllowedToolName('manage_gmail_filter')).toBe(false);
     expect(isGoogleWorkspaceAllowedToolName('search_contacts')).toBe(false);
-    expect(GOOGLE_WORKSPACE_ALLOWED_TOOL_NAMES.includes('create_presentation')).toBe(true);
+    expect(GOOGLE_WORKSPACE_ALLOWED_TOOL_NAMES.includes('gmail_send_email')).toBe(true);
   });
 
-  it('sanitizes runtime-discovered schemas and keeps current MCP names', () => {
+  it('drops unsupported runtime-discovered schemas outside the send-only surface', () => {
     const result = filterGoogleWorkspaceToolDefinitions([
       {
         name: 'get_events',
@@ -74,20 +61,7 @@ describe('Google Workspace shared helpers', () => {
       },
     ]);
 
-    expect(result).toHaveLength(1);
-    expect(result[0]).toMatchObject({
-      name: 'get_events',
-      service: 'calendar',
-      isMutation: false,
-      available: true,
-    });
-    expect(result[0].inputSchema).toEqual({
-      type: 'object',
-      properties: {
-        calendar_id: { type: 'string' },
-      },
-      required: ['calendar_id'],
-    });
+    expect(result).toEqual([]);
   });
 
   it('extracts structured content first from MCP results', () => {

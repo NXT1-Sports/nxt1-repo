@@ -6,14 +6,8 @@
 export const GOOGLE_IDENTITY_SCOPES = ['openid', 'email', 'profile'] as const;
 
 export const GOOGLE_WORKSPACE_PERMISSION_SCOPES = [
-  // 'https://www.googleapis.com/auth/gmail.readonly',
+  // Agent X currently supports outbound Gmail send only.
   'https://www.googleapis.com/auth/gmail.send',
-  // 'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/calendar.readonly',
-  // 'https://www.googleapis.com/auth/calendar.events',
-  // 'https://www.googleapis.com/auth/documents',
-  // 'https://www.googleapis.com/auth/spreadsheets',
-  // 'https://www.googleapis.com/auth/presentations',
 ] as const;
 
 export const GOOGLE_OAUTH_SCOPES = [
@@ -21,10 +15,7 @@ export const GOOGLE_OAUTH_SCOPES = [
   ...GOOGLE_WORKSPACE_PERMISSION_SCOPES,
 ] as const;
 
-export const GOOGLE_GMAIL_CONNECT_SCOPES = [
-  // 'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send',
-] as const;
+export const GOOGLE_GMAIL_CONNECT_SCOPES = ['https://www.googleapis.com/auth/gmail.send'] as const;
 
 export const OAUTH_TOKEN_SUBCOLLECTION = 'oauthTokens' as const;
 export const LEGACY_EMAIL_TOKEN_SUBCOLLECTION = 'emailTokens' as const;

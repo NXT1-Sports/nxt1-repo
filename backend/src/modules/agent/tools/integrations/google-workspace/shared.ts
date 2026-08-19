@@ -13,6 +13,8 @@ export interface GoogleWorkspaceOAuthTokenDocument {
 
 type GoogleWorkspaceService = 'gmail' | 'calendar' | 'drive' | 'docs' | 'sheets' | 'slides';
 
+const GOOGLE_WORKSPACE_SUPPORTED_TOOL_NAMES = new Set(['gmail_send_email']);
+
 export interface GoogleWorkspaceToolMetadata {
   readonly service: GoogleWorkspaceService;
   readonly isMutation: boolean;
@@ -410,6 +412,8 @@ function resolveGoogleWorkspaceToolMetadata(
   name: string,
   description?: string
 ): GoogleWorkspaceResolvedToolMetadata | null {
+  if (!GOOGLE_WORKSPACE_SUPPORTED_TOOL_NAMES.has(name)) return null;
+
   const legacy =
     GOOGLE_WORKSPACE_TOOL_METADATA[name as keyof typeof GOOGLE_WORKSPACE_TOOL_METADATA];
   if (legacy) {
@@ -543,5 +547,5 @@ export function filterGoogleWorkspaceToolDefinitions(
 }
 
 export function describeAllowedGoogleWorkspaceTools(): string {
-  return 'Google Workspace tools are discovered live from the MCP server at runtime. Use list_google_workspace_tools to inspect the current tool surface.';
+  return 'Google Workspace is currently limited to outbound Gmail send actions. Use list_google_workspace_tools to inspect the current send-only tool surface.';
 }
