@@ -36,7 +36,6 @@ const PUBLIC_ENDPOINTS = [
   '/auth/team-code/validate',
   '/auth/referral/validate',
   '/auth/profile/check-username',
-  '/auth/create-user', // Uses its own token from request body
   '/invite/validate', // Needed on join page — user may not be authenticated yet
   '/sitemap',
   '/rankings/public',

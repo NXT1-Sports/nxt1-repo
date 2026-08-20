@@ -11,10 +11,11 @@ import { Router } from 'express';
 import type { Request, Response, Router as RouterType } from 'express';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
-import { notFoundError, conflictError } from '@nxt1/core/errors';
+import { notFoundError, conflictError, forbiddenError } from '@nxt1/core/errors';
 import { isValidTeamCode, USER_SCHEMA_VERSION, isTeamRole } from '@nxt1/core';
 import type { UserRole, SportProfile } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
+import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { CreateUserDto, JoinTeamDto } from '../../dtos/auth.dto.js';
 import { publishAccountStartedDomainEvent } from '../../services/domain-events/domain-events.service.js';
@@ -24,20 +25,53 @@ import { logger } from '../../utils/logger.js';
 
 const router: RouterType = Router();
 
+function normalizeEmail(value: string): string {
+  return value.toLowerCase().trim();
+}
+
 /**
  * POST /auth/create-user
  * Create a new user in Firestore with optional team code association.
  */
 router.post(
   '/create-user',
+  appGuard,
   validateBody(CreateUserDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
-    const { uid, email, firstName, lastName, displayName, teamCode, referralId } = req.body;
+    const {
+      uid: requestedUid,
+      email,
+      firstName,
+      lastName,
+      displayName,
+      teamCode,
+      referralId,
+    } = req.body;
+    const authenticatedUid = req.user?.uid;
+    const authenticatedEmail = req.user?.email ? normalizeEmail(req.user.email) : '';
+    const requestedEmail = normalizeEmail(email);
+
+    if (
+      !authenticatedUid ||
+      !authenticatedEmail ||
+      requestedUid !== authenticatedUid ||
+      requestedEmail !== authenticatedEmail
+    ) {
+      logger.warn('[POST /auth/create-user] Authenticated identity mismatch', {
+        requestedUidPrefix: requestedUid?.substring(0, 8),
+        authenticatedUidPrefix: authenticatedUid?.substring(0, 8),
+        emailMatches: requestedEmail === authenticatedEmail,
+      });
+      sendError(res, forbiddenError('owner'));
+      return;
+    }
+
+    const uid = authenticatedUid;
 
     logger.debug('[NXT1-REPO BACKEND] Create user request:', {
       uid: uid?.substring(0, 8) + '...',
-      email,
+      email: authenticatedEmail,
       teamCode: teamCode ?? 'none',
       referralId: referralId ?? 'none',
       timestamp: new Date().toISOString(),
@@ -45,7 +79,7 @@ router.post(
       port: process.env['PORT'] ?? 3000,
     });
 
-    const sanitizedEmail = email.toLowerCase().trim();
+    const sanitizedEmail = authenticatedEmail;
     const sanitizeName = (value: unknown): string => {
       return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
     };
@@ -200,10 +234,23 @@ router.post(
  */
 router.post(
   '/join-team',
+  appGuard,
   validateBody(JoinTeamDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
-    const { userId, code } = req.body;
+    const { userId: requestedUserId, code } = req.body;
+    const authenticatedUid = req.user?.uid;
+
+    if (!authenticatedUid || requestedUserId !== authenticatedUid) {
+      logger.warn('[POST /auth/join-team] Authenticated identity mismatch', {
+        requestedUserIdPrefix: requestedUserId?.substring(0, 8),
+        authenticatedUidPrefix: authenticatedUid?.substring(0, 8),
+      });
+      sendError(res, forbiddenError('owner'));
+      return;
+    }
+
+    const userId = authenticatedUid;
 
     const userDoc = await db.collection('Users').doc(userId).get();
     if (!userDoc.exists) {

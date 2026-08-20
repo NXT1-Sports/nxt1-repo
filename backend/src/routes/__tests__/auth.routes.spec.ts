@@ -45,9 +45,11 @@ vi.mock('../../services/domain-events/domain-events.service.js', () => ({
 }));
 
 vi.mock('../../services/team/roster-entry.service.js', async () => {
+  const createRosterEntry = vi.fn().mockResolvedValue(undefined);
   const syncUserProfileToRosterEntries = vi.fn().mockResolvedValue(undefined);
   return {
     createRosterEntryService: vi.fn(() => ({
+      createRosterEntry,
       syncUserProfileToRosterEntries,
     })),
     RosterEntryService: class {
@@ -92,6 +94,11 @@ import {
   __seedMockFirestoreDocument,
 } from '../../test-app.js';
 import app from '../../test-app.js';
+
+function authHeader(uid: string, email: string): string {
+  const token = Buffer.from(JSON.stringify({ uid, email }), 'utf8').toString('base64url');
+  return `Bearer test-auth:${token}`;
+}
 
 describe('Auth Routes', () => {
   beforeEach(() => {
@@ -146,13 +153,29 @@ describe('Auth Routes', () => {
 
   describe('Onboarding DTO Validation', () => {
     describe('POST /api/v1/auth/create-user', () => {
-      it('publishes account-started after the user record is created', async () => {
+      it('rejects create-user without a Firebase token', async () => {
         const response = await request(app).post('/api/v1/auth/create-user').send({
           uid: 'createdUserUid00000000000001',
           email: 'created@example.com',
           firstName: 'Created',
           lastName: 'User',
         });
+
+        expect(response.status).toBe(401);
+      });
+
+      it('publishes account-started after the user record is created', async () => {
+        const uid = 'createdUserUid00000000000001';
+        const email = 'created@example.com';
+        const response = await request(app)
+          .post('/api/v1/auth/create-user')
+          .set('Authorization', authHeader(uid, email))
+          .send({
+            uid,
+            email,
+            firstName: 'Created',
+            lastName: 'User',
+          });
 
         expect(response.status).toBe(201);
         expect(publishAccountStartedDomainEvent).toHaveBeenCalledWith(
@@ -172,18 +195,118 @@ describe('Auth Routes', () => {
           new Error('Outbox unavailable')
         );
 
-        const response = await request(app).post('/api/v1/auth/create-user').send({
-          uid: 'createdUserUid00000000000002',
-          email: 'created-2@example.com',
-          firstName: 'Created',
-          lastName: 'Again',
-        });
+        const uid = 'createdUserUid00000000000002';
+        const email = 'created-2@example.com';
+        const response = await request(app)
+          .post('/api/v1/auth/create-user')
+          .set('Authorization', authHeader(uid, email))
+          .send({
+            uid,
+            email,
+            firstName: 'Created',
+            lastName: 'Again',
+          });
 
         expect(response.status).toBe(201);
         expect(response.body?.success).toBe(true);
 
         const storedUser = __getMockFirestoreDocument('Users/createdUserUid00000000000002');
         expect(storedUser?.['email']).toBe('created-2@example.com');
+      });
+
+      it('rejects create-user when the body UID does not match the Firebase token', async () => {
+        const response = await request(app)
+          .post('/api/v1/auth/create-user')
+          .set('Authorization', authHeader('tokenUserUid0000000000000001', 'created@example.com'))
+          .send({
+            uid: 'bodyUserUid00000000000000001',
+            email: 'created@example.com',
+            firstName: 'Created',
+            lastName: 'User',
+          });
+
+        expect(response.status).toBe(403);
+        expect(__getMockFirestoreDocument('Users/bodyUserUid00000000000000001')).toBeUndefined();
+      });
+
+      it('rejects create-user when the body email does not match the Firebase token', async () => {
+        const uid = 'createdUserUid00000000000003';
+        const response = await request(app)
+          .post('/api/v1/auth/create-user')
+          .set('Authorization', authHeader(uid, 'token@example.com'))
+          .send({
+            uid,
+            email: 'body@example.com',
+            firstName: 'Created',
+            lastName: 'User',
+          });
+
+        expect(response.status).toBe(403);
+        expect(__getMockFirestoreDocument(`Users/${uid}`)).toBeUndefined();
+      });
+    });
+
+    describe('POST /api/v1/auth/join-team', () => {
+      it('rejects join-team without a Firebase token', async () => {
+        const response = await request(app).post('/api/v1/auth/join-team').send({
+          userId: 'joinUserUid00000000000000001',
+          code: 'TEAM123',
+        });
+
+        expect(response.status).toBe(401);
+      });
+
+      it('rejects join-team when the body userId does not match the Firebase token', async () => {
+        __seedMockFirestoreDocument('Users/bodyJoinUserUid0000000000001', {
+          email: 'body@example.com',
+        });
+
+        const response = await request(app)
+          .post('/api/v1/auth/join-team')
+          .set('Authorization', authHeader('tokenJoinUserUid0000000000001', 'token@example.com'))
+          .send({
+            userId: 'bodyJoinUserUid0000000000001',
+            code: 'TEAM123',
+          });
+
+        expect(response.status).toBe(403);
+        const storedUser = __getMockFirestoreDocument('Users/bodyJoinUserUid0000000000001');
+        expect(storedUser?.['teamCode']).toBeUndefined();
+      });
+
+      it('allows a signed-in user to join a team for their own UID', async () => {
+        const uid = 'joinUserUid00000000000000001';
+        __seedMockFirestoreDocument(`Users/${uid}`, {
+          email: 'join@example.com',
+          firstName: 'Join',
+          lastName: 'User',
+          role: 'athlete',
+        });
+        __seedMockFirestoreDocument('Teams/team-123', {
+          teamCode: 'TEAM123',
+          teamName: 'Demo Team',
+          isActive: true,
+          organizationId: 'org-123',
+          sport: 'Basketball',
+        });
+
+        const response = await request(app)
+          .post('/api/v1/auth/join-team')
+          .set('Authorization', authHeader(uid, 'join@example.com'))
+          .send({
+            userId: uid,
+            code: 'TEAM123',
+          });
+
+        expect(response.status).toBe(200);
+        expect(response.body).toMatchObject({ success: true, teamName: 'Demo Team' });
+
+        const storedUser = __getMockFirestoreDocument(`Users/${uid}`);
+        expect(storedUser?.['teamCode']).toMatchObject({
+          teamCode: 'TEAM123',
+          teamName: 'Demo Team',
+          teamId: 'team-123',
+        });
       });
     });
 

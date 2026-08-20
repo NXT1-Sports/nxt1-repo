@@ -405,6 +405,40 @@ function createMockStorage() {
   };
 }
 
+function decodeMockAuthToken(idToken: string): {
+  uid: string;
+  email: string;
+  email_verified: boolean;
+  admin: boolean;
+} {
+  const prefix = 'test-auth:';
+  if (!idToken.startsWith(prefix)) {
+    return {
+      uid: 'test-user',
+      email: 'test@example.com',
+      email_verified: true,
+      admin: true,
+    };
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(idToken.slice(prefix.length), 'base64url').toString());
+    return {
+      uid: typeof payload.uid === 'string' ? payload.uid : 'test-user',
+      email: typeof payload.email === 'string' ? payload.email : 'test@example.com',
+      email_verified: typeof payload.email_verified === 'boolean' ? payload.email_verified : true,
+      admin: typeof payload.admin === 'boolean' ? payload.admin : true,
+    };
+  } catch {
+    return {
+      uid: 'test-user',
+      email: 'test@example.com',
+      email_verified: true,
+      admin: true,
+    };
+  }
+}
+
 const app: ReturnType<typeof express> = express();
 
 await initializeCacheService();
@@ -433,12 +467,7 @@ app.use((req, _res, next) => {
   req.firebase = {
     db: createMockFirestore() as never,
     auth: {
-      verifyIdToken: async () => ({
-        uid: 'test-user',
-        email: 'test@example.com',
-        email_verified: true,
-        admin: true,
-      }),
+      verifyIdToken: async (idToken: string) => decodeMockAuthToken(idToken),
     } as never,
     storage: createMockStorage() as never,
   };
