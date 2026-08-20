@@ -96,12 +96,7 @@ export interface B2BOutboundLeadInput {
   readonly partnerType?: 'School/University' | 'Club/Academy' | 'Facility/Complex';
   readonly stage?: 'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied' | 'Bounced';
   readonly leadSource?:
-    | 'Outbound'
-    | 'Outbound Discovery'
-    | 'NXT1 Signup'
-    | 'Inbound'
-    | 'Referral'
-    | 'Content';
+    'Outbound' | 'Outbound Discovery' | 'NXT1 Signup' | 'Inbound' | 'Referral' | 'Content';
   readonly nextAction?: string | null;
   readonly notes?: string | null;
   readonly sourceUrl?: string | null;
@@ -119,10 +114,7 @@ export type UpsertB2BOutboundLeadResult =
   | {
       readonly status: 'skipped';
       readonly reason:
-        | 'disabled'
-        | 'missing-token'
-        | 'missing-database-id'
-        | 'missing-organization';
+        'disabled' | 'missing-token' | 'missing-database-id' | 'missing-organization';
     };
 
 type SignupLeadSource = 'Outbound' | 'Inbound' | 'Referral' | 'Content';

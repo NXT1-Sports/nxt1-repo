@@ -81,12 +81,7 @@ export interface TeamSearchResult {
 export type SearchTeamsFn = (query: string) => Promise<readonly TeamSearchResult[]>;
 
 type DraftProgramType =
-  | 'high-school'
-  | 'middle-school'
-  | 'club'
-  | 'college'
-  | 'juco'
-  | 'organization';
+  'high-school' | 'middle-school' | 'club' | 'college' | 'juco' | 'organization';
 
 interface ProgramTypeOption {
   readonly value: DraftProgramType;

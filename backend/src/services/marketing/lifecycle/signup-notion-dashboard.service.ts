@@ -24,12 +24,7 @@ const BASE_RETRY_DELAY_MS = 5 * 60 * 1000;
 const MAX_RETRY_DELAY_MS = 24 * 60 * 60 * 1000;
 
 export type SignupNotionDashboardStatus =
-  | 'queued'
-  | 'processing'
-  | 'created'
-  | 'failed'
-  | 'dead_letter'
-  | 'skipped';
+  'queued' | 'processing' | 'created' | 'failed' | 'dead_letter' | 'skipped';
 
 export interface SignupNotionDashboardStateRecord {
   readonly status?: SignupNotionDashboardStatus;
@@ -166,11 +161,9 @@ function getFlatSignupNotionDashboardState(
   return {
     status: status as SignupNotionDashboardStatus,
     idempotencyKey: doc.get('lifecycle.signup.notionDashboard.idempotencyKey') as
-      | string
-      | undefined,
+      string | undefined,
     environment: doc.get('lifecycle.signup.notionDashboard.environment') as
-      | RuntimeEnvironment
-      | undefined,
+      RuntimeEnvironment | undefined,
     queuedAt: toDate(doc.get('lifecycle.signup.notionDashboard.queuedAt')) ?? undefined,
     processingStartedAt:
       toDate(doc.get('lifecycle.signup.notionDashboard.processingStartedAt')) ?? undefined,

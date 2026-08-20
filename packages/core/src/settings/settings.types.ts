@@ -18,12 +18,7 @@
  * Maps to the main sections in the settings UI.
  */
 export type SettingsSectionId =
-  | 'account'
-  | 'preferences'
-  | 'billing'
-  | 'tools'
-  | 'support'
-  | 'legal';
+  'account' | 'preferences' | 'billing' | 'tools' | 'support' | 'legal';
 
 /**
  * Settings item type - determines how the item is rendered.

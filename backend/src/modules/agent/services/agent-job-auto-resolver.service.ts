@@ -10,9 +10,7 @@ import {
 } from '../../../services/communications/agent-jobs/email/agent-job-resolution-email.service.js';
 
 export type AgentJobAutoResolveType =
-  | 'openrouter_insufficient_credits'
-  | 'job_timeout'
-  | 'playbook_generation_unavailable';
+  'openrouter_insufficient_credits' | 'job_timeout' | 'playbook_generation_unavailable';
 
 const AGENT_JOB_AUTO_RESOLVE_TYPES = new Set<string>([
   'openrouter_insufficient_credits',

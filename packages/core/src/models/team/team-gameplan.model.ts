@@ -15,13 +15,7 @@ export type TeamGamePlanPhase = 'pregame' | 'in-game' | 'postgame' | 'scouting';
 export type TeamGamePlanPerspective = 'own' | 'opponent' | 'neutral';
 
 export type TeamGamePlanPriorityKind =
-  | 'offense'
-  | 'defense'
-  | 'execution'
-  | 'special_teams'
-  | 'transition'
-  | 'set_piece'
-  | 'custom';
+  'offense' | 'defense' | 'execution' | 'special_teams' | 'transition' | 'set_piece' | 'custom';
 
 export type TeamGamePlanDomain =
   | 'offense'

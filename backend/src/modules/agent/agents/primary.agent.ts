@@ -1383,8 +1383,7 @@ export class PrimaryAgent extends BaseAgent {
           ...(forwardedStructuredPayload ?? {}),
           resolvedBrandContext: {
             ...((forwardedStructuredPayload?.['resolvedBrandContext'] as
-              | Record<string, unknown>
-              | undefined) ?? {}),
+              Record<string, unknown> | undefined) ?? {}),
             ...resolvedBrandContext,
           },
         };

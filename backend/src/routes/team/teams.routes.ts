@@ -740,8 +740,7 @@ router.patch(
 
     let previousTeam: Record<string, unknown> | null = null;
     let previousTeamCode:
-      | Awaited<ReturnType<typeof teamCodeService.getTeamCodeById>>['team']
-      | null = null;
+      Awaited<ReturnType<typeof teamCodeService.getTeamCodeById>>['team'] | null = null;
     try {
       const previousSnapshot = await teamCodeService.getTeamCodeById(db, String(id));
       previousTeam = previousSnapshot.team as unknown as Record<string, unknown>;
@@ -1665,12 +1664,7 @@ router.get(
     const rawLimit = parseInt(String(req.query['limit'] ?? '20'), 10);
     const limit = Math.min(isNaN(rawLimit) ? 20 : rawLimit, 50);
     const filter = String(req.query['filter'] ?? 'all') as
-      | 'all'
-      | 'media'
-      | 'stats'
-      | 'games'
-      | 'schedule'
-      | 'recruiting';
+      'all' | 'media' | 'stats' | 'games' | 'schedule' | 'recruiting';
     const cursor = req.query['cursor'] ? String(req.query['cursor']) : undefined;
     const sportId = req.query['sportId'] ? String(req.query['sportId']) : undefined;
 

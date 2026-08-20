@@ -100,12 +100,7 @@ export const SEMANTIC_PHASE_PRIORITY: readonly AgentMessageSemanticPhase[] = [
 
 /** User action types that can be recorded against a persisted message. */
 export type AgentMessageActionType =
-  | 'copied'
-  | 'viewed'
-  | 'edited'
-  | 'deleted'
-  | 'undone'
-  | 'feedback_submitted';
+  'copied' | 'viewed' | 'edited' | 'deleted' | 'undone' | 'feedback_submitted';
 
 /** Immutable record of a user edit to a message. */
 export interface AgentMessageEditRecord {

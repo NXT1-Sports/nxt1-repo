@@ -3,9 +3,7 @@ import { sendSlackAlert, type AlertField } from '../../platform/alert.service.js
 import { logger } from '../../../utils/logger.js';
 
 export type FirecrawlMonitorFailureStage =
-  | 'db_unavailable'
-  | 'invalid_payload'
-  | 'processing_failed';
+  'db_unavailable' | 'invalid_payload' | 'processing_failed';
 
 export interface FirecrawlMonitorFailureAlertInput {
   readonly stage: FirecrawlMonitorFailureStage;

@@ -54,8 +54,7 @@ export function getMarketingEmailInsightsReportModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<MarketingEmailInsightsReportSnapshotDocument> {
   const existingModel = connection.models[MARKETING_EMAIL_INSIGHTS_REPORT_MODEL_NAME] as
-    | Model<MarketingEmailInsightsReportSnapshotDocument>
-    | undefined;
+    Model<MarketingEmailInsightsReportSnapshotDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<MarketingEmailInsightsReportSnapshotDocument>(

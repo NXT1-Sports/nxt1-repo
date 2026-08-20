@@ -108,8 +108,7 @@ export function getHelpArticleModel(
   connection: Connection = getMongoGlobalConnection()
 ): Model<HelpArticleDocument> {
   const existingModel = connection.models[HELP_ARTICLE_MODEL_NAME] as
-    | Model<HelpArticleDocument>
-    | undefined;
+    Model<HelpArticleDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<HelpArticleDocument>(HELP_ARTICLE_MODEL_NAME, HelpArticleSchema);

@@ -288,8 +288,7 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
 
   // Account for varied payloads where team name could be `name` or `teamName`
   const teamWithLegacyName = activeTeam as
-    | (UserDisplayTeamAffiliation & { teamName?: string | null })
-    | undefined;
+    (UserDisplayTeamAffiliation & { teamName?: string | null }) | undefined;
   const teamName = activeTeam?.name?.trim() || teamWithLegacyName?.teamName?.trim();
   const routeIdentifier =
     activeTeam?.teamId?.trim() ||
@@ -370,16 +369,13 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
           // team name instead of the active sport's team name. This prevents all
           // entries from showing the same org name when the user manages multiple teams.
           const additionalTeamName = (s.team as Record<string, unknown> | undefined)?.['name'] as
-            | string
-            | undefined;
+            string | undefined;
           const additionalIsPersonalFallback =
             isPersonalIdentityFallback || !additionalTeamName?.trim();
           const additionalLogoUrl = (s.team as Record<string, unknown> | undefined)?.['logoUrl'] as
-            | string
-            | undefined;
+            string | undefined;
           const additionalLegacyLogo = (s.team as Record<string, unknown> | undefined)?.['logo'] as
-            | string
-            | undefined;
+            string | undefined;
           return {
             id: `team-sport-${i}`,
             originalIndex: i,

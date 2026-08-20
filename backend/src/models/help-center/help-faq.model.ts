@@ -49,8 +49,7 @@ export function getHelpFaqModel(
   connection: Connection = getMongoGlobalConnection()
 ): Model<HelpFaqDocument> {
   const existingModel = connection.models[HELP_FAQ_MODEL_NAME] as
-    | Model<HelpFaqDocument>
-    | undefined;
+    Model<HelpFaqDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<HelpFaqDocument>(HELP_FAQ_MODEL_NAME, HelpFaqSchema);

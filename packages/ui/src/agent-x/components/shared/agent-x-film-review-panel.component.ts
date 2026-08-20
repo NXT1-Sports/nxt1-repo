@@ -523,9 +523,7 @@ type EditableDrawAnnotation =
 type DrawResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
 
 type DrawHitTarget =
-  | { kind: 'none' }
-  | { kind: 'body' }
-  | { kind: 'handle'; handle: DrawResizeHandle };
+  { kind: 'none' } | { kind: 'body' } | { kind: 'handle'; handle: DrawResizeHandle };
 
 type StoredDrawSelectionTarget = {
   readonly annotationIndex: number;
@@ -13104,8 +13102,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     if (!document.fullscreenElement) {
       const requestFullscreen = container.requestFullscreen?.bind(container) as
-        | (() => Promise<void>)
-        | undefined;
+        (() => Promise<void>) | undefined;
       const webkitRequestFullscreen = (
         container as HTMLElement & { webkitRequestFullscreen?: () => void }
       ).webkitRequestFullscreen;
@@ -13120,8 +13117,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     const exitFullscreen = document.exitFullscreen?.bind(document) as
-      | (() => Promise<void>)
-      | undefined;
+      (() => Promise<void>) | undefined;
     const webkitExitFullscreen = (document as Document & { webkitExitFullscreen?: () => void })
       .webkitExitFullscreen;
 
@@ -13968,8 +13964,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       const annotation =
         play && this.currentDrawAnnotationIndex !== null
           ? (this.resolveStoredPlayAnnotations(play)[this.currentDrawAnnotationIndex] as
-              | PersistedTextPlayAnnotation
-              | undefined)
+              PersistedTextPlayAnnotation | undefined)
           : null;
       const window =
         this.currentDrawEffectWindow ??

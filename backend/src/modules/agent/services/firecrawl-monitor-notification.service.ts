@@ -224,11 +224,7 @@ interface NotificationDecision {
   readonly shouldNotify: boolean;
   readonly confidence?: 'low' | 'medium' | 'high';
   readonly suppressionReason?:
-    | 'likes_reposts_only'
-    | 'ui_churn'
-    | 'formatting_only'
-    | 'unclear_signal'
-    | 'duplicate_signal';
+    'likes_reposts_only' | 'ui_churn' | 'formatting_only' | 'unclear_signal' | 'duplicate_signal';
   readonly observedChange: string;
   readonly whyItMatters?: string;
   readonly nextStep?: string;

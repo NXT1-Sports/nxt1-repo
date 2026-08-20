@@ -216,11 +216,7 @@ export type AgentToolCategory =
  * This is the source of truth for runtime tool exposure policy.
  */
 export type AgentToolEntityGroup =
-  | 'user_tools'
-  | 'team_tools'
-  | 'organization_tools'
-  | 'platform_tools'
-  | 'system_tools';
+  'user_tools' | 'team_tools' | 'organization_tools' | 'platform_tools' | 'system_tools';
 
 /**
  * Runtime policy context used to filter tool definitions for a request.

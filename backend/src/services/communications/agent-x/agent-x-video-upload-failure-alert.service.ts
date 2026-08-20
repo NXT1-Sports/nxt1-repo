@@ -3,9 +3,7 @@ import { sendSlackAlert, type AlertField } from '../../platform/alert.service.js
 import { logger } from '../../../utils/logger.js';
 
 export type AgentXVideoUploadFailureStage =
-  | 'firebase_provision_failed'
-  | 'cloudflare_direct_provision_failed'
-  | 'cloudflare_finalize_failed';
+  'firebase_provision_failed' | 'cloudflare_direct_provision_failed' | 'cloudflare_finalize_failed';
 
 export interface AgentXVideoUploadFailureAlertInput {
   readonly stage: AgentXVideoUploadFailureStage;

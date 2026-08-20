@@ -30,15 +30,7 @@
 
 /** Feature flag scopes: grouping related flags by domain */
 export type FlagScope =
-  | 'team'
-  | 'athlete'
-  | 'scout'
-  | 'content'
-  | 'agent'
-  | 'ai'
-  | 'ui'
-  | 'billing'
-  | 'experimental';
+  'team' | 'athlete' | 'scout' | 'content' | 'agent' | 'ai' | 'ui' | 'billing' | 'experimental';
 
 /** Team-scoped flags */
 export type TeamFlagKey =
@@ -78,8 +70,7 @@ export type AgentFlagKey =
 
 /** AI integration flags */
 export type AiFlagKey =
-  | 'ai.play.diagram.extended.sports.enabled'
-  | 'ai.content.generation.batch.enabled';
+  'ai.play.diagram.extended.sports.enabled' | 'ai.content.generation.batch.enabled';
 
 /** UI/Frontend flags */
 export type UiFlagKey =

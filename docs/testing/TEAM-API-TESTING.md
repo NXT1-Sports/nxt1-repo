@@ -262,9 +262,7 @@ All successful responses follow this structure:
 ```json
 {
   "success": true,
-  "data": {
-    /* response data */
-  },
+  "data": {/* response data */},
   "message": "Optional success message"
 }
 ```
@@ -277,9 +275,7 @@ Error responses:
   "error": {
     "code": "ERROR_CODE",
     "message": "Human readable error message",
-    "details": {
-      /* optional error details */
-    }
+    "details": {/* optional error details */}
   }
 }
 ```

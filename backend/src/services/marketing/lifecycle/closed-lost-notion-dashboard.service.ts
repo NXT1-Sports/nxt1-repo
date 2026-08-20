@@ -32,11 +32,7 @@ const DEFAULT_CLOSED_LOST_INACTIVITY_DAYS = 21;
 const CLOSED_LOST_NOTION_ENVIRONMENT = 'production';
 
 export type ClosedLostNotionDashboardStatus =
-  | 'queued'
-  | 'processing'
-  | 'created'
-  | 'failed'
-  | 'skipped';
+  'queued' | 'processing' | 'created' | 'failed' | 'skipped';
 
 export interface ClosedLostNotionDashboardStateRecord {
   readonly status?: ClosedLostNotionDashboardStatus;

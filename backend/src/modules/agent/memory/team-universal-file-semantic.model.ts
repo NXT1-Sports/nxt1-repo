@@ -109,8 +109,7 @@ export function getTeamUniversalFileSemanticModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<TeamUniversalFileSemanticChunkDocument> {
   const existingModel = connection.models[TEAM_UNIVERSAL_FILE_SEMANTIC_MODEL_NAME] as
-    | Model<TeamUniversalFileSemanticChunkDocument>
-    | undefined;
+    Model<TeamUniversalFileSemanticChunkDocument> | undefined;
   if (existingModel) {
     return existingModel;
   }

@@ -1385,8 +1385,7 @@ export class AgentXOperationEventService {
         },
         (error) => {
           const errorCode = (error as unknown as Record<string, unknown>)['code'] as
-            | string
-            | undefined;
+            string | undefined;
           const isPermissionDenied = errorCode === 'permission-denied';
 
           if (isPermissionDenied && attemptNumber < maxRetries) {
@@ -1483,8 +1482,7 @@ export class AgentXOperationEventService {
         },
         (error) => {
           const errorCode = (error as unknown as Record<string, unknown>)['code'] as
-            | string
-            | undefined;
+            string | undefined;
           const isPermissionDenied = errorCode === 'permission-denied';
 
           if (isPermissionDenied && attemptNumber < maxRetries && active) {

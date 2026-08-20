@@ -32,11 +32,7 @@ const REPEAT_ORG_PURCHASE_SOURCES = new Set([
 ]);
 
 export type ExpansionPricingNotionDashboardStatus =
-  | 'queued'
-  | 'processing'
-  | 'created'
-  | 'failed'
-  | 'skipped';
+  'queued' | 'processing' | 'created' | 'failed' | 'skipped';
 
 export interface ExpansionPricingNotionDashboardStateRecord {
   readonly status?: ExpansionPricingNotionDashboardStatus;
@@ -58,11 +54,7 @@ export interface RecordExpansionPricingNotionDashboardInput {
   readonly organizationId: string;
   readonly amountCents: number;
   readonly source:
-    | 'stripe_checkout'
-    | 'invoice_payment'
-    | 'manual_credit'
-    | 'direct_charge'
-    | 'auto_topup';
+    'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup';
   readonly initiatedByUserId?: string;
 }
 

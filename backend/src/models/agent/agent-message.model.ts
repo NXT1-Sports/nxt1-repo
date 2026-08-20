@@ -263,8 +263,7 @@ export function getAgentMessageModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<AgentMessage> {
   const existingModel = connection.models[AGENT_MESSAGE_MODEL_NAME] as
-    | Model<AgentMessage>
-    | undefined;
+    Model<AgentMessage> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<AgentMessage>(AGENT_MESSAGE_MODEL_NAME, AgentMessageSchema);

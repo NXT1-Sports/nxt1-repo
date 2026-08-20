@@ -39,10 +39,7 @@ interface ReplySuppressionInput {
 export interface ReplySuppressionResult {
   readonly status: 'processed' | 'skipped';
   readonly reason?:
-    | 'missing-mailbox-email'
-    | 'missing-sender-email'
-    | 'non-marketing-mailbox'
-    | 'internal-sender';
+    'missing-mailbox-email' | 'missing-sender-email' | 'non-marketing-mailbox' | 'internal-sender';
   readonly matchedLeads: number;
   readonly updatedLeads: number;
   readonly notionUpdates: number;

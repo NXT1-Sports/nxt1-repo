@@ -9,12 +9,7 @@ import { type AgentXHintDockItem } from './agent-x-operation-chat-hint-dock.comp
  */
 
 export type AgentXPanelHintKind =
-  | 'gameplans'
-  | 'playbooks'
-  | 'practice-scripts'
-  | 'film-review'
-  | 'files'
-  | 'diagrams';
+  'gameplans' | 'playbooks' | 'practice-scripts' | 'film-review' | 'files' | 'diagrams';
 
 const PANEL_HINT_AUTO_DISMISS_MS = 25_000;
 const FIRST_USER_RUN_HINT_DELAY_MS = 10_000;

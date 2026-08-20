@@ -30,13 +30,7 @@
  * - `other`     — Any other event type
  */
 export type TeamEventType =
-  | 'game'
-  | 'scrimmage'
-  | 'practice'
-  | 'camp'
-  | 'combine'
-  | 'showcase'
-  | 'other';
+  'game' | 'scrimmage' | 'practice' | 'camp' | 'combine' | 'showcase' | 'other';
 
 /**
  * Current status of a team event.

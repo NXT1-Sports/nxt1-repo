@@ -73,11 +73,7 @@ export type SignupDripStepKey = (typeof SIGNUP_DRIP_STEP_SEQUENCE)[number];
 export type SignupDripRoleTrack = 'athlete' | 'team';
 export type SignupDripPaymentState = 'unknown' | 'unpaid' | 'paid' | 'org-covered';
 export type SignupDripSuppressionReason =
-  | 'completed'
-  | 'marketing-disabled'
-  | 'profile-activated'
-  | 'agent-activated'
-  | 'paid-converted';
+  'completed' | 'marketing-disabled' | 'profile-activated' | 'agent-activated' | 'paid-converted';
 
 export interface SignupDripHistoryEntry {
   readonly stepKey: SignupDripStepKey;

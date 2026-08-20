@@ -102,11 +102,7 @@ export interface AuthModalConfig {
 
 /** Reason the modal was dismissed */
 export type AuthModalDismissReason =
-  | 'authenticated'
-  | 'closed'
-  | 'backdrop'
-  | 'forgot-password'
-  | 'provider-selected';
+  'authenticated' | 'closed' | 'backdrop' | 'forgot-password' | 'provider-selected';
 
 /** Result returned when the modal is dismissed */
 export interface AuthModalResult {

@@ -346,8 +346,7 @@ export class AppComponent {
 
           // Check for new release notes and show What's New modal if needed.
           const rawPrefs = (user as unknown as Record<string, unknown>)?.['preferences'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
           const lastSeenVersion = rawPrefs?.['lastSeenReleaseVersion'] as string | undefined;
           void this.releaseNotesModal.checkAndPrompt(
             () => this.releaseNotesApi.getLatest(),

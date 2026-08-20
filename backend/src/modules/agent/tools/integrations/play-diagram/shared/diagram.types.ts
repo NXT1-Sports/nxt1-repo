@@ -1,14 +1,7 @@
 export type NormalizedSport = 'football' | 'basketball' | 'soccer' | 'baseball' | 'softball';
 
 export type DiagramRouteType =
-  | 'screen'
-  | 'pick'
-  | 'block'
-  | 'cut'
-  | 'drag'
-  | 'space'
-  | 'go'
-  | 'fade';
+  'screen' | 'pick' | 'block' | 'cut' | 'drag' | 'space' | 'go' | 'fade';
 
 export type DiagramZoneShape = 'ellipse' | 'rect' | 'text';
 

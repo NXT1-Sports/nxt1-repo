@@ -60,12 +60,7 @@ import { NxtBackButtonComponent } from '../../components/back-button';
  * - 'onboarding': Split-screen desktop layout (branding left, form right)
  */
 export type AuthShellVariant =
-  | 'card'
-  | 'card-glass'
-  | 'wide'
-  | 'minimal'
-  | 'fullscreen'
-  | 'onboarding';
+  'card' | 'card-glass' | 'wide' | 'minimal' | 'fullscreen' | 'onboarding';
 
 @Component({
   selector: 'nxt1-auth-shell',

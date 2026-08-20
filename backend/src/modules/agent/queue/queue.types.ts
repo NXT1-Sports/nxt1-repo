@@ -137,9 +137,7 @@ export interface PlaybookGenerationQueueJobData {
 
 /** Union of all BullMQ payloads handled by the agent queue worker. */
 export type AgentQueueJobData =
-  | StandardAgentQueueJobData
-  | ThreadSummarizationQueueJobData
-  | PlaybookGenerationQueueJobData;
+  StandardAgentQueueJobData | ThreadSummarizationQueueJobData | PlaybookGenerationQueueJobData;
 
 /**
  * The return value from a completed BullMQ job.

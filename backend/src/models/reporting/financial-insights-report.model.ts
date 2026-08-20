@@ -50,8 +50,7 @@ export function getFinancialInsightsReportModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<FinancialInsightsReportSnapshotDocument> {
   const existingModel = connection.models[FINANCIAL_INSIGHTS_REPORT_MODEL_NAME] as
-    | Model<FinancialInsightsReportSnapshotDocument>
-    | undefined;
+    Model<FinancialInsightsReportSnapshotDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<FinancialInsightsReportSnapshotDocument>(

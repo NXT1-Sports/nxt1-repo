@@ -129,13 +129,7 @@ export interface BottomSheetResult<T = unknown> {
  * Can be used to apply preset styling/behavior.
  */
 export type BottomSheetVariant =
-  | 'default'
-  | 'confirmation'
-  | 'destructive'
-  | 'info'
-  | 'success'
-  | 'warning'
-  | 'error';
+  'default' | 'confirmation' | 'destructive' | 'info' | 'success' | 'warning' | 'error';
 
 // ============================================
 // CONTENT SHEET TYPES (Full Component Injection)

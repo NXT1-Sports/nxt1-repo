@@ -116,8 +116,7 @@ describe('AgentRouterPrimaryService', () => {
   it('does not mark userAlreadyReceivedResponse true for progress-only streamed deltas', async () => {
     const service = createService(async (args) => {
       const onStreamEvent = args['onStreamEvent'] as
-        | ((event: Record<string, unknown>) => void)
-        | undefined;
+        ((event: Record<string, unknown>) => void) | undefined;
       onStreamEvent?.({
         type: 'delta',
         agentId: 'performance_coordinator',
@@ -166,8 +165,7 @@ describe('AgentRouterPrimaryService', () => {
       'Analyze 8 selected film clips from the film review. Surface the most important trends, tendencies, leverage points, and what should be prioritized next.';
     const service = createService(async (args) => {
       const onStreamEvent = args['onStreamEvent'] as
-        | ((event: Record<string, unknown>) => void)
-        | undefined;
+        ((event: Record<string, unknown>) => void) | undefined;
       onStreamEvent?.({
         type: 'delta',
         agentId: 'performance_coordinator',
@@ -211,8 +209,7 @@ describe('AgentRouterPrimaryService', () => {
   it('marks userAlreadyReceivedResponse true when streamed deltas include a real final summary', async () => {
     const service = createService(async (args) => {
       const onStreamEvent = args['onStreamEvent'] as
-        | ((event: Record<string, unknown>) => void)
-        | undefined;
+        ((event: Record<string, unknown>) => void) | undefined;
       onStreamEvent?.({
         type: 'delta',
         agentId: 'performance_coordinator',
@@ -259,8 +256,7 @@ describe('AgentRouterPrimaryService', () => {
   it('does not mark userAlreadyReceivedResponse true for generic tool-only completion text', async () => {
     const service = createService(async (args) => {
       const onStreamEvent = args['onStreamEvent'] as
-        | ((event: Record<string, unknown>) => void)
-        | undefined;
+        ((event: Record<string, unknown>) => void) | undefined;
       onStreamEvent?.({
         type: 'delta',
         agentId: 'performance_coordinator',

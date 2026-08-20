@@ -69,8 +69,7 @@ export function getSupportTicketModel(
   connection: Connection = getMongoGlobalConnection()
 ): Model<SupportTicketDocument> {
   const existingModel = connection.models[SUPPORT_TICKET_MODEL_NAME] as
-    | Model<SupportTicketDocument>
-    | undefined;
+    Model<SupportTicketDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<SupportTicketDocument>(SUPPORT_TICKET_MODEL_NAME, SupportTicketSchema);

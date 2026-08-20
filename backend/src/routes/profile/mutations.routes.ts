@@ -1055,12 +1055,7 @@ router.post(
                 teamCode: candidateCode,
                 teamName: inheritedTeamName,
                 teamType: inheritedTeamType as
-                  | 'high-school'
-                  | 'club'
-                  | 'college'
-                  | 'middle-school'
-                  | 'juco'
-                  | 'organization',
+                  'high-school' | 'club' | 'college' | 'middle-school' | 'juco' | 'organization',
                 sport: newSport.sport as string,
                 createdBy: userId,
                 creatorRole: userRole as 'athlete' | 'coach' | 'director',

@@ -1,12 +1,7 @@
 export type B2BPartnerOutreachSequenceStep = 'initial' | 'follow_up' | 'final_follow_up';
 
 export type B2BPartnerOutreachStatus =
-  | 'not_sent'
-  | 'sent'
-  | 'follow_up_due'
-  | 'follow_up_sent'
-  | 'replied'
-  | 'paused';
+  'not_sent' | 'sent' | 'follow_up_due' | 'follow_up_sent' | 'replied' | 'paused';
 
 export interface B2BPartnerBrandAwarenessRecipient {
   readonly organization: string;

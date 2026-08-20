@@ -226,10 +226,7 @@ export interface LLMFileContentPart {
  * Union of all content part types for multimodal messages.
  */
 export type LLMContentPart =
-  | LLMTextContentPart
-  | LLMImageUrlContentPart
-  | LLMVideoUrlContentPart
-  | LLMFileContentPart;
+  LLMTextContentPart | LLMImageUrlContentPart | LLMVideoUrlContentPart | LLMFileContentPart;
 
 /** A single message in the OpenRouter chat format. */
 export interface LLMMessage {

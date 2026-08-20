@@ -476,8 +476,7 @@ router.get(
         .doc(oauthStateId);
       const pendingAdminStateSnap = await pendingAdminStateRef.get();
       const pendingAdminState = pendingAdminStateSnap.data() as
-        | PendingAdminMailboxOAuthState
-        | undefined;
+        PendingAdminMailboxOAuthState | undefined;
 
       if (
         !pendingAdminStateSnap.exists ||
@@ -562,8 +561,7 @@ router.get(
       const userDoc = await userRef.get();
       if (userDoc.exists) {
         const userData = userDoc.data() as
-          | { connectedEmails?: Array<{ provider: string; email?: string }> }
-          | undefined;
+          { connectedEmails?: Array<{ provider: string; email?: string }> } | undefined;
         const existing = userData?.connectedEmails ?? [];
         const filtered = existing.filter((e) => e.provider !== 'gmail');
         const batch = db.batch();
@@ -852,8 +850,7 @@ router.get(
       const userDoc = await userRef.get();
       if (userDoc.exists) {
         const userData = userDoc.data() as
-          | { connectedEmails?: Array<{ provider: string; email?: string }> }
-          | undefined;
+          { connectedEmails?: Array<{ provider: string; email?: string }> } | undefined;
         const existing = userData?.connectedEmails ?? [];
         const filtered = existing.filter((e) => e.provider !== 'microsoft');
         const batch = db.batch();

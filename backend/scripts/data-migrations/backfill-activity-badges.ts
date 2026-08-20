@@ -104,8 +104,7 @@ async function main(): Promise<void> {
     ]);
 
     const existingData = existingSnapshot.data() as
-      | { badges?: { alerts?: number }; totalUnread?: number }
-      | undefined;
+      { badges?: { alerts?: number }; totalUnread?: number } | undefined;
 
     const existingAlerts = Number(existingData?.badges?.alerts ?? 0) || 0;
     const existingTotalUnread = Number(existingData?.totalUnread ?? existingAlerts) || 0;

@@ -448,8 +448,7 @@ function isArchivedDocument(document: UniversalFileDoc): boolean {
 
   if (document.payloadKind !== 'pointer') {
     const contentData = getContentPayload<Record<string, unknown>>(document.payload)?.data as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     const structuredData = getUniversalStructuredDocumentPayload(document.payload)
       ?.structuredData as Record<string, unknown> | undefined;
     const resolvedData = contentData ?? structuredData;

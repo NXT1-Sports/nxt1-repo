@@ -57,13 +57,7 @@ import { NxtModalService } from '../../services/modal';
 
 /** Referral source types */
 export type ReferralSourceType =
-  | 'club'
-  | 'social'
-  | 'search'
-  | 'friend'
-  | 'advertisement'
-  | 'team-code'
-  | 'other';
+  'club' | 'social' | 'search' | 'friend' | 'advertisement' | 'team-code' | 'other';
 
 /** Referral option configuration */
 export interface ReferralOption {

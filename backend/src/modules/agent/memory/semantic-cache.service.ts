@@ -93,8 +93,7 @@ export function getSemanticCacheModel(
   connection: Connection = getMongoGlobalConnection()
 ): Model<SemanticCacheDocument> {
   const existingModel = connection.models[SEMANTIC_CACHE_MODEL_NAME] as
-    | Model<SemanticCacheDocument>
-    | undefined;
+    Model<SemanticCacheDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<SemanticCacheDocument>(SEMANTIC_CACHE_MODEL_NAME, SemanticCacheSchema);

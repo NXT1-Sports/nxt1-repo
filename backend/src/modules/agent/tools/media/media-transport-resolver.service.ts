@@ -18,10 +18,7 @@ const CLOUDFLARE_STAGED_FILENAME_PATTERN = /-([a-f0-9]{32})\.[a-z0-9]{1,10}$/i;
 const PUBLIC_FIREBASE_STORAGE_ROOTS = new Set(['Teams', 'Colleges', 'Conferences', 'Fonts']);
 
 export type ResolvedProcessingSource =
-  | 'direct'
-  | 'cloudflare_download'
-  | 'firebase_staged'
-  | 'unchanged';
+  'direct' | 'cloudflare_download' | 'firebase_staged' | 'unchanged';
 
 export type CloudflareDownloadPolicy = 'reuse_ready_only' | 'allow_render_and_poll';
 

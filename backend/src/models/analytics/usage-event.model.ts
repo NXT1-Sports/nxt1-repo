@@ -129,8 +129,7 @@ export function getUsageEventModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<UsageEventDocument> {
   const existingModel = connection.models[USAGE_EVENT_MODEL_NAME] as
-    | Model<UsageEventDocument>
-    | undefined;
+    Model<UsageEventDocument> | undefined;
   if (existingModel) {
     return existingModel;
   }

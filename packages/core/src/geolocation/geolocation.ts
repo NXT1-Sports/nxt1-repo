@@ -133,8 +133,7 @@ export interface LocationData {
  * Result type for geolocation operations
  */
 export type GeolocationResult<T> =
-  | { success: true; data: T }
-  | { success: false; error: GeolocationError };
+  { success: true; data: T } | { success: false; error: GeolocationError };
 
 // ============================================================================
 // DEFAULT OPTIONS

@@ -84,14 +84,7 @@ export interface ProfileSport {
  * Team affiliation types shown on athlete profiles.
  */
 export type ProfileTeamType =
-  | 'high-school'
-  | 'club'
-  | 'juco'
-  | 'college'
-  | 'academy'
-  | 'travel'
-  | 'middle-school'
-  | 'other';
+  'high-school' | 'club' | 'juco' | 'college' | 'academy' | 'travel' | 'middle-school' | 'other';
 
 /**
  * Team affiliation entry (school, club, academy, etc.).
@@ -499,15 +492,7 @@ export interface ProfileSeasonGameLog {
  * 'all' shows every activity, others filter by type.
  */
 export type ProfileTimelineFilterId =
-  | 'all'
-  | 'media'
-  | 'metrics'
-  | 'stats'
-  | 'awards'
-  | 'news'
-  | 'recruiting'
-  | 'schedule'
-  | 'events';
+  'all' | 'media' | 'metrics' | 'stats' | 'awards' | 'news' | 'recruiting' | 'schedule' | 'events';
 
 /**
  * Configuration for a timeline filter option.
@@ -601,12 +586,7 @@ export interface ProfilePinnedVideo {
  * Each profile tab (Offers, Visits, Camps, etc.) filters by this.
  */
 export type ProfileRecruitingCategory =
-  | 'offer'
-  | 'interest'
-  | 'visit'
-  | 'camp'
-  | 'commitment'
-  | 'contact';
+  'offer' | 'interest' | 'visit' | 'camp' | 'commitment' | 'contact';
 
 /**
  * A single recruiting activity entry for profile display.
@@ -903,12 +883,7 @@ export interface ProfileHeaderAction {
  * Inspired by sports video game rating systems (Madden, 2K).
  */
 export type ProspectTier =
-  | 'elite'
-  | 'blue-chip'
-  | 'starter'
-  | 'prospect'
-  | 'developing'
-  | 'unrated';
+  'elite' | 'blue-chip' | 'starter' | 'prospect' | 'developing' | 'unrated';
 
 /**
  * Agent X-generated prospect grade (the "OVR" rating).

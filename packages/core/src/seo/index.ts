@@ -33,13 +33,7 @@ import { buildCanonicalProfilePath, buildCanonicalTeamPath } from '../helpers/fo
  * @see https://ogp.me/#types
  */
 export type OpenGraphType =
-  | 'website'
-  | 'article'
-  | 'profile'
-  | 'video.other'
-  | 'video.movie'
-  | 'music.song'
-  | 'music.album';
+  'website' | 'article' | 'profile' | 'video.other' | 'video.movie' | 'music.song' | 'music.album';
 
 /**
  * Twitter card type

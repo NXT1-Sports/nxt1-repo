@@ -48,10 +48,7 @@ if (!process.env['FIREBASE_PRIVATE_KEY'] || !process.env['FIREBASE_CLIENT_EMAIL'
 type RuntimeEnvironment = 'production' | 'staging';
 type RepairScope = 'all' | 'b2c' | 'b2b';
 type B2CExpectedStage =
-  | 'Onboarding Completed'
-  | 'Usage Started'
-  | 'Expansion / Pricing'
-  | 'Organization Mode';
+  'Onboarding Completed' | 'Usage Started' | 'Expansion / Pricing' | 'Organization Mode';
 type B2BExpectedStage = 'Onboarding Completed' | 'Churned';
 type B2CStateKey =
   | 'accountStarted'

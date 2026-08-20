@@ -16,11 +16,7 @@ export type TeamFilmReviewStatus = 'draft' | 'processing' | 'ready' | 'archived'
 export type TeamFilmReviewTimelineState = 'idle' | 'generating' | 'ready' | 'error';
 
 export type TeamFilmReviewDownloadPrewarmStatus =
-  | 'queued'
-  | 'processing'
-  | 'ready'
-  | 'error'
-  | 'unknown';
+  'queued' | 'processing' | 'ready' | 'error' | 'unknown';
 
 export type TeamFilmReviewDownloadExportStatus = 'queued' | 'processing' | 'ready' | 'error';
 
@@ -62,10 +58,7 @@ export type TeamFilmReviewUploadMode = 'single_video' | 'batch_clips' | 'full_fo
 export type TeamFilmReviewCameraAngle = 'wide' | 'tight' | 'unknown';
 
 export type TeamFilmReviewCameraAngleDetectionSource =
-  | 'filename'
-  | 'manual'
-  | 'backend'
-  | 'unknown';
+  'filename' | 'manual' | 'backend' | 'unknown';
 
 export interface TeamFilmReviewSourceAngleMetadata {
   readonly cameraAngle?: TeamFilmReviewCameraAngle;
@@ -199,8 +192,7 @@ export interface TeamFilmReviewTextAnnotation extends TeamFilmReviewTimedPlayEff
 }
 
 export type TeamFilmReviewPlayAnnotation =
-  | TeamFilmReviewDrawAnnotation
-  | TeamFilmReviewTextAnnotation;
+  TeamFilmReviewDrawAnnotation | TeamFilmReviewTextAnnotation;
 
 export type TeamFilmReviewDrawingKind = TeamFilmReviewDrawAnnotationKind | 'text';
 
@@ -239,9 +231,7 @@ export interface TeamFilmReviewTextDrawing extends TeamFilmReviewDrawingBase {
 }
 
 export type TeamFilmReviewDrawing =
-  | TeamFilmReviewFreehandDrawing
-  | TeamFilmReviewShapeDrawing
-  | TeamFilmReviewTextDrawing;
+  TeamFilmReviewFreehandDrawing | TeamFilmReviewShapeDrawing | TeamFilmReviewTextDrawing;
 
 export type TeamFilmReviewPlayTagValue = string | number | boolean | null;
 
@@ -632,12 +622,7 @@ export interface TeamFilmReviewPlaySegment {
 export type TeamFilmReviewResolvedTeamSide = 'our' | 'opponent' | 'unknown';
 
 export type TeamFilmReviewRowOwnershipKind =
-  | 'offense_defense'
-  | 'possession'
-  | 'at_bat'
-  | 'special_teams'
-  | 'neutral'
-  | 'unknown';
+  'offense_defense' | 'possession' | 'at_bat' | 'special_teams' | 'neutral' | 'unknown';
 
 export type TeamFilmReviewRowOwnershipConfidence = 'verified' | 'inferred' | 'ambiguous';
 

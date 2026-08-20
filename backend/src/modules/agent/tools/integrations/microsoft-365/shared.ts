@@ -12,15 +12,7 @@ export interface MicrosoftOAuthTokenDocument {
 }
 
 type Microsoft365Service =
-  | 'mail'
-  | 'calendar'
-  | 'files'
-  | 'teams'
-  | 'tasks'
-  | 'contacts'
-  | 'search'
-  | 'users'
-  | 'other';
+  'mail' | 'calendar' | 'files' | 'teams' | 'tasks' | 'contacts' | 'search' | 'users' | 'other';
 
 export interface Microsoft365ToolMetadata {
   readonly service: Microsoft365Service;

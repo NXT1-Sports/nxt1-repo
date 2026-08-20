@@ -128,15 +128,7 @@ export const AVATAR_STATUS_COLORS: Record<Exclude<AvatarStatus, 'none'>, string>
  * - none: No badge
  */
 export type AvatarBadgeType =
-  | 'verified'
-  | 'premium'
-  | 'pro'
-  | 'coach'
-  | 'athlete'
-  | 'team'
-  | 'count'
-  | 'custom'
-  | 'none';
+  'verified' | 'premium' | 'pro' | 'coach' | 'athlete' | 'team' | 'count' | 'custom' | 'none';
 
 /**
  * Badge position on the avatar

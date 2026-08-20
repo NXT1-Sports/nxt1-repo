@@ -37,8 +37,7 @@ export function getArticleFeedbackModel(
   connection: Connection = getMongoGlobalConnection()
 ): Model<ArticleFeedbackDocument> {
   const existingModel = connection.models[ARTICLE_FEEDBACK_MODEL_NAME] as
-    | Model<ArticleFeedbackDocument>
-    | undefined;
+    Model<ArticleFeedbackDocument> | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<ArticleFeedbackDocument>(

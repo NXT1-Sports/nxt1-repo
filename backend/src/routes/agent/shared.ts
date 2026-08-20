@@ -34,18 +34,15 @@ export { isLegacyFallbackPlaybook };
 // ─── Lazy service singletons ─────────────────────────────────────────────
 
 export let queueService:
-  | import('../../modules/agent/queue/queue.service.js').AgentQueueService
-  | null = null;
+  import('../../modules/agent/queue/queue.service.js').AgentQueueService | null = null;
 export let jobRepository:
-  | import('../../modules/agent/queue/job.repository.js').AgentJobRepository
-  | null = null;
+  import('../../modules/agent/queue/job.repository.js').AgentJobRepository | null = null;
 export let chatService: AgentChatService | null = null;
 export let contextBuilder: ContextBuilder | null = null;
 export let llmService: OpenRouterService | null = null;
 export let toolRegistryRef: ToolRegistry | null = null;
 export let pubsubService:
-  | import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService
-  | null = null;
+  import('../../modules/agent/queue/pubsub.service.js').AgentPubSubService | null = null;
 export let agentRouterRef: import('../../modules/agent/agent.router.js').AgentRouter | null = null;
 
 /**

@@ -4,17 +4,10 @@ import { sendSlackAlert, type AlertField } from '../../services/platform/alert.s
 export type SalesAlertEnvironment = 'staging' | 'production';
 
 export type SalesBillingAlertSource =
-  | 'stripe_checkout'
-  | 'stripe_direct_charge'
-  | 'stripe_invoice'
-  | 'apple_iap';
+  'stripe_checkout' | 'stripe_direct_charge' | 'stripe_invoice' | 'apple_iap';
 
 export type SalesFunnelEventName =
-  | 'view_item'
-  | 'view_item_list'
-  | 'add_to_cart'
-  | 'begin_checkout'
-  | 'add_payment_info';
+  'view_item' | 'view_item_list' | 'add_to_cart' | 'begin_checkout' | 'add_payment_info';
 
 function formatCurrencyAmount(amountCents: number, currency: string | undefined): string {
   return `$${(amountCents / 100).toFixed(2)} ${(currency ?? 'usd').toUpperCase()}`;

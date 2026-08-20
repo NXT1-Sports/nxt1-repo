@@ -225,8 +225,7 @@ router.post('/', async (req: Request, res: Response) => {
     // { uid: string, readyToStream: boolean, status: { state: string, errorReasonCode?: string, errorReasonText?: string }, meta: { ... }, ... }
     const videoUid = payload.uid as string | undefined;
     const status = payload.status as
-      | { state?: string; errorReasonCode?: string; errorReasonText?: string }
-      | undefined;
+      { state?: string; errorReasonCode?: string; errorReasonText?: string } | undefined;
     const readyToStream = payload.readyToStream as boolean | undefined;
 
     if (!videoUid) {

@@ -45,11 +45,7 @@ const PAID_ORG_TOPUP_SOURCES = new Set([
 ]);
 
 export type ClosedWonNotionDashboardStatus =
-  | 'queued'
-  | 'processing'
-  | 'created'
-  | 'failed'
-  | 'skipped';
+  'queued' | 'processing' | 'created' | 'failed' | 'skipped';
 
 export interface ClosedWonNotionDashboardStateRecord {
   readonly status?: ClosedWonNotionDashboardStatus;
@@ -71,11 +67,7 @@ export interface RecordClosedWonNotionDashboardInput {
   readonly organizationId: string;
   readonly amountCents: number;
   readonly source:
-    | 'stripe_checkout'
-    | 'invoice_payment'
-    | 'manual_credit'
-    | 'direct_charge'
-    | 'auto_topup';
+    'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup';
   readonly initiatedByUserId?: string;
 }
 

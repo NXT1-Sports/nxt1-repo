@@ -2265,8 +2265,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     if (toolName === 'write_team_post' || toolName === 'update_team_post') {
       const posts = Array.isArray(input['posts']) ? (input['posts'] as Array<unknown>) : [];
       const firstPost = posts.find((p) => p && typeof p === 'object') as
-        | Record<string, unknown>
-        | undefined;
+        Record<string, unknown> | undefined;
       if (!firstPost) return null;
       const description =
         (typeof firstPost['content'] === 'string' && firstPost['content'].trim()) ||
@@ -2999,8 +2998,7 @@ export class AgentXActionCardComponent implements OnDestroy {
     // Team post shape: { posts: [{ mediaUrls?: string[]; videoUrl?: string }] }
     const posts = Array.isArray(input['posts']) ? (input['posts'] as Array<unknown>) : [];
     const firstPost = posts.find((p) => p && typeof p === 'object') as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
 
     const urlsFromTeamPost = firstPost
       ? [

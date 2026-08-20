@@ -29,12 +29,7 @@ import type {
  * Never compute this on the frontend — read `UsageDashboardData.allowedSections`.
  */
 export type UsageSection =
-  | 'overview'
-  | 'metered-usage'
-  | 'breakdown'
-  | 'budgets'
-  | 'payment-info'
-  | 'auto-topup';
+  'overview' | 'metered-usage' | 'breakdown' | 'budgets' | 'payment-info' | 'auto-topup';
 
 // ============================================
 // BILLING PERIOD
@@ -56,12 +51,7 @@ export interface UsagePeriod {
 
 /** Available timeframe filter options */
 export type UsageTimeframe =
-  | 'current-month'
-  | 'last-month'
-  | 'last-3-months'
-  | 'last-6-months'
-  | 'last-12-months'
-  | 'custom';
+  'current-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'last-12-months' | 'custom';
 
 // ============================================
 // OVERVIEW CARDS
@@ -101,12 +91,7 @@ export interface UsageOverview {
 
 /** Product category for grouping */
 export type UsageProductCategory =
-  | 'media'
-  | 'recruiting'
-  | 'ai'
-  | 'communication'
-  | 'profile'
-  | 'teams';
+  'media' | 'recruiting' | 'ai' | 'communication' | 'profile' | 'teams';
 
 // ============================================
 // METERED USAGE (chart + product tabs)

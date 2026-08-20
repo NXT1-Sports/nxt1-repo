@@ -554,8 +554,7 @@ router.post(
       duration:
         finalized.durationSeconds ??
         ((typeof existingData['duration'] === 'number' ? existingData['duration'] : undefined) as
-          | number
-          | undefined) ??
+          number | undefined) ??
         null,
       cloudflareVideoId,
       cloudflareStatus: finalized.status,

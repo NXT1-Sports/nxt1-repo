@@ -339,12 +339,7 @@ export interface TeamProfileStaffMember {
   readonly lastName: string;
   readonly title: string;
   readonly role:
-    | 'head-coach'
-    | 'assistant-coach'
-    | 'coordinator'
-    | 'trainer'
-    | 'director'
-    | 'other';
+    'head-coach' | 'assistant-coach' | 'coordinator' | 'trainer' | 'director' | 'other';
   readonly profileImg?: string;
   readonly profileCode?: string;
   readonly email?: string;
@@ -362,11 +357,7 @@ export interface TeamProfileStaffMember {
  * Maps to human-readable labels and icons in TEAM_RECRUITING_CATEGORY_*.
  */
 export type TeamProfileRecruitingCategory =
-  | 'offer-sent'
-  | 'commitment-received'
-  | 'visit-hosted'
-  | 'camp-hosted'
-  | 'contact';
+  'offer-sent' | 'commitment-received' | 'visit-hosted' | 'camp-hosted' | 'contact';
 
 /**
  * A recruiting activity from the team perspective.

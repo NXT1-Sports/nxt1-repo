@@ -47,12 +47,7 @@ export interface TeamFileFolderDoc {
 export const UNIVERSAL_FILES_COLLECTION = 'UniversalFiles' as const;
 
 export type UniversalFileType =
-  | 'file'
-  | 'film_review'
-  | 'game_plan'
-  | 'playbook'
-  | 'callsheet'
-  | 'practice_script';
+  'file' | 'film_review' | 'game_plan' | 'playbook' | 'callsheet' | 'practice_script';
 
 export type UniversalFileStatus = TeamFileStatus | TeamFilmReviewStatus | TeamGamePlanStatus;
 
@@ -108,8 +103,7 @@ export interface UniversalFilePointerPayload {
 
 export type UniversalClassificationFacetScalar = string | number | boolean;
 export type UniversalClassificationFacetValue =
-  | UniversalClassificationFacetScalar
-  | readonly UniversalClassificationFacetScalar[];
+  UniversalClassificationFacetScalar | readonly UniversalClassificationFacetScalar[];
 
 export interface UniversalFileClassification {
   readonly primary?: string;
@@ -314,8 +308,7 @@ export interface UniversalFilePayloadMap {
   readonly film_review: UniversalFilmReviewPayload;
   readonly game_plan: UniversalGamePlanPayload;
   readonly playbook:
-    | UniversalPlaybookFilePayload
-    | UniversalStructuredDocumentFilePayload<'playbook'>;
+    UniversalPlaybookFilePayload | UniversalStructuredDocumentFilePayload<'playbook'>;
   readonly callsheet: UniversalCallsheetFilePayload;
   readonly practice_script: UniversalPracticeScriptFilePayload;
 }
@@ -517,9 +510,7 @@ export function isUniversalStructuredDocumentFilePayload(
 
 export function getUniversalFileClassification(
   document:
-    | Pick<UniversalFileDocBase, 'classification' | 'documentSubtype' | 'type'>
-    | null
-    | undefined
+    Pick<UniversalFileDocBase, 'classification' | 'documentSubtype' | 'type'> | null | undefined
 ): UniversalFileClassification | null {
   if (!document) {
     return null;
@@ -549,9 +540,7 @@ export function getUniversalFileClassification(
 
 export function getUniversalPrimaryClassification(
   document:
-    | Pick<UniversalFileDocBase, 'classification' | 'documentSubtype' | 'type'>
-    | null
-    | undefined
+    Pick<UniversalFileDocBase, 'classification' | 'documentSubtype' | 'type'> | null | undefined
 ): string | undefined {
   return getUniversalFileClassification(document)?.primary;
 }

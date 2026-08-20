@@ -3,13 +3,7 @@ export interface CustomAnalyticsEvent {
   readonly environment?: 'staging' | 'production';
   readonly userId: string;
   readonly category:
-    | 'recruiting'
-    | 'nil'
-    | 'performance'
-    | 'academic'
-    | 'scouting'
-    | 'general'
-    | string;
+    'recruiting' | 'nil' | 'performance' | 'academic' | 'scouting' | 'general' | string;
   readonly metric: string;
   readonly value: unknown;
   readonly tags: string[];

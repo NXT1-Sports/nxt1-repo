@@ -32,11 +32,7 @@ const TIMES_CONTACTED_PROPERTY_CANDIDATES = [
 ] as const;
 
 export type InvestorsPartnershipStage =
-  | 'Lead'
-  | 'Contacted'
-  | 'Phone Call Due'
-  | 'Replied'
-  | 'Bounced';
+  'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied' | 'Bounced';
 
 export interface InvestorsPartnershipLeadInput {
   readonly environment: RuntimeEnvironment;
@@ -65,10 +61,7 @@ export type UpsertInvestorsPartnershipLeadResult =
   | {
       readonly status: 'skipped';
       readonly reason:
-        | 'disabled'
-        | 'missing-token'
-        | 'missing-database-id'
-        | 'missing-organization';
+        'disabled' | 'missing-token' | 'missing-database-id' | 'missing-organization';
     };
 
 function summarizePage(

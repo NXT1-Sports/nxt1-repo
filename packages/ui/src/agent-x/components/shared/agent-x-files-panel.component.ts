@@ -7473,8 +7473,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     if (!document.fullscreenElement) {
       const requestFullscreen = container.requestFullscreen?.bind(container) as
-        | (() => Promise<void>)
-        | undefined;
+        (() => Promise<void>) | undefined;
       const webkitRequestFullscreen = (
         container as HTMLElement & { webkitRequestFullscreen?: () => void }
       ).webkitRequestFullscreen;
@@ -7489,8 +7488,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
 
     const exitFullscreen = document.exitFullscreen?.bind(document) as
-      | (() => Promise<void>)
-      | undefined;
+      (() => Promise<void>) | undefined;
     const webkitExitFullscreen = (document as Document & { webkitExitFullscreen?: () => void })
       .webkitExitFullscreen;
 

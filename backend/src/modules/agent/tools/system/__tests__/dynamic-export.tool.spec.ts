@@ -193,8 +193,7 @@ describe('DynamicExportTool', () => {
       .getDefinitions('performance_coordinator')
       .find((candidate) => candidate.name === 'dynamic_export');
     const parameters = definition?.parameters as
-      | { readonly properties?: Record<string, { readonly enum?: readonly string[] }> }
-      | undefined;
+      { readonly properties?: Record<string, { readonly enum?: readonly string[] }> } | undefined;
 
     expect(definition).toBeDefined();
     expect(parameters?.properties?.['format']?.enum).toEqual(
