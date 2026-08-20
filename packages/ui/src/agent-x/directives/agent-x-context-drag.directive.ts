@@ -148,6 +148,7 @@ export class AgentXContextDragDirective {
     card.style.backdropFilter = 'blur(12px)';
     card.style.color = theme.textPrimary;
     card.style.fontFamily = theme.fontFamily;
+    card.style.pointerEvents = 'none';
 
     const header = this.document.createElement('div');
     header.style.display = 'flex';

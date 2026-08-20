@@ -14,6 +14,17 @@ import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 
+// Polyfill for HTML5 Drag and Drop on mobile/touch devices
+import { polyfill } from 'mobile-drag-drop';
+import { scrollBehaviourDragImageTranslateOverride } from 'mobile-drag-drop/scroll-behaviour';
+
+if (typeof window !== 'undefined') {
+  polyfill({
+    dragImageTranslateOverride: scrollBehaviourDragImageTranslateOverride,
+    holdToDrag: 250, // 250ms long-press to drag, allows all native scrolling
+  });
+}
+
 // Icons: Each @nxt1/ui component registers its own icons via addIcons() in its constructor.
 // No global registration needed — this avoids bundling all 1,357 ionicon SVG paths (~800 KB).
 

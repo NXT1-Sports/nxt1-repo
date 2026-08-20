@@ -70,6 +70,7 @@ SERVICE_ACCOUNT=""
 TOKEN_SECRET="FFMPEG_MCP_BEARER_TOKEN:latest"
 FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-}"
 FFMPEG_OUTPUT_GCS_PREFIX="${FFMPEG_OUTPUT_GCS_PREFIX:-agent-x/ffmpeg}"
+FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS="${FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS:-840}"
 DRY_RUN="false"
 
 declare -a ENV_PAIRS=()
@@ -172,6 +173,7 @@ trap 'rm -f "${ENV_FILE}" "${BUILD_CONFIG_FILE}"' EXIT
   printf 'FFMPEG_MCP_STATELESS_HTTP: "true"\n'
   printf 'FIREBASE_STORAGE_BUCKET: "%s"\n' "$(escape_yaml_string "${FIREBASE_STORAGE_BUCKET}")"
   printf 'FFMPEG_OUTPUT_GCS_PREFIX: "%s"\n' "$(escape_yaml_string "${FFMPEG_OUTPUT_GCS_PREFIX}")"
+  printf 'FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS: "%s"\n' "$(escape_yaml_string "${FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS}")"
   if (( ${#ENV_PAIRS[@]} > 0 )); then
     for assignment in "${ENV_PAIRS[@]}"; do
       key="${assignment%%=*}"

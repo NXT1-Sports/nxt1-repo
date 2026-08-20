@@ -17,6 +17,7 @@ def load_ffmpeg_failure_helpers() -> dict:
         '_format_command',
         '_is_ffmpeg_banner_line',
         '_summarize_command_failure',
+        '_summarize_command_timeout',
         '_assert_downloaded_input',
         '_expected_content_length',
     }
@@ -91,6 +92,31 @@ Error opening input files: No such file or directory
         self.assertIn('exit_code=1', summary)
         self.assertIn('command=ffmpeg -y -i /tmp/missing.mp4 /tmp/out.mp4', summary)
         self.assertIn('Error opening input file /tmp/missing.mp4.', summary)
+        self.assertNotIn('configuration:', summary)
+        self.assertNotIn('--enable-libiec61883', summary)
+        self.assertNotIn('ffmpeg version', summary)
+
+    def test_timeout_summary_omits_ffmpeg_build_configuration_banner(self):
+        stderr = """ffmpeg version 7.1.3 Copyright
+  built with gcc 12
+  configuration: --enable-libiec61883 --enable-chromaprint --enable-libx264
+frame= 1200 fps= 1.8 q=35.0 size=1024k time=00:00:40.00 bitrate=209.7kbits/s
+"""
+        exc = subprocess.TimeoutExpired(
+            cmd=['ffmpeg'],
+            timeout=840,
+            output=b'',
+            stderr=stderr.encode(),
+        )
+
+        summary = self.helpers['_summarize_command_timeout'](
+            ['ffmpeg', '-y', '-i', '/tmp/slow.mp4', '/tmp/out.mp4'],
+            exc,
+        )
+
+        self.assertIn('timeout_seconds=840', summary)
+        self.assertIn('command=ffmpeg -y -i /tmp/slow.mp4 /tmp/out.mp4', summary)
+        self.assertIn('frame= 1200', summary)
         self.assertNotIn('configuration:', summary)
         self.assertNotIn('--enable-libiec61883', summary)
         self.assertNotIn('ffmpeg version', summary)

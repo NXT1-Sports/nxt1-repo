@@ -1071,13 +1071,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                   />
                 </span>
 
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabindex="0"
                   class="film-list-item"
                   [class.film-list-item--active]="file.id === selectedId()"
                   [nxtAgentXContextDrag]="buildFileDragContextsForLibrary(file)"
                   [nxtAgentXContextDragDisabled]="isFolderItemReorderDragActive()"
                   (click)="openFile(file)"
+                  (keydown.enter)="openFile(file)"
+                  (keydown.space)="openFile(file)"
                   (dragstart)="onFileDragStart(file, folder.items, $event)"
                   (dragend)="onFileDragEnd()"
                 >
@@ -1117,7 +1120,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       }
                     </span>
                   </span>
-                </button>
+                </div>
 
                 <button
                   type="button"
@@ -1298,15 +1301,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     <img class="agent-x-files-viewer__image" [src]="file.url" [alt]="file.name" />
                   } @else if (safeSelectedPdfPreviewUrl(); as previewUrl) {
                     <div class="agent-x-files-viewer__frame-shell">
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabindex="0"
                         class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
                         aria-label="Drag PDF to chat"
                         title="Drag PDF to chat"
                         [nxtAgentXContextDrag]="buildFileDragContext(file)"
                       >
                         Drag PDF
-                      </button>
+                      </div>
                       <iframe
                         class="agent-x-files-viewer__frame"
                         [src]="previewUrl"
@@ -1318,15 +1322,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     as videoIframeUrl
                   ) {
                     <div class="agent-x-files-viewer__frame-shell">
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabindex="0"
                         class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
                         aria-label="Drag media to chat"
                         title="Drag media to chat"
                         [nxtAgentXContextDrag]="buildFileDragContext(file)"
                       >
                         Drag Media
-                      </button>
+                      </div>
                       <iframe
                         class="agent-x-files-viewer__frame"
                         [src]="videoIframeUrl"

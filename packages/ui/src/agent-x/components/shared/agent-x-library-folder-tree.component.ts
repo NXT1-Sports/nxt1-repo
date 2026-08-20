@@ -222,8 +222,9 @@ export interface AgentXLibraryFolderTreeController {
                   />
                 </span>
 
-                <button
-                  type="button"
+                <div
+                  role="button"
+                  tabindex="0"
                   class="film-playlist-folder__toggle"
                   [nxtAgentXContextDrag]="controller().getFolderDragContexts(folder)"
                   [nxtAgentXContextDragDisabled]="controller().isLibraryReorderDragActive()"
@@ -234,6 +235,8 @@ export interface AgentXLibraryFolderTreeController {
                   (dragstart)="controller().onFolderContextDragStart(folder, $event)"
                   (dragend)="controller().onFolderContextDragEnd()"
                   (click)="controller().toggleFolder(folder.id, $event)"
+                  (keydown.enter)="controller().toggleFolder(folder.id, $event)"
+                  (keydown.space)="controller().toggleFolder(folder.id, $event)"
                 >
                   <span class="film-playlist-folder__chevron" aria-hidden="true">
                     @if (controller().isFolderExpanded(folder.id)) {
@@ -252,7 +255,7 @@ export interface AgentXLibraryFolderTreeController {
                     }
                   </span>
                   <span class="film-playlist-folder__count">{{ folderContentCount(folder) }}</span>
-                </button>
+                </div>
 
                 @if (!folder.isUnassigned) {
                   <div class="film-playlist-folder__menu-anchor">

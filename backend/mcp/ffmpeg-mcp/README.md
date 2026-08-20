@@ -23,13 +23,18 @@ Backend runtime env after deployment:
   trim/merge/resize)
 - `FFMPEG_MCP_REENCODE_TIMEOUT_MS=300000` (optional backend client timeout for
   overlay/subtitle/convert/compress)
+- `FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS=840` (optional Cloud Run MCP subprocess
+  timeout for long FFmpeg re-encodes; keep this lower than the Cloud Run request
+  timeout so the wrapper can return a structured error)
 
 Deploy with:
 
 ```bash
-backend/scripts/deploy-ffmpeg-mcp.sh --project <gcp-project-id>
+backend/scripts/deployments/deploy-ffmpeg-mcp.sh --project <gcp-project-id>
 ```
 
 The deploy script defaults Cloud Run request timeout to 900 seconds so longer
 video re-encodes can outlive the backend client's
-`FFMPEG_MCP_REENCODE_TIMEOUT_MS` window.
+`FFMPEG_MCP_REENCODE_TIMEOUT_MS` window. It also defaults the FFmpeg subprocess
+timeout to 840 seconds so Python can handle FFmpeg timeouts before Cloud Run
+terminates the request.
