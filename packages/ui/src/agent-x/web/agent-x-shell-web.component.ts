@@ -561,7 +561,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize sessions panel"
-              (mousedown)="startDesktopPanelResize('sessions', $event)"
+              (pointerdown)="startDesktopPanelResize('sessions', $event)"
+              (touchstart)="preventTouchScroll($event)"
               (dblclick)="resetDesktopPanelWidth('sessions', $event)"
             ></div>
             <div class="agent-column-header">
@@ -715,7 +716,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize action plan panel"
-              (mousedown)="startDesktopPanelResize('action-plan', $event)"
+              (pointerdown)="startDesktopPanelResize('action-plan', $event)"
+              (touchstart)="preventTouchScroll($event)"
               (dblclick)="resetDesktopPanelWidth('action-plan', $event)"
             ></div>
             <!-- ── Manage Goals Button + Close (opens modal) ── -->
@@ -965,7 +967,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize playbooks panel"
-              (mousedown)="startDesktopPanelResize('playbooks', $event)"
+              (pointerdown)="startDesktopPanelResize('playbooks', $event)"
+              (touchstart)="preventTouchScroll($event)"
               (dblclick)="resetDesktopPanelWidth('playbooks', $event)"
             ></div>
             <div class="agent-column-header">
@@ -1077,7 +1080,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize diagrams lab panel"
-              (mousedown)="startDesktopPanelResize('diagrams', $event)"
+              (pointerdown)="startDesktopPanelResize('diagrams', $event)"
+              (touchstart)="preventTouchScroll($event)"
               (dblclick)="resetDesktopPanelWidth('diagrams', $event)"
             ></div>
             <div class="agent-column-header">
@@ -1204,7 +1208,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize files panel"
-              (mousedown)="startDesktopPanelResize('files', $event)"
+              (pointerdown)="startDesktopPanelResize('files', $event)"
+              (touchstart)="preventTouchScroll($event)"
               (dblclick)="resetDesktopPanelWidth('files', $event)"
             ></div>
             <div class="agent-column-header">
@@ -1384,7 +1389,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize film review panel"
-              (mousedown)="startDesktopPanelResize('film-review', $event)"
+              (pointerdown)="startDesktopPanelResize('film-review', $event)"
+              (touchstart)="preventTouchScroll($event)"
               (dblclick)="resetDesktopPanelWidth('film-review', $event)"
             ></div>
             <div class="agent-column-header">
@@ -1576,7 +1582,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
               role="separator"
               aria-orientation="vertical"
               aria-label="Resize live view panel"
-              (mousedown)="startDesktopPanelResize('expanded-panel', $event)"
+              (pointerdown)="startDesktopPanelResize('expanded-panel', $event)"
               (dblclick)="resetDesktopPanelWidth('expanded-panel', $event)"
             ></div>
             <div class="agent-column-header" [attr.data-testid]="lvTestIds.HEADER">
@@ -2226,19 +2232,21 @@ const AGENT_X_GOOGLE_PLAY_URL =
       .agent-column {
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        overflow: visible;
         min-width: 0;
         min-height: 0;
         position: relative;
+        z-index: 20;
       }
 
       .agent-resize-handle {
         position: absolute;
         top: 0;
         bottom: 0;
-        width: 12px;
-        z-index: 5;
+        width: 32px;
+        z-index: 50;
         cursor: col-resize;
+        touch-action: none;
       }
 
       .agent-resize-handle::before {
@@ -2246,9 +2254,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
         position: absolute;
         top: 0;
         bottom: 0;
-        left: 50%;
         width: 1px;
-        transform: translateX(-50%);
         background: transparent;
         transition:
           background 0.15s ease,
@@ -2262,11 +2268,17 @@ const AGENT_X_GOOGLE_PLAY_URL =
       }
 
       .agent-resize-handle--right {
-        right: 0;
+        right: -16px;
+      }
+      .agent-resize-handle--right::before {
+        right: 16px;
       }
 
       .agent-resize-handle--left {
-        left: 0;
+        left: -16px;
+      }
+      .agent-resize-handle--left::before {
+        left: 16px;
       }
 
       .agent-rail-column {
@@ -3336,7 +3348,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
       .action-plan-panel__body {
         flex: 1;
         overflow-y: auto;
-        overflow-x: hidden;
+        overflow-x: auto;
         padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-5, 20px);
         display: flex;
         flex-direction: column;
@@ -4215,7 +4227,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
 
       @media (max-width: 1200px) {
         .agent-desktop {
-          grid-template-columns: 260px minmax(0, 1fr);
+          --agent-left-column-width: 260px;
         }
       }
 
@@ -4741,13 +4753,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
-  private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
-  private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 500;
-  private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 500;
-  private static readonly DESKTOP_DIAGRAMS_MIN_WIDTH = 560;
-  private static readonly DESKTOP_FILES_MIN_WIDTH = 400;
-  private static readonly DESKTOP_FILM_REVIEW_MIN_WIDTH = 400;
-  private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
+  private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 240;
+  private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 240;
+  private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 240;
+  private static readonly DESKTOP_DIAGRAMS_MIN_WIDTH = 240;
+  private static readonly DESKTOP_FILES_MIN_WIDTH = 240;
+  private static readonly DESKTOP_FILM_REVIEW_MIN_WIDTH = 240;
+  private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 240;
 
   protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
   protected readonly agentX = inject(AgentXService);
@@ -5417,9 +5429,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   ];
 
   private getDefaultExpandedPanelWidth(): number {
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1200;
-    const idealWidth = Math.round(viewportWidth * 0.45);
-    return Math.max(idealWidth, AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH);
+    const mainWidth = this.getDesktopMainWidth();
+    const isTablet = mainWidth <= 1024;
+    const minDefault = isTablet ? 360 : 540;
+    return Math.min(Math.max(mainWidth * 0.45, minDefault), 960);
   }
 
   private getDesktopMainWidth(): number {
@@ -5610,6 +5623,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     document.body.style.cursor = active ? 'col-resize' : '';
     document.body.style.userSelect = active ? 'none' : '';
+    document.body.style.setProperty('-webkit-user-select', active ? 'none' : '');
+    document.body.style.touchAction = active ? 'none' : '';
   }
 
   private resetDesktopPanelWidths(): void {
@@ -5700,11 +5715,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
   }
 
-  protected startDesktopPanelResize(panel: AgentXDesktopResizablePanel, event: MouseEvent): void {
-    if (event.button !== 0 || this.platform.isMobile()) return;
+  protected startDesktopPanelResize(
+    panel: AgentXDesktopResizablePanel,
+    event: PointerEvent | MouseEvent
+  ): void {
+    if (event.button !== 0) return;
 
     event.preventDefault();
     event.stopPropagation();
+
+    if ('pointerId' in event && event.target instanceof Element) {
+      event.target.setPointerCapture(event.pointerId);
+    }
 
     if (this.sideToolPanelFullscreen() && this.isSideToolDesktopPanel(panel)) {
       const restoredWidth = this.getDesktopPanelMaxWidth(panel);
@@ -5759,8 +5781,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.clampDesktopPanelWidths();
   }
 
-  @HostListener('document:mousemove', ['$event'])
-  protected onDesktopPanelResizeMove(event: MouseEvent): void {
+  @HostListener('document:pointermove', ['$event'])
+  protected onDesktopPanelResizeMove(event: PointerEvent | MouseEvent): void {
     const resizeState = this.activeDesktopResize();
     if (!resizeState) return;
 
@@ -5793,99 +5815,45 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
-    if (resizeState.panel === 'action-plan') {
-      this.actionPlanWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_ACTION_PLAN_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('action-plan')
-        )
-      );
-      return;
-    }
+    const minWidth = this.getDesktopPanelMinWidth(resizeState.panel);
 
-    if (resizeState.panel === 'gameplans') {
-      this.gameplansWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('gameplans')
-        )
-      );
-      return;
-    }
-
-    if (resizeState.panel === 'playbooks') {
-      this.playbooksWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('playbooks')
-        )
-      );
-      return;
-    }
-
-    if (resizeState.panel === 'practice-scripts') {
-      this.practiceScriptsWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('practice-scripts')
-        )
-      );
-      return;
-    }
-
-    if (resizeState.panel === 'diagrams') {
-      this.diagramsWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_DIAGRAMS_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('diagrams')
-        )
-      );
-      return;
-    }
-
-    if (resizeState.panel === 'files') {
-      this.filesWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_FILES_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('files')
-        )
-      );
-      return;
-    }
-
-    if (resizeState.panel === 'film-review') {
-      this.filmReviewWidth.set(
-        this.clampWidth(
-          nextWidth,
-          AgentXShellWebComponent.DESKTOP_FILM_REVIEW_MIN_WIDTH,
-          this.getDesktopPanelMaxWidth('film-review')
-        )
-      );
-      return;
-    }
-
-    this.expandedPanelWidth.set(
-      this.clampWidth(
-        nextWidth,
-        AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH,
-        this.getDesktopPanelMaxWidth('expanded-panel')
-      )
+    this.setDesktopPanelWidth(
+      resizeState.panel,
+      this.clampWidth(nextWidth, minWidth, this.getDesktopPanelMaxWidth(resizeState.panel))
     );
   }
 
-  @HostListener('document:mouseup')
+  private getDesktopPanelMinWidth(panel: AgentXDesktopResizablePanel): number {
+    switch (panel) {
+      case 'sessions':
+        return AgentXShellWebComponent.DESKTOP_LEFT_PANEL_MIN_WIDTH;
+      case 'action-plan':
+        return AgentXShellWebComponent.DESKTOP_ACTION_PLAN_MIN_WIDTH;
+      case 'gameplans':
+        return AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH;
+      case 'playbooks':
+      case 'practice-scripts':
+        return AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH;
+      case 'diagrams':
+        return AgentXShellWebComponent.DESKTOP_DIAGRAMS_MIN_WIDTH;
+      case 'files':
+        return AgentXShellWebComponent.DESKTOP_FILES_MIN_WIDTH;
+      case 'film-review':
+        return AgentXShellWebComponent.DESKTOP_FILM_REVIEW_MIN_WIDTH;
+      case 'expanded-panel':
+        return AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH;
+    }
+  }
+
+  @HostListener('document:pointerup')
+  @HostListener('document:pointercancel')
   @HostListener('window:blur')
   protected stopDesktopPanelResize(): void {
     if (!this.activeDesktopResize()) return;
 
     this.activeDesktopResize.set(null);
     this.setDesktopResizeCursor(false);
+    this.clampDesktopPanelWidths();
   }
 
   @HostListener('window:resize')
@@ -5900,6 +5868,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (!(target instanceof Element) || !target.closest('.header-nav-dropdown')) {
       this.isPanelMenuOpen.set(false);
     }
+  }
+
+  protected preventTouchScroll(event: TouchEvent): void {
+    event.preventDefault();
   }
 
   // ============================================
