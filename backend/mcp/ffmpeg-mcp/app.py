@@ -69,6 +69,7 @@ MOBILE_H264_BUFSIZE_K = _positive_int_env("FFMPEG_MOBILE_H264_BUFSIZE_K", 10000)
 FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
+FFMPEG_SUBPROCESS_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS", 840)
 FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECONDS", 4)
 FFMPEG_MERGE_MAX_WIDTH = _positive_int_env("FFMPEG_MERGE_MAX_WIDTH", 1920)
 FFMPEG_MERGE_MAX_HEIGHT = _positive_int_env("FFMPEG_MERGE_MAX_HEIGHT", 1080)
@@ -176,6 +177,32 @@ def _summarize_command_failure(cmd: list[str], result: subprocess.CompletedProce
     return "\n".join(summary_lines)
 
 
+def _summarize_command_timeout(cmd: list[str], exc: subprocess.TimeoutExpired) -> str:
+    stderr_value = exc.stderr or b""
+    if isinstance(stderr_value, bytes):
+        stderr_text = stderr_value.decode(errors="replace").strip()
+    else:
+        stderr_text = str(stderr_value).strip()
+    stderr_lines = [line.strip() for line in stderr_text.splitlines() if line.strip()]
+    actionable_lines = [line for line in stderr_lines if not _is_ffmpeg_banner_line(line)]
+    selected_lines = actionable_lines[-14:] if actionable_lines else stderr_lines[-14:]
+    stderr_summary = "\n".join(selected_lines)
+
+    command_preview = _format_command(cmd[:18])
+    if len(cmd) > 18:
+        command_preview += " ..."
+
+    summary_lines = [
+        f"timeout_seconds={exc.timeout}",
+        f"command={command_preview}",
+    ]
+    if stderr_summary:
+        summary_lines.append(f"stderr:\n{stderr_summary[-1800:]}")
+    else:
+        summary_lines.append("stderr=<empty>")
+    return "\n".join(summary_lines)
+
+
 def _run_ffmpeg_command(
     cmd: list[str],
     *,
@@ -186,7 +213,10 @@ def _run_ffmpeg_command(
 ):
     _log_video_pipeline("Normalization started", inputPath=input_path, outputPath=output_path)
     _log_video_pipeline("Exact FFmpeg command", command=_format_command(cmd))
-    result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{failure_label}: {_summarize_command_timeout(cmd, exc)}") from exc
     if result.returncode != 0:
         raise RuntimeError(f"{failure_label}: {_summarize_command_failure(cmd, result)}")
     _log_video_pipeline("Normalization completed", inputPath=input_path, outputPath=output_path)
@@ -629,6 +659,43 @@ def _video_validation_result(local_path: str) -> dict:
         "startTime": stream.get("start_time"),
         "fileSize": path.stat().st_size if path.exists() else 0,
     }
+
+
+def _video_input_debug(local_path: str) -> dict:
+    path = Path(local_path)
+    debug = {
+        "exists": path.exists(),
+        "fileSize": path.stat().st_size if path.exists() else 0,
+    }
+
+    try:
+        stream = _probe_video_stream(local_path)
+        debug.update(
+            {
+                "codec": stream.get("codec_name"),
+                "profile": stream.get("profile"),
+                "pixelFormat": stream.get("pix_fmt"),
+                "width": int(stream.get("width") or 0),
+                "height": int(stream.get("height") or 0),
+                "rFrameRate": stream.get("r_frame_rate"),
+                "avgFrameRate": stream.get("avg_frame_rate"),
+            }
+        )
+    except Exception as exc:
+        debug["streamProbeError"] = str(exc)
+
+    try:
+        media_format = _probe_media_format(local_path)
+        duration = media_format.get("duration")
+        if duration is not None:
+            debug["durationSeconds"] = round(float(str(duration)), 3)
+        probed_size = media_format.get("size")
+        if probed_size is not None:
+            debug["probedSize"] = int(float(str(probed_size)))
+    except Exception as exc:
+        debug["formatProbeError"] = str(exc)
+
+    return debug
 
 
 def _assert_valid_video_output(local_path: str, *, strict_ios_mp4: bool = True) -> None:
@@ -1444,7 +1511,7 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
         cmd,
         input_path=input_path,
         output_path=output_path,
-        timeout=600,
+        timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
         failure_label="FFmpeg silent-audio conversion failed",
     )
     if video_codec == "libx264":
@@ -1544,7 +1611,7 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         cmd,
         input_path=input_path,
         output_path=output_path,
-        timeout=600,
+        timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
         failure_label="FFmpeg add_text_overlay failed",
     )
 
@@ -1669,7 +1736,7 @@ def _run_burn_annotation_resilient(args: dict) -> dict:
             cmd,
             input_path=input_path,
             output_path=output_path,
-            timeout=600,
+            timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
             failure_label="FFmpeg burn_annotation failed",
         )
 
@@ -1766,7 +1833,7 @@ def _run_resize_video_resilient(args: dict) -> dict:
         cmd,
         input_path=input_path,
         output_path=output_path,
-        timeout=600,
+        timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
         failure_label="FFmpeg resize_video failed",
     )
 
@@ -1888,7 +1955,7 @@ def _run_burn_subtitles_resilient(args: dict) -> dict:
         cmd,
         input_path=input_path,
         output_path=output_path,
-        timeout=600,
+        timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
         failure_label="FFmpeg burn_subtitles failed",
     )
 
@@ -2191,6 +2258,7 @@ def _run_compress_video_resilient(args: dict) -> dict:
 
     preset = str(args.get("preset") or "medium").strip() or "medium"
     crf = str(args.get("crf") or "32").strip() or "32"
+    _log_video_pipeline("Compression input inspected", inputPath=input_path, **_video_input_debug(input_path))
 
     cmd = [
         "ffmpeg",
@@ -2234,7 +2302,7 @@ def _run_compress_video_resilient(args: dict) -> dict:
         cmd,
         input_path=input_path,
         output_path=output_path,
-        timeout=600,
+        timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
         failure_label="FFmpeg compress_video failed",
     )
 
@@ -2315,7 +2383,7 @@ def _run_trim_video_resilient(args: dict) -> dict:
         cmd,
         input_path=input_path,
         output_path=output_path,
-        timeout=600,
+        timeout=FFMPEG_SUBPROCESS_TIMEOUT_SECONDS,
         failure_label="FFmpeg trim failed",
     )
     try:
