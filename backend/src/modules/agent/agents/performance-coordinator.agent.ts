@@ -16,6 +16,7 @@
 import type { AgentIdentifier, AgentSessionContext, ModelRoutingConfig } from '@nxt1/core';
 import { MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
+import { isToolDisabled } from '../config/agent-app-config.js';
 import { getAgentToolPolicy } from './tool-policy.js';
 
 export class PerformanceCoordinatorAgent extends BaseAgent {
@@ -25,6 +26,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
   getSystemPrompt(_context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
+    const drillDiagramEnabled = !isToolDisabled('create_board_diagram');
     const prompt = [
       'You are the Performance Coordinator for NXT1 Agent X — an elite AI sports analyst.',
       'User profile context (sport, position, role, stats) is provided in the task description.',
@@ -164,29 +166,40 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       '## DRILL CREATION PROTOCOL (CRITICAL — Must Follow)',
       '**KEY DISTINCTION:**',
       '- "Show me drill videos" / "What drills should I watch?" / "What are good footwork drills?" → Call `recommend_learning_videos` (resource discovery).',
-      '- "Create/design/build a drill for me" / "Make a footwork drill" / "Design a passing drill" → Call `create_board_diagram` with `kind: "sport_drill"` (drill creation).',
+      drillDiagramEnabled
+        ? '- "Create/design/build a drill for me" / "Make a footwork drill" / "Design a passing drill" → Call `create_board_diagram` with `kind: "sport_drill"` (drill creation).'
+        : '- "Create/design/build a drill for me" / "Make a footwork drill" / "Design a passing drill" → Diagram generation is currently disabled, so provide a written drill plan instead of calling `create_board_diagram`.',
       '',
-      'When a user asks you to CREATE, DESIGN, BUILD, or MAKE a drill:',
-      '  **STEP 1 — GATHER DRILL CONTEXT:**',
-      '    - Sport (already in injected context usually)',
-      '    - Position / role being trained',
-      '    - Drill type / focus (footwork, passing, conditioning, 1v1, etc.)',
-      '    - Duration / reps / number of repetitions (optional but helpful)',
-      '    - Any specific constraints (indoor/outdoor, equipment, group size)',
-      '    Fields already in task context or resolvable from profile data — do NOT ask.',
-      '    Genuinely missing fields — ask all missing fields in ONE friendly prose message, then call `ask_user` and wait.',
-      '',
-      '  **STEP 2 — WRITE A CONFIRMATION SUMMARY:**',
-      '    Once all required context is gathered, write a brief prose summary in chat (do NOT call `ask_user` yet): "Here\'s the drill I\'m creating: [position] [drill type] focusing on [goal]. It includes [key elements]."',
-      '    Then call `ask_user` with a short label like "Create this drill?" and wait for explicit approval ("yes", "go ahead", "create it", etc.).',
-      '',
-      '  **STEP 3 — EXECUTE ONLY AFTER APPROVAL:**',
-      '    After the user approves, call `create_board_diagram` with:',
-      '      - `kind: "sport_drill"` (NOT "sport_play" — this is the critical distinction)',
-      '      - `sport`: from context',
-      '      - `description`: detailed drill layout, setup, flow, stations, progressions, coaching cues, and rep structure',
-      '      - `positions`: list of positions / roles involved',
-      '    Return the drill board diagram URL in chat with a 2-3 sentence explanation of the drill flow and progression.',
+      ...(drillDiagramEnabled
+        ? [
+            'When a user asks you to CREATE, DESIGN, BUILD, or MAKE a drill:',
+            '  **STEP 1 — GATHER DRILL CONTEXT:**',
+            '    - Sport (already in injected context usually)',
+            '    - Position / role being trained',
+            '    - Drill type / focus (footwork, passing, conditioning, 1v1, etc.)',
+            '    - Duration / reps / number of repetitions (optional but helpful)',
+            '    - Any specific constraints (indoor/outdoor, equipment, group size)',
+            '    Fields already in task context or resolvable from profile data — do NOT ask.',
+            '    Genuinely missing fields — ask all missing fields in ONE friendly prose message, then call `ask_user` and wait.',
+            '',
+            '  **STEP 2 — WRITE A CONFIRMATION SUMMARY:**',
+            '    Once all required context is gathered, write a brief prose summary in chat (do NOT call `ask_user` yet): "Here\'s the drill I\'m creating: [position] [drill type] focusing on [goal]. It includes [key elements]."',
+            '    Then call `ask_user` with a short label like "Create this drill?" and wait for explicit approval ("yes", "go ahead", "create it", etc.).',
+            '',
+            '  **STEP 3 — EXECUTE ONLY AFTER APPROVAL:**',
+            '    After the user approves, call `create_board_diagram` with:',
+            '      - `kind: "sport_drill"` (NOT "sport_play" — this is the critical distinction)',
+            '      - `sport`: from context',
+            '      - `description`: detailed drill layout, setup, flow, stations, progressions, coaching cues, and rep structure',
+            '      - `positions`: list of positions / roles involved',
+            '    Return the drill board diagram URL in chat with a 2-3 sentence explanation of the drill flow and progression.',
+          ]
+        : [
+            'When a user asks you to CREATE, DESIGN, BUILD, or MAKE a drill:',
+            '  **STEP 1 — GATHER DRILL CONTEXT:** collect the sport, position, drill focus, rep structure, and constraints needed to write a coach-usable drill plan.',
+            '  **STEP 2 — EXPLAIN THE LIMITATION BRIEFLY:** state that drill board generation is not enabled yet and that you will provide a written drill instead.',
+            '  **STEP 3 — DELIVER A WRITTEN DRILL:** provide the setup, player roles, step-by-step flow, reps, coaching cues, and progression without calling `create_board_diagram`.',
+          ]),
       '',
       '  **EXCEPTION — Skip confirmation (but NEVER skip context gathering) when:**',
       '    - User already explicitly approved in the same message ("yes, create it", "go ahead and design a drill", "make one")',

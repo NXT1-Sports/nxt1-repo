@@ -1,4 +1,5 @@
 import type { AgentIdentifier } from '@nxt1/core';
+import { isToolDisabled } from '../config/agent-app-config.js';
 
 type CoordinatorAgentId = Exclude<AgentIdentifier, 'router'>;
 
@@ -445,14 +446,20 @@ export function isToolAllowedByPatterns(
   return allowedToolPatterns.some((pattern) => matchesPattern(toolName, pattern));
 }
 
+function filterDisabledToolPatterns(patterns: readonly ToolPattern[]): readonly ToolPattern[] {
+  return patterns.filter((pattern) => pattern.includes('*') || !isToolDisabled(pattern));
+}
+
 export function getAgentToolPolicy(agentId: AgentIdentifier): readonly ToolPattern[] {
-  if (agentId === 'router') return ROUTER_TOOL_POLICY;
-  return AGENT_TOOL_POLICY[agentId];
+  if (agentId === 'router') return filterDisabledToolPatterns(ROUTER_TOOL_POLICY);
+  return filterDisabledToolPatterns(AGENT_TOOL_POLICY[agentId]);
 }
 
 export function getEffectiveAgentToolPolicy(agentId: AgentIdentifier): readonly ToolPattern[] {
-  if (agentId === 'router') return ROUTER_TOOL_POLICY;
-  return composeToolPatterns(GLOBAL_SYSTEM_TOOL_POLICY, AGENT_TOOL_POLICY[agentId]);
+  if (agentId === 'router') return filterDisabledToolPatterns(ROUTER_TOOL_POLICY);
+  return filterDisabledToolPatterns(
+    composeToolPatterns(GLOBAL_SYSTEM_TOOL_POLICY, AGENT_TOOL_POLICY[agentId])
+  );
 }
 
 /** Returns the explicit tool policy for the Primary Agent (wire id: 'router'). */

@@ -1823,7 +1823,12 @@
   ],
   "featureFlags": {
     "disableImageGeneration": false,
-    "disabledTools": [],
+    "disabledTools": [
+      "create_play_diagram",
+      "create_board_diagram",
+      "update_board_diagram",
+      "delete_board_diagram"
+    ],
     "disableEmailSending": false,
     "strictEntityToolGovernance": true,
     "strictZodToolSchemas": true

@@ -2364,7 +2364,12 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
     agentSystemPrompts: {},
   },
   featureFlags: {
-    disabledTools: [],
+    disabledTools: [
+      'create_play_diagram',
+      'create_board_diagram',
+      'update_board_diagram',
+      'delete_board_diagram',
+    ],
     disableImageGeneration: false,
     disableEmailSending: false,
     strictZodToolSchemas: true,

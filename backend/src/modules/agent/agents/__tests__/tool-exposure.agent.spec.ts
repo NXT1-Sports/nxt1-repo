@@ -359,7 +359,10 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('render_pdf_pages');
-    expect(agent.getAvailableTools()).toContain('create_play_diagram');
+    expect(agent.getAvailableTools()).not.toContain('create_play_diagram');
+    expect(agent.getAvailableTools()).not.toContain('create_board_diagram');
+    expect(agent.getAvailableTools()).not.toContain('update_board_diagram');
+    expect(agent.getAvailableTools()).not.toContain('delete_board_diagram');
     expect(agent.getAvailableTools()).toContain('create_universal_team_document');
     expect(agent.getAvailableTools()).toContain('list_universal_team_documents');
     expect(agent.getAvailableTools()).toContain('get_universal_team_document');
