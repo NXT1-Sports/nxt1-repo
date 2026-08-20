@@ -223,7 +223,6 @@ export class ContextBuilder {
 
     let context = this.mapUserToContext(userId, user);
     context = await this.hydrateCanonicalTeamCode(context, db);
-    context = await this.hydrateTeamBrandingContext(context, db);
 
     if (!context.teamId) {
       try {
@@ -251,6 +250,8 @@ export class ContextBuilder {
         });
       }
     }
+
+    context = await this.hydrateTeamBrandingContext(context, db);
 
     const rawGoals = (user['agentGoals'] as Array<Record<string, unknown>> | undefined) ?? [];
     const activeGoals = rawGoals.slice(0, 5).map((g) => ({
@@ -325,31 +326,72 @@ export class ContextBuilder {
     context: AgentUserContext,
     db: FirebaseFirestore.Firestore
   ): Promise<AgentUserContext> {
+    let organizationId = context.organizationId;
+    let organizationName = context.organizationName;
+    let organizationMascot = context.organizationMascot;
+    let organizationPrimaryColor = context.organizationPrimaryColor;
+    let organizationSecondaryColor = context.organizationSecondaryColor;
     let ownTeamName = context.ownTeamName ?? context.school ?? context.coachProgram;
     let ownTeamPrimaryColor = context.ownTeamPrimaryColor;
     let ownTeamSecondaryColor = context.ownTeamSecondaryColor;
 
-    if (context.organizationId) {
+    if (!organizationId && context.teamId) {
       try {
-        const orgSnap = await db.collection('Organizations').doc(context.organizationId).get();
+        const teamSnap = await db.collection('Teams').doc(context.teamId).get();
+        if (teamSnap.exists) {
+          const team = (teamSnap.data() ?? {}) as Record<string, unknown>;
+          organizationId = asString(team['organizationId']) ?? organizationId;
+          ownTeamName = ownTeamName ?? asString(team['teamName']) ?? asString(team['name']);
+          ownTeamPrimaryColor =
+            ownTeamPrimaryColor ?? asString(team['primaryColor']) ?? asString(team['teamColor1']);
+          ownTeamSecondaryColor =
+            ownTeamSecondaryColor ??
+            asString(team['secondaryColor']) ??
+            asString(team['teamColor2']);
+        }
+      } catch (err) {
+        logger.warn('[ContextBuilder] Failed to hydrate team branding context', {
+          userId: context.userId,
+          teamId: context.teamId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    if (organizationId) {
+      try {
+        const orgSnap = await db.collection('Organizations').doc(organizationId).get();
         if (orgSnap.exists) {
           const org = (orgSnap.data() ?? {}) as Record<string, unknown>;
-          ownTeamName = ownTeamName ?? asString(org['name']);
-          ownTeamPrimaryColor =
-            asString(org['primaryColor']) ?? ownTeamPrimaryColor ?? asString(org['teamColor1']);
-          ownTeamSecondaryColor =
-            asString(org['secondaryColor']) ?? ownTeamSecondaryColor ?? asString(org['teamColor2']);
+          organizationName = asString(org['name']) ?? organizationName;
+          organizationMascot = asString(org['mascot']) ?? organizationMascot;
+          organizationPrimaryColor =
+            asString(org['primaryColor']) ??
+            organizationPrimaryColor ??
+            asString(org['teamColor1']);
+          organizationSecondaryColor =
+            asString(org['secondaryColor']) ??
+            organizationSecondaryColor ??
+            asString(org['teamColor2']);
+          ownTeamName = ownTeamName ?? organizationName;
+          ownTeamPrimaryColor = organizationPrimaryColor ?? ownTeamPrimaryColor;
+          ownTeamSecondaryColor = organizationSecondaryColor ?? ownTeamSecondaryColor;
         }
       } catch (err) {
         logger.warn('[ContextBuilder] Failed to hydrate organization branding context', {
           userId: context.userId,
-          organizationId: context.organizationId,
+          organizationId,
           error: err instanceof Error ? err.message : String(err),
         });
       }
     }
 
     if (
+      organizationId === context.organizationId &&
+      organizationName === context.organizationName &&
+      organizationMascot === context.organizationMascot &&
+      organizationPrimaryColor === context.organizationPrimaryColor &&
+      organizationSecondaryColor === context.organizationSecondaryColor &&
       ownTeamName === context.ownTeamName &&
       ownTeamPrimaryColor === context.ownTeamPrimaryColor &&
       ownTeamSecondaryColor === context.ownTeamSecondaryColor &&
@@ -360,6 +402,11 @@ export class ContextBuilder {
 
     return {
       ...context,
+      ...(organizationId ? { organizationId } : {}),
+      ...(organizationName ? { organizationName } : {}),
+      ...(organizationMascot ? { organizationMascot } : {}),
+      ...(organizationPrimaryColor ? { organizationPrimaryColor } : {}),
+      ...(organizationSecondaryColor ? { organizationSecondaryColor } : {}),
       ...(ownTeamName ? { ownTeamName } : {}),
       ...(ownTeamPrimaryColor ? { ownTeamPrimaryColor } : {}),
       ...(ownTeamSecondaryColor ? { ownTeamSecondaryColor } : {}),
@@ -408,6 +455,31 @@ export class ContextBuilder {
     lines.push(`UserID: ${context.userId}`);
     if (context.teamId) lines.push(`TeamID: ${context.teamId}`);
     if (context.organizationId) lines.push(`OrgID: ${context.organizationId}`);
+
+    const organizationLabel = context.organizationName
+      ? `${context.organizationName}${context.organizationMascot ? ` (${context.organizationMascot})` : ''}`
+      : undefined;
+    const organizationColors = [
+      context.organizationPrimaryColor ? `Primary ${context.organizationPrimaryColor}` : undefined,
+      context.organizationSecondaryColor
+        ? `Secondary ${context.organizationSecondaryColor}`
+        : undefined,
+    ].filter(Boolean);
+    if (organizationLabel || organizationColors.length > 0) {
+      lines.push(
+        `Organization: ${organizationLabel ?? 'Known'}${
+          organizationColors.length > 0
+            ? ` | Official Colors: ${organizationColors.join(', ')}`
+            : ''
+        }`
+      );
+    }
+
+    if (context.ownTeamName) {
+      lines.push(
+        `Team: ${context.ownTeamName}${context.teamId ? ` (TeamID: ${context.teamId})` : ''}`
+      );
+    }
 
     lines.push(`User: ${context.displayName} | Role: ${context.role}`);
 

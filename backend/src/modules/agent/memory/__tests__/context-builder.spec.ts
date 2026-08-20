@@ -47,11 +47,20 @@ vi.mock('../../../../adapters/team.adapter.js', () => ({
 }));
 
 const mockFirestoreDocGet = vi.fn();
+const mockOrganizationDocGet = vi.fn();
 const mockFirestoreCollection = vi.fn((collectionName: string) => {
   if (collectionName === 'Teams') {
     return {
       doc: vi.fn((docId: string) => ({
         get: () => mockFirestoreDocGet(docId),
+      })),
+    };
+  }
+
+  if (collectionName === 'Organizations') {
+    return {
+      doc: vi.fn((docId: string) => ({
+        get: () => mockOrganizationDocGet(docId),
       })),
     };
   }
@@ -249,6 +258,11 @@ describe('ContextBuilder', () => {
     mockGetUserTeams.mockResolvedValue([]);
     mockListRecentSummaries.mockResolvedValue([]);
     mockFirestoreDocGet.mockResolvedValue({
+      exists: false,
+      id: '',
+      data: () => undefined,
+    });
+    mockOrganizationDocGet.mockResolvedValue({
       exists: false,
       id: '',
       data: () => undefined,
@@ -516,6 +530,50 @@ describe('ContextBuilder', () => {
 
       expect(ctx.teamId).toBe('team-basketball');
       expect(ctx.organizationId).toBe('org-basketball');
+    });
+
+    it('should hydrate organization identity and colors through the resolved team organizationId', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      mockGetUserById.mockResolvedValueOnce({
+        id: 'director-garfield',
+        role: 'director',
+        firstName: 'Ray',
+        lastName: 'Trice',
+        teamId: 'dcMXopxlmcXIIrsbORb3',
+      });
+      mockFirestoreDocGet.mockResolvedValue({
+        exists: true,
+        id: 'dcMXopxlmcXIIrsbORb3',
+        data: () => ({
+          teamName: 'Garfield Rams Football',
+          organizationId: 'Fc7YjAlVR4dG7CcIoKok',
+        }),
+      });
+      mockOrganizationDocGet.mockResolvedValueOnce({
+        exists: true,
+        id: 'Fc7YjAlVR4dG7CcIoKok',
+        data: () => ({
+          name: 'Garfield',
+          mascot: 'Rams',
+          primaryColor: '#790622',
+          secondaryColor: '#FFDD00',
+        }),
+      });
+
+      const ctx = await builder.buildContext('director-garfield');
+      const prompt = builder.compressToPrompt(ctx);
+
+      expect(ctx.organizationId).toBe('Fc7YjAlVR4dG7CcIoKok');
+      expect(ctx.organizationName).toBe('Garfield');
+      expect(ctx.organizationMascot).toBe('Rams');
+      expect(ctx.organizationPrimaryColor).toBe('#790622');
+      expect(ctx.organizationSecondaryColor).toBe('#FFDD00');
+      expect(ctx.ownTeamPrimaryColor).toBe('#790622');
+      expect(ctx.ownTeamSecondaryColor).toBe('#FFDD00');
+      expect(prompt).toContain(
+        'Organization: Garfield (Rams) | Official Colors: Primary #790622, Secondary #FFDD00'
+      );
+      expect(prompt).toContain('Team: Garfield Rams Football (TeamID: dcMXopxlmcXIIrsbORb3)');
     });
 
     it('should build prompt context with scoped memories and recent sync summaries', async () => {

@@ -459,8 +459,9 @@ function buildDefaultGameAnalysisContext(
   userContext: AgentUserContext
 ): AgentSessionContext['defaultGameAnalysisContext'] | undefined {
   const ownTeamName = userContext.ownTeamName ?? userContext.school ?? userContext.coachProgram;
-  const ownTeamColor = userContext.ownTeamPrimaryColor;
-  const ownTeamSecondaryColor = userContext.ownTeamSecondaryColor;
+  const ownTeamColor = userContext.organizationPrimaryColor ?? userContext.ownTeamPrimaryColor;
+  const ownTeamSecondaryColor =
+    userContext.organizationSecondaryColor ?? userContext.ownTeamSecondaryColor;
   const perspectiveTeam = userContext.defaultTeamPerspective;
 
   if (

@@ -182,6 +182,41 @@ describe('SyncMemoryExtractorService', () => {
     );
   });
 
+  it('does not store memory facts from agent mutation audit fields', async () => {
+    const findOneSpy = vi
+      .spyOn(AgentMemoryModel, 'findOne')
+      .mockImplementation(() => ({ lean: vi.fn().mockResolvedValue(null) }) as never);
+
+    const stored = await service.storeDeltaMemories(
+      createDelta({
+        identityChanges: [
+          {
+            field: 'agent_mutation.analyze_film_review_source_breakdowns',
+            oldValue: null,
+            newValue: {
+              teamContext: 'Garfield in blue jerseys. ODK: O=Garfield offense.',
+            },
+          },
+        ],
+        summary: {
+          identityFieldsChanged: 1,
+          newCategoriesAdded: 0,
+          statsUpdated: 0,
+          newRecruitingActivities: 0,
+          newAwards: 0,
+          newScheduleEvents: 0,
+          newVideos: 0,
+          newPlaybooks: 0,
+          totalChanges: 1,
+        },
+      })
+    );
+
+    expect(stored).toBe(0);
+    expect(findOneSpy).not.toHaveBeenCalled();
+    expect(vectorMemory.store).not.toHaveBeenCalled();
+  });
+
   it('dedupes scoped schedule facts within a run and skips existing scoped memories', async () => {
     const findOneSpy = vi.spyOn(AgentMemoryModel, 'findOne').mockImplementation(
       (query: Record<string, unknown>) =>

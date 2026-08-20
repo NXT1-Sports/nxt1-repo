@@ -1104,6 +1104,10 @@ export interface AgentUserContext {
   readonly teamId?: string;
   readonly teamCode?: string;
   readonly organizationId?: string;
+  readonly organizationName?: string;
+  readonly organizationMascot?: string;
+  readonly organizationPrimaryColor?: string;
+  readonly organizationSecondaryColor?: string;
   readonly ownTeamName?: string;
   readonly ownTeamPrimaryColor?: string;
   readonly ownTeamSecondaryColor?: string;

@@ -119,17 +119,19 @@ export class SyncMemoryExtractorService {
 
   async storeDeltaMemories(delta: SyncDeltaReport): Promise<number> {
     if (delta.isEmpty) return 0;
+    const memoryDelta = this.stripNonMemoryIdentityChanges(delta);
+    if (memoryDelta.isEmpty) return 0;
 
-    const baseContext = await this.contextBuilder.buildContext(delta.userId);
+    const baseContext = await this.contextBuilder.buildContext(memoryDelta.userId);
     const context: AgentUserContext = {
       ...baseContext,
-      ...(delta.sport && !baseContext.sport ? { sport: delta.sport } : {}),
-      ...(delta.teamId && !baseContext.teamId ? { teamId: delta.teamId } : {}),
-      ...(delta.organizationId && !baseContext.organizationId
-        ? { organizationId: delta.organizationId }
+      ...(memoryDelta.sport && !baseContext.sport ? { sport: memoryDelta.sport } : {}),
+      ...(memoryDelta.teamId && !baseContext.teamId ? { teamId: memoryDelta.teamId } : {}),
+      ...(memoryDelta.organizationId && !baseContext.organizationId
+        ? { organizationId: memoryDelta.organizationId }
         : {}),
     };
-    const facts = await this.extractFacts(delta, context);
+    const facts = await this.extractFacts(memoryDelta, context);
     const seenFactKeys = new Set<string>();
 
     let stored = 0;
@@ -161,13 +163,42 @@ export class SyncMemoryExtractorService {
     }
 
     logger.info('[SyncMemoryExtractor] Stored sync memories', {
-      userId: delta.userId,
-      sport: delta.sport,
-      source: delta.source,
+      userId: memoryDelta.userId,
+      sport: memoryDelta.sport,
+      source: memoryDelta.source,
       factsCreated: stored,
     });
 
     return stored;
+  }
+
+  private stripNonMemoryIdentityChanges(delta: SyncDeltaReport): SyncDeltaReport {
+    const identityChanges = delta.identityChanges.filter(
+      (change) => !change.field.startsWith('agent_mutation.')
+    );
+    if (identityChanges.length === delta.identityChanges.length) return delta;
+
+    const removedCount = delta.identityChanges.length - identityChanges.length;
+    const totalChanges = Math.max(0, delta.summary.totalChanges - removedCount);
+
+    return {
+      ...delta,
+      identityChanges,
+      isEmpty:
+        totalChanges === 0 &&
+        delta.newCategories.length === 0 &&
+        delta.statChanges.length === 0 &&
+        delta.newRecruitingActivities.length === 0 &&
+        delta.newAwards.length === 0 &&
+        delta.newScheduleEvents.length === 0 &&
+        delta.newVideos.length === 0 &&
+        (delta.newPlaybooks?.length ?? 0) === 0,
+      summary: {
+        ...delta.summary,
+        identityFieldsChanged: identityChanges.length,
+        totalChanges,
+      },
+    };
   }
 
   private async extractFacts(

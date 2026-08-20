@@ -33,7 +33,7 @@ export class FilmBreakdownTaxonomySkill extends BaseSkill {
           (team.opponentTeamName
             ? `- **${team.opponentTeamName}** (${team.opponentTeamColor || 'alternate'} jersey)`
             : '') +
-          "\n\n**When analyzing clips**: Identify the player's team from canonical own-team context first. Use own-team jersey color as the primary anchor. Use opponent color only when provided. If structured breakdown data says offense/defense, formation, or personnel, treat that as stronger evidence than weak visual inference." +
+          "\n\n**When analyzing clips**: Identify the player's team from canonical organization/team context first. Official Organization colors from the [User Profile] block are authoritative branding context; do not override them with a single-clip visual guess. Use own-team jersey color as the primary anchor only when it is explicitly canonical or user-confirmed. Use opponent color only when provided. If structured breakdown data says offense/defense, formation, or personnel, treat that as stronger evidence than weak visual inference." +
           '\n'
         : '';
 

@@ -7,6 +7,7 @@ import {
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewSourceBreakdownPatch,
   type TeamFilmReviewSourceBreakdownPatchTagValue,
+  type TeamFilmReviewSportTagDefinition,
 } from '@nxt1/core';
 import { z } from 'zod';
 import { loadUniversalFilmReview } from '../../../../services/team/universal-film-reviews.service.js';
@@ -21,6 +22,16 @@ import { AnalyzeVideoTool } from './analyze-video.tool.js';
 const MAX_SELECTED_SOURCES = 5;
 const DEFAULT_CONCURRENCY = 2;
 const MAX_ANALYSIS_OBJECTIVES = 8;
+const OWNERSHIP_DEPENDENT_TAG_IDS = new Set([
+  'odk',
+  'offenseTeam',
+  'defenseTeam',
+  'teamSide',
+  'actionTeam',
+  'possessionTeam',
+  'serveTeam',
+  'playerTeam',
+]);
 
 const TagValueSchema = z.union([
   z.string().trim().min(1),
@@ -52,6 +63,14 @@ const AnalyzeFilmReviewSourceBreakdownsInputSchema = z.object({
 });
 
 type SourceBreakdownObservation = z.infer<typeof SourceBreakdownObservationSchema>;
+
+type ReviewSourceLike = {
+  readonly id?: string;
+  readonly title?: string;
+  readonly videoUrl?: string;
+  readonly downloadUrl?: string;
+  readonly durationSec?: number | null;
+};
 
 type SourceResult = {
   readonly sourceId: string;
@@ -93,6 +112,15 @@ function hasMeaningfulTagValue(
   return true;
 }
 
+function isPatchTagValue(value: unknown): value is TeamFilmReviewSourceBreakdownPatchTagValue {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  );
+}
+
 function confidenceScore(confidence: SourceBreakdownObservation['confidence']): number {
   if (confidence === 'high') return 0.92;
   if (confidence === 'medium') return 0.72;
@@ -107,6 +135,7 @@ function buildSourcePrompt(params: {
     readonly options?: readonly string[];
     readonly description?: string;
   }[];
+  readonly existingOwnershipTags?: Readonly<Record<string, unknown>>;
 }): string {
   const tagLines = params.requestedTags.map((tag) => {
     const description = tag.description?.trim();
@@ -115,6 +144,13 @@ function buildSourcePrompt(params: {
       : tag.valueType;
     return `- ${tag.id} (${tag.label}) [${valueContract}]${description ? `: ${description}` : ''}`;
   });
+  const existingOwnershipTags = params.existingOwnershipTags ?? {};
+  const existingOwnershipTagLines = Object.keys(existingOwnershipTags).length
+    ? [
+        'Existing source-row ownership tags are authoritative unless the user explicitly provides a corrected mapping. Preserve these values instead of re-guessing from video:',
+        JSON.stringify(existingOwnershipTags),
+      ]
+    : [];
 
   return [
     'Return ONLY valid JSON with this exact shape:',
@@ -122,12 +158,14 @@ function buildSourcePrompt(params: {
     'Analyze only this selected source clip and create exactly one source-scoped breakdown row.',
     'Fill only the requested schema tag ids listed below.',
     'If a requested tag cannot be verified directly from the clip, omit it from the tags object instead of guessing.',
+    'If own-team versus opponent identity or jersey/color mapping is not explicit in canonical teamContext, user-provided context, or structured breakdown data, do NOT guess it from a single clip. Omit ownership-dependent tags such as ODK/offenseTeam/defenseTeam and use low confidence or insufficient status so the coach can be asked for clarification.',
     'Set applicability to "non_scrimmage" only when the clip is clearly not live offense-versus-defense scrimmage film. Set it to "unclear" when that cannot be verified.',
     'For a verified non-scrimmage clip, omit defFront from the tags object unless the clip visibly shows a verifiable front.',
     'Use status "verified" when all requested tags are visible, "partial" when at least one requested tag is visible, and "insufficient" when none of the requested tags can be verified.',
     'Keep values compact and coach-facing. Do not include prose outside the JSON object.',
     'Requested schema tags:',
     ...tagLines,
+    ...existingOwnershipTagLines,
   ].join('\n');
 }
 
@@ -181,6 +219,33 @@ function summarizeWriteConflict(input: {
     : input.retryableSourceIds;
 }
 
+function trimText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function compactParts(parts: Array<string | undefined>): string {
+  return parts.filter((part): part is string => !!part).join(' | ');
+}
+
+function getRowTags(row: TeamFilmReviewPlaySegment | undefined): Record<string, unknown> {
+  const tags = (row as { readonly tags?: unknown } | undefined)?.tags;
+  return tags && typeof tags === 'object' && !Array.isArray(tags)
+    ? (tags as Record<string, unknown>)
+    : {};
+}
+
+function getExistingOwnershipTags(
+  rows: readonly TeamFilmReviewPlaySegment[]
+): Record<string, unknown> {
+  if (rows.length !== 1) return {};
+  const tags = getRowTags(rows[0]);
+  return Object.fromEntries(
+    Object.entries(tags).filter(
+      ([tagId, tagValue]) => OWNERSHIP_DEPENDENT_TAG_IDS.has(tagId) && tagValue !== undefined
+    )
+  );
+}
+
 export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
   readonly name = 'analyze_film_review_source_breakdowns';
   readonly description =
@@ -212,6 +277,70 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
     if (!permission.ok) return { error: permission.error };
 
     return { review };
+  }
+
+  private async buildCanonicalTeamContext(review: TeamFilmReviewDoc): Promise<string | undefined> {
+    const teamId = trimText(review.teamId);
+    const organizationId = trimText(review.organizationId);
+    let teamName: string | undefined;
+    let resolvedOrganizationId = organizationId;
+    let organizationName: string | undefined;
+    let organizationMascot: string | undefined;
+    let primaryColor: string | undefined;
+    let secondaryColor: string | undefined;
+
+    if (teamId) {
+      try {
+        const teamSnap = await this.db.collection('Teams').doc(teamId).get();
+        if (teamSnap.exists) {
+          const team = (teamSnap.data() ?? {}) as Record<string, unknown>;
+          teamName = trimText(team['teamName']) ?? trimText(team['name']);
+          resolvedOrganizationId = trimText(team['organizationId']) ?? resolvedOrganizationId;
+          primaryColor = trimText(team['primaryColor']) ?? trimText(team['teamColor1']);
+          secondaryColor = trimText(team['secondaryColor']) ?? trimText(team['teamColor2']);
+        }
+      } catch {
+        // Non-critical: use review/team context already available.
+      }
+    }
+
+    if (resolvedOrganizationId) {
+      try {
+        const orgSnap = await this.db.collection('Organizations').doc(resolvedOrganizationId).get();
+        if (orgSnap.exists) {
+          const org = (orgSnap.data() ?? {}) as Record<string, unknown>;
+          organizationName = trimText(org['name']);
+          organizationMascot = trimText(org['mascot']);
+          primaryColor =
+            trimText(org['primaryColor']) ?? primaryColor ?? trimText(org['teamColor1']);
+          secondaryColor =
+            trimText(org['secondaryColor']) ?? secondaryColor ?? trimText(org['teamColor2']);
+        }
+      } catch {
+        // Non-critical: omit fallback rather than failing video analysis.
+      }
+    }
+
+    const organizationLabel = organizationName
+      ? `Organization: ${organizationName}${organizationMascot ? ` ${organizationMascot}` : ''}`
+      : undefined;
+    const teamLabel = teamName || teamId ? `Team: ${teamName ?? teamId}` : undefined;
+    const colorLabel =
+      primaryColor || secondaryColor
+        ? `Official organization colors: ${compactParts([
+            primaryColor ? `primary ${primaryColor}` : undefined,
+            secondaryColor ? `secondary ${secondaryColor}` : undefined,
+          ])}`
+        : undefined;
+
+    const value = compactParts([
+      organizationLabel,
+      teamLabel,
+      colorLabel,
+      'Use official organization/team context as the identity anchor. Do not infer or overwrite team colors from a single clip unless the user explicitly confirms jersey colors for this game.',
+    ]);
+
+    return value.length > 0 ? value : undefined;
   }
 
   private async persistPatchesWithFreshRevision(input: {
@@ -292,30 +421,40 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
       return { success: false, error: initialReviewResult.error };
     }
     const review = initialReviewResult.review;
+    const canonicalTeamContext = await this.buildCanonicalTeamContext(review);
+    const teamContext = parsed.data.teamContext ?? canonicalTeamContext;
 
-    const sportTagSchema = getTeamFilmReviewSportTagDefinitions(review.sport);
-    const sportTagsById = new Map(sportTagSchema.map((tag) => [tag.id, tag]));
+    const sportTagSchema = getTeamFilmReviewSportTagDefinitions(
+      review.sport
+    ) as readonly TeamFilmReviewSportTagDefinition[];
+    const sportTagsById = new Map<string, TeamFilmReviewSportTagDefinition>(
+      sportTagSchema.map((tag: TeamFilmReviewSportTagDefinition) => [tag.id, tag])
+    );
     const requestedTagIds =
       parsed.data.requestedTagIds === 'all'
-        ? sportTagSchema.map((tag) => tag.id)
+        ? sportTagSchema.map((tag: TeamFilmReviewSportTagDefinition) => tag.id)
         : [...new Set(parsed.data.requestedTagIds)];
-    const requestedTags = requestedTagIds.map((tagId) =>
-      sportTagSchema.find((tag) => tag.id === tagId)
+    const requestedTags = requestedTagIds.map((tagId: string) =>
+      sportTagSchema.find((tag: TeamFilmReviewSportTagDefinition) => tag.id === tagId)
     );
-    const unknownTagIds = requestedTagIds.filter((_, index) => !requestedTags[index]);
+    const unknownTagIds = requestedTagIds.filter(
+      (_tagId: string, index: number) => !requestedTags[index]
+    );
     if (unknownTagIds.length > 0) {
       return {
         success: false,
         error: `Requested tag ids are not valid for ${review.sport || 'this'} film review: ${unknownTagIds.join(', ')}.`,
         data: {
           requestedTagIds,
-          availableTagIds: sportTagSchema.map((tag) => tag.id),
+          availableTagIds: sportTagSchema.map((tag: TeamFilmReviewSportTagDefinition) => tag.id),
         },
       };
     }
 
+    const reviewSources = (review.sources ?? []) as readonly ReviewSourceLike[];
+    const reviewTimeline = (review.timeline ?? []) as readonly TeamFilmReviewPlaySegment[];
     const sourcesById = new Map(
-      (review.sources ?? []).flatMap((source) => {
+      reviewSources.flatMap((source: ReviewSourceLike) => {
         const sourceId = source.id?.trim();
         return sourceId ? [[sourceId, source] as const] : [];
       })
@@ -324,7 +463,7 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
     for (const sourceId of sourceIds) {
       sourceRowsById.set(
         sourceId,
-        (review.timeline ?? []).filter((row) => row.sourceId === sourceId)
+        reviewTimeline.filter((row: TeamFilmReviewPlaySegment) => row.sourceId === sourceId)
       );
     }
     const unavailable = new Map<string, SourceResult>();
@@ -361,6 +500,8 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
     const batch = await parallelBatch(
       available,
       async ({ sourceId, title, durationSec, ordinal }): Promise<SourceResult> => {
+        const sourceRows = sourceRowsById.get(sourceId) ?? [];
+        const existingOwnershipTags = getExistingOwnershipTags(sourceRows);
         const stepId = `film-breakdown:${sourceId}`;
         const stepLabel = `Analyzing ${title} (${ordinal}/${sourceIds.length})`;
         context.emitToolStep?.({
@@ -384,16 +525,17 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
                 readonly options?: readonly string[];
                 readonly description?: string;
               }>,
+              existingOwnershipTags,
             }),
             sportContext: parsed.data.sportContext ?? review.sport,
-            teamContext: parsed.data.teamContext,
+            teamContext,
             playContext: parsed.data.playContext,
             focusArea: 'source-scoped film review breakdown tagging',
             analysisObjectives:
               parsed.data.analysisObjectives ??
               requestedTagIds
                 .slice(0, MAX_ANALYSIS_OBJECTIVES)
-                .map((tagId) => `Verify ${tagId} from visible film evidence`),
+                .map((tagId: string) => `Verify ${tagId} from visible film evidence`),
           },
           { ...context, filmReviewBatchExecution: true }
         );
@@ -436,9 +578,28 @@ export class AnalyzeFilmReviewSourceBreakdownsTool extends BaseTool {
 
         const tags: Record<string, TeamFilmReviewSourceBreakdownPatchTagValue> = {};
         for (const [tagId, tagValue] of Object.entries(observation.tags)) {
+          const existingTagValue = existingOwnershipTags[tagId];
           const definition = sportTagsById.get(tagId);
           if (
             requestedTagIds.includes(tagId) &&
+            hasMeaningfulTagValue(tagValue) &&
+            definition !== undefined &&
+            isTeamFilmReviewSportTagValueValid(definition, tagValue)
+          ) {
+            tags[tagId] =
+              OWNERSHIP_DEPENDENT_TAG_IDS.has(tagId) &&
+              isPatchTagValue(existingTagValue) &&
+              hasMeaningfulTagValue(existingTagValue)
+                ? existingTagValue
+                : tagValue;
+          }
+        }
+
+        for (const [tagId, tagValue] of Object.entries(existingOwnershipTags)) {
+          const definition = sportTagsById.get(tagId);
+          if (
+            requestedTagIds.includes(tagId) &&
+            isPatchTagValue(tagValue) &&
             hasMeaningfulTagValue(tagValue) &&
             definition !== undefined &&
             isTeamFilmReviewSportTagValueValid(definition, tagValue)
