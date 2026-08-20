@@ -21,7 +21,7 @@ runConfig:
   memoryMiB: 512
   concurrency: 80
   minInstances: 1
-  maxInstances: 5
+  maxInstances: 15
 
 # Environment variables — APP_ENV=staging triggers `ng build --configuration staging`
 # in the gcp-build script, which bundles environment.staging.ts

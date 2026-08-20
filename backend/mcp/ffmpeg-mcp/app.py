@@ -69,7 +69,7 @@ MOBILE_H264_BUFSIZE_K = _positive_int_env("FFMPEG_MOBILE_H264_BUFSIZE_K", 10000)
 FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
-FFMPEG_SUBPROCESS_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS", 840)
+FFMPEG_SUBPROCESS_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MCP_SUBPROCESS_TIMEOUT_SECONDS", 1200)
 FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECONDS", 4)
 FFMPEG_MERGE_MAX_WIDTH = _positive_int_env("FFMPEG_MERGE_MAX_WIDTH", 1920)
 FFMPEG_MERGE_MAX_HEIGHT = _positive_int_env("FFMPEG_MERGE_MAX_HEIGHT", 1080)
@@ -2256,7 +2256,7 @@ def _run_compress_video_resilient(args: dict) -> dict:
     if not input_path or not output_path:
         raise RuntimeError("compress_video requires input_path and output_path")
 
-    preset = str(args.get("preset") or "medium").strip() or "medium"
+    preset = str(args.get("preset") or "superfast").strip() or "superfast"
     crf = str(args.get("crf") or "32").strip() or "32"
     _log_video_pipeline("Compression input inspected", inputPath=input_path, **_video_input_debug(input_path))
 
@@ -2295,6 +2295,8 @@ def _run_compress_video_resilient(args: dict) -> dict:
         "+faststart",
         "-avoid_negative_ts",
         "make_zero",
+        "-threads",
+        "0",
         output_path,
     ]
 

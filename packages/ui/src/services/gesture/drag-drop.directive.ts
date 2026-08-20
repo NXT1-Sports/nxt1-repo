@@ -1,4 +1,4 @@
-import { Directive, HostBinding, HostListener, output } from '@angular/core';
+import { Directive, HostBinding, HostListener, output, inject, NgZone } from '@angular/core';
 import {
   AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
   parseAgentXSelectedContextDragPayload,
@@ -10,6 +10,8 @@ import {
   standalone: true,
 })
 export class NxtDragDropDirective {
+  private readonly ngZone = inject(NgZone);
+
   readonly dragStateChange = output<boolean>();
   readonly filesDropped = output<File[]>();
   readonly selectedContextsDropped = output<AgentXSelectedContext[]>();
@@ -31,6 +33,7 @@ export class NxtDragDropDirective {
     event.preventDefault();
     event.stopPropagation();
 
+    clearTimeout(this.leaveTimeout);
     this.dragDepth += 1;
     this.setActive(true);
   }
@@ -51,6 +54,8 @@ export class NxtDragDropDirective {
     this.setActive(true);
   }
 
+  private leaveTimeout: ReturnType<typeof setTimeout> | undefined;
+
   @HostListener('dragleave', ['$event'])
   onDragLeave(event: DragEvent): void {
     if (!this.hasSupportedPayload(event)) {
@@ -62,7 +67,14 @@ export class NxtDragDropDirective {
 
     this.dragDepth = Math.max(this.dragDepth - 1, 0);
     if (this.dragDepth === 0) {
-      this.setActive(false);
+      // Debounce the leave event to prevent flickering when drag leaves a child and enters another child
+      // (mobile-drag-drop polyfill fires dragleave before dragenter, which is opposite to native)
+      clearTimeout(this.leaveTimeout);
+      this.leaveTimeout = setTimeout(() => {
+        if (this.dragDepth === 0) {
+          this.setActive(false);
+        }
+      }, 50);
     }
   }
 
@@ -122,8 +134,11 @@ export class NxtDragDropDirective {
       return;
     }
 
-    this.isActive = active;
-    this.dragStateChange.emit(active);
+    // Force run inside Angular zone in case polyfill dispatches events outside of it
+    this.ngZone.run(() => {
+      this.isActive = active;
+      this.dragStateChange.emit(active);
+    });
   }
 
   private reset(): void {

@@ -87,6 +87,19 @@
 @tailwind components;
 @tailwind utilities;
 
+/* mobile-drag-drop polyfill requirement */
+[draggable='true'],
+[draggable='true'] * {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  touch-action: pan-y !important;
+}
+
+.dnd-poly-drag-image {
+  pointer-events: none !important;
+}
+
 /* Ionic Utility Classes - OPTIONAL, Tailwind provides alternatives */
 /* @import "@ionic/angular/css/padding.css"; -- Use Tailwind: p-*, px-*, py-* */
 /* @import "@ionic/angular/css/float-elements.css"; -- Use Tailwind: float-* */

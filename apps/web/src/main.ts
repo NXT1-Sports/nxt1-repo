@@ -1,6 +1,17 @@
 // Zone.js - MUST be imported before Angular
 import 'zone.js';
 
+// Polyfill for HTML5 Drag and Drop on mobile/touch devices
+import { polyfill } from 'mobile-drag-drop';
+import { scrollBehaviourDragImageTranslateOverride } from 'mobile-drag-drop/scroll-behaviour';
+
+if (typeof window !== 'undefined') {
+  polyfill({
+    dragImageTranslateOverride: scrollBehaviourDragImageTranslateOverride,
+    holdToDrag: 250, // 250ms long-press to drag, allows all native scrolling
+  });
+}
+
 import { enableProdMode } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import * as Sentry from '@sentry/angular';

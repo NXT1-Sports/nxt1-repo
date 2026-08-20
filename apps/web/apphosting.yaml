@@ -27,7 +27,7 @@ runConfig:
   minInstances: 1
 
   # Maximum instances (controls cost ceiling)
-  maxInstances: 10
+  maxInstances: 15
 
   # Startup probe configuration - gives app more time to initialize
   startupProbe:
