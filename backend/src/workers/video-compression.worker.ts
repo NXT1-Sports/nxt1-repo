@@ -594,7 +594,7 @@ async function callFfmpegMcpCompress(
             input_path: signedInputUrl,
             output_path: `/tmp/nxt1-compressed-${Date.now()}.mp4`,
             crf: 32,
-            preset: 'medium',
+            preset: 'superfast',
           },
         },
       }),
