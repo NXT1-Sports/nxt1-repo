@@ -5045,8 +5045,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     );
   });
 
-  /** Whether the action plan modal is visible (desktop). Starts open. */
-  protected readonly showActionPlanModal = signal(true);
+  /** Whether the action plan modal is visible (desktop). */
+  protected readonly showActionPlanModal = signal(false);
   protected readonly leftRailWidth = signal(
     AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH
   );
@@ -5057,7 +5057,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly playbooksWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly practiceScriptsWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly diagramsWidth = signal(this.getDefaultExpandedPanelWidth());
-  protected readonly filesWidth = signal(this.getDefaultExpandedPanelWidth());
+  protected readonly filesWidth = signal(this.getDefaultFilesPanelWidth());
   protected readonly filmReviewWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
@@ -5084,7 +5084,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showGameplansModal = signal(false);
   protected readonly showPlaybooksModal = signal(false);
   protected readonly showPracticeScriptsModal = signal(false);
-  protected readonly showFilesModal = signal(false);
+  /** Whether The Lab panel is visible (desktop). Starts open. */
+  protected readonly showFilesModal = signal(true);
   protected readonly showFilmReviewModal = signal(false);
   protected readonly filesInlineVideoViewState = signal(false);
   protected readonly filmReviewInlineVideoViewState = signal(false);
@@ -5435,6 +5436,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return Math.min(Math.max(mainWidth * 0.45, minDefault), 960);
   }
 
+  private getDefaultFilesPanelWidth(): number {
+    const mainWidth = this.getDesktopMainWidth();
+    const preferredWidth = mainWidth <= 1024 ? 380 : 460;
+    const maxWidth = Math.max(
+      AgentXShellWebComponent.DESKTOP_FILES_MIN_WIDTH,
+      mainWidth - AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH
+    );
+
+    return this.clampWidth(
+      preferredWidth,
+      AgentXShellWebComponent.DESKTOP_FILES_MIN_WIDTH,
+      maxWidth
+    );
+  }
+
   private getDesktopMainWidth(): number {
     const width = this.desktopMain()?.nativeElement.getBoundingClientRect().width ?? 0;
     if (width > 0) return width;
@@ -5538,7 +5554,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       case 'files':
         this.sideToolPanelFullscreen.set(false);
         this.showFilesModal.set(false);
-        this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+        this.filesWidth.set(this.getDefaultFilesPanelWidth());
         break;
       case 'film-review':
         this.sideToolPanelFullscreen.set(false);
@@ -5635,7 +5651,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.playbooksWidth.set(syncedRightPanelDefault);
     this.practiceScriptsWidth.set(syncedRightPanelDefault);
     this.diagramsWidth.set(syncedRightPanelDefault);
-    this.filesWidth.set(syncedRightPanelDefault);
+    this.filesWidth.set(this.getDefaultFilesPanelWidth());
     this.filmReviewWidth.set(syncedRightPanelDefault);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.clampDesktopPanelWidths();
@@ -5768,7 +5784,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'files':
-        this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+        this.filesWidth.set(this.getDefaultFilesPanelWidth());
         break;
       case 'film-review':
         this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6587,7 +6603,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showGameplansModal.set(false);
       this.showFilmReviewModal.set(false);
       this.showDiagramsModal.set(false);
-      this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+      this.filesWidth.set(this.getDefaultFilesPanelWidth());
     } else {
       this.sideToolPanelFullscreen.set(false);
     }
@@ -7034,7 +7050,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showDiagramsModal.set(false);
       this.showFilmReviewModal.set(false);
       this.filmReviewInlineVideoViewState.set(false);
-      this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+      this.filesWidth.set(this.getDefaultFilesPanelWidth());
       this.filesInlineVideoViewState.set(false);
       this.showFilesModal.set(true);
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
@@ -7086,7 +7102,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showDiagramsModal.set(false);
     this.showFilmReviewModal.set(false);
     this.filmReviewInlineVideoViewState.set(false);
-    this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    this.filesWidth.set(this.getDefaultFilesPanelWidth());
     this.filesInlineVideoViewState.set(false);
     this.showFilesModal.set(true);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
@@ -7167,7 +7183,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showPracticeScriptsModal.set(false);
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
-    this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    this.filesWidth.set(this.getDefaultFilesPanelWidth());
     this.showFilesModal.set(true);
     this.filesInlineVideoViewState.set(false);
 
@@ -7234,7 +7250,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
     this.showFilmReviewModal.set(false);
-    this.filesWidth.set(this.getDefaultExpandedPanelWidth());
+    this.filesWidth.set(this.getDefaultFilesPanelWidth());
     this.showFilesModal.set(true);
   }
 
