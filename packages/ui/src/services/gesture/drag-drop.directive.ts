@@ -4,6 +4,10 @@ import {
   parseAgentXSelectedContextDragPayload,
   type AgentXSelectedContext,
 } from '@nxt1/core/ai';
+import {
+  consumeAgentXContextDragFallback,
+  readAgentXContextDragFallback,
+} from './agent-x-context-drag-state';
 
 @Directive({
   selector: '[nxtDragDrop]',
@@ -101,7 +105,11 @@ export class NxtDragDropDirective {
   }
 
   private hasSupportedPayload(event: DragEvent): boolean {
-    return this.hasFiles(event) || this.hasSelectedContext(event);
+    return (
+      this.hasFiles(event) ||
+      this.hasSelectedContext(event) ||
+      this.hasSelectedContextFallback(event)
+    );
   }
 
   private hasFiles(event: DragEvent): boolean {
@@ -122,11 +130,26 @@ export class NxtDragDropDirective {
     return Array.from(types).includes(AGENT_X_SELECTED_CONTEXT_DRAG_MIME);
   }
 
+  private hasSelectedContextFallback(event: DragEvent): boolean {
+    if (!readAgentXContextDragFallback()) {
+      return false;
+    }
+
+    const types = event.dataTransfer?.types;
+    if (!types) {
+      return false;
+    }
+
+    return Array.from(types).includes('text/plain');
+  }
+
   private getSelectedContexts(event: DragEvent): readonly AgentXSelectedContext[] | null {
     const rawPayload = event.dataTransfer?.getData(AGENT_X_SELECTED_CONTEXT_DRAG_MIME) ?? '';
-    return parseAgentXSelectedContextDragPayload(rawPayload) as
+    const contexts = parseAgentXSelectedContextDragPayload(rawPayload) as
       | readonly AgentXSelectedContext[]
       | null;
+
+    return contexts ?? consumeAgentXContextDragFallback();
   }
 
   private setActive(active: boolean): void {

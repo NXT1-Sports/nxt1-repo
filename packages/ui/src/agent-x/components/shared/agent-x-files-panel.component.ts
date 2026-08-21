@@ -1071,16 +1071,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                   />
                 </span>
 
-                <div
-                  role="button"
-                  tabindex="0"
+                <button
+                  type="button"
                   class="film-list-item"
                   [class.film-list-item--active]="file.id === selectedId()"
                   [nxtAgentXContextDrag]="buildFileDragContextsForLibrary(file)"
                   [nxtAgentXContextDragDisabled]="isFolderItemReorderDragActive()"
                   (click)="openFile(file)"
-                  (keydown.enter)="openFile(file)"
-                  (keydown.space)="openFile(file)"
                   (dragstart)="onFileDragStart(file, folder.items, $event)"
                   (dragend)="onFileDragEnd()"
                 >
@@ -1090,7 +1087,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         class="film-list-item__thumb-image"
                         [src]="thumbnailUrl"
                         [alt]="file.name"
+                        draggable="false"
                         (error)="onListThumbnailError(file, thumbnailUrl)"
+                        (dragstart)="$event.preventDefault()"
                       />
                       @if (file.kind === 'video') {
                         <span class="film-list-item__thumbnail-icon" aria-hidden="true">
@@ -1120,7 +1119,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       }
                     </span>
                   </span>
-                </div>
+                </button>
 
                 <button
                   type="button"
@@ -1298,19 +1297,24 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                   [nxtAgentXContextDragDisabled]="genericVideoControlDragLockActive()"
                 >
                   @if (isImageFile(file)) {
-                    <img class="agent-x-files-viewer__image" [src]="file.url" [alt]="file.name" />
+                    <img
+                      class="agent-x-files-viewer__image"
+                      [src]="file.url"
+                      [alt]="file.name"
+                      draggable="false"
+                      (dragstart)="$event.preventDefault()"
+                    />
                   } @else if (safeSelectedPdfPreviewUrl(); as previewUrl) {
                     <div class="agent-x-files-viewer__frame-shell">
-                      <div
-                        role="button"
-                        tabindex="0"
+                      <button
+                        type="button"
                         class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
                         aria-label="Drag PDF to chat"
                         title="Drag PDF to chat"
                         [nxtAgentXContextDrag]="buildFileDragContext(file)"
                       >
                         Drag PDF
-                      </div>
+                      </button>
                       <iframe
                         class="agent-x-files-viewer__frame"
                         [src]="previewUrl"
@@ -1322,16 +1326,15 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     as videoIframeUrl
                   ) {
                     <div class="agent-x-files-viewer__frame-shell">
-                      <div
-                        role="button"
-                        tabindex="0"
+                      <button
+                        type="button"
                         class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
                         aria-label="Drag media to chat"
                         title="Drag media to chat"
                         [nxtAgentXContextDrag]="buildFileDragContext(file)"
                       >
                         Drag Media
-                      </div>
+                      </button>
                       <iframe
                         class="agent-x-files-viewer__frame"
                         [src]="videoIframeUrl"

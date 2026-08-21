@@ -51,7 +51,8 @@
               "qrcode",
               "url-parse",
               "jszip",
-              ""
+              "mobile-drag-drop",
+              "mobile-drag-drop/scroll-behaviour"
             ]
           },
           "configurations": {

@@ -79,7 +79,9 @@
               "is-stream",
               "lodash.throttle",
               "combine-errors",
-              "proper-lockfile"
+              "proper-lockfile",
+              "mobile-drag-drop",
+              "mobile-drag-drop/scroll-behaviour"
             ]
           },
           "configurations": {

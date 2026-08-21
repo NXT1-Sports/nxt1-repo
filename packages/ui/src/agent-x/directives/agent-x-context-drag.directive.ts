@@ -5,6 +5,10 @@ import {
   serializeAgentXSelectedContextForDrag,
   type AgentXSelectedContext,
 } from '@nxt1/core/ai';
+import {
+  clearAgentXContextDragFallback,
+  rememberAgentXContextDragFallback,
+} from '../../services/gesture/agent-x-context-drag-state';
 
 type DragContextPayload = AgentXSelectedContext | readonly AgentXSelectedContext[];
 
@@ -56,6 +60,7 @@ export class AgentXContextDragDirective {
   protected onDragStart(event: DragEvent): void {
     const contexts = this.normalizedContexts();
     if (!this.canDrag || contexts.length === 0 || !event.dataTransfer) {
+      clearAgentXContextDragFallback();
       event.preventDefault();
       return;
     }
@@ -70,14 +75,43 @@ export class AgentXContextDragDirective {
       serializeAgentXSelectedContextForDrag(payload as unknown as AgentXSelectedContext)
     );
     event.dataTransfer.setData('text/plain', plainText);
+    rememberAgentXContextDragFallback(contexts);
     this.applyDragPreview(contexts, event);
     this.dragging = true;
+  }
+
+  @HostListener('touchstart')
+  protected onTouchStart(): void {
+    this.rememberTouchDragFallback();
+  }
+
+  @HostListener('pointerdown', ['$event'])
+  protected onPointerDown(event: PointerEvent): void {
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+      this.rememberTouchDragFallback();
+    }
+  }
+
+  @HostListener('click')
+  protected onClick(): void {
+    if (!this.dragging) {
+      clearAgentXContextDragFallback();
+    }
+  }
+
+  @HostListener('touchcancel')
+  @HostListener('dnd-poly-dragstart-cancel')
+  protected onTouchDragCancel(): void {
+    if (!this.dragging) {
+      clearAgentXContextDragFallback();
+    }
   }
 
   @HostListener('dragend')
   protected onDragEnd(): void {
     this.dragging = false;
     this.destroyDragPreview();
+    clearAgentXContextDragFallback();
   }
 
   private get canDrag(): boolean {
@@ -92,6 +126,16 @@ export class AgentXContextDragDirective {
 
     const contexts = Array.isArray(context) ? context : [context];
     return contexts.filter((entry) => !!entry?.id.trim() && !!entry.title.trim());
+  }
+
+  private rememberTouchDragFallback(): void {
+    const contexts = this.normalizedContexts();
+    if (!this.canDrag || contexts.length === 0) {
+      clearAgentXContextDragFallback();
+      return;
+    }
+
+    rememberAgentXContextDragFallback(contexts);
   }
 
   private applyDragPreview(contexts: readonly AgentXSelectedContext[], event: DragEvent): void {
