@@ -297,6 +297,53 @@ describe('film review compatibility tools', () => {
     expect(data.review.title).toBe('Opponent Week 1');
   });
 
+  it('surfaces an ownership clarification blocker for ambiguous ODK rows', async () => {
+    const db = createDb([
+      makeFilmReviewFile('review-ambiguous', {
+        payload: {
+          filmReview: {
+            uploadMode: 'single_video',
+            videoUrl: 'https://cdn.example.com/video.mp4',
+            source: 'team_files',
+            schemaVersion: 2,
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                title: 'Video 2026',
+                videoUrl: 'https://cdn.example.com/video.mp4',
+              },
+            ],
+            timeline: [
+              {
+                id: 'play-1',
+                number: 1,
+                label: '1st and 10 run right',
+                startSec: 10,
+                endSec: 18,
+                sourceId: 'source-1',
+                tags: { odk: 'O', playType: 'Run' },
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const tool = new GetFilmReviewTool(db as never);
+
+    const result = await tool.execute({ filmReviewId: 'review-ambiguous' }, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('STOP: ownership clarification required');
+    expect(result.markdown).toContain('Your next action must be');
+    expect(result.markdown).toContain('Which team is this ODK keyed to');
+    expect(result.data).toMatchObject({
+      ownershipSummary: {
+        confidenceCounts: { ambiguous: 1 },
+      },
+    });
+  });
+
   it('lists film reviews across film_review and classified file records', async () => {
     const directFilmReviewDoc: MockDoc = {
       id: 'review-2',

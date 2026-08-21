@@ -187,6 +187,61 @@ describe('Game Analysis Parameters in Skills', () => {
       expect(params.game?.sport).toBe('football');
       expect(params.team?.perspectiveTeam).toBe('own');
     });
+
+    it('should let neutral film context override own-team coach defaults', () => {
+      const params = agent.testBuildGameAnalysisParams('Break down this play', {
+        sessionId: 'session-3',
+        userId: 'user-3',
+        conversationHistory: [],
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        defaultGameAnalysisContext: {
+          ownTeamId: 'team-1',
+          ownTeamName: 'Crown Point',
+          ownTeamColor: '#112233',
+          perspectiveTeam: 'own',
+        },
+        selectedContexts: [
+          {
+            id: 'film-play:2',
+            kind: 'film_play',
+            title: 'Scout clip',
+            metadata: {
+              sport: 'football',
+              perspective: 'neutral',
+              opponentName: 'Central',
+            },
+          },
+        ],
+      });
+
+      expect(params.team?.perspectiveTeam).toBe('neutral');
+      expect(params.team?.opponentTeamName).toBe('Central');
+    });
+
+    it('should normalize own_team selected context perspective to own', () => {
+      const params = agent.testBuildGameAnalysisParams('Break down this play', {
+        sessionId: 'session-4',
+        userId: 'user-4',
+        conversationHistory: [],
+        createdAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        selectedContexts: [
+          {
+            id: 'film-play:3',
+            kind: 'film_play',
+            title: 'Play 9 @ 21.0',
+            metadata: {
+              teamId: 'team-own',
+              sport: 'football',
+              perspective: 'own_team',
+            },
+          },
+        ],
+      });
+
+      expect(params.team?.perspectiveTeam).toBe('own');
+    });
   });
 
   describe('Coach Game Plan Skill with team context', () => {

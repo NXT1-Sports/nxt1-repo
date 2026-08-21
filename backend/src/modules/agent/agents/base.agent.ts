@@ -6706,9 +6706,11 @@ export abstract class BaseAgent {
       const sport = this.readSelectedContextString(metadata['sport']);
       const perspectiveRaw = this.readSelectedContextString(metadata['perspective']);
       const perspectiveTeam =
-        perspectiveRaw === 'own' || perspectiveRaw === 'opponent' || perspectiveRaw === 'neutral'
-          ? perspectiveRaw
-          : undefined;
+        perspectiveRaw === 'own' || perspectiveRaw === 'own_team'
+          ? 'own'
+          : perspectiveRaw === 'opponent' || perspectiveRaw === 'neutral'
+            ? perspectiveRaw
+            : undefined;
 
       if (
         ownTeamId ||

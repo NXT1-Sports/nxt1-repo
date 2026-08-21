@@ -48,8 +48,8 @@ Before generating any scouting report, tendency section, PDF, export artifact, o
 6. In the final report, label each section with the normalized ownership filter used, sample size, and any excluded ambiguous rows.
 
 **Sport-aware ownership crosswalk:**
-- Football: \`ODK=O\` means offensive tags describe our offense and defensive tags describe opponent defense. \`ODK=D\` means offensive tags describe opponent offense and defensive tags describe our defense. \`ODK=K\` is special teams and must not be mixed into offense/defense buckets.
-- Basketball and lacrosse: \`possession=O\` means action/offensive tags describe our possession and defensive/coverage tags describe the opponent. \`possession=D\` means action/offensive tags describe the opponent and defensive/coverage tags describe us.
+- Football: \`ODK\` only tells you offense/defense for the team the breakdown was keyed to. If the film review perspective is confirmed \`own_team\`, \`ODK=O\` maps to our offense and \`ODK=D\` maps to our defense. If the film is opponent or third-party film, do not assume \`ODK\` is keyed to the scouting target; ask whether the ODK belongs to the opponent, their opponent, or our team unless explicit row-level ownership tags answer it. \`ODK=K\` is special teams and must not be mixed into offense/defense buckets.
+- Basketball and lacrosse: \`possession\` only becomes our-vs-opponent ownership after the breakdown focus team is confirmed. If the review perspective is opponent, neutral, or missing, ask before labeling a possession as ours, the scouting target's, or the other team's.
 - Baseball and softball: \`half=TOP/BOT\` identifies away/home batting side. You must know whether our team is home or away before assigning rows to our offense or opponent offense.
 - Soccer, hockey, field hockey, volleyball, wrestling, and generic film: use explicit ownership tags such as \`teamSide\`, \`actionTeam\`, \`possessionTeam\`, \`serveTeam\`, \`playerTeam\`, \`offenseTeam\`, or \`defenseTeam\` when present. If no reliable ownership tag exists, ask for clarification before exporting.
 

@@ -782,35 +782,76 @@ function resolveOffenseDefenseCode(
   return null;
 }
 
+function resolvePerspectivePrimaryTeam(
+  perspective: TeamFilmReviewPerspective | null | undefined
+): TeamFilmReviewResolvedTeamSide {
+  if (perspective === 'own_team') {
+    return 'our';
+  }
+  return 'unknown';
+}
+
 function resolveFootballOwnership(input: {
+  readonly perspective?: TeamFilmReviewPerspective | null;
   readonly row: TeamFilmReviewPlaySegment;
   readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
 }): TeamFilmReviewRowOwnership | null {
   const odk = resolveOffenseDefenseCode(getTagValue(input.row.tags, 'odk'));
+  const primaryTeam = resolvePerspectivePrimaryTeam(input.perspective);
   if (odk === 'O') {
+    if (primaryTeam === 'unknown') {
+      return ownershipResult({
+        row: input.row,
+        sportSchemaKey: input.sportSchemaKey,
+        rowKind: 'offense_defense',
+        actionTeam: 'unknown',
+        offenseTeam: 'unknown',
+        defenseTeam: 'unknown',
+        confidence: 'ambiguous',
+        reason:
+          'Football ODK identifies offense versus defense, but the breakdown focus team is not confirmed so the offense cannot be mapped to our team or the scouting target.',
+        requiredClarification:
+          'Which team is this ODK keyed to: our team, the scouting target, or the other team in the film?',
+      });
+    }
     return ownershipResult({
       row: input.row,
       sportSchemaKey: input.sportSchemaKey,
       rowKind: 'offense_defense',
-      actionTeam: 'our',
-      offenseTeam: 'our',
-      defenseTeam: 'opponent',
+      actionTeam: primaryTeam,
+      offenseTeam: primaryTeam,
+      defenseTeam: oppositeTeamSide(primaryTeam),
       confidence: 'verified',
       reason:
-        'Football ODK=O means our offense is on the field; offensive tags describe us and defensive tags describe the opponent.',
+        'Football ODK=O means the confirmed review focus is on our offense; offensive tags describe us and defensive tags describe the opponent.',
     });
   }
   if (odk === 'D') {
+    if (primaryTeam === 'unknown') {
+      return ownershipResult({
+        row: input.row,
+        sportSchemaKey: input.sportSchemaKey,
+        rowKind: 'offense_defense',
+        actionTeam: 'unknown',
+        offenseTeam: 'unknown',
+        defenseTeam: 'unknown',
+        confidence: 'ambiguous',
+        reason:
+          'Football ODK identifies defense versus offense, but the breakdown focus team is not confirmed so the defense cannot be mapped to our team or the scouting target.',
+        requiredClarification:
+          'Which team is this ODK keyed to: our team, the scouting target, or the other team in the film?',
+      });
+    }
     return ownershipResult({
       row: input.row,
       sportSchemaKey: input.sportSchemaKey,
       rowKind: 'offense_defense',
-      actionTeam: 'opponent',
-      offenseTeam: 'opponent',
-      defenseTeam: 'our',
+      actionTeam: oppositeTeamSide(primaryTeam),
+      offenseTeam: oppositeTeamSide(primaryTeam),
+      defenseTeam: primaryTeam,
       confidence: 'verified',
       reason:
-        'Football ODK=D means our defense is on the field; offensive tags describe the opponent and defensive tags describe us.',
+        'Football ODK=D means the confirmed review focus is on our defense; offensive tags describe the opponent and defensive tags describe us.',
     });
   }
   if (odk === 'K') {
@@ -831,34 +872,64 @@ function resolveFootballOwnership(input: {
 }
 
 function resolvePossessionCodeOwnership(input: {
+  readonly perspective?: TeamFilmReviewPerspective | null;
   readonly row: TeamFilmReviewPlaySegment;
   readonly sportSchemaKey: TeamFilmReviewSportTagSchemaKey;
 }): TeamFilmReviewRowOwnership | null {
   const possession = resolveOffenseDefenseCode(getTagValue(input.row.tags, 'possession'));
+  const primaryTeam = resolvePerspectivePrimaryTeam(input.perspective);
   if (possession === 'O') {
+    if (primaryTeam === 'unknown') {
+      return ownershipResult({
+        row: input.row,
+        sportSchemaKey: input.sportSchemaKey,
+        rowKind: 'possession',
+        actionTeam: 'unknown',
+        offenseTeam: 'unknown',
+        defenseTeam: 'unknown',
+        confidence: 'ambiguous',
+        reason:
+          'This possession code identifies who has the ball, but the breakdown focus team is not confirmed so possession cannot be mapped to our team or the scouting target.',
+        requiredClarification:
+          'Which team is this possession code keyed to: our team, the scouting target, or the other team in the film?',
+      });
+    }
     return ownershipResult({
       row: input.row,
       sportSchemaKey: input.sportSchemaKey,
       rowKind: 'possession',
-      actionTeam: 'our',
-      offenseTeam: 'our',
-      defenseTeam: 'opponent',
+      actionTeam: primaryTeam,
+      offenseTeam: primaryTeam,
+      defenseTeam: oppositeTeamSide(primaryTeam),
       confidence: 'verified',
-      reason:
-        'Sport possession=O means the row action is our possession; action/offensive tags describe us.',
+      reason: 'Possession=O means our team has the ball; action/offensive tags describe us.',
     });
   }
   if (possession === 'D') {
+    if (primaryTeam === 'unknown') {
+      return ownershipResult({
+        row: input.row,
+        sportSchemaKey: input.sportSchemaKey,
+        rowKind: 'possession',
+        actionTeam: 'unknown',
+        offenseTeam: 'unknown',
+        defenseTeam: 'unknown',
+        confidence: 'ambiguous',
+        reason:
+          'This possession code identifies the defending side, but the breakdown focus team is not confirmed so defense cannot be mapped to our team or the scouting target.',
+        requiredClarification:
+          'Which team is this possession code keyed to: our team, the scouting target, or the other team in the film?',
+      });
+    }
     return ownershipResult({
       row: input.row,
       sportSchemaKey: input.sportSchemaKey,
       rowKind: 'possession',
-      actionTeam: 'opponent',
-      offenseTeam: 'opponent',
-      defenseTeam: 'our',
+      actionTeam: oppositeTeamSide(primaryTeam),
+      offenseTeam: oppositeTeamSide(primaryTeam),
+      defenseTeam: primaryTeam,
       confidence: 'verified',
-      reason:
-        'Sport possession=D means the opponent has possession; action/offensive tags describe the opponent.',
+      reason: 'Possession=D means the opponent has the ball and our team is defending.',
     });
   }
   return null;
@@ -911,9 +982,17 @@ export function resolveTeamFilmReviewRowOwnership(
 
   const sportResolved =
     sportSchemaKey === 'football'
-      ? resolveFootballOwnership({ row: input.row, sportSchemaKey })
+      ? resolveFootballOwnership({
+          row: input.row,
+          sportSchemaKey,
+          perspective: input.perspective,
+        })
       : sportSchemaKey === 'basketball' || sportSchemaKey === 'lacrosse'
-        ? resolvePossessionCodeOwnership({ row: input.row, sportSchemaKey })
+        ? resolvePossessionCodeOwnership({
+            row: input.row,
+            sportSchemaKey,
+            perspective: input.perspective,
+          })
         : sportSchemaKey === 'baseball' || sportSchemaKey === 'softball'
           ? resolveBaseballOwnership({
               row: input.row,

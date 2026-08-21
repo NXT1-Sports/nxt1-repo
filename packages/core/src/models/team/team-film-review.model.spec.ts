@@ -197,7 +197,9 @@ describe('resolveTeamFilmReviewRowOwnership', () => {
   it('maps football O rows to our offense and opponent defense', () => {
     const row = makeReview().timeline![0]!;
 
-    expect(resolveTeamFilmReviewRowOwnership({ sport: 'football', row })).toMatchObject({
+    expect(
+      resolveTeamFilmReviewRowOwnership({ sport: 'football', row, perspective: 'own_team' })
+    ).toMatchObject({
       rowKind: 'offense_defense',
       actionTeam: 'our',
       offensiveTagsDescribe: 'our',
@@ -209,12 +211,42 @@ describe('resolveTeamFilmReviewRowOwnership', () => {
   it('maps football D rows to opponent offense and our defense', () => {
     const row = { ...makeReview().timeline![0]!, tags: { odk: 'D', defFront: 'Odd' } };
 
-    expect(resolveTeamFilmReviewRowOwnership({ sport: 'football', row })).toMatchObject({
+    expect(
+      resolveTeamFilmReviewRowOwnership({ sport: 'football', row, perspective: 'own_team' })
+    ).toMatchObject({
       rowKind: 'offense_defense',
       actionTeam: 'opponent',
       offensiveTagsDescribe: 'opponent',
       defensiveTagsDescribe: 'our',
       confidence: 'verified',
+    });
+  });
+
+  it('requires clarification for opponent-perspective football rows without keyed-team confirmation', () => {
+    const row = makeReview().timeline![0]!;
+
+    expect(
+      resolveTeamFilmReviewRowOwnership({ sport: 'football', row, perspective: 'opponent' })
+    ).toMatchObject({
+      rowKind: 'offense_defense',
+      actionTeam: 'unknown',
+      offensiveTagsDescribe: 'unknown',
+      defensiveTagsDescribe: 'unknown',
+      confidence: 'ambiguous',
+    });
+  });
+
+  it('requires clarification for neutral-perspective football rows', () => {
+    const row = makeReview().timeline![0]!;
+
+    expect(
+      resolveTeamFilmReviewRowOwnership({ sport: 'football', row, perspective: 'neutral' })
+    ).toMatchObject({
+      rowKind: 'offense_defense',
+      actionTeam: 'unknown',
+      offensiveTagsDescribe: 'unknown',
+      defensiveTagsDescribe: 'unknown',
+      confidence: 'ambiguous',
     });
   });
 
@@ -236,12 +268,39 @@ describe('resolveTeamFilmReviewRowOwnership', () => {
       tags: { possession: 'D', action: 'Pick and roll' },
     };
 
-    expect(resolveTeamFilmReviewRowOwnership({ sport: 'basketball', row })).toMatchObject({
+    expect(
+      resolveTeamFilmReviewRowOwnership({
+        sport: 'basketball',
+        row,
+        perspective: 'own_team',
+      })
+    ).toMatchObject({
       rowKind: 'possession',
       actionTeam: 'opponent',
       offensiveTagsDescribe: 'opponent',
       defensiveTagsDescribe: 'our',
       confidence: 'verified',
+    });
+  });
+
+  it('requires clarification for neutral possession rows', () => {
+    const row = {
+      ...makeReview().timeline![0]!,
+      tags: { possession: 'O', action: 'Pick and roll' },
+    };
+
+    expect(
+      resolveTeamFilmReviewRowOwnership({
+        sport: 'basketball',
+        row,
+        perspective: 'neutral',
+      })
+    ).toMatchObject({
+      rowKind: 'possession',
+      actionTeam: 'unknown',
+      offensiveTagsDescribe: 'unknown',
+      defensiveTagsDescribe: 'unknown',
+      confidence: 'ambiguous',
     });
   });
 

@@ -533,12 +533,13 @@ describe('AgentXFilmReviewPanelComponent', () => {
     ).toBe('https://cdn.example.com/clip-020-tight.mp4');
 
     const context = componentAccess.buildFilmPlayDragContext(
-      reviewSignal()!,
+      { ...reviewSignal()!, perspective: 'neutral' },
       componentAccess.currentPlay()!,
       0
     );
 
     expect(context.metadata).toMatchObject({
+      perspective: 'neutral',
       sourceId: 'wide-20',
       sourceTitle: 'Clip 020 Wide',
       sourceCameraAngle: 'wide',

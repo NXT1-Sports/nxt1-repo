@@ -460,6 +460,27 @@ function summarizeTimelineOwnership(ownership: readonly TeamFilmReviewRowOwnersh
   };
 }
 
+function buildOwnershipClarificationMarkdown(
+  summary: ReturnType<typeof summarizeTimelineOwnership>
+): string {
+  if (summary.requiredClarifications.length === 0 && summary.confidenceCounts.ambiguous === 0) {
+    return '';
+  }
+
+  const clarification = summary.requiredClarifications.length
+    ? summary.requiredClarifications.join(' ')
+    : 'Confirm which team the breakdown ownership fields are keyed to before mapping rows to our team or the scouting target.';
+
+  return [
+    '',
+    '**STOP: ownership clarification required before scouting/report aggregation.**',
+    `${summary.confidenceCounts.ambiguous} of ${summary.rowCount} row(s) have ambiguous team ownership.`,
+    'Do not infer self-scout vs opponent scout from the film title, team profile, ODK, row order, or opponentName.',
+    'Your next action must be: write the clarification question in prose, then call `ask_user` and wait.',
+    `Ask the user: ${clarification}`,
+  ].join('\n');
+}
+
 function normalizeReviewForResponse(review: TeamFilmReviewDoc) {
   const rowOwnership = buildTimelineOwnership(review);
 
@@ -1322,12 +1343,19 @@ export class GetFilmReviewTool extends BaseTool {
       return { success: false, error: permission.error };
     }
 
+    const normalizedReview = normalizeReviewForResponse(review);
+    const ownershipSummary = normalizedReview.ownershipSummary;
+
     return {
       success: true,
-      markdown: `Loaded film review **${review.title}**.`,
+      markdown: `Loaded film review **${review.title}**.${buildOwnershipClarificationMarkdown(
+        ownershipSummary
+      )}`,
       data: {
-        review: normalizeReviewForResponse(review),
+        review: normalizedReview,
         summary: summarizeFilmReview(review),
+        rowOwnership: normalizedReview.rowOwnership,
+        ownershipSummary,
       },
     };
   }
@@ -1438,16 +1466,19 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
       };
     }
     const rowOwnership = buildTimelineOwnership(review, breakdown.timeline);
+    const ownershipSummary = summarizeTimelineOwnership(rowOwnership);
 
     return {
       success: true,
-      markdown: `Loaded ${breakdown.timeline.length} breakdown row(s) for source **${breakdown.source.title}**.`,
+      markdown: `Loaded ${breakdown.timeline.length} breakdown row(s) for source **${breakdown.source.title}**.${buildOwnershipClarificationMarkdown(
+        ownershipSummary
+      )}`,
       data: {
         filmReviewId: review.id,
         source: breakdown.source,
         timeline: breakdown.timeline,
         rowOwnership,
-        ownershipSummary: summarizeTimelineOwnership(rowOwnership),
+        ownershipSummary,
         sportTagSchemaKey: breakdown.sportTagSchemaKey,
         sportTagSchema: breakdown.sportTagSchema,
       },

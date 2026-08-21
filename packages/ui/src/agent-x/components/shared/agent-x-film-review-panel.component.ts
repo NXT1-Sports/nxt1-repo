@@ -85,6 +85,7 @@ type FilmListReview = {
   opponentName?: string | null;
   playlistId?: string | null;
   sport?: string;
+  perspective?: 'own_team' | 'opponent' | 'neutral';
   gameDate?: string;
   videoUrl?: string;
   storagePath?: string;
@@ -10340,6 +10341,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     );
     const breakdownProvider = review.breakdownSource?.provider;
     const timeline = this.resolveEffectiveTimeline(review);
+    const perspective = this.normalizeAgentPerspective(review.perspective);
 
     return {
       id: `film-review:${review.id}`,
@@ -10361,6 +10363,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         itemType: 'film_review',
         teamId: review.teamId,
         sport: review.sport,
+        perspective,
         opponentName: review.opponentName,
         storagePath: review.storagePath,
         cloudflareVideoId: review.cloudflareVideoId,
@@ -10384,6 +10387,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const sourceId = playbackSource.id?.trim() || review.id;
     const sourceTitle = playbackSource.title?.trim() || reviewTitle;
     const currentTimeSec = Math.max(0, Number(this.playerCurrentTime().toFixed(3)));
+    const perspective = this.normalizeAgentPerspective(review.perspective);
     const durationSec =
       typeof playbackSource.durationSec === 'number' && Number.isFinite(playbackSource.durationSec)
         ? Math.max(0, playbackSource.durationSec)
@@ -10415,6 +10419,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         itemType: 'film_review_source',
         teamId: review.teamId,
         sport: review.sport,
+        perspective,
         opponentName: review.opponentName,
         cloudflareVideoId: playbackSource.cloudflareVideoId ?? review.cloudflareVideoId,
         sourceId,
@@ -10800,6 +10805,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const sourceAngle = fullSource
       ? this.resolveSourceAngleMetadata(reviewSources, fullSource).cameraAngle
       : null;
+    const perspective = this.normalizeAgentPerspective(review.perspective);
 
     return {
       id: `film-play:${review.id}:${playId}`,
@@ -10841,6 +10847,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         itemType: 'film_timeline_play',
         teamId: review.teamId,
         sport: review.sport,
+        perspective,
         opponentName: review.opponentName,
         cloudflareVideoId: playbackSource?.cloudflareVideoId ?? review.cloudflareVideoId,
         sourceId,
@@ -12667,6 +12674,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         return typeof value !== 'string' || value.trim().length > 0;
       })
     ) as Readonly<Record<string, AgentXSelectedContextMetadataValue>>;
+  }
+
+  private normalizeAgentPerspective(
+    perspective: FilmListReview['perspective']
+  ): 'own' | 'opponent' | 'neutral' | null {
+    if (perspective === 'own_team') return 'own';
+    if (perspective === 'opponent' || perspective === 'neutral') return perspective;
+    return null;
   }
 
   protected onPlayerTimeUpdate(): void {
