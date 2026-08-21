@@ -92,6 +92,18 @@
             android:finishOnTaskLaunch="true"
             android:stateNotNeeded="true" />
 
+        <!-- BrokerActivity stores the nested Authenticator/broker launch Intent in
+             process memory/saved state and calls startActivityForResult() from
+             onResume(). If Android restores this internal activity after the broker
+             Intent was lost, MSAL/common can pass null into the framework and crash
+             while ActivityTaskManager migrates stream extras. Do not restore a stale
+             broker handoff; let the sign-in attempt fail/cancel and restart cleanly. -->
+        <activity
+            android:name="com.microsoft.identity.common.internal.broker.BrokerActivity"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:stateNotNeeded="true" />
+
         <!-- Remove the transitive YubiKit prompt entirely. MSAL pulls this in for
              optional smart-card flows, but our app does not invoke it directly.
              Android can still recreate a non-exported activity from task state,

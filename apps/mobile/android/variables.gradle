@@ -7,9 +7,10 @@ ext {
     // Fixes:
     //   - IllegalStateException (Unexpected fragment type) in CurrentTaskAuthorizationActivity (regressed Jul 9)
     //   - NPE in InstallCertActivityLauncher.onResume (null Intent passed to non-null ActivityResultLauncher)
-    //   - NPE in BrokerActivity.onResume (null redirect Intent from Authenticator)
     //   - Retains the 8.3.3 fix: multiple-listening-apps check moved out of
     //     PublicClientApplicationConfiguration init, avoiding activityInfo.name NPE.
+    // BrokerActivity still needs app-level restore protection in AndroidManifest.xml
+    // because it can start a null nested broker Intent if Android restores stale state.
     recognizebvMSALVersion = '8.4.1'
     androidxActivityVersion = '1.9.2'
     androidxAppCompatVersion = '1.7.0'
