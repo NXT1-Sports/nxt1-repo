@@ -1350,6 +1350,7 @@ export class AgentXService {
     let acceptedDocumentCount = 0;
     let acceptedOtherCount = 0;
     let totalAcceptedBytes = 0;
+    const rejectedUnsupportedFiles: Array<{ name: string; type: string }> = [];
 
     for (const selectedFile of files) {
       const nativeMetadata = getNativeAttachmentMetadata(selectedFile);
@@ -1357,8 +1358,8 @@ export class AgentXService {
       const sizeBytes = resolveAttachmentFileSize(file);
 
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
-        this.toast.error(`Unsupported file type: ${file.name}`);
         this.logger.warn('Rejected unsupported file type', { name: file.name, type: file.type });
+        rejectedUnsupportedFiles.push({ name: file.name, type: file.type });
         continue;
       }
 
@@ -1450,6 +1451,23 @@ export class AgentXService {
           acceptedOtherCount += 1;
         }
         this.logger.debug('File staged', { name: file.name, type: pending.type });
+      }
+    }
+
+    if (rejectedUnsupportedFiles.length > 0) {
+      const svgSidecarsOnly = rejectedUnsupportedFiles.every(({ name, type }) =>
+        isIgnoredSvgAttachment(name, type)
+      );
+
+      if (acceptedCount === 0) {
+        const firstRejectedFile = rejectedUnsupportedFiles[0];
+        if (firstRejectedFile) {
+          this.toast.error(`Unsupported file type: ${firstRejectedFile.name}`);
+        }
+      } else if (!svgSidecarsOnly) {
+        this.toast.info(
+          `Skipped ${rejectedUnsupportedFiles.length} unsupported file${rejectedUnsupportedFiles.length === 1 ? '' : 's'}.`
+        );
       }
     }
 
@@ -2806,4 +2824,10 @@ function normalizeAttachmentMimeType(mimeType: string): string | null {
     return 'image/jpeg';
   }
   return normalized;
+}
+
+function isIgnoredSvgAttachment(fileName: string, mimeType: string): boolean {
+  const normalizedName = fileName.trim().toLowerCase();
+  const normalizedType = normalizeAttachmentMimeType(mimeType);
+  return normalizedType === 'image/svg+xml' || normalizedName.endsWith('.svg');
 }

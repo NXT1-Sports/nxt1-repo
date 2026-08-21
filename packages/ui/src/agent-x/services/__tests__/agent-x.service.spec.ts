@@ -130,4 +130,21 @@ describe('AgentXService selected context queueing', () => {
       'annotationSnapshotAttached'
     );
   });
+
+  it('silently ignores unsupported svg sidecars when a supported document is also staged', () => {
+    service.addFiles([
+      new File(['pdf'], 'hudl-playbook.pdf', { type: 'application/pdf' }),
+      new File(['svg'], 'hudl-playbook.svg', { type: 'image/svg+xml' }),
+    ]);
+
+    expect(service.pendingFiles()).toHaveLength(1);
+    expect(service.pendingFiles()[0]?.file.name).toBe('hudl-playbook.pdf');
+    const toast = TestBed.inject(NxtToastService) as {
+      success: ReturnType<typeof vi.fn>;
+      error: ReturnType<typeof vi.fn>;
+      info: ReturnType<typeof vi.fn>;
+    };
+    expect(toast.error).not.toHaveBeenCalledWith('Unsupported file type: hudl-playbook.svg');
+    expect(toast.info).not.toHaveBeenCalled();
+  });
 });

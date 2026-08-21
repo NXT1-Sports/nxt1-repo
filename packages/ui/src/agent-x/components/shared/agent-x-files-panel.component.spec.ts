@@ -94,6 +94,8 @@ type FilesPanelTestAccess = {
   shouldShowViewerFileActions: (file: AgentXLibraryFile) => boolean;
   supportsTabbedTextEditor: (file: AgentXLibraryFile) => boolean;
   shouldRenderMarkdownPreview: (file: AgentXLibraryFile) => boolean;
+  openActionLabelForFile: (file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>) => string;
+  viewerFallbackMessage: (file: AgentXLibraryFile) => string;
   safeSelectedPdfPreviewUrl: Signal<string | null>;
   textDocumentEditorMode: (fileId: string) => 'write' | 'preview';
   setTextDocumentEditorMode: (fileId: string, mode: 'write' | 'preview') => void;
@@ -1507,6 +1509,24 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(componentAccess.shouldRenderMarkdownPreview(spreadsheetWithNotes)).toBe(true);
     expect(componentAccess.shouldRenderViewerStage(spreadsheetWithNotes)).toBe(true);
     expect(componentAccess.shouldShowViewerFileActions(spreadsheetWithNotes)).toBe(true);
+  });
+
+  it('uses presentation-specific external-open guidance for pptx assets', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const presentationDeck = {
+      ...generatedTextFile,
+      id: 'playbook-presentation-1',
+      kind: 'pptx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      url: 'https://cdn.example.com/playbook-2.pptx',
+      storagePath: 'Users/user-1/threads/thread-1/exports/playbook-2.pptx',
+    } as AgentXLibraryFile;
+
+    expect(componentAccess.openActionLabelForFile(presentationDeck)).toBe('Open Presentation');
+    expect(componentAccess.viewerFallbackMessage(presentationDeck)).toBe(
+      'Inline preview is not available for presentation decks right now. Download it or open it in Microsoft PowerPoint or Google Slides to review.'
+    );
   });
 
   it('defaults text document editor tabs to preview mode and allows write switching', () => {

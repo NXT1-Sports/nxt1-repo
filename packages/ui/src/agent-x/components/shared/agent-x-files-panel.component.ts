@@ -2827,6 +2827,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       .agent-x-files-viewer__content-textarea {
         width: 100%;
         min-height: 320px;
+        max-height: min(52vh, 460px);
         padding: var(--nxt1-spacing-4, 16px);
         border-radius: var(--nxt1-radius-xl, 16px);
         border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 65%, transparent);
@@ -2835,6 +2836,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         font-size: 14px;
         line-height: 1.6;
         resize: vertical;
+        overflow-y: auto;
         font-family: inherit;
         box-shadow: var(--nxt1-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.3));
       }
@@ -2863,10 +2865,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
       .agent-x-files-viewer__document-preview {
         min-height: 320px;
+        max-height: min(52vh, 460px);
         padding: 18px;
         border-radius: var(--nxt1-radius-xl, 16px);
         border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 65%, transparent);
         background: color-mix(in srgb, var(--nxt1-color-surface-100) 96%, #03111f 4%);
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
         box-shadow: var(--nxt1-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.3));
       }
 
@@ -7845,8 +7851,25 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     );
   }
 
+  protected isPresentationFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
+    const normalizedMimeType = file.mimeType.trim().toLowerCase();
+    return (
+      file.kind === 'pptx' ||
+      normalizedMimeType.includes('presentationml.presentation') ||
+      normalizedMimeType.includes('powerpoint')
+    );
+  }
+
   protected openActionLabelForFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): string {
-    return this.isSpreadsheetFile(file) ? 'Open Spreadsheet' : 'Open Original';
+    if (this.isSpreadsheetFile(file)) {
+      return 'Open Spreadsheet';
+    }
+
+    if (this.isPresentationFile(file)) {
+      return 'Open Presentation';
+    }
+
+    return 'Open Original';
   }
 
   protected formatKindLabel(file: Pick<AgentXLibraryFile, 'kind' | 'mimeType'>): string {
@@ -8209,6 +8232,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected viewerFallbackMessage(file: AgentXLibraryFile): string {
     if (this.isSpreadsheetFile(file)) {
       return 'Inline preview is not available for spreadsheets right now. Download it or open it in Excel or Google Docs to review.';
+    }
+
+    if (this.isPresentationFile(file)) {
+      return 'Inline preview is not available for presentation decks right now. Download it or open it in Microsoft PowerPoint or Google Slides to review.';
     }
 
     return 'Preview is not available for this file type yet. The universal viewer shell is in place, and richer bottom-panel content can be added here next.';
