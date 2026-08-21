@@ -80,6 +80,9 @@ const INDEX_HTML = join(DIST_FOLDER, 'index.csr.html');
 /** CSR fallback HTML (served when SSR fails) — Angular generates index.csr.html in browser/ */
 const CSR_INDEX = join(DIST_FOLDER, 'index.csr.html');
 
+/** Apple Universal Links association file has no extension, so serve it explicitly. */
+const APPLE_APP_SITE_ASSOCIATION = join(DIST_FOLDER, '.well-known', 'apple-app-site-association');
+
 /** Cookie name for Firebase auth token */
 const AUTH_TOKEN_COOKIE = '__session';
 
@@ -527,6 +530,22 @@ export function createServer(): express.Express {
   server.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
   });
+
+  server.get(
+    ['/.well-known/apple-app-site-association', '/apple-app-site-association'],
+    (_req: Request, res: Response) => {
+      if (!existsSync(APPLE_APP_SITE_ASSOCIATION)) {
+        res.status(404).type('text/plain; charset=utf-8').send('Not found');
+        return;
+      }
+
+      res
+        .status(200)
+        .setHeader('Cache-Control', 'public, max-age=3600')
+        .type('application/json; charset=utf-8')
+        .send(readFileSync(APPLE_APP_SITE_ASSOCIATION, 'utf8'));
+    }
+  );
 
   server.use((req: Request, res: Response, next: NextFunction) => {
     const fullUrl = `${req.protocol}://${req.headers.host ?? req.hostname}${req.originalUrl}`;
