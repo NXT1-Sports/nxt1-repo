@@ -79,6 +79,19 @@
             </intent-filter>
         </activity>
 
+        <!-- MSAL current-task auth can be recreated by OEM task restore after process
+             death (notably OxygenOS/Android 11). The restored activity may run before
+             MSAL's process-level LibraryConfiguration is rebuilt, causing
+             CurrentTaskAuthorizationActivity.onCreate() to construct the wrong
+             fragment type and crash with "Unexpected fragment type". Keep the
+             internal auth activity out of task restoration instead of preserving a
+             half-finished OAuth fragment state. -->
+        <activity
+            android:name="com.microsoft.identity.common.internal.providers.oauth2.CurrentTaskAuthorizationActivity"
+            android:excludeFromRecents="true"
+            android:finishOnTaskLaunch="true"
+            android:stateNotNeeded="true" />
+
         <!-- Remove the transitive YubiKit prompt entirely. MSAL pulls this in for
              optional smart-card flows, but our app does not invoke it directly.
              Android can still recreate a non-exported activity from task state,
