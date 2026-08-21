@@ -102,6 +102,7 @@
     "deploy:ota:android:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform android",
     "storage:cors": "bash ./scripts/utilities/configure-storage-cors.sh",
     "test:live:e2e-user": "tsx --tsconfig tsconfig.scripts.json scripts/utilities/request-as-e2e-user.ts",
+    "auth:repair-email-password": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/utilities/repair-auth-email-password.ts",
     "smoke:universal-team-docs": "tsx --tsconfig tsconfig.scripts.json scripts/utilities/smoke-universal-team-documents.ts",
     "smoke:universal-team-docs:local": "npm run smoke:universal-team-docs -- --target local",
     "smoke:universal-team-docs:staging": "npm run smoke:universal-team-docs -- --target staging",

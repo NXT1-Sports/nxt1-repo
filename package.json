@@ -77,6 +77,7 @@
     "e2e:debug": "npm run e2e:debug --workspace=@nxt1/web",
     "e2e:report": "npm run e2e:report --workspace=@nxt1/web",
     "e2e:install": "npm run e2e:install --workspace=@nxt1/web",
+    "auth:repair-email-password": "cd backend && npm run auth:repair-email-password --",
     "deps:check:google-auth": "node scripts/ci/check-google-auth-stack.mjs",
     "lockfile:check": "node scripts/ci/check-google-auth-lockfile.mjs"
   },

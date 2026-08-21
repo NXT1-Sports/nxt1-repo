@@ -134,6 +134,18 @@ node scripts/data-migrations/migrate-agent-config.ts
 node scripts/utilities/clear-cache.ts
 ```
 
+### Repair Email/Password Sign-In
+
+```bash
+npm run auth:repair-email-password -- --email user@example.com --password NXT1-Reset7! --target production
+npm run auth:repair-email-password -- --email user@example.com --password NXT1-Reset7! --target production --commit
+```
+
+The first command is a dry run. It resolves the existing Firebase Auth UID by
+email, falls back to the matching `Users` document by email, and prints the
+planned account repair without changing Auth. Add `--commit` only after the UID
+and Firestore profile match the account you intend to preserve.
+
 ### Backfill Activity Badges
 
 ```bash
