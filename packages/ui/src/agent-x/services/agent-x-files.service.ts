@@ -193,6 +193,12 @@ type UploadFilesOptions = {
   readonly uploadTarget?: 'file' | 'film_review';
 };
 
+type LoadFilesOptions = {
+  readonly background?: boolean;
+  readonly force?: boolean;
+  readonly cacheMaxAgeMs?: number;
+};
+
 export const FILES_UPLOAD_CANCELLED_MESSAGE = 'File upload cancelled';
 
 export type AgentXFilesUploadPhase =
@@ -512,6 +518,8 @@ function toAgentXLibraryFile(file: UniversalFileDoc): AgentXLibraryFile | null {
 
 @Injectable({ providedIn: 'root' })
 export class AgentXFilesService {
+  private static readonly FILES_CACHE_TTL_MS = 60_000;
+
   private readonly http = inject(HttpClient);
   private readonly videoUploadService = inject(AgentXVideoUploadService);
   private readonly logger = inject(NxtLoggingService).child('AgentXFilesService');
@@ -527,6 +535,8 @@ export class AgentXFilesService {
   private readonly _saving = signal(false);
   private readonly _error = signal<string | null>(null);
   private readonly _selectedId = signal<string | null>(null);
+  private filesLoadedAtMs = 0;
+  private activeLoadPromise: Promise<void> | null = null;
 
   readonly files = computed(() => this._files());
   readonly folders = computed(() => this._folders());
@@ -540,47 +550,94 @@ export class AgentXFilesService {
     return this._files().find((file) => file.id === selectedId) ?? null;
   });
 
-  async loadFiles(
-    _teamId?: string | null,
-    options?: { readonly background?: boolean }
-  ): Promise<void> {
-    if (!options?.background) {
+  async loadFiles(_teamId?: string | null, options?: LoadFilesOptions): Promise<void> {
+    const explicitBackground = options?.background ?? false;
+    const hasLoadedSnapshot = this.filesLoadedAtMs > 0;
+    const cacheMaxAgeMs = options?.cacheMaxAgeMs ?? AgentXFilesService.FILES_CACHE_TTL_MS;
+    const cacheAgeMs = hasLoadedSnapshot
+      ? Date.now() - this.filesLoadedAtMs
+      : Number.POSITIVE_INFINITY;
+    const cacheFresh = hasLoadedSnapshot && cacheAgeMs >= 0 && cacheAgeMs <= cacheMaxAgeMs;
+
+    if (!options?.force && !explicitBackground && cacheFresh) {
+      this._error.set(null);
+      this.breadcrumb.trackStateChange('agent-x-files:cache-hit', {
+        ageMs: cacheAgeMs,
+        teamId: null,
+      });
+      return;
+    }
+
+    if (this.activeLoadPromise) {
+      return this.activeLoadPromise;
+    }
+
+    const showBlockingLoader = !explicitBackground && !hasLoadedSnapshot;
+    if (showBlockingLoader) {
       this._loading.set(true);
     }
     this._error.set(null);
     this.breadcrumb.trackStateChange('agent-x-files:loading', { teamId: null });
 
-    try {
-      const response = await firstValueFrom(
-        this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`)
-      );
-
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? 'Failed to load files');
-      }
-
-      const files = response.data.files
-        .map((file) => toAgentXLibraryFile(file))
-        .filter((file): file is AgentXLibraryFile => file !== null);
-
-      this._files.set(files);
-      this._folders.set(this.sortFolders(response.data.folders));
-      if (!this._selectedId() && files.length > 0) {
-        this._selectedId.set(files[0]?.id ?? null);
-      }
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED, {
-        source: 'files-panel',
-        count: files.length,
+    const loadPromise = this.fetchFilesSnapshot()
+      .then(({ files, folders }) => {
+        this._files.set(files);
+        this._folders.set(folders);
+        const selectedId = this._selectedId();
+        this._selectedId.set(
+          selectedId && files.some((file) => file.id === selectedId)
+            ? selectedId
+            : (files[0]?.id ?? null)
+        );
+        this.filesLoadedAtMs = Date.now();
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OPERATIONS_LOG_VIEWED, {
+          source: 'files-panel',
+          count: files.length,
+        });
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : 'Failed to load files';
+        if (hasLoadedSnapshot || explicitBackground) {
+          this.logger.warn('Keeping cached files after background refresh failed', {
+            error: message,
+            teamId: null,
+          });
+        } else {
+          this.logger.error('Failed to load files', error, { teamId: null });
+          this._error.set(message);
+        }
+      })
+      .finally(() => {
+        if (this.activeLoadPromise === loadPromise) {
+          this.activeLoadPromise = null;
+        }
+        if (showBlockingLoader) {
+          this._loading.set(false);
+        }
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load files';
-      this.logger.error('Failed to load files', error, { teamId: null });
-      this._error.set(message);
-    } finally {
-      if (!options?.background) {
-        this._loading.set(false);
-      }
+
+    this.activeLoadPromise = loadPromise;
+    await loadPromise;
+  }
+
+  private async fetchFilesSnapshot(): Promise<{
+    readonly files: readonly AgentXLibraryFile[];
+    readonly folders: readonly TeamFileFolderDoc[];
+  }> {
+    const response = await firstValueFrom(
+      this.http.get<UniversalFileLibraryResponse>(`${this.baseUrl}/files/universal`)
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to load files');
     }
+
+    return {
+      files: response.data.files
+        .map((file) => toAgentXLibraryFile(file))
+        .filter((file): file is AgentXLibraryFile => file !== null),
+      folders: this.sortFolders(response.data.folders),
+    };
   }
 
   async loadUniversalFiles(_teamId?: string | null): Promise<{

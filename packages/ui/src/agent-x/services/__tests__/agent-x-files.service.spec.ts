@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { TestBed } from '@angular/core/testing';
 import type { TeamFileFolderDoc, UniversalFileDoc } from '@nxt1/core';
-import { of } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
@@ -202,6 +202,87 @@ describe('AgentXFilesService', () => {
     expect(service.files()).toHaveLength(1);
     expect(service.files()[0]?.name).toBe('Shared Report');
     expect(service.files()[0]?.mimeType).toBe('text/plain');
+  });
+
+  it('uses a fresh in-memory library snapshot when the files panel reopens', async () => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: {
+          files: [sharedFileDoc],
+          folders: [sharedFolderDoc],
+        },
+      })
+    );
+
+    await service.loadFiles();
+    httpMock.get.mockClear();
+
+    await service.loadFiles();
+
+    expect(httpMock.get).not.toHaveBeenCalled();
+    expect(service.files()).toHaveLength(1);
+    expect(service.folders()).toHaveLength(1);
+    expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith('agent-x-files:cache-hit', {
+      ageMs: expect.any(Number),
+      teamId: null,
+    });
+  });
+
+  it('keeps cached library data visible when a background refresh fails', async () => {
+    httpMock.get
+      .mockReturnValueOnce(
+        of({
+          success: true,
+          data: {
+            files: [sharedFileDoc],
+            folders: [sharedFolderDoc],
+          },
+        })
+      )
+      .mockReturnValueOnce(throwError(() => new Error('Network unavailable')));
+
+    await service.loadFiles();
+    await service.loadFiles(null, { background: true });
+
+    expect(httpMock.get).toHaveBeenCalledTimes(2);
+    expect(service.files()).toHaveLength(1);
+    expect(service.folders()).toHaveLength(1);
+    expect(service.error()).toBeNull();
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      'Keeping cached files after background refresh failed',
+      expect.objectContaining({ error: 'Network unavailable', teamId: null })
+    );
+  });
+
+  it('deduplicates overlapping library loads through the same handled request', async () => {
+    const response$ = new Subject<{
+      readonly success: true;
+      readonly data: {
+        readonly files: readonly UniversalFileDoc[];
+        readonly folders: readonly TeamFileFolderDoc[];
+      };
+    }>();
+    httpMock.get.mockReturnValue(response$);
+
+    const firstLoad = service.loadFiles();
+    const secondLoad = service.loadFiles();
+
+    expect(httpMock.get).toHaveBeenCalledTimes(1);
+
+    response$.next({
+      success: true,
+      data: {
+        files: [sharedFileDoc],
+        folders: [],
+      },
+    });
+    response$.complete();
+
+    await Promise.all([firstLoad, secondLoad]);
+
+    expect(service.files()).toHaveLength(1);
+    expect(service.loading()).toBe(false);
   });
 
   it('preserves loaded write access keys in the local file model', async () => {
