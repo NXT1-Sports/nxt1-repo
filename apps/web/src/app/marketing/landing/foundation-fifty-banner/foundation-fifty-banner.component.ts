@@ -19,143 +19,229 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 interface FoundationPartnerTeamLogo {
   readonly id: string;
   readonly name: string;
+  readonly location: string;
   readonly src: string;
 }
 
+interface FoundationPartnerTeamLogoRow {
+  readonly id: string;
+  readonly logos: readonly FoundationPartnerTeamLogo[];
+}
+
 const FOUNDATION_TEAM_LIMIT = 50;
+const FOUNDATION_VISIBLE_LOGO_COUNT = 15;
+const FOUNDATION_LOGO_ROW_COUNT = 3;
 
 const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
   {
     id: 'allen-iverson-prep-stars-showcase',
     name: 'Allen Iverson Prep Stars Showcase',
+    location: 'Henrico, VA',
     src: PARTNER_TEAM_LOGO_PATHS.aiNexxtLevelUClub,
   },
   {
     id: 'akron-east-hs',
     name: 'Akron East High School',
+    location: 'Akron, OH',
     src: PARTNER_TEAM_LOGO_PATHS.akronEastHs,
   },
   {
     id: 'barberton-hs',
     name: 'Barberton High School',
+    location: 'Barberton, OH',
     src: PARTNER_TEAM_LOGO_PATHS.barbertonHs,
+  },
+  {
+    id: 'brentwood-hs',
+    name: 'Brentwood High School',
+    location: 'Brentwood, TN',
+    src: PARTNER_TEAM_LOGO_PATHS.brentwoodHs,
   },
   {
     id: 'brush-hs',
     name: 'Brush High School',
+    location: 'Lyndhurst, OH',
     src: PARTNER_TEAM_LOGO_PATHS.brushHs,
   },
   {
     id: 'canton-mckinley-hs',
     name: 'Canton McKinley High School',
+    location: 'Canton, OH',
     src: PARTNER_TEAM_LOGO_PATHS.cantonMckinleyHs,
   },
   {
     id: 'canton-south-hs',
     name: 'Canton South High School',
+    location: 'Canton, OH',
     src: PARTNER_TEAM_LOGO_PATHS.cantonSouthHs,
   },
   {
     id: 'carrollton-hs',
     name: 'Carrollton High School',
+    location: 'Carrollton, OH',
     src: PARTNER_TEAM_LOGO_PATHS.carrolltonHs,
+  },
+  {
+    id: 'centennial-hs',
+    name: 'Centennial High School',
+    location: 'Columbus, OH',
+    src: PARTNER_TEAM_LOGO_PATHS.centennialHs,
   },
   {
     id: 'central-valley-hs',
     name: 'Central Valley High School',
+    location: 'Monaca, PA',
     src: PARTNER_TEAM_LOGO_PATHS.centralValleyHs,
   },
   {
     id: 'crestview-hs',
     name: 'Crestview High School',
+    location: 'Columbiana, OH',
     src: PARTNER_TEAM_LOGO_PATHS.crestviewHs,
   },
   {
     id: 'dixie-heights-hs',
     name: 'Dixie Heights High School',
+    location: 'Edgewood, KY',
     src: PARTNER_TEAM_LOGO_PATHS.dixieHeightsHs,
+  },
+  {
+    id: 'evanston-township-hs',
+    name: 'Evanston Township High School',
+    location: 'Evanston, IL',
+    src: PARTNER_TEAM_LOGO_PATHS.evanstonTownshipHs,
   },
   {
     id: 'fairborn-hs',
     name: 'Fairborn High School',
+    location: 'Fairborn, OH',
     src: PARTNER_TEAM_LOGO_PATHS.fairbornHs,
   },
   {
     id: 'frederick-douglass-hs',
     name: 'Frederick Douglass High School',
+    location: 'Lexington, KY',
     src: PARTNER_TEAM_LOGO_PATHS.frederickDouglassHs,
   },
   {
     id: 'garfield-hs',
     name: 'Garfield High School',
+    location: 'Akron, OH',
     src: PARTNER_TEAM_LOGO_PATHS.garfieldHs,
   },
   {
     id: 'george-rogers-clark-hs',
     name: 'George Rogers Clark High School',
+    location: 'Winchester, KY',
     src: PARTNER_TEAM_LOGO_PATHS.georgeRogersClarkHs,
+  },
+  {
+    id: 'glassboro-hs',
+    name: 'Glassboro High School',
+    location: 'Glassboro, NJ',
+    src: PARTNER_TEAM_LOGO_PATHS.glassboroHs,
   },
   {
     id: 'hoover-hs',
     name: 'Hoover High School',
+    location: 'North Canton, OH',
     src: PARTNER_TEAM_LOGO_PATHS.hooverHs,
   },
   {
     id: 'keyser-hs',
     name: 'Keyser High School',
+    location: 'Keyser, WV',
     src: PARTNER_TEAM_LOGO_PATHS.keyserHs,
   },
   {
     id: 'lake-hs',
     name: 'Lake High School',
+    location: 'Uniontown, OH',
     src: PARTNER_TEAM_LOGO_PATHS.lakeHs,
+  },
+  {
+    id: 'loudon-sports-academy-hs',
+    name: 'Loudon Sports Academy',
+    location: 'Loudoun County, VA',
+    src: PARTNER_TEAM_LOGO_PATHS.loudonSportsAcademyHs,
   },
   {
     id: 'marlington-hs',
     name: 'Marlington High School',
+    location: 'Alliance, OH',
     src: PARTNER_TEAM_LOGO_PATHS.marlingtonHs,
   },
   {
     id: 'martin-county-hs',
     name: 'Martin County High School',
+    location: 'Inez, KY',
     src: PARTNER_TEAM_LOGO_PATHS.martinCountyHs,
   },
   {
     id: 'mason-county-hs',
     name: 'Mason County High School',
+    location: 'Maysville, KY',
     src: PARTNER_TEAM_LOGO_PATHS.masonCountyHs,
   },
   {
     id: 'nordonia-hs',
     name: 'Nordonia High School',
+    location: 'Macedonia, OH',
     src: PARTNER_TEAM_LOGO_PATHS.nordoniaHs,
   },
   {
     id: 'perry-pirates-hs',
     name: 'Perry Pirates',
+    location: 'Perry, OH',
     src: PARTNER_TEAM_LOGO_PATHS.perryPiratesHs,
+  },
+  {
+    id: 'pulaski-county-hs',
+    name: 'Pulaski County High School',
+    location: 'Somerset, KY',
+    src: PARTNER_TEAM_LOGO_PATHS.pulaskiCountyHs,
   },
   {
     id: 'salem-hs',
     name: 'Salem High School',
+    location: 'Salem, OH',
     src: PARTNER_TEAM_LOGO_PATHS.salemHs,
   },
   {
     id: 'sandy-valley-hs',
     name: 'Sandy Valley High School',
+    location: 'Magnolia, OH',
     src: PARTNER_TEAM_LOGO_PATHS.sandyValleyHs,
+  },
+  {
+    id: 'silverdale-baptist-hs',
+    name: 'Silverdale Baptist',
+    location: 'Chattanooga, TN',
+    src: PARTNER_TEAM_LOGO_PATHS.silverdaleBaptistHs,
   },
   {
     id: 'st-v-hs',
     name: 'St. Vincent-St. Mary High School',
+    location: 'Akron, OH',
     src: PARTNER_TEAM_LOGO_PATHS.stVHs,
   },
   {
     id: 'youngstown-hs',
     name: 'Youngstown High School',
+    location: 'Youngstown, OH',
     src: PARTNER_TEAM_LOGO_PATHS.youngstownHs,
   },
 ] as const;
+
+const FOUNDATION_PARTNER_ROWS: readonly FoundationPartnerTeamLogoRow[] = Array.from(
+  { length: FOUNDATION_LOGO_ROW_COUNT },
+  (_, rowIndex) => ({
+    id: `row-${rowIndex + 1}`,
+    logos: PARTNER_TEAM_LOGOS.filter(
+      (_, logoIndex) => logoIndex % FOUNDATION_LOGO_ROW_COUNT === rowIndex
+    ),
+  })
+);
 
 @Component({
   selector: 'app-foundation-fifty-banner',
@@ -180,16 +266,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           </h2>
 
           <p class="f50__sub">
-            Sign up as a founding coach this summer and unlock $100+ in free AI credits, exclusive
-            community access, and help shape a new era platform around your program.
+            Sign up as a founding coach this summer for early platform access, exclusive community
+            access, and a direct hand in shaping a new era platform around your program.
           </p>
 
           <!-- Perks row -->
           <ul class="f50__perks" aria-label="Foundation 50 perks">
-            <li class="f50__perk">
-              <span class="f50__perk-icon" aria-hidden="true">💰</span>
-              <span class="f50__perk-text">$100+ Free AI Budget</span>
-            </li>
             <li class="f50__perk">
               <span class="f50__perk-icon" aria-hidden="true">⚡</span>
               <span class="f50__perk-text">Early Platform Access</span>
@@ -246,22 +328,61 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           <div class="f50__progress" aria-hidden="true">
             <span class="f50__progress-bar" [style.width.%]="partnerProgressPercent"></span>
           </div>
-          <div class="f50__partner-grid" aria-label="Current Foundation team logos">
-            @for (partner of partnerLogos; track partner.id) {
+          <div
+            class="f50__partner-marquee"
+            aria-label="Current Foundation team logos"
+            [style.--f50-visible-per-row]="visibleLogosPerRow"
+          >
+            @for (row of partnerLogoRows; track row.id; let rowIndex = $index) {
               <div
-                class="f50__partner-card"
-                [class.f50__partner-card--large]="
-                  partner.id === 'akron-east-hs' || partner.id === 'barberton-hs'
-                "
+                class="f50__partner-row"
+                [class.f50__partner-row--reverse]="rowIndex % 2 === 1"
+                [style.--f50-row-duration]="getRowDuration(rowIndex)"
               >
-                <img
-                  class="f50__partner-logo"
-                  [src]="partner.src"
-                  [alt]="partner.name + ' logo'"
-                  width="88"
-                  height="88"
-                  decoding="async"
-                />
+                <div class="f50__partner-track">
+                  @for (partner of row.logos; track partner.id) {
+                    <div
+                      class="f50__partner-card"
+                      [class.f50__partner-card--large]="
+                        partner.id === 'akron-east-hs' || partner.id === 'barberton-hs'
+                      "
+                    >
+                      <div class="f50__partner-logo-shell">
+                        <img
+                          class="f50__partner-logo"
+                          [src]="partner.src"
+                          [alt]="partner.name + ' logo'"
+                          width="88"
+                          height="88"
+                          decoding="async"
+                        />
+                      </div>
+                      <span class="f50__partner-location">{{ partner.location }}</span>
+                    </div>
+                  }
+                </div>
+                <div class="f50__partner-track" aria-hidden="true">
+                  @for (partner of row.logos; track partner.id + '-clone') {
+                    <div
+                      class="f50__partner-card"
+                      [class.f50__partner-card--large]="
+                        partner.id === 'akron-east-hs' || partner.id === 'barberton-hs'
+                      "
+                    >
+                      <div class="f50__partner-logo-shell">
+                        <img
+                          class="f50__partner-logo"
+                          [src]="partner.src"
+                          [alt]="partner.name + ' logo'"
+                          width="88"
+                          height="88"
+                          decoding="async"
+                        />
+                      </div>
+                      <span class="f50__partner-location">{{ partner.location }}</span>
+                    </div>
+                  }
+                </div>
               </div>
             }
           </div>
@@ -589,23 +710,65 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
         background: linear-gradient(90deg, var(--f50-accent), var(--f50-accent-muted));
       }
 
-      .f50__partner-grid {
+      .f50__partner-marquee {
+        --f50-card-width: 4rem;
+        --f50-card-height: 5.4rem;
+        --f50-logo-gap: var(--nxt1-spacing-2, 0.5rem);
         position: relative;
         z-index: 1;
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: var(--nxt1-spacing-2, 0.5rem);
+        display: flex;
+        flex-direction: column;
+        gap: var(--f50-logo-gap);
+        width: min(
+          100%,
+          calc(
+            (var(--f50-visible-per-row) * var(--f50-card-width)) +
+              ((var(--f50-visible-per-row) - 1) * var(--f50-logo-gap))
+          )
+        );
+        margin-inline: auto;
+        overflow: hidden;
+        mask-image: linear-gradient(90deg, transparent 0, black 6%, black 94%, transparent 100%);
+        -webkit-mask-image: linear-gradient(
+          90deg,
+          transparent 0,
+          black 6%,
+          black 94%,
+          transparent 100%
+        );
+      }
+
+      .f50__partner-row {
+        --f50-row-duration: 28s;
+        display: flex;
+        width: max-content;
+        gap: var(--f50-logo-gap);
+        animation: f50-marquee var(--f50-row-duration) linear infinite;
+        will-change: transform;
+      }
+
+      .f50__partner-row--reverse {
+        animation-direction: reverse;
+      }
+
+      .f50__partner-track {
+        display: flex;
+        gap: var(--f50-logo-gap);
       }
 
       .f50__partner-card {
-        width: 100%;
-        aspect-ratio: 1;
+        width: var(--f50-card-width);
+        height: var(--f50-card-height);
+        flex: 0 0 auto;
         border-radius: var(--nxt1-borderRadius-lg, 0.5rem);
         border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 55%, transparent);
         background: color-mix(in srgb, var(--nxt1-color-bg-primary) 58%, white 4%);
-        display: grid;
-        place-items: center;
-        padding: var(--nxt1-spacing-2, 0.5rem);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.25rem;
+        padding: 0.4rem 0.3rem 0.45rem;
         box-shadow: inset 0 1px 0 color-mix(in srgb, white 8%, transparent);
       }
 
@@ -613,10 +776,18 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
         padding: var(--nxt1-spacing-1, 0.25rem);
       }
 
+      .f50__partner-logo-shell {
+        display: grid;
+        place-items: center;
+        flex: 1 1 auto;
+        min-height: 0;
+        width: 100%;
+      }
+
       .f50__partner-logo {
         display: block;
         width: 100%;
-        height: 100%;
+        max-height: 100%;
         object-fit: contain;
         filter: saturate(0.94) contrast(1.04);
       }
@@ -628,6 +799,31 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
 
       .f50__partner-card:hover .f50__partner-logo {
         filter: saturate(1.05) contrast(1.08);
+      }
+
+      .f50__partner-location {
+        display: block;
+        width: 100%;
+        font-size: 0.56rem;
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        line-height: 1.1;
+        text-align: center;
+        letter-spacing: 0.01em;
+        color: var(--nxt1-color-text-tertiary);
+        text-wrap: balance;
+      }
+
+      .f50__partner-marquee:hover .f50__partner-row {
+        animation-play-state: paused;
+      }
+
+      @keyframes f50-marquee {
+        from {
+          transform: translateX(0);
+        }
+        to {
+          transform: translateX(calc(-50% - (var(--nxt1-spacing-2, 0.5rem) / 2)));
+        }
       }
 
       /* ── Body layout — text + cta stacked by default ── */
@@ -659,8 +855,14 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           padding: var(--nxt1-spacing-4, 1rem);
         }
 
-        .f50__partner-grid {
-          grid-template-columns: repeat(5, minmax(0, 1fr));
+        .f50__partner-marquee {
+          --f50-card-width: 4.5rem;
+          --f50-card-height: 5.8rem;
+          --f50-logo-gap: var(--nxt1-spacing-3, 0.75rem);
+        }
+
+        .f50__partner-row,
+        .f50__partner-track {
         }
       }
 
@@ -701,9 +903,14 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           margin-block-end: var(--nxt1-spacing-4, 1rem);
         }
 
-        .f50__partner-grid {
-          grid-template-columns: repeat(5, minmax(0, 1fr));
-          gap: var(--nxt1-spacing-3, 0.75rem);
+        .f50__partner-marquee {
+          --f50-card-width: 5rem;
+          --f50-card-height: 6.1rem;
+          --f50-logo-gap: var(--nxt1-spacing-3, 0.75rem);
+        }
+
+        .f50__partner-row,
+        .f50__partner-track {
         }
 
         .f50__partner-card {
@@ -715,6 +922,17 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
           font-size: var(--nxt1-fontSize-base, 1rem);
         }
       }
+
+      @media (prefers-reduced-motion: reduce) {
+        .f50__partner-marquee {
+          mask-image: none;
+          -webkit-mask-image: none;
+        }
+
+        .f50__partner-row {
+          animation: none;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -723,9 +941,15 @@ export class FoundationFiftyBannerComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   protected readonly partnerLogos = PARTNER_TEAM_LOGOS;
+  protected readonly partnerLogoRows = FOUNDATION_PARTNER_ROWS;
+  protected readonly visibleLogosPerRow = FOUNDATION_VISIBLE_LOGO_COUNT / FOUNDATION_LOGO_ROW_COUNT;
   protected readonly partnerProgressLabel = `${this.partnerLogos.length}/${FOUNDATION_TEAM_LIMIT}`;
   protected readonly partnerProgressPercent =
     (this.partnerLogos.length / FOUNDATION_TEAM_LIMIT) * 100;
+
+  protected getRowDuration(rowIndex: number): string {
+    return `${26 + rowIndex * 4}s`;
+  }
 
   protected onClaimSpotClick(): void {
     this.analytics?.trackEvent(FIREBASE_EVENTS.SELECT_PROMOTION, {
