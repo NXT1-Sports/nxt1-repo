@@ -1474,7 +1474,15 @@ type DrawInteractionState =
                           [attr.tabindex]="
                             isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
                           "
-                          (click)="onSelectTimelinePlay(row.play, row.originalIndex)"
+                          (click)="onTimelinePlayRowClick($event, row.play, row.originalIndex)"
+                          (touchstart)="
+                            onTimelinePlayRowTouchStart($event, row.play, row.originalIndex)
+                          "
+                          (touchmove)="onTimelinePlayRowTouchMove($event)"
+                          (touchend)="
+                            onTimelinePlayRowTouchEnd($event, row.play, row.originalIndex)
+                          "
+                          (touchcancel)="onTimelinePlayRowTouchCancel()"
                           (keydown.enter)="
                             onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
                           "
@@ -4760,6 +4768,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private readonly drawEffectDurationSec = 1;
   private lastDrawOutsideFrameToastAtMs = 0;
   private lastTimelineFieldTouch: { key: string; atMs: number } | null = null;
+  private readonly timelinePlayRowTapMaxMs = 220;
+  private readonly timelinePlayRowTapMoveTolerancePx = 10;
+  private timelinePlayRowTouch: {
+    identifier: number;
+    playKey: string;
+    startX: number;
+    startY: number;
+    startedAtMs: number;
+    moved: boolean;
+  } | null = null;
+  private suppressTimelinePlayClickUntilMs = 0;
   private playAnnotationPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private playAnnotationPersistInFlight: Promise<void> | null = null;
   private playAnnotationPersistQueued = false;
@@ -8853,6 +8872,112 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.currentPlayIndex.set(index);
     this.jumpToPlay(play);
+  }
+
+  protected onTimelinePlayRowClick(event: Event, play: FilmTimelinePlay, index: number): void {
+    if (Date.now() < this.suppressTimelinePlayClickUntilMs) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    void this.onSelectTimelinePlay(play, index);
+  }
+
+  protected onTimelinePlayRowTouchStart(
+    event: TouchEvent,
+    play: FilmTimelinePlay,
+    index: number
+  ): void {
+    if (
+      event.touches.length !== 1 ||
+      this.isEditingTimelinePlay(play, index) ||
+      this.isInteractiveTimelineTouchTarget(event.target)
+    ) {
+      this.timelinePlayRowTouch = null;
+      return;
+    }
+
+    const touch = event.touches.item(0);
+    if (!touch) {
+      this.timelinePlayRowTouch = null;
+      return;
+    }
+
+    this.timelinePlayRowTouch = {
+      identifier: touch.identifier,
+      playKey: this.getTimelinePlayKey(play, index),
+      startX: touch.clientX,
+      startY: touch.clientY,
+      startedAtMs: Date.now(),
+      moved: false,
+    };
+  }
+
+  protected onTimelinePlayRowTouchMove(event: TouchEvent): void {
+    const state = this.timelinePlayRowTouch;
+    if (!state) return;
+
+    const touch = this.findTouchByIdentifier(event.touches, state.identifier);
+    if (!touch) return;
+
+    const deltaX = Math.abs(touch.clientX - state.startX);
+    const deltaY = Math.abs(touch.clientY - state.startY);
+    if (
+      deltaX > this.timelinePlayRowTapMoveTolerancePx ||
+      deltaY > this.timelinePlayRowTapMoveTolerancePx
+    ) {
+      state.moved = true;
+    }
+  }
+
+  protected onTimelinePlayRowTouchEnd(
+    event: TouchEvent,
+    play: FilmTimelinePlay,
+    index: number
+  ): void {
+    const state = this.timelinePlayRowTouch;
+    this.timelinePlayRowTouch = null;
+
+    if (
+      !state ||
+      state.playKey !== this.getTimelinePlayKey(play, index) ||
+      state.moved ||
+      Date.now() - state.startedAtMs > this.timelinePlayRowTapMaxMs ||
+      this.isTimelinePlayReorderActive() ||
+      this.isInteractiveTimelineTouchTarget(event.target)
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    this.suppressTimelinePlayClickUntilMs = Date.now() + 700;
+    void this.onSelectTimelinePlay(play, index);
+  }
+
+  protected onTimelinePlayRowTouchCancel(): void {
+    this.timelinePlayRowTouch = null;
+  }
+
+  private findTouchByIdentifier(touches: TouchList, identifier: number): Touch | null {
+    for (let index = 0; index < touches.length; index += 1) {
+      const touch = touches.item(index);
+      if (touch?.identifier === identifier) {
+        return touch;
+      }
+    }
+
+    return null;
+  }
+
+  private isInteractiveTimelineTouchTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) {
+      return false;
+    }
+
+    return !!target.closest(
+      'button, input, select, textarea, a, [contenteditable="true"], [role="button"]'
+    );
   }
 
   protected isTimelinePlayDropIndicator(
