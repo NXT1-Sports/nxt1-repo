@@ -578,8 +578,32 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
 
 type BillableCoordinatorId = Exclude<AgentIdentifier, 'router'>;
 
+const BILLING_IGNORED_SUCCESSFUL_TOOLS = new Set<string>([
+  'delegate_to_coordinator',
+  'delegate_task',
+  'create_plan',
+  'execute_saved_plan',
+  'plan_and_execute',
+  'whoami_capabilities',
+  'ask_user',
+]);
+
+const NON_BILLABLE_PERSISTENCE_ONLY_TOOLS = new Set<string>(['create_universal_team_document']);
+
 function isBillableCoordinatorId(value: unknown): value is BillableCoordinatorId {
   return isAgentIdentifier(value) && value !== 'router';
+}
+
+function shouldSkipBillingForPersistenceOnlySuccess(successfulTools: readonly string[]): boolean {
+  const meaningfulTools = [...new Set(successfulTools)]
+    .map((tool) => tool.trim())
+    .filter((tool) => tool.length > 0)
+    .filter((tool) => !BILLING_IGNORED_SUCCESSFUL_TOOLS.has(tool));
+
+  return (
+    meaningfulTools.length > 0 &&
+    meaningfulTools.every((tool) => NON_BILLABLE_PERSISTENCE_ONLY_TOOLS.has(tool))
+  );
 }
 
 function addBillingCoordinatorCandidate(
@@ -3780,12 +3804,18 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['teamId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['teamId'] as string)
         : undefined;
-    if (skipBilling) {
-      logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
+    const skipBillingForPersistenceOnlyOperation =
+      !skipBilling && shouldSkipBillingForPersistenceOnlySuccess(successfulTools);
+
+    if (skipBilling || skipBillingForPersistenceOnlyOperation) {
+      logger.info('[AgentWorker] Skipping billing deduction', {
         operationId: payload.operationId,
         userId: payload.userId,
         agent: payload.agent,
         origin: payload.origin,
+        reason: skipBilling
+          ? 'platform-sponsored-job'
+          : 'persistence-only-universal-team-document-create',
       });
     } else {
       void executeBillingDeduction({

@@ -1652,6 +1652,74 @@ describe('AgentWorker', () => {
     expect(mockCreateWalletHold).not.toHaveBeenCalled();
   });
 
+  it('should skip billing when the only meaningful successful action is create_universal_team_document', async () => {
+    const payload = makePayload({
+      intent: 'Create Universal Team Document',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent?.({
+        type: 'tool_result',
+        agentId: 'strategy_coordinator',
+        toolName: 'delegate_to_coordinator',
+        toolSuccess: true,
+        toolResult: {
+          coordinatorId: 'strategy_coordinator',
+        },
+        message: 'Delegated to strategy coordinator',
+        icon: 'sparkles',
+      });
+      onStreamEvent?.({
+        type: 'tool_result',
+        agentId: 'strategy_coordinator',
+        toolName: 'create_universal_team_document',
+        toolSuccess: true,
+        toolResult: {
+          data: {
+            document: {
+              id: 'doc-universal-team-1',
+              title: 'Universal Team Document',
+            },
+          },
+        },
+        message: 'Created universal team document',
+        icon: 'sparkles',
+      });
+
+      return {
+        summary: 'Universal Team Document created.',
+        data: {
+          toolCallRecords: [
+            {
+              toolName: 'delegate_to_coordinator',
+              status: 'success',
+              input: { coordinatorId: 'strategy_coordinator' },
+              output: { success: true },
+            },
+            {
+              toolName: 'create_universal_team_document',
+              status: 'success',
+              input: { title: 'Universal Team Document' },
+              output: {
+                data: {
+                  document: {
+                    id: 'doc-universal-team-1',
+                    title: 'Universal Team Document',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      } satisfies AgentOperationResult;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
+  });
+
   it('should pass active team context into billing deduction', async () => {
     const payload = makePayload({
       context: {
