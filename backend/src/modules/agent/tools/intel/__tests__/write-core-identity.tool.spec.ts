@@ -260,7 +260,8 @@ describe('WriteCoreIdentityTool', () => {
               sportKey: normalizedTargetSport,
               teamId:
                 ((sports[index]?.['team'] as Record<string, unknown> | undefined)?.['teamId'] as
-                  string | undefined) ?? undefined,
+                  | string
+                  | undefined) ?? undefined,
               organizationId:
                 ((sports[index]?.['team'] as Record<string, unknown> | undefined)?.[
                   'organizationId'

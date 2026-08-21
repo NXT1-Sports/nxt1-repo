@@ -208,7 +208,12 @@ router.post('/support', appGuard, async (req: Request, res: Response): Promise<v
       name: (body.name ?? req.user?.displayName ?? 'NXT1 User').trim(),
       subject: (body.subject ?? '').trim(),
       category: (body.category ?? 'other') as
-        'account' | 'billing' | 'technical' | 'feature-request' | 'bug-report' | 'other',
+        | 'account'
+        | 'billing'
+        | 'technical'
+        | 'feature-request'
+        | 'bug-report'
+        | 'other',
       priority: body.priority,
       description: (body.description ?? '').trim(),
       attachments: body.attachments,

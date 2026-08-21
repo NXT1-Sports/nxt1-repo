@@ -75,7 +75,8 @@ export function getAgentMutationPolicyOutboxModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<AgentMutationPolicyOutboxEntry> {
   const existing = connection.models[AGENT_MUTATION_POLICY_OUTBOX_MODEL_NAME] as
-    Model<AgentMutationPolicyOutboxEntry> | undefined;
+    | Model<AgentMutationPolicyOutboxEntry>
+    | undefined;
   if (existing) return existing;
 
   return connection.model<AgentMutationPolicyOutboxEntry>(

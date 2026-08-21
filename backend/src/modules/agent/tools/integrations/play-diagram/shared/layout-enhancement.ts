@@ -50,10 +50,12 @@ function inferRouteTypeFromLabel(label: string | undefined): DiagramRouteType {
 }
 
 function withInferredRouteTypes(layout: DiagramLayout): DiagramLayout {
-  const routes = layout.routes.map((route): DiagramRoute => ({
-    ...route,
-    type: route.type ?? inferRouteTypeFromLabel(route.label),
-  }));
+  const routes = layout.routes.map(
+    (route): DiagramRoute => ({
+      ...route,
+      type: route.type ?? inferRouteTypeFromLabel(route.label),
+    })
+  );
   return { ...layout, routes };
 }
 

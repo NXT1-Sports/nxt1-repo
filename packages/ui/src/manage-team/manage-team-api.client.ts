@@ -461,21 +461,23 @@ export class ManageTeamApiClient {
   }
 
   private mapStaff(members: readonly TeamProfileStaffMember[]): readonly StaffMember[] {
-    return members.map((m): StaffMember => ({
-      id: m.id,
-      firstName: m.firstName ?? '',
-      lastName: m.lastName ?? '',
-      displayName: undefined,
-      role: this.mapStaffRole(m.role),
-      title: m.title,
-      email: m.email,
-      phone: m.phone,
-      profileImgs: m.profileImg ? [m.profileImg] : undefined,
-      profileId: m.profileCode,
-      bio: m.bio,
-      isHead: m.role === 'head-coach',
-      status: 'active' as const,
-    }));
+    return members.map(
+      (m): StaffMember => ({
+        id: m.id,
+        firstName: m.firstName ?? '',
+        lastName: m.lastName ?? '',
+        displayName: undefined,
+        role: this.mapStaffRole(m.role),
+        title: m.title,
+        email: m.email,
+        phone: m.phone,
+        profileImgs: m.profileImg ? [m.profileImg] : undefined,
+        profileId: m.profileCode,
+        bio: m.bio,
+        isHead: m.role === 'head-coach',
+        status: 'active' as const,
+      })
+    );
   }
 
   private mapSponsors(sponsors: readonly TeamProfileSponsor[]): readonly TeamSponsor[] {

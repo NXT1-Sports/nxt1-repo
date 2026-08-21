@@ -81,7 +81,8 @@ export function getAgentUploadOutboxModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<AgentUploadOutboxEntry> {
   const existing = connection.models[AGENT_UPLOAD_OUTBOX_MODEL_NAME] as
-    Model<AgentUploadOutboxEntry> | undefined;
+    | Model<AgentUploadOutboxEntry>
+    | undefined;
   if (existing) return existing;
 
   return connection.model<AgentUploadOutboxEntry>(

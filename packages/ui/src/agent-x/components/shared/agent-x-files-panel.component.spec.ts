@@ -562,7 +562,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
       expect(componentAccess.isPreparingUpload()).toBe(false);
     });
     let resolveZipExtraction:
-      ((value: Awaited<ReturnType<typeof extractZipEntries>>) => void) | null = null;
+      | ((value: Awaited<ReturnType<typeof extractZipEntries>>) => void)
+      | null = null;
     extractZipEntries.mockImplementation(
       () =>
         new Promise((resolve) => {

@@ -411,16 +411,18 @@ function parseLlmLayout(
 
   const routes = (obj['routes'] as Array<Record<string, unknown>>)
     .filter((route) => Array.isArray(route['points']) && (route['points'] as unknown[]).length >= 2)
-    .map((route): DiagramRoute => ({
-      from: typeof route['from'] === 'string' ? route['from'] : '',
-      label: typeof route['label'] === 'string' ? route['label'] : undefined,
-      type: coerceRouteType(route['type']),
-      curve: typeof route['curve'] === 'boolean' ? route['curve'] : undefined,
-      points: (route['points'] as Array<[number, number]>).map(([x, y]) => [
-        clampCoord(x, 5, fieldWidth - 5, 50),
-        clampCoord(y, 5, fieldHeight - 5, 200),
-      ]),
-    }));
+    .map(
+      (route): DiagramRoute => ({
+        from: typeof route['from'] === 'string' ? route['from'] : '',
+        label: typeof route['label'] === 'string' ? route['label'] : undefined,
+        type: coerceRouteType(route['type']),
+        curve: typeof route['curve'] === 'boolean' ? route['curve'] : undefined,
+        points: (route['points'] as Array<[number, number]>).map(([x, y]) => [
+          clampCoord(x, 5, fieldWidth - 5, 50),
+          clampCoord(y, 5, fieldHeight - 5, 200),
+        ]),
+      })
+    );
 
   const defaultTitle = kind === 'sport_drill' ? 'Drill Diagram' : 'Play Diagram';
 

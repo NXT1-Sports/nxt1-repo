@@ -123,7 +123,8 @@ function getB2CUsersState(
   key: B2CUsersStateKey
 ): B2CUsersSignalStateRecord | null {
   const b2cUsers = user.lifecycle?.b2cUsers as
-    Partial<Record<B2CUsersStateKey, unknown>> | undefined;
+    | Partial<Record<B2CUsersStateKey, unknown>>
+    | undefined;
   const raw = b2cUsers?.[key];
   if (!raw) return null;
 

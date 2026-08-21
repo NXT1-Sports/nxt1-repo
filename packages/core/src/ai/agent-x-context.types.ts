@@ -6,11 +6,19 @@
 
 /** Domain of context selected by the user for the next chat turn. */
 export type AgentXSelectedContextKind =
-  'film_play' | 'playbook_item' | 'game_plan_item' | 'document' | 'custom';
+  | 'film_play'
+  | 'playbook_item'
+  | 'game_plan_item'
+  | 'document'
+  | 'custom';
 
 /** Source system that produced the context object. */
 export type AgentXSelectedContextSourceType =
-  'film_review' | 'playbook' | 'game_plan' | 'agent_x' | 'external';
+  | 'film_review'
+  | 'playbook'
+  | 'game_plan'
+  | 'agent_x'
+  | 'external';
 
 /** Optional source metadata for a selected context chip. */
 export interface AgentXSelectedContextSource {
@@ -91,7 +99,8 @@ export interface AgentXSelectedContext {
 
 /** One-or-many selected contexts transferred through browser drag-and-drop. */
 export type AgentXSelectedContextDragPayload =
-  AgentXSelectedContext | readonly AgentXSelectedContext[];
+  | AgentXSelectedContext
+  | readonly AgentXSelectedContext[];
 
 const SELECTED_CONTEXT_KINDS = new Set<AgentXSelectedContextKind>([
   'film_play',

@@ -52,7 +52,13 @@ import type { OperationMessage, StreamTurnWatermark } from './agent-x-operation-
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 
 type OperationStatus =
-  'processing' | 'complete' | 'error' | 'paused' | 'awaiting_input' | 'awaiting_approval' | null;
+  | 'processing'
+  | 'complete'
+  | 'error'
+  | 'paused'
+  | 'awaiting_input'
+  | 'awaiting_approval'
+  | null;
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
 const OPERATION_COMPLETE_DONE_FALLBACK_MS = 5_000;

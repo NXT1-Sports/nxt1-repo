@@ -16,7 +16,11 @@ export interface BillingRevenueEventInput {
   readonly itemCategory: string;
   readonly billingEntity: 'individual' | 'organization';
   readonly source:
-    'stripe_checkout' | 'stripe_direct_charge' | 'stripe_invoice' | 'apple_iap' | 'auto_topup';
+    | 'stripe_checkout'
+    | 'stripe_direct_charge'
+    | 'stripe_invoice'
+    | 'apple_iap'
+    | 'auto_topup';
 }
 
 export interface BillingRefundEventInput {

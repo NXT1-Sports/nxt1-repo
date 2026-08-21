@@ -814,7 +814,8 @@ export class ContextBuilder {
     // ── Physical attributes ───────────────────────────────────────────────
     // Try top-level fields first (legacy), then measurables[], then sport metrics
     const measurables = user['measurables'] as
-      Array<{ field: string; value: string | number }> | undefined;
+      | Array<{ field: string; value: string | number }>
+      | undefined;
     const heightInches =
       parseHeightToInches(user['height'] as string | undefined) ??
       parseHeightToInches(measurables?.find((m) => m.field === 'height')?.value?.toString()) ??
@@ -1286,7 +1287,8 @@ export class ContextBuilder {
     const division = (teamData['division'] as string) || '';
     const conference = (teamData['conference'] as string) || '';
     const mascot = (teamData['branding'] as Record<string, unknown> | undefined)?.['mascot'] as
-      string | undefined;
+      | string
+      | undefined;
     const record = teamData['record'] as Record<string, unknown> | undefined;
     const organizationId = (teamData['organizationId'] as string) || '';
     const createdBy = (teamData['createdBy'] as string) || '';
@@ -1676,7 +1678,8 @@ function resolvePositions(userData: Record<string, unknown>): string {
 function buildPhysicals(userData: Record<string, unknown>): string {
   const parts: string[] = [];
   const measurables = userData['measurables'] as
-    Array<{ field: string; value: string | number }> | undefined;
+    | Array<{ field: string; value: string | number }>
+    | undefined;
   const height =
     str(userData['height']) ||
     measurables?.find((m) => m.field === 'height')?.value?.toString() ||

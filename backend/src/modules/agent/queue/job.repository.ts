@@ -396,7 +396,12 @@ export interface AgentJobDocument {
   readonly failureSlackAlertFailedAt?: FirebaseFirestore.Timestamp | null;
   readonly failureSlackAlertError?: string | null;
   readonly autoResolveStatus?:
-    'retry_claimed' | 'retry_enqueued' | 'resolved' | 'retry_failed' | 'skipped' | null;
+    | 'retry_claimed'
+    | 'retry_enqueued'
+    | 'resolved'
+    | 'retry_failed'
+    | 'skipped'
+    | null;
   readonly autoResolveType?: string | null;
   readonly autoResolveAttempts?: number | null;
   readonly autoResolveLastAttemptAt?: FirebaseFirestore.Timestamp | null;

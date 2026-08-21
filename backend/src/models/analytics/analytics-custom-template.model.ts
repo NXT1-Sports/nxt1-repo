@@ -84,7 +84,8 @@ AnalyticsCustomEventTemplateSchema.index({
 
 export const AnalyticsCustomEventTemplateModel: Model<AnalyticsCustomEventTemplateDocument> =
   (models['AnalyticsCustomEventTemplate'] as
-    Model<AnalyticsCustomEventTemplateDocument> | undefined) ??
+    | Model<AnalyticsCustomEventTemplateDocument>
+    | undefined) ??
   model<AnalyticsCustomEventTemplateDocument>(
     'AnalyticsCustomEventTemplate',
     AnalyticsCustomEventTemplateSchema,

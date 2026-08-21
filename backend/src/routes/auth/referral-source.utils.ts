@@ -1,5 +1,11 @@
 export type CanonicalReferralSource =
-  'club' | 'social' | 'search' | 'friend' | 'advertisement' | 'team-code' | 'other';
+  | 'club'
+  | 'social'
+  | 'search'
+  | 'friend'
+  | 'advertisement'
+  | 'team-code'
+  | 'other';
 
 const SOURCE_SYNONYM_MAP: Readonly<Record<string, CanonicalReferralSource>> = {
   club: 'club',

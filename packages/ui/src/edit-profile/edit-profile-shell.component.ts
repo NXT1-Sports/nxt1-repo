@@ -86,7 +86,12 @@ const PROGRAM_SEARCH_DEBOUNCE_MS = 300;
 const PROGRAM_MIN_QUERY_LENGTH = 2;
 
 type DraftProgramType =
-  'high-school' | 'middle-school' | 'club' | 'college' | 'juco' | 'organization';
+  | 'high-school'
+  | 'middle-school'
+  | 'club'
+  | 'college'
+  | 'juco'
+  | 'organization';
 
 interface ProgramTypeOption {
   readonly value: DraftProgramType;
@@ -1029,7 +1034,8 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   protected readonly verifiedFields = computed<ReadonlySet<string>>(() => {
     const raw = this.profile.rawUserData();
     const measurables = raw?.measurables as
-      Array<{ field: string; verified?: boolean }> | undefined;
+      | Array<{ field: string; verified?: boolean }>
+      | undefined;
     if (!measurables?.length) return new Set<string>();
     const fields = new Set<string>();
     for (const m of measurables) {

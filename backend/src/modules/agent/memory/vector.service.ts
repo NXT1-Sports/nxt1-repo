@@ -129,7 +129,8 @@ export function getAgentMemoryModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<AgentMemoryDocument> {
   const existingModel = connection.models[AGENT_MEMORY_MODEL_NAME] as
-    Model<AgentMemoryDocument> | undefined;
+    | Model<AgentMemoryDocument>
+    | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<AgentMemoryDocument>(AGENT_MEMORY_MODEL_NAME, AgentMemorySchema);

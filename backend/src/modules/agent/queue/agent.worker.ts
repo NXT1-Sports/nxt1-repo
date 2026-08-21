@@ -935,7 +935,8 @@ function extractTimelinePostDraft(
   if (toolName === 'write_team_post') {
     const posts = Array.isArray(toolInput['posts']) ? (toolInput['posts'] as Array<unknown>) : [];
     const firstPost = posts.find((p) => p && typeof p === 'object') as
-      Record<string, unknown> | undefined;
+      | Record<string, unknown>
+      | undefined;
     if (!firstPost) return null;
 
     const description =

@@ -196,7 +196,13 @@ type UploadFilesOptions = {
 export const FILES_UPLOAD_CANCELLED_MESSAGE = 'File upload cancelled';
 
 export type AgentXFilesUploadPhase =
-  'preparing' | 'uploading' | 'indexing' | 'reloading' | 'complete' | 'cancelled' | 'error';
+  | 'preparing'
+  | 'uploading'
+  | 'indexing'
+  | 'reloading'
+  | 'complete'
+  | 'cancelled'
+  | 'error';
 
 export type AgentXFilesUploadProgress = {
   readonly phase: AgentXFilesUploadPhase;

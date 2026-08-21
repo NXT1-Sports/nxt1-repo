@@ -29,7 +29,8 @@ const { generateWeeklyKpisReport, getPreviousWeekStart } =
 
 // Step 3: Run
 const environment = (process.env['NODE_ENV'] === 'production' ? 'production' : 'staging') as
-  'production' | 'staging';
+  | 'production'
+  | 'staging';
 console.log(`\n🚀 Weekly KPIs smoke test — environment: ${environment}\n`);
 
 const notionToken = process.env['NOTION_API_TOKEN'];

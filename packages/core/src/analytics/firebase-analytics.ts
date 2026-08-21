@@ -162,11 +162,12 @@ let analyticsInstance: unknown = null;
 
 /** Firebase SDK functions - loaded at runtime */
 let logEventFn:
-  ((analytics: unknown, eventName: string, eventParams?: Record<string, unknown>) => void) | null =
-  null;
+  | ((analytics: unknown, eventName: string, eventParams?: Record<string, unknown>) => void)
+  | null = null;
 let setUserIdFn: ((analytics: unknown, id: string | null) => void) | null = null;
 let setUserPropertiesFn:
-  ((analytics: unknown, properties: Record<string, unknown>) => void) | null = null;
+  | ((analytics: unknown, properties: Record<string, unknown>) => void)
+  | null = null;
 let setAnalyticsCollectionEnabledFn: ((analytics: unknown, enabled: boolean) => void) | null = null;
 let setConsentFn: ((consentSettings: ConsentSettings) => void) | null = null;
 

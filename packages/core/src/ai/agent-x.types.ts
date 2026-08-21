@@ -657,7 +657,11 @@ export interface AgentXConfirmationAction {
  *                       step list (used by `create_plan` / `execute_saved_plan`).
  */
 export type AgentXConfirmationVariant =
-  'email' | 'email-batch' | 'timeline_post' | 'generic_approval' | 'plan_approval';
+  | 'email'
+  | 'email-batch'
+  | 'timeline_post'
+  | 'generic_approval'
+  | 'plan_approval';
 
 /**
  * Email payload attached to `email` and `email-batch` confirmation cards.
@@ -993,7 +997,9 @@ export interface AgentXFilmTimelinePayload {
 
 /** Why Agent X is surfacing a billing action card. */
 export type AgentXBillingActionReason =
-  'insufficient_funds' | 'payment_method_required' | 'limit_reached';
+  | 'insufficient_funds'
+  | 'payment_method_required'
+  | 'limit_reached';
 
 /** Payload for the `billing-action` card type. */
 export interface AgentXBillingActionPayload {
@@ -1686,7 +1692,13 @@ export type OperationLogStatus =
 
 /** Category of an operation for icon/color grouping. */
 export type OperationLogCategory =
-  'outreach' | 'content' | 'film' | 'recruiting' | 'analytics' | 'profile' | 'system';
+  | 'outreach'
+  | 'content'
+  | 'film'
+  | 'recruiting'
+  | 'analytics'
+  | 'profile'
+  | 'system';
 
 /** A single entry in the operations activity log. */
 export interface OperationLogEntry {

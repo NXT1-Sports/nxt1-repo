@@ -171,7 +171,11 @@ export interface EnqueueOrgPurchaseMarketingOutboxInput {
   readonly organizationId: string;
   readonly amountCents: number;
   readonly source:
-    'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup';
+    | 'stripe_checkout'
+    | 'invoice_payment'
+    | 'manual_credit'
+    | 'direct_charge'
+    | 'auto_topup';
   readonly initiatedByUserId?: string;
   readonly checkoutSessionId?: string;
   readonly invoiceId?: string;
@@ -431,7 +435,8 @@ async function processMarketingOutboxRecord(input: {
         userId: String(payload['userId'] ?? ''),
         threadId: compactText(payload['threadId'] as string | null | undefined),
         agentId: compactText(payload['agentId'] as string | null | undefined) as
-          AgentIdentifier | undefined,
+          | AgentIdentifier
+          | undefined,
         title: compactText(payload['title'] as string | null | undefined),
         summary: compactText(payload['summary'] as string | null | undefined),
         deliverables: rawDeliverables
@@ -610,7 +615,11 @@ async function processMarketingOutboxRecord(input: {
         organizationId: String(payload['organizationId'] ?? ''),
         amountCents: Number(payload['amountCents'] ?? 0),
         source: String(payload['source'] ?? 'stripe_checkout') as
-          'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup',
+          | 'stripe_checkout'
+          | 'invoice_payment'
+          | 'manual_credit'
+          | 'direct_charge'
+          | 'auto_topup',
         initiatedByUserId: compactText(payload['initiatedByUserId'] as string | null | undefined),
       });
       assertB2BNotionLifecycleCreated(result, record.eventType, record.eventKey);
@@ -624,7 +633,11 @@ async function processMarketingOutboxRecord(input: {
         organizationId: String(payload['organizationId'] ?? ''),
         amountCents: Number(payload['amountCents'] ?? 0),
         source: String(payload['source'] ?? 'stripe_checkout') as
-          'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup',
+          | 'stripe_checkout'
+          | 'invoice_payment'
+          | 'manual_credit'
+          | 'direct_charge'
+          | 'auto_topup',
         initiatedByUserId: compactText(payload['initiatedByUserId'] as string | null | undefined),
       });
       assertB2BNotionLifecycleCreated(result, record.eventType, record.eventKey);

@@ -312,7 +312,9 @@ router.get('/your-endpoint', async (req, res) => {
     logger.info(`[${CACHE_PREFIX}] Cache MISS`);
 
     // 3. Your existing query (no changes)
-    const data = await YourModel.find({/* ... */});
+    const data = await YourModel.find({
+      /* ... */
+    });
     const result = { data };
 
     // 4. Save to cache
@@ -460,7 +462,12 @@ router.get('/', async (req, res) => {
 });
 
 router.post('/update', async (req, res) => {
-  await Ranking.updateMany({/* ... */}, req.body);
+  await Ranking.updateMany(
+    {
+      /* ... */
+    },
+    req.body
+  );
   await cache.invalidateTags(['rankings']);
   return res.json({ success: true });
 });

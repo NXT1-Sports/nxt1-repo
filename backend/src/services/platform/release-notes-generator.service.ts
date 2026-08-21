@@ -59,7 +59,10 @@ interface GenerateWeeklyReleaseNotesOptions {
 export interface GenerateWeeklyReleaseNotesResult {
   readonly status: 'created' | 'skipped';
   readonly reason?:
-    'no_new_version' | 'no_git_changes' | 'head_already_processed' | 'no_commit_subjects';
+    | 'no_new_version'
+    | 'no_git_changes'
+    | 'head_already_processed'
+    | 'no_commit_subjects';
   readonly version: string;
   readonly latestPublishedVersion: string | null;
   readonly commitCount: number;

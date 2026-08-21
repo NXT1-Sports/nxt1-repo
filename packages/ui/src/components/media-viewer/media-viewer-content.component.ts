@@ -1882,7 +1882,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   protected onPlaybookEditorInput(key: string, event: Event): void {
     const target = event.target as
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | HTMLSelectElement
+      | null;
     this.playbookEditorDraft.update((draft) => ({ ...draft, [key]: target?.value ?? '' }));
   }
 
@@ -2414,7 +2417,8 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
     if (!document.fullscreenElement) {
       const requestFullscreen = target.requestFullscreen?.bind(target) as
-        (() => Promise<void>) | undefined;
+        | (() => Promise<void>)
+        | undefined;
       if (requestFullscreen) {
         void requestFullscreen().catch(() => undefined);
       }

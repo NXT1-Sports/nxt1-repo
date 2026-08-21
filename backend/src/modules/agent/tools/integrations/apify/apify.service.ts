@@ -819,7 +819,8 @@ export class ApifyService {
     // Media extraction — twitter-scraper-lite uses entities.media[]
     const entities = raw['entities'] as Record<string, unknown> | undefined;
     const media = (entities?.['media'] ?? raw['media']) as
-      readonly Record<string, unknown>[] | undefined;
+      | readonly Record<string, unknown>[]
+      | undefined;
 
     return {
       id: tweetId,

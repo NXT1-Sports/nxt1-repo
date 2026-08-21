@@ -490,7 +490,8 @@ router.post(
           feature: 'briefing-generation',
           coordinatorId: 'strategy_coordinator',
           environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-            'production' | 'staging',
+            | 'production'
+            | 'staging',
         });
       }
 

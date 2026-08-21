@@ -22,7 +22,11 @@
  * Agent onboarding step identifiers.
  */
 export type AgentOnboardingStepId =
-  'welcome' | 'program-search' | 'goals' | 'connections' | 'loading';
+  | 'welcome'
+  | 'program-search'
+  | 'goals'
+  | 'connections'
+  | 'loading';
 
 /**
  * Step configuration for display and navigation.
@@ -134,7 +138,12 @@ export interface AgentGoal {
  * Goal categories for grouping.
  */
 export type AgentGoalCategory =
-  'recruiting' | 'analytics' | 'content' | 'communication' | 'scouting' | 'development';
+  | 'recruiting'
+  | 'analytics'
+  | 'content'
+  | 'communication'
+  | 'scouting'
+  | 'development';
 
 // ============================================
 // CONNECTIONS TYPES

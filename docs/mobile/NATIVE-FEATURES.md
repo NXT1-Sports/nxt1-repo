@@ -496,7 +496,9 @@ export class AppComponent {
 
   constructor() {
     afterNextRender(async () => {
-      await this.nativeApp.initialize({/* config */});
+      await this.nativeApp.initialize({
+        /* config */
+      });
       await this.network.initialize();
       await this.biometric.initialize();
     });

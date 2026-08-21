@@ -31,7 +31,11 @@ const FIRST_USAGE_STARTED_THRESHOLD_CENTS = 1;
 const USAGE_STARTED_NOTION_ENVIRONMENT = 'production';
 
 export type UsageStartedNotionDashboardStatus =
-  'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+  | 'queued'
+  | 'processing'
+  | 'created'
+  | 'failed'
+  | 'skipped';
 
 export interface UsageStartedNotionDashboardStateRecord {
   readonly status?: UsageStartedNotionDashboardStatus;

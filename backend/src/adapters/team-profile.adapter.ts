@@ -268,7 +268,8 @@ function mapTeamCodeToTeam(
         schedulePageUrl: teamCode.teamLinks.schedulePageUrl,
         registrationUrl: teamCode.teamLinks.registrationUrl,
         rosterUrl: (teamCode.teamLinks as unknown as Record<string, unknown>)['rosterUrl'] as
-          string | undefined,
+          | string
+          | undefined,
       }
     : undefined;
 
@@ -734,7 +735,8 @@ export async function mapTeamCodeToProfile(
   // ── Organization overlay ──────────────────────────────────────────────────
   let org: OrgOverlay | undefined;
   const orgId = (teamCode as unknown as Record<string, unknown>)['organizationId'] as
-    string | undefined;
+    | string
+    | undefined;
   if (orgId && db) {
     try {
       for (const collectionName of ORGANIZATION_COLLECTIONS) {

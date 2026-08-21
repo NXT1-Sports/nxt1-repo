@@ -26,7 +26,13 @@
  */
 
 export type SkillCategory =
-  'evaluation' | 'copywriting' | 'compliance' | 'strategy' | 'brand' | 'data' | 'knowledge';
+  | 'evaluation'
+  | 'copywriting'
+  | 'compliance'
+  | 'strategy'
+  | 'brand'
+  | 'data'
+  | 'knowledge';
 
 // ─── Cosine Similarity ──────────────────────────────────────────────────────
 

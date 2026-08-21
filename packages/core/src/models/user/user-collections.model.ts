@@ -268,7 +268,11 @@ export interface OfferDoc extends UserFirestoreDoc {
 // ============================================
 
 export type RecruitingInteractionCategory =
-  'interest' | 'contact' | 'visit' | 'camp' | 'questionnaire';
+  | 'interest'
+  | 'contact'
+  | 'visit'
+  | 'camp'
+  | 'questionnaire';
 
 /**
  * Top-level Firestore document: Recruiting/{docId} (non-offer categories)

@@ -30,7 +30,8 @@ describe('VectorMemoryService', () => {
       .spyOn(AgentMemoryModel, 'aggregate')
       .mockImplementation(async (pipeline: Array<Record<string, unknown>>) => {
         const vectorSearch = pipeline[0]?.['$vectorSearch'] as
-          { filter?: Record<string, unknown> } | undefined;
+          | { filter?: Record<string, unknown> }
+          | undefined;
         const filter = vectorSearch?.filter ?? {};
 
         if (filter['target'] === 'user') {

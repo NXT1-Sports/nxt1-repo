@@ -3,10 +3,12 @@ import type { GetDiagramAssetResponse, ListDiagramAssetsResponse } from '@nxt1/c
 import { TEST_IDS } from '@nxt1/core/testing';
 
 type DiagramListApiResponse =
-  { success: true; data: ListDiagramAssetsResponse } | { success: false; error: string };
+  | { success: true; data: ListDiagramAssetsResponse }
+  | { success: false; error: string };
 
 type DiagramDetailApiResponse =
-  { success: true; data: GetDiagramAssetResponse } | { success: false; error: string };
+  | { success: true; data: GetDiagramAssetResponse }
+  | { success: false; error: string };
 
 const MOCK_DIAGRAM_LAYOUT = {
   sport: 'football',

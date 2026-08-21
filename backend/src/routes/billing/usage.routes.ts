@@ -3176,7 +3176,9 @@ router.post(
       const customerId = customerDoc.docs[0]?.data()['stripeCustomerId'] as string;
       const promoCode = promotionCodes.data[0]!;
       const couponObj = (promoCode as unknown as Record<string, unknown>)['coupon'] as
-        string | { id: string } | undefined;
+        | string
+        | { id: string }
+        | undefined;
       const couponId = typeof couponObj === 'string' ? couponObj : couponObj?.id;
 
       if (couponId) {

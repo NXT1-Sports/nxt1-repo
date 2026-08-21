@@ -73,7 +73,11 @@ export interface FeedAuthor {
  * Matches Cloudflare Stream `status.state` values.
  */
 export type FeedVideoProcessingStatus =
-  'queued' | 'inprogress' | 'ready' | 'error' | 'pendingupload';
+  | 'queued'
+  | 'inprogress'
+  | 'ready'
+  | 'error'
+  | 'pendingupload';
 
 /**
  * Media attachment for posts.

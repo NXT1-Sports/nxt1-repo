@@ -1538,7 +1538,8 @@ export class AgentXOperationChatMessageFacade {
   private cardPayloadYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
     if (!card || card.type !== 'confirmation') return '';
     const payload = card.payload as
-      { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState } | undefined;
+      | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
+      | undefined;
     if (!payload) return '';
     // Prefer embedded yieldState identity when present.
     const embedded = this.yieldIdentityKey(payload.yieldState);

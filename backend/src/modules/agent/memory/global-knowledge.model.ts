@@ -94,7 +94,8 @@ export function getGlobalKnowledgeModel(
   connection: Connection = getMongoGlobalConnection()
 ): Model<GlobalKnowledgeDocument> {
   const existingModel = connection.models[GLOBAL_KNOWLEDGE_MODEL_NAME] as
-    Model<GlobalKnowledgeDocument> | undefined;
+    | Model<GlobalKnowledgeDocument>
+    | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<GlobalKnowledgeDocument>(

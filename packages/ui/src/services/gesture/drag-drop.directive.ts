@@ -125,7 +125,8 @@ export class NxtDragDropDirective {
   private getSelectedContexts(event: DragEvent): readonly AgentXSelectedContext[] | null {
     const rawPayload = event.dataTransfer?.getData(AGENT_X_SELECTED_CONTEXT_DRAG_MIME) ?? '';
     return parseAgentXSelectedContextDragPayload(rawPayload) as
-      readonly AgentXSelectedContext[] | null;
+      | readonly AgentXSelectedContext[]
+      | null;
   }
 
   private setActive(active: boolean): void {

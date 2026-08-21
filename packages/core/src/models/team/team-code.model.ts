@@ -59,7 +59,12 @@ export enum ROLE {
  * Maps to TEAM_TYPES from user.constants.ts
  */
 export type TeamTypeApi =
-  'high-school' | 'club' | 'college' | 'organization' | 'juco' | 'middle-school';
+  | 'high-school'
+  | 'club'
+  | 'college'
+  | 'organization'
+  | 'juco'
+  | 'middle-school';
 
 // ============================================
 // TEAM MEMBER

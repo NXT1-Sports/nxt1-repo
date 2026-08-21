@@ -248,7 +248,8 @@ export class AgentRouter {
 
     // ── Resume detection: check if this is a resumed job ──────────────────
     const yieldState = (contextObj as Record<string, unknown>)['yieldState'] as
-      import('@nxt1/core').AgentYieldState | undefined;
+      | import('@nxt1/core').AgentYieldState
+      | undefined;
 
     if (yieldState) {
       return this.runResumed(

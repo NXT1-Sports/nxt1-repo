@@ -42,7 +42,13 @@ import {
 
 /** Generation status phases for UI messaging */
 export type GenerationPhase =
-  'connecting' | 'scraping' | 'analyzing' | 'building' | 'finalizing' | 'complete' | 'error';
+  | 'connecting'
+  | 'scraping'
+  | 'analyzing'
+  | 'building'
+  | 'finalizing'
+  | 'complete'
+  | 'error';
 
 /** Immutable snapshot of the generation state */
 export interface GenerationSnapshot {

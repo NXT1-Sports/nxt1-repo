@@ -24,7 +24,12 @@
  * Each category represents a content filter/section.
  */
 export type HelpCategoryId =
-  'getting-started' | 'athletes' | 'agent-x' | 'teams' | 'account' | 'troubleshooting';
+  | 'getting-started'
+  | 'athletes'
+  | 'agent-x'
+  | 'teams'
+  | 'account'
+  | 'troubleshooting';
 
 /**
  * Content format types.
@@ -346,7 +351,12 @@ export type TicketStatus = 'open' | 'in-progress' | 'pending' | 'resolved' | 'cl
  * Support ticket category.
  */
 export type TicketCategory =
-  'account' | 'billing' | 'technical' | 'feature-request' | 'bug-report' | 'other';
+  | 'account'
+  | 'billing'
+  | 'technical'
+  | 'feature-request'
+  | 'bug-report'
+  | 'other';
 
 /**
  * Support contact form submission.

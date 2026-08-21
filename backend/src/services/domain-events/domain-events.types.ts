@@ -103,7 +103,11 @@ export interface PublishTrialCreditsDepletedDomainEventInput {
 }
 
 export type OrganizationWalletFundingSource =
-  'stripe_checkout' | 'invoice_payment' | 'manual_credit' | 'direct_charge' | 'auto_topup';
+  | 'stripe_checkout'
+  | 'invoice_payment'
+  | 'manual_credit'
+  | 'direct_charge'
+  | 'auto_topup';
 
 export type IndividualWalletFundingSource = 'stripe_checkout' | 'iap_topup';
 

@@ -100,7 +100,11 @@ export interface SessionEvent extends AnalyticsEventBase {
 }
 
 export type AnalyticsEvent =
-  ViewEvent | EngagementEvent | CommunicationEvent | AIUsageEvent | SessionEvent;
+  | ViewEvent
+  | EngagementEvent
+  | CommunicationEvent
+  | AIUsageEvent
+  | SessionEvent;
 
 // ============================================
 // STAGE 1: DAILY AGGREGATES

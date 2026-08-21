@@ -35,7 +35,10 @@ interface RepairedAsset {
   readonly destinationUrl: string;
   readonly mimeType: string;
   readonly strategy:
-    'existing' | 'planned_upload' | 'uploaded_with_token' | 'uploaded_with_signed_url';
+    | 'existing'
+    | 'planned_upload'
+    | 'uploaded_with_token'
+    | 'uploaded_with_signed_url';
 }
 
 interface FailedAsset {

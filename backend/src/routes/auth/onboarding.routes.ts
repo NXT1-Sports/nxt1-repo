@@ -185,7 +185,8 @@ router.post(
 
       // Save link sources if provided
       const legacyLinkSources = profileData['linkSources'] as
-        { links?: Array<{ platform?: string; url?: string; connected?: boolean }> } | undefined;
+        | { links?: Array<{ platform?: string; url?: string; connected?: boolean }> }
+        | undefined;
       if (legacyLinkSources?.links && Array.isArray(legacyLinkSources.links)) {
         const existingConnected: Record<string, unknown>[] =
           (currentUser?.['connectedSources'] as Record<string, unknown>[] | undefined) ?? [];
@@ -453,9 +454,11 @@ router.post(
           : undefined,
       },
       teamSelection: profileData['teamSelection'] as
-        { teams?: OnboardingProgramSelection[] } | undefined,
+        | { teams?: OnboardingProgramSelection[] }
+        | undefined,
       createTeamProfile: profileData['createTeamProfile'] as
-        OnboardingCreateTeamProfile | undefined,
+        | OnboardingCreateTeamProfile
+        | undefined,
     });
 
     const { teamIds, createdTeamIds, sportTeamMap, membershipTransitions } = provisionResult;
@@ -481,7 +484,8 @@ router.post(
             .filter(Boolean)
             .join(' ') ||
           ((currentUser as Record<string, unknown> | undefined)?.['displayName'] as
-            string | undefined) ||
+            | string
+            | undefined) ||
           'Someone',
         joinerAvatarUrl: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? null,
         pending: transition.pending,
@@ -808,7 +812,8 @@ router.post(
         firstName: userData?.firstName ?? updateData.firstName,
         lastName: userData?.lastName ?? updateData.lastName,
         displayName: (userData as Record<string, unknown> | undefined)?.['displayName'] as
-          string | undefined,
+          | string
+          | undefined,
         email:
           userData?.contact?.email?.trim().toLowerCase() ||
           userData?.email?.trim().toLowerCase() ||
@@ -966,7 +971,8 @@ router.post(
               name: (stepData['highSchool'] as string)?.trim() || currentTeam?.name,
               type:
                 ((stepData['highSchoolSuffix'] as string)?.toLowerCase() as
-                  'high-school' | 'club') ||
+                  | 'high-school'
+                  | 'club') ||
                 currentTeam?.type ||
                 'high-school',
             },

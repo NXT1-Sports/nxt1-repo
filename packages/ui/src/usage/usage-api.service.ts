@@ -203,7 +203,11 @@ export class UsageApiService {
 
   async trackSalesFunnelEvent(event: {
     readonly eventName:
-      'view_item' | 'view_item_list' | 'add_to_cart' | 'begin_checkout' | 'add_payment_info';
+      | 'view_item'
+      | 'view_item_list'
+      | 'add_to_cart'
+      | 'begin_checkout'
+      | 'add_payment_info';
     readonly amountCents?: number;
     readonly organizationId?: string;
     readonly paymentMethod?: string;

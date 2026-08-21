@@ -9,7 +9,14 @@
  * Network connection types
  */
 export type ConnectionType =
-  'wifi' | 'cellular' | 'ethernet' | 'bluetooth' | 'wimax' | 'vpn' | 'unknown' | 'none';
+  | 'wifi'
+  | 'cellular'
+  | 'ethernet'
+  | 'bluetooth'
+  | 'wimax'
+  | 'vpn'
+  | 'unknown'
+  | 'none';
 
 /**
  * Network status information

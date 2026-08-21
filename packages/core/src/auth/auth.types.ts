@@ -247,7 +247,12 @@ export function isTokenExpired(token: StoredAuthToken, bufferMs = 5 * 60 * 1000)
  * Auth event types for state change notifications
  */
 export type AuthEventType =
-  'SIGN_IN' | 'SIGN_OUT' | 'TOKEN_REFRESH' | 'SESSION_EXPIRED' | 'USER_UPDATED' | 'ERROR';
+  | 'SIGN_IN'
+  | 'SIGN_OUT'
+  | 'TOKEN_REFRESH'
+  | 'SESSION_EXPIRED'
+  | 'USER_UPDATED'
+  | 'ERROR';
 
 /**
  * Auth event payload

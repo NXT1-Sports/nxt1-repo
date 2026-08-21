@@ -66,7 +66,13 @@ export interface McpExecuteOptions {
 type McpCircuitState = 'closed' | 'open' | 'half-open';
 
 type McpErrorKind =
-  'cancelled' | 'timeout' | 'rate_limit' | 'client' | 'transport' | 'server' | 'unknown';
+  | 'cancelled'
+  | 'timeout'
+  | 'rate_limit'
+  | 'client'
+  | 'transport'
+  | 'server'
+  | 'unknown';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 

@@ -159,7 +159,8 @@ export function getAgentThreadModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<AgentThreadDocument> {
   const existingModel = connection.models[AGENT_THREAD_MODEL_NAME] as
-    Model<AgentThreadDocument> | undefined;
+    | Model<AgentThreadDocument>
+    | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<AgentThreadDocument>(AGENT_THREAD_MODEL_NAME, AgentThreadSchema);

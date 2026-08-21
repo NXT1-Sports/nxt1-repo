@@ -18,7 +18,14 @@ export type DiagramAssetKind = 'sport_play' | 'sport_drill';
 export type DiagramFieldStyle = 'classic' | 'modern' | 'night' | 'blueprint' | 'chalk';
 
 export type DiagramRouteType =
-  'screen' | 'pick' | 'block' | 'cut' | 'drag' | 'space' | 'go' | 'fade';
+  | 'screen'
+  | 'pick'
+  | 'block'
+  | 'cut'
+  | 'drag'
+  | 'space'
+  | 'go'
+  | 'fade';
 
 export type DiagramZoneShape = 'ellipse' | 'rect' | 'text';
 

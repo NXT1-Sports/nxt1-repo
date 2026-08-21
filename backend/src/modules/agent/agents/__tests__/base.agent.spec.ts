@@ -3875,7 +3875,8 @@ describe('BaseAgent identifier scrubbing', () => {
     const userMessage = completeMessages.find((message) => message.role === 'user');
     const contentParts = userMessage?.content as Array<Record<string, unknown>>;
     const textPart = contentParts.find((part) => part['type'] === 'text') as
-      { text?: string } | undefined;
+      | { text?: string }
+      | undefined;
     const imagePart = contentParts.find((part) => part['type'] === 'image_url');
     const imagePayload = imagePart?.['image_url'] as { url?: string } | undefined;
 

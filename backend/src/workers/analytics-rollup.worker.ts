@@ -32,7 +32,13 @@ export async function rebuildRecentAnalyticsRollups(limit: number = 250): Promis
       row._id.subjectId,
       row._id.subjectType as 'user' | 'team' | 'organization',
       row._id.domain as
-        'recruiting' | 'nil' | 'performance' | 'engagement' | 'communication' | 'system' | 'custom'
+        | 'recruiting'
+        | 'nil'
+        | 'performance'
+        | 'engagement'
+        | 'communication'
+        | 'system'
+        | 'custom'
     );
   }
 

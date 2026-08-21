@@ -1,7 +1,12 @@
 export type AgentXReleaseStage = 'stable' | 'beta';
 
 export type AgentXReleaseSurface =
-  'playbooks' | 'practiceScripts' | 'gameplans' | 'filmReview' | 'diagramsLab' | 'generatedPlays';
+  | 'playbooks'
+  | 'practiceScripts'
+  | 'gameplans'
+  | 'filmReview'
+  | 'diagramsLab'
+  | 'generatedPlays';
 
 // Flip this single value to move all covered Agent X surfaces out of beta.
 const DEFAULT_AGENT_X_RELEASE_STAGE: AgentXReleaseStage = 'stable';

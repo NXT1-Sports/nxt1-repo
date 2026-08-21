@@ -277,7 +277,13 @@ export interface TeamScheduleEvent {
  * Schedule event type.
  */
 export type ScheduleEventType =
-  'game' | 'scrimmage' | 'practice' | 'tournament' | 'playoff' | 'championship' | 'other';
+  | 'game'
+  | 'scrimmage'
+  | 'practice'
+  | 'tournament'
+  | 'playoff'
+  | 'championship'
+  | 'other';
 
 /**
  * Game result.
@@ -294,7 +300,12 @@ export interface GameResult {
  * Event status.
  */
 export type ScheduleEventStatus =
-  'scheduled' | 'confirmed' | 'in-progress' | 'completed' | 'postponed' | 'cancelled';
+  | 'scheduled'
+  | 'confirmed'
+  | 'in-progress'
+  | 'completed'
+  | 'postponed'
+  | 'cancelled';
 
 // ============================================
 // STAFF TYPES

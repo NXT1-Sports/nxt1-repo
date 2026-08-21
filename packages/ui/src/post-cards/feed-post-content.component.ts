@@ -1251,7 +1251,8 @@ export class FeedPostContentComponent implements OnDestroy {
     const target = video.closest('.post-content__video-native-shell') as HTMLElement | null;
     const fullscreenTarget = target ?? video;
     const requestFullscreen = fullscreenTarget.requestFullscreen?.bind(fullscreenTarget) as
-      (() => Promise<void>) | undefined;
+      | (() => Promise<void>)
+      | undefined;
     const webkitRequestFullscreen = (
       fullscreenTarget as HTMLElement & { webkitRequestFullscreen?: () => void }
     ).webkitRequestFullscreen;

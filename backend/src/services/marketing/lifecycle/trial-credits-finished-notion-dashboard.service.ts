@@ -30,7 +30,11 @@ import {
 const TRIAL_CREDITS_FINISHED_NOTION_ENVIRONMENT = 'production';
 
 export type TrialCreditsFinishedNotionDashboardStatus =
-  'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+  | 'queued'
+  | 'processing'
+  | 'created'
+  | 'failed'
+  | 'skipped';
 
 export interface TrialCreditsFinishedNotionDashboardStateRecord {
   readonly status?: TrialCreditsFinishedNotionDashboardStatus;

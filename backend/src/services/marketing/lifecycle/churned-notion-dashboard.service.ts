@@ -31,7 +31,11 @@ const DEFAULT_CHURN_GRACE_DAYS = 30;
 const CHURNED_NOTION_ENVIRONMENT = 'production';
 
 export type ChurnedNotionDashboardStatus =
-  'queued' | 'processing' | 'created' | 'failed' | 'skipped';
+  | 'queued'
+  | 'processing'
+  | 'created'
+  | 'failed'
+  | 'skipped';
 
 export interface ChurnedNotionDashboardStateRecord {
   readonly status?: ChurnedNotionDashboardStatus;

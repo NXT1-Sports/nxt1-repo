@@ -176,7 +176,7 @@
     "rate-limit-redis": "^5.0.0",
     "reflect-metadata": "^0.2.2",
     "sharp": "^0.35.2",
-    "stripe": "^22.3.2",
+    "stripe": "^22.5.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

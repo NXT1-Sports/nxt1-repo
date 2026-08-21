@@ -19,7 +19,10 @@ let nextDemoId = 0;
 const HIGHLIGHT_REEL_THUMBNAIL_SRC = `/${IMAGE_PATHS.highlightPlaceholder}`;
 
 type AgentXDemoOutputType =
-  'highlight-reel' | 'contact-coaches' | 'recruiting-strategy' | 'college-match';
+  | 'highlight-reel'
+  | 'contact-coaches'
+  | 'recruiting-strategy'
+  | 'college-match';
 
 export interface AgentXDemoWorkflowStep {
   readonly id: string;

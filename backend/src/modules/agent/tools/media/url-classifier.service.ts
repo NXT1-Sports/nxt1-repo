@@ -51,7 +51,13 @@ export type MediaPlatform =
   | 'web';
 
 export type MediaAssetKind =
-  'single_tweet' | 'profile' | 'video' | 'image' | 'stream' | 'document' | 'page';
+  | 'single_tweet'
+  | 'profile'
+  | 'video'
+  | 'image'
+  | 'stream'
+  | 'document'
+  | 'page';
 
 export interface UrlClassification {
   /** Platform identifier for the URL. */

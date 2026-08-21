@@ -228,7 +228,8 @@ export const onNotificationCreatedV3 = onDocumentCreated(
       if (userDoc.exists) {
         const userData = userDoc.data();
         const prefs = userData?.['preferences']?.['notifications'] as
-          UserNotificationPreferences | undefined;
+          | UserNotificationPreferences
+          | undefined;
         const treatAsMarketing =
           deliveryPolicy.treatAsMarketing === true || category === 'marketing';
 
@@ -368,9 +369,11 @@ export const onNotificationCreatedV3 = onDocumentCreated(
       if (response.successCount > 0 && userDoc.exists) {
         const userData = userDoc.data();
         const prefs = userData?.['preferences']?.['notifications'] as
-          UserNotificationPreferences | undefined;
+          | UserNotificationPreferences
+          | undefined;
         const pushDeliveryStats = userData?.['lifecycle']?.['push']?.['delivery'] as
-          PushDeliveryStats | undefined;
+          | PushDeliveryStats
+          | undefined;
 
         if (prefs) {
           await updatePushDeliveryStats(

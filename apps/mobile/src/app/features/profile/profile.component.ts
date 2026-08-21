@@ -815,9 +815,11 @@ export class ProfileComponent {
     const activeSportTeam =
       profile.sports?.[profile.activeSportIndex ?? 0]?.team ?? profile.sports?.[0]?.team;
     const sportTeamSlug = (activeSportTeam as Record<string, unknown> | undefined)?.['slug'] as
-      string | undefined;
+      | string
+      | undefined;
     const sportTeamCode = (activeSportTeam as Record<string, unknown> | undefined)?.['teamCode'] as
-      string | undefined;
+      | string
+      | undefined;
 
     const slug =
       profile.teamCode?.slug ??

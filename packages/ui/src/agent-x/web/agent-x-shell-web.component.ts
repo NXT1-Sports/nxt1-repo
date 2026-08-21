@@ -197,7 +197,13 @@ interface AgentXDesktopSession {
   readonly threadId?: string;
   readonly hasRecurringTasksHint?: boolean;
   readonly operationStatus?:
-    'processing' | 'complete' | 'error' | 'paused' | 'awaiting_input' | 'awaiting_approval' | null;
+    | 'processing'
+    | 'complete'
+    | 'error'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | null;
   readonly yieldState?: AgentYieldState;
   /** When set, the mounted op-chat immediately connects to this resumed stream. */
   readonly resumeOperationId?: string;
@@ -5638,7 +5644,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private isSideToolDesktopPanel(
     panel: AgentXDesktopResizablePanel
   ): panel is
-    'gameplans' | 'playbooks' | 'practice-scripts' | 'diagrams' | 'files' | 'film-review' {
+    | 'gameplans'
+    | 'playbooks'
+    | 'practice-scripts'
+    | 'diagrams'
+    | 'files'
+    | 'film-review' {
     return (
       panel === 'gameplans' ||
       panel === 'playbooks' ||

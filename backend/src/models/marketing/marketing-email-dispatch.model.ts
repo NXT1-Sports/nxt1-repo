@@ -121,7 +121,8 @@ export function getMarketingEmailDispatchModel(
   connection: Connection = getMongoEnvironmentConnection()
 ): Model<MarketingEmailDispatchDocument> {
   const existingModel = connection.models[MARKETING_EMAIL_DISPATCH_MODEL_NAME] as
-    Model<MarketingEmailDispatchDocument> | undefined;
+    | Model<MarketingEmailDispatchDocument>
+    | undefined;
   if (existingModel) return existingModel;
 
   return connection.model<MarketingEmailDispatchDocument>(

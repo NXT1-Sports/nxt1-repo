@@ -4396,7 +4396,10 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
 
   private getEventSvg(event: PointerEvent): SVGSVGElement | null {
     const currentTarget = event.currentTarget as
-      Element | SVGGraphicsElement | SVGSVGElement | null;
+      | Element
+      | SVGGraphicsElement
+      | SVGSVGElement
+      | null;
     if (currentTarget instanceof SVGSVGElement) return currentTarget;
 
     if (currentTarget instanceof SVGGraphicsElement) {

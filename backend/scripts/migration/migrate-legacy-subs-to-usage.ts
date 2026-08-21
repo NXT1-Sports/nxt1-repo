@@ -328,7 +328,8 @@ async function main(): Promise<void> {
   printBanner('Phase 7: Legacy Subscription -> Usage Migration');
 
   const target = (getArg('target') === 'production' ? 'production' : 'staging') as
-    'staging' | 'production';
+    | 'staging'
+    | 'production';
   const cancelAtPeriodEnd = hasFlag('cancel-at-period-end');
   const createMissingAuthUsers = hasFlag('create-missing-auth-users');
   const grantAggregation = getGrantAggregation();
