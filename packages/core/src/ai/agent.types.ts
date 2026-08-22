@@ -416,6 +416,7 @@ export interface AgentSessionContext {
     readonly mimeType: string;
     readonly storagePath?: string;
     readonly name?: string;
+    readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
   }[];
   /**
    * Video attachments forwarded from the chat client (mp4, mov, etc.).

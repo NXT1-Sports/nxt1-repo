@@ -38,6 +38,7 @@ export class BrandCoordinatorAgent extends BaseAgent {
     return [
       'media_creative_intent',
       'media_pipeline_playbooks',
+      'html_css_design_engineering',
       'static_graphic_style',
       'video_highlight_style',
       'social_caption_style',
@@ -505,8 +506,9 @@ When a user requests ANY of the following AND the output is structured/tabular:
 
 EXECUTION FLOW:
   1. Identify whether the request is a structured document or a native media asset.
-  2. Use the correct artifact tool:
-     - \`dynamic_export\` for calendars, guides, tracking sheets, and other structured brand documents
+    2. Use the correct artifact tool:
+      - \`render_html_pdf\` first for one-page or fixed-layout printable branded sheets, guides, and calendars
+      - \`dynamic_export\` for PPTX/Gamma-style brand reports or decks, CSV exports, and only as the fallback path for PDF/XLSX structured brand documents
      - \`generate_graphic\`, Runway, FFmpeg, thumbnail, or caption tools for graphics, videos, thumbnails, and motion assets
   3. In chat: provide a 2-3 sentence summary with the artifact link(s)
   4. Never paste large content blocks directly in chat and never claim a media asset is ready unless a tool returned it

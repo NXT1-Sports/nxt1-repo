@@ -42,6 +42,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'get_recent_sync_summaries',
   'delete_memory',
   'dynamic_export',
+  'render_html_pdf',
+  'execute_python_code',
   'recommend_learning_videos',
   'ask_user',
   'search_web',
@@ -111,6 +113,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'list_nxt1_data_views',
   'query_nxt1_data',
   'execute_sandbox_script',
+  'execute_python_code',
   'search_colleges',
   'search_college_coaches',
   'list_firecrawl_monitors',
@@ -132,6 +135,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'delete_team_file_folder',
   'move_universal_file_to_folder',
   'dynamic_export',
+  'render_html_pdf',
   'track_analytics_event',
   'scan_timeline_posts',
   'list_recurring_tasks',
@@ -172,12 +176,13 @@ const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
 ];
 
 const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>> = {
-  admin_coordinator: [],
+  admin_coordinator: ['render_html_pdf', 'execute_python_code'],
 
   brand_coordinator: composeToolPatterns(
     UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY,
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
+      'render_html_pdf',
       'parse_document',
       'render_pdf_pages',
       'generate_graphic',
@@ -223,6 +228,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY,
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
+      'render_html_pdf',
       'parse_document',
       'enrich_document_notes',
       'render_pdf_pages',
@@ -240,6 +246,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
       'query_nxt1_data',
       'mutate_nxt1_data',
       'execute_sandbox_script',
+      'execute_python_code',
       'write_core_identity',
       'update_core_identity',
       'delete_core_identity',
@@ -287,6 +294,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY,
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
+      'render_html_pdf',
       'parse_document',
       'render_pdf_pages',
       'scrape_and_index_profile',
@@ -298,6 +306,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
       'stage_media',
       'analyze_video',
       'execute_sandbox_script',
+      'execute_python_code',
       'generate_chart_visualization',
       'analyze_film_review_sources',
       'analyze_film_review_source_breakdowns',
@@ -346,6 +355,8 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY,
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
+      'render_html_pdf',
+      'execute_python_code',
       'parse_document',
       'render_pdf_pages',
       'analyze_image',
@@ -363,12 +374,14 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     UNIVERSAL_TEAM_DOCUMENT_TOOL_POLICY,
     TEAM_FILE_FOLDER_TOOL_POLICY,
     [
+      'render_html_pdf',
       'parse_document',
       'enrich_document_notes',
       'render_pdf_pages',
       'get_analytics_summary',
       'generate_chart_visualization',
       'execute_sandbox_script',
+      'execute_python_code',
       'create_play_diagram',
       'create_board_diagram',
       'update_board_diagram',

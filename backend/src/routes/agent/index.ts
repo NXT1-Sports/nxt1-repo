@@ -27,6 +27,7 @@ import liveViewRoutes from './live-view.routes.js';
 import knowledgeAdminRoutes from './knowledge-admin.routes.js';
 import messagesRoutes from './messages.routes.js';
 import mediaProxyRoutes from './media-proxy.routes.js';
+import referenceAssetsRoutes from './reference-assets.routes.js';
 import tasksRoutes from './tasks.routes.js';
 
 const router = Router();
@@ -44,5 +45,6 @@ router.use(knowledgeAdminRoutes);
 router.use(messagesRoutes);
 router.use(mediaProxyRoutes);
 router.use(tasksRoutes);
+router.use(referenceAssetsRoutes);
 
 export default router;

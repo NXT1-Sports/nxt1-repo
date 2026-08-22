@@ -79,19 +79,19 @@ const ExportSectionSchema = z.object({
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
   readonly description =
-    'Generates a downloadable PDF, CSV, XLSX, or PPTX document from any structured data. ' +
-    'Use this tool whenever the user asks to export, download, save, create a spreadsheet, ' +
-    'create a report, produce a document, or needs data in a portable file format. ' +
+    'Generates a downloadable PDF, CSV, XLSX, or PPTX document from structured data when no more specialized artifact path is a better fit. ' +
+    'Use this tool primarily for Gamma-backed PPTX decks and flexible multi-section reports, for CSV flat-table exports, and as the fallback path for PDF/XLSX when render_html_pdf or execute_python_code/native spreadsheet/document tools are not the right choice. ' +
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
     'branding, and cloud hosting.\n\n' +
     'HOW TO FORMAT LIKE A PRO:\n' +
+    '- ROUTING FIRST: Do NOT use this as the default for every export. Use `render_html_pdf` first for one-page/fixed-layout PDFs such as callsheets, wristbands, practice scripts, depth charts, staff sheets, or any sample-matched printable layout. Use `execute_python_code` first for editable spreadsheets and workbook-style artifacts. Use this tool as the PDF/XLSX fallback when those dedicated paths are unavailable or not appropriate.\n' +
     '- NEVER use emojis in the data or titles. They break the PDF and Excel generators. Use text only.\n' +
     '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/PPTX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
-    '- For Practice Scripts/Schedules: Divide the schedule into multiple `sections` (e.g. "Period 1: Flex", "Period 2: 7on7") instead of one massive table. Default these to XLSX or native saved documents unless the user explicitly asks for PDF/print-ready delivery. Pass `pageOrientation: "landscape"` so it prints well in Excel/PDF.\n' +
-    '- For Callsheets / Rosters / Multi-Panel Boards: Pass `layoutMode: "multi_column_grid"`, `pageSize: "LEGAL"`, and `pageOrientation: "landscape"`. Default coaching sheets like callsheets to XLSX or native saved documents unless the user explicitly asks for PDF, printing, or share-ready output. You can optionally set `gridColumn: 1` or `2` etc on each section so it builds a perfect side-by-side coach board instead of a vertical stack. Use section.themeColor to visually separate different types of plays (e.g., Red Zone, Run Game).\n' +
+    '- For Practice Scripts/Schedules: Divide the schedule into multiple `sections` (e.g. "Period 1: Flex", "Period 2: 7on7") instead of one massive table. Prefer render_html_pdf for printable one-pagers and execute_python_code for editable sheets. Use this tool only if those dedicated routes are not the chosen artifact path.\n' +
+    '- For Callsheets / Rosters / Multi-Panel Boards: these are usually NOT this tool first. Prefer `render_html_pdf` for printable/fixed-layout delivery and execute_python_code for editable matrices. Use this tool only as a fallback export path when those dedicated routes are unavailable or explicitly not desired.\n' +
     '- HARD FORMAT RULE: If the user explicitly asks for PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, or a file to open in PowerPoint, call this tool with `format: "pptx"` unless you are using a connected native Microsoft PowerPoint tool. Do not substitute PDF or XLSX for an explicit PowerPoint/PPTX/card-deck request.\n' +
-    '- For Presentation Decks / Scout Cards / Flash Cards: Use PPTX when the output is meant to be presented slide-by-slide, used in a staff meeting, shared as flash cards, player cards, scout cards, recruiting pitch deck, opponent briefing deck, parent meeting deck, or visual packet. Build one logical card/section per slide with `sections[]`; use `imageUrls` for charts, diagrams, logos, or player visuals.\n' +
-    '- For Scout Reports: Use `pageSize: "LETTER"`, `pageOrientation: "portrait"`, and break down the opponent into `sections` with paragraphs and bullet points.\n\n' +
+    '- For Presentation Decks / Scout Cards / Flash Cards: Use PPTX when the output is meant to be presented slide-by-slide, used in a staff meeting, shared as flash cards, player cards, scout cards, recruiting pitch deck, opponent briefing deck, parent meeting deck, or visual packet. This is the Gamma-style export lane. Build one logical card/section per slide with `sections[]`; use `imageUrls` for charts, diagrams, logos, or player visuals.\n' +
+    '- For multi-page narrative reports that benefit from Gamma styling rather than fixed-layout print composition, use PDF or PPTX through this tool with structured sections and presentation-aware instructions.\n\n' +
     'Works for: recruiting lists, scout reports, workout plans, compliance checklists, ' +
     'comparison tables, analytics summaries, team rosters, film breakdowns, budgets, ' +
     'schedules, or literally anything the user asks for.';

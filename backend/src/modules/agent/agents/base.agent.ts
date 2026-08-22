@@ -332,6 +332,14 @@ const PROGRESS_COMMENTARY_COUNT_PATTERN =
 const BRAND_MEDIA_DELEGATION_PATTERN =
   /\b(ffmpeg|merge(?:d|s|ing)?|video|highlight|reel|clip|trim|subtitle|hudl|twitter|instagram|stage[_\s-]?media|analyze[_\s-]?video)\b/i;
 
+type PromptDocumentAttachmentRef = {
+  readonly url: string;
+  readonly mimeType: string;
+  readonly storagePath?: string;
+  readonly name?: string;
+  readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
+};
+
 /** Artifact field names promoted from tool results for cross-coordinator handoff. */
 const ARTIFACT_KEYS = [
   'imageUrl',
@@ -892,22 +900,27 @@ export abstract class BaseAgent {
     // Add non-image, non-video document references. When the model needs the
     // actual contents, it should call parse_document so parsing shows up as an
     // explicit tool step instead of hidden pre-processing.
-    const documentAttachments = (context.attachments ?? []).filter(
-      (a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a)
-    );
+    const documentAttachments = (
+      (context.attachments ?? []) as readonly PromptDocumentAttachmentRef[]
+    ).filter((a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a));
 
     if (documentAttachments.length > 0) {
+      const editableHtmlSourceAttachments = documentAttachments.filter(
+        (attachment) =>
+          attachment.artifactRole === 'source' && /^text\/html\b/i.test(attachment.mimeType)
+      );
       const docRefs = documentAttachments
         .map((a) =>
           formatDocumentAttachmentLabel({
             name: a.name?.trim() || 'document',
             url: a.url,
             mimeType: a.mimeType,
+            artifactRole: a.artifactRole,
             storagePath: a.storagePath,
           })
         )
         .join('\n');
-      intentText = `${intentText}\n\n${docRefs}\nFor attached PDFs, spreadsheets, CSVs, and word-processing files, your FIRST tool must be parse_document with that attachment's url, fileName, mimeType, and storagePath when available. Do not assume document text is already in context. Never use scrape_webpage or open_live_view for direct document URLs such as PDFs, spreadsheets, CSVs, or word-processing files. If parse_document returns metadata.pageCount or metadata.containsImages, treat those values as authoritative. If those metadata fields are null or unknown, explicitly say the parser could not confirm them instead of estimating from flattened text. If parse_document returns metadata.requiresVisionReview=true and metadata.extractedImages contains image URLs, call analyze_image on a small relevant subset before making exact claims about diagram geometry, routes, spacing, or visual alignment. If parse_document returns metadata.recommendedNextAction=render_pdf_pages, call render_pdf_pages with the same document URL and metadata.suggestedVisionPages when present, then call analyze_image on the returned page image URLs before making exact visual claims.`;
+      intentText = `${intentText}\n\n${docRefs}\nFor attached PDFs, spreadsheets, CSVs, HTML source files, and word-processing files, your FIRST tool must be parse_document with that attachment's url, fileName, mimeType, and storagePath when available. Do not assume document text is already in context. Never use scrape_webpage or open_live_view for direct document URLs such as PDFs, spreadsheets, CSVs, HTML source files, or word-processing files.${editableHtmlSourceAttachments.length > 0 ? ' If the user asks to revise, update, or edit a previously generated HTML/PDF layout and an attachment is labeled `artifactRole: source` with `mimeType: text/html`, parse that editable source FIRST and reuse it for the revision. Do not reverse-engineer the PDF when the saved HTML source is available.' : ''} If parse_document returns metadata.pageCount or metadata.containsImages, treat those values as authoritative. If those metadata fields are null or unknown, explicitly say the parser could not confirm them instead of estimating from flattened text. If parse_document returns metadata.requiresVisionReview=true and metadata.extractedImages contains image URLs, call analyze_image on a small relevant subset before making exact claims about diagram geometry, routes, spacing, or visual alignment. If parse_document returns metadata.recommendedNextAction=render_pdf_pages, call render_pdf_pages with the same document URL and metadata.suggestedVisionPages when present, then call analyze_image on the returned page image URLs before making exact visual claims.`;
     }
 
     const userMessage: LLMMessage =
@@ -4505,6 +4518,7 @@ export abstract class BaseAgent {
       list_nxt1_data_views: 'Reviewing available data views',
       query_nxt1_platform_data: 'Querying platform database',
       execute_sandbox_script: 'Analyzing data',
+      execute_python_code: 'Running Python analysis',
       get_user_profile: 'Reviewing user profile',
       get_recent_sync_summaries: 'Reviewing recent sync history',
       get_active_threads: 'Reviewing active conversations',
@@ -5893,6 +5907,10 @@ export abstract class BaseAgent {
       return this.resolveExecuteSandboxScriptLabel(inputOrArgs);
     }
 
+    if (toolName === 'execute_python_code') {
+      return this.resolveExecutePythonCodeLabel(inputOrArgs);
+    }
+
     if (toolName === 'scrape_webpage') {
       return this.resolveScrapeWebpageLabel(inputOrArgs);
     }
@@ -5941,6 +5959,20 @@ export abstract class BaseAgent {
     );
 
     return hasFilmReviewSource ? 'Analyzing breakdown data' : 'Analyzing data';
+  }
+
+  private resolveExecutePythonCodeLabel(inputOrArgs?: Record<string, unknown> | string): string {
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const code = typeof input?.['code'] === 'string' ? input['code'] : '';
+    return /openpyxl|Workbook\(|\.xlsx\b/i.test(code)
+      ? 'Building spreadsheet'
+      : 'Running Python analysis';
   }
 
   private resolveReadDistilledSectionLabel(inputOrArgs?: Record<string, unknown> | string): string {

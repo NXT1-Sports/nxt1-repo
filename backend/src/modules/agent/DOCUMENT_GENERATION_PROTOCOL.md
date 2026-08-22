@@ -69,13 +69,16 @@ Result: User gets the actual diagram instead of text describing one.
 
 Choose the artifact tool based on output shape:
 
-| Output Shape                      | Primary Tool                                                       | Examples                                                                                       |
-| --------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| Connected native document/table   | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs                           |
-| Readable document or table export | `dynamic_export`                                                   | Training plans, reports, rosters, checklists, calendars, comparison tables, presentation decks |
-| Data visualization / chart        | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps                    |
-| Play / drill / tactical diagram   | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                                       |
-| Creative media asset              | `generate_graphic`, Runway, FFmpeg, media tools                    | Commitment graphics, promos, edited clips, thumbnails, captions                                |
+| Output Shape                     | Primary Tool                                                       | Examples                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Connected native document/table  | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs                             |
+| Spreadsheet / workbook export    | `execute_python_code`                                              | XLSX files, trackers, matrices, callsheets, budgets, dashboards, formula workbooks               |
+| Exact-layout PDF from HTML/CSS   | `render_html_pdf`                                                  | Sample-matched PDFs, one-page staff sheets, callsheets, wristbands, depth charts, sideline cards |
+| Gamma-style report / slide deck  | `dynamic_export`                                                   | Presentation decks, multi-page narrative reports, scout-card packets, briefing decks             |
+| Fallback document / table export | `dynamic_export`                                                   | Fallback PDF/XLSX/CSV export when no better dedicated path fits                                  |
+| Data visualization / chart       | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps                      |
+| Play / drill / tactical diagram  | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                                         |
+| Creative media asset             | `generate_graphic`, Runway, FFmpeg, media tools                    | Commitment graphics, promos, edited clips, thumbnails, captions                                  |
 
 **Connected workspace first rule:** If the user has Microsoft 365 connected and
 the requested output is best expressed as a native document, spreadsheet, or
@@ -88,6 +91,39 @@ that should be persisted back into Team Files, use `dynamic_export` with
 create or update the Team Files document first when possible, then pass
 `relatedDocumentId` into `dynamic_export` so the generated presentation attaches
 back to the saved record.
+
+**Exact PDF rule:** When the user asks to match a sample image, screenshot,
+paper form, staff sheet, or reference layout exactly, use `render_html_pdf` with
+complete HTML/CSS instead of Gamma or `dynamic_export`. Also use
+`render_html_pdf` for operational PDFs where box placement, columns, page count,
+and print geometry matter (callsheets, wristbands, depth charts, sideline cards,
+practice matrices). Use `execute_python_code`/XLSX or connected spreadsheet
+tools instead when the primary requirement is editability.
+
+**Routing order (mandatory):**
+
+1. One-page or fixed-layout PDFs first -> `render_html_pdf`
+2. Presentation decks and Gamma-style reports -> `dynamic_export`
+3. Editable spreadsheets/workbooks -> `execute_python_code` first
+4. `dynamic_export` is the last fallback for PDF/XLSX when the dedicated path
+   above is not the right fit or is unavailable
+
+`render_html_pdf` persists two artifacts: the final PDF export and a sibling
+editable HTML source artifact with inline CSS. When the user later asks to
+revise that layout, reuse the saved HTML source first instead of reconstructing
+the layout from the PDF. If the source artifact is available as an attachment
+URL or storagePath, read it with `parse_document`, modify the HTML/CSS, and
+rerun `render_html_pdf`.
+
+For spatial references such as depth charts, call sheets, wristbands, staff
+boards, and paper forms, translate the reference into a fixed paper canvas with
+positioned regions. Do not approximate the reference as a full-width row of text
+or a generic flex/table layout. Use `@page`, a fixed `.page`/`.sheet` container,
+and absolute-positioned or CSS-grid boxes whose x/y positions mirror the sample.
+For quarterback / signal-caller wristbands, enforce standard vinyl-window
+dimensions: **4.75" x 2.5"** for adult, **4.0" x 3.0"** for youth, with
+high-density 3x10 / 2x15 grid lanes, bold call numbers, and concept color
+coding.
 
 ## When to Export
 
@@ -265,6 +301,12 @@ dynamic_export({
 
 - **PDF**: Best for readable multi-section documents with headings, narrative,
   checklists, diagrams, and branded presentation.
+- **HTML PDF (`render_html_pdf`)**: Best for exact-match or fixed-geometry PDF
+  output. Build a complete HTML document with inline CSS, explicit page size,
+  print-safe dimensions, and no scripts. Use this when the user cares about how
+  every section sits on the page. For exact-match reference layouts, include
+  `@page`, a fixed `.page`/`.sheet`/`.canvas` with width and height, and
+  coordinate/grid positioned elements.
 - **CSV**: Best for flat/raw data. When `sections` are provided, CSV serializes
   them sequentially with repeated headers. It is inherently lossy compared to
   PDF/XLSX.
@@ -350,8 +392,8 @@ follow-up questions about specific content, quote relevant sections from chat
 (don't re-paste the whole export).
 
 **Q: When should I NOT use dynamic_export?** A: When a dedicated artifact tool
-is a better fit, such as charts, diagrams, graphics, videos, thumbnails, or
-other native media outputs.
+is a better fit, such as charts, diagrams, graphics, videos, thumbnails, exact
+HTML/CSS PDFs via `render_html_pdf`, or other native media outputs.
 
 **Q: How do I know if content should be a PDF vs. CSV vs. XLSX?** A: Choose the
 format based on how the user will actually use the artifact, not just what looks
@@ -361,8 +403,9 @@ for pure flat data tables (stats, rosters, lists). Use XLSX when the user needs
 an editable grid, workbook, matrix, staff board, operational sheet, or a layout
 that should behave like a spreadsheet. For callsheets, practice script matrices,
 install boards, scouting matrices, and any request that references an existing
-staff sheet or asks to "match this layout exactly," prefer XLSX or a native
-saved team document first; PDF is only an optional printable companion.
+staff sheet or asks to "match this layout exactly," choose by the requested end
+state: use `render_html_pdf` for exact printable/PDF output, and prefer XLSX or
+a native saved team document first when the artifact needs to stay editable.
 
 **Q: Should I still use top-level `columns` and `rows`?** A: Yes, for simple
 one-table exports. For coach documents and richer structured artifacts, prefer
@@ -381,7 +424,9 @@ Every Agent X coordinator system prompt now includes:
 
 When a user requests an output that should exist as an artifact:
 - Choose the correct tool for the shape of the output
-- Use `dynamic_export` for docs/tables/exports
+- Use `render_html_pdf` for one-page or fixed-layout printable PDFs
+- Use `execute_python_code` for XLSX, Excel, spreadsheets, workbooks, and editable grid artifacts
+- Use `dynamic_export` for Gamma-style reports/PPTX decks, CSV exports, and PDF/XLSX fallback only
 - Use chart tools for visual analytics
 - Use diagram tools for tactical visuals
 - Use native media tools for graphics/video/audio
@@ -405,7 +450,9 @@ The Planner Agent includes this guidance:
 ```text
 11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing
   artifact, add a description directive that selects the correct output tool
-  (dynamic_export, chart visualization, play/board diagram, or native media tool)
+  (render_html_pdf for fixed-layout PDFs, execute_python_code for XLSX/spreadsheets,
+  dynamic_export for Gamma-style reports/PPTX plus fallback, chart visualization,
+  play/board diagram, or native media tool)
   and tells the coordinator to reference the artifact in the chat summary
   instead of pasting raw content.
 ```
@@ -416,9 +463,11 @@ export-first behavior.
 ## Rollout & Enforcement
 
 - ✅ All coordinator system prompts updated (May 9, 2026)
-- ✅ `dynamic_export` tool fully functional
+- ✅ `render_html_pdf` fixed-layout PDF lane in place
+- ✅ `execute_python_code` Python/openpyxl spreadsheet lane restored
+- ✅ `dynamic_export` restricted to Gamma/report lane plus fallback behavior
 - ✅ Chart and diagram tools recognized as first-class artifact outputs
-- ✅ Planner Agent directing export-first tasks
+- ✅ Planner Agent directing best-fit artifact routing
 - ⏳ Monitor coordinator responses for compliance
 - ⏳ Update memory/training if patterns drift
 
@@ -437,5 +486,5 @@ After rollout, expect:
 **Last Updated:** May 9, 2026  
 **Coordinator Coverage:** Strategy, Performance, Data, Recruiting, Admin,
 Brand  
-**Primary Tools:** `dynamic_export`, chart visualization, diagram generation,
-native media tools
+**Primary Tools:** `render_html_pdf`, `execute_python_code`, `dynamic_export`,
+chart visualization, diagram generation, native media tools
