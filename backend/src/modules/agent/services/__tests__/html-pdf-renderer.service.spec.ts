@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import {
+  getLocalChromiumLaunchArgs,
   HtmlPdfRendererService,
   shouldUseE2bHtmlPdfRunner,
   type HtmlPdfRunner,
@@ -14,6 +15,18 @@ function pdfBytes(pageCount = 1): Buffer {
 }
 
 describe('HtmlPdfRendererService', () => {
+  it('uses hardened Chromium launch args on linux only', () => {
+    expect(getLocalChromiumLaunchArgs('linux')).toEqual(
+      expect.arrayContaining([
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+      ])
+    );
+    expect(getLocalChromiumLaunchArgs('darwin')).toEqual([]);
+  });
+
   it('uses local rendering in auto mode when no E2B HTML PDF template is configured', () => {
     expect(shouldUseE2bHtmlPdfRunner(undefined, false)).toBe(false);
     expect(shouldUseE2bHtmlPdfRunner('auto', false)).toBe(false);
