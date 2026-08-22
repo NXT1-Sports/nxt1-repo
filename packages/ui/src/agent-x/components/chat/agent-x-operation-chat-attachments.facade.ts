@@ -710,56 +710,76 @@ export class AgentXOperationChatAttachmentsFacade {
       this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'queued', 0);
     }
 
-    for (const pending of videoFiles) {
-      try {
-        this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
-        const videoResult = await this.uploadPendingVideoWithRetry(pending, authToken);
+    const MAX_CONCURRENT_VIDEO_UPLOADS = 3;
+    const uploadedArray: (AgentXAttachment | null)[] = new Array(videoFiles.length).fill(null);
+    let currentIndex = 0;
 
-        const persistedThumbnailUrl = resolvePersistedVideoThumbnailUrl(
-          videoResult.thumbnailUrl,
-          pending.previewUrl
-        );
+    const worker = async () => {
+      while (currentIndex < videoFiles.length) {
+        const index = currentIndex++;
+        const pending = videoFiles[index];
+        try {
+          this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
+          const videoResult = await this.uploadPendingVideoWithRetry(pending, authToken);
 
-        uploaded.push({
-          id: pending.id,
-          url: videoResult.url,
-          ...(videoResult.storagePath ? { storagePath: videoResult.storagePath } : {}),
-          ...(videoResult.cloudflareVideoId
-            ? { cloudflareVideoId: videoResult.cloudflareVideoId }
-            : {}),
-          ...(videoResult.cloudflareStatus
-            ? { cloudflareStatus: videoResult.cloudflareStatus }
-            : {}),
-          ...(videoResult.readyToStream !== undefined
-            ? { readyToStream: videoResult.readyToStream }
-            : {}),
-          ...(persistedThumbnailUrl ? { thumbnailUrl: persistedThumbnailUrl } : {}),
-          name: pending.file.name,
-          mimeType: pending.file.type,
-          type: 'video',
-          sizeBytes: pending.sizeBytes ?? pending.file.size,
-        });
-      } catch (error) {
-        this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'failed', 100);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error('Video upload failed', error, {
-          contextId: host.contextId(),
-          fileName: pending.file.name,
-          fileSize: pending.sizeBytes ?? pending.file.size,
-          errorMessage,
-        });
-        this.breadcrumb.trackUserAction('agent-x-video-upload-error', {
-          contextId: host.contextId(),
-          fileName: pending.file.name,
-          errorType: error instanceof Error ? 'network' : 'unknown',
-        });
-        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_VIDEO_UPLOAD_FAILED, {
-          contextId: host.contextId(),
-          contextType: host.contextType(),
-          fileName: pending.file.name,
-          errorMessage,
-        });
-        failed.push(pending.file.name);
+          const persistedThumbnailUrl = resolvePersistedVideoThumbnailUrl(
+            videoResult.thumbnailUrl,
+            pending.previewUrl
+          );
+
+          uploadedArray[index] = {
+            id: pending.id,
+            url: videoResult.url,
+            ...(videoResult.storagePath ? { storagePath: videoResult.storagePath } : {}),
+            ...(videoResult.cloudflareVideoId
+              ? { cloudflareVideoId: videoResult.cloudflareVideoId }
+              : {}),
+            ...(videoResult.cloudflareStatus
+              ? { cloudflareStatus: videoResult.cloudflareStatus }
+              : {}),
+            ...(videoResult.readyToStream !== undefined
+              ? { readyToStream: videoResult.readyToStream }
+              : {}),
+            ...(persistedThumbnailUrl ? { thumbnailUrl: persistedThumbnailUrl } : {}),
+            name: pending.file.name,
+            mimeType: pending.file.type,
+            type: 'video',
+            sizeBytes: pending.sizeBytes ?? pending.file.size,
+          };
+        } catch (error) {
+          this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'failed', 100);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this.logger.error('Video upload failed', error, {
+            contextId: host.contextId(),
+            fileName: pending.file.name,
+            fileSize: pending.sizeBytes ?? pending.file.size,
+            errorMessage,
+          });
+          this.breadcrumb.trackUserAction('agent-x-video-upload-error', {
+            contextId: host.contextId(),
+            fileName: pending.file.name,
+            errorType: error instanceof Error ? 'network' : 'unknown',
+          });
+          this.analytics?.trackEvent(APP_EVENTS.AGENT_X_VIDEO_UPLOAD_FAILED, {
+            contextId: host.contextId(),
+            contextType: host.contextType(),
+            fileName: pending.file.name,
+            errorMessage,
+          });
+          failed.push(pending.file.name);
+        }
+      }
+    };
+
+    const workers = [];
+    for (let i = 0; i < Math.min(MAX_CONCURRENT_VIDEO_UPLOADS, videoFiles.length); i++) {
+      workers.push(worker());
+    }
+    await Promise.all(workers);
+
+    for (const attachment of uploadedArray) {
+      if (attachment) {
+        uploaded.push(attachment);
       }
     }
 
