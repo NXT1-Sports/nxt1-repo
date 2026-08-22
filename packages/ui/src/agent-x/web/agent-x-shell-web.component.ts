@@ -388,53 +388,6 @@ const AGENT_X_GOOGLE_PLAY_URL =
               <span class="header-nav-pill-count">{{ playbookTotalCount() }}</span>
             }
           </button>
-          @if (agentXFeatureFlags.liveView && !platform.isMobile()) {
-            <button
-              type="button"
-              class="header-nav-pill"
-              [class.header-nav-pill--active]="panelMenuSelection() === 'live-view'"
-              [class.header-nav-pill--loading]="liveView.loading()"
-              [disabled]="liveView.loading()"
-              aria-label="Live View"
-              (click)="toggleDevLiveView()"
-            >
-              @if (liveView.loading()) {
-                <svg
-                  class="header-nav-pill-spinner"
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
-                  <path d="M12 2a10 10 0 0 1 10 10" />
-                </svg>
-              } @else {
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <rect x="3" y="4" width="18" height="12" rx="2" />
-                  <path d="M8 20h8" />
-                  <path d="M12 16v4" />
-                </svg>
-              }
-              <span>Live View</span>
-            </button>
-          }
           <button
             type="button"
             class="header-nav-pill"
