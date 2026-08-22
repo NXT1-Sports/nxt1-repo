@@ -35,6 +35,16 @@ export interface HtmlPdfRunner {
   render(input: HtmlPdfRenderInput): Promise<Buffer>;
 }
 
+export function shouldUseE2bHtmlPdfRunner(
+  requestedMode: string | undefined,
+  hasConfiguredE2bTemplate: boolean
+): boolean {
+  const mode = requestedMode?.trim().toLowerCase() ?? 'auto';
+  if (mode === 'local') return false;
+  if (mode === 'e2b') return true;
+  return hasConfiguredE2bTemplate;
+}
+
 const MAX_HTML_BYTES = 1_500_000;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
@@ -118,7 +128,13 @@ class AutoHtmlPdfRunner implements HtmlPdfRunner {
 
   async render(input: HtmlPdfRenderInput): Promise<Buffer> {
     const mode = process.env['HTML_PDF_RENDERER']?.trim().toLowerCase() ?? 'auto';
+    const hasConfiguredE2bTemplate = Boolean(process.env['E2B_HTML_PDF_TEMPLATE']?.trim());
     if (mode === 'local') {
+      this.engine = 'local-playwright';
+      return this.localRunner.render(input);
+    }
+
+    if (!shouldUseE2bHtmlPdfRunner(mode, hasConfiguredE2bTemplate)) {
       this.engine = 'local-playwright';
       return this.localRunner.render(input);
     }

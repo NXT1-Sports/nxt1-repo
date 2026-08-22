@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
-import { HtmlPdfRendererService, type HtmlPdfRunner } from '../html-pdf-renderer.service.js';
+import {
+  HtmlPdfRendererService,
+  shouldUseE2bHtmlPdfRunner,
+  type HtmlPdfRunner,
+} from '../html-pdf-renderer.service.js';
 
 const VALID_HTML =
   '<!doctype html><html><head><style>body{margin:0}</style></head><body>Calls</body></html>';
@@ -10,6 +14,17 @@ function pdfBytes(pageCount = 1): Buffer {
 }
 
 describe('HtmlPdfRendererService', () => {
+  it('uses local rendering in auto mode when no E2B HTML PDF template is configured', () => {
+    expect(shouldUseE2bHtmlPdfRunner(undefined, false)).toBe(false);
+    expect(shouldUseE2bHtmlPdfRunner('auto', false)).toBe(false);
+  });
+
+  it('uses E2B only when explicitly forced or when an HTML PDF template is configured', () => {
+    expect(shouldUseE2bHtmlPdfRunner('e2b', false)).toBe(true);
+    expect(shouldUseE2bHtmlPdfRunner('auto', true)).toBe(true);
+    expect(shouldUseE2bHtmlPdfRunner('local', true)).toBe(false);
+  });
+
   it('renders a valid complete HTML document and returns metadata', async () => {
     const runner: HtmlPdfRunner = { render: vi.fn().mockResolvedValue(pdfBytes(1)) };
     const service = new HtmlPdfRendererService(runner);

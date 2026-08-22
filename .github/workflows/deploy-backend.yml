@@ -194,7 +194,7 @@ jobs:
             "${{ secrets.E2B_HTML_PDF_TEMPLATE }}"
           upsert_env_var \
             "HTML_PDF_RENDERER" \
-            "e2b"
+            "auto"
           echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
           echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
 
@@ -203,6 +203,12 @@ jobs:
 
           echo 'npm ci (clean install from package-lock.json)...'
           npm ci
+
+          echo 'Ensure Chromium is installed for HTML PDF rendering...'
+          if ! command -v chromium > /dev/null 2>&1 && ! command -v google-chrome > /dev/null 2>&1; then
+            echo 'Installing chromium via apt...'
+            apt-get update && apt-get install -y --no-install-recommends chromium || apt-get install -y chromium-browser || true
+          fi
 
           echo 'npm run build (backend + shared packages only)...'
           npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache

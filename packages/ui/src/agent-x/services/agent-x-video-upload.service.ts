@@ -24,13 +24,7 @@ import { Injectable, inject } from '@angular/core';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Observable, Subject } from 'rxjs';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
-import {
-  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
-  AGENT_X_ENDPOINTS,
-  AGENT_X_RUNTIME_CONFIG,
-  AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
-} from '@nxt1/core/ai';
-import { type FinalizedHighlightVideoUpload } from '@nxt1/core';
+import { AGENT_X_ENDPOINTS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -189,12 +183,6 @@ interface VideoProvisionResponse {
       };
 }
 
-interface CloudflareFinalizeResponse {
-  readonly success: boolean;
-  readonly data?: FinalizedHighlightVideoUpload;
-  readonly error?: string;
-}
-
 type VideoUploadTransport = 'auto' | 'firebase';
 
 interface VideoUploadOptions {
@@ -282,10 +270,6 @@ interface VideoProvisionResult {
   readonly uploadUrl: string;
   readonly readUrl: string;
   readonly storagePath: string;
-}
-
-export function shouldUseCloudflareUpload(fileSize: number): boolean {
-  return fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES;
 }
 
 export function stepNativeUploadDisplayPercent(input: {
@@ -405,30 +389,16 @@ export class AgentXVideoUploadService {
       usesCopiedOrExportedTempFile: this._usesCopiedOrExportedTempFile(nativeSource, nativeUri),
     });
 
-    const uploadTask =
-      options?.transport === 'firebase'
-        ? this._doFirebaseUpload(
-            file,
-            authToken,
-            progressEmitter,
-            cancellation,
-            threadId,
-            nativeUri,
-            nativeWebPath,
-            sizeBytes
-          )
-        : !nativeUri && shouldUseCloudflareUpload(sizeBytes)
-          ? this._doCloudflareTusUpload(file, authToken, progressEmitter, cancellation, threadId)
-          : this._doFirebaseUpload(
-              file,
-              authToken,
-              progressEmitter,
-              cancellation,
-              threadId,
-              nativeUri,
-              nativeWebPath,
-              sizeBytes
-            );
+    const uploadTask = this._doFirebaseUpload(
+      file,
+      authToken,
+      progressEmitter,
+      cancellation,
+      threadId,
+      nativeUri,
+      nativeWebPath,
+      sizeBytes
+    );
 
     uploadTask.catch((err) => {
       if (cancellation.isCancelled() || isVideoUploadCancelledError(err)) {
@@ -679,8 +649,8 @@ export class AgentXVideoUploadService {
         ...(thumbnailUrl ? { thumbnailUrl } : {}),
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Video upload to storage failed';
-      this.logger.error('Firebase Storage PUT failed', err, {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Firebase Storage PUT failed: ${msg}`, err, {
         name: file.name,
         storagePath,
         sizeBytes,
@@ -881,303 +851,6 @@ export class AgentXVideoUploadService {
     return { message: 'Failed to provision video upload URL' };
   }
 
-  private async _doCloudflareTusUpload(
-    file: File,
-    authToken: string,
-    progressEmitter: {
-      provisioning(): void;
-      uploading(percent: number): void;
-      complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
-      fail(message: string): void;
-      cancel(): void;
-    },
-    cancellation: VideoUploadCancellationContext,
-    threadId: string | null
-  ): Promise<void> {
-    cancellation.throwIfCancelled();
-    this.logger.info('Provisioning Cloudflare Stream TUS upload for Agent X video', {
-      name: file.name,
-      sizeBytes: file.size,
-      mimeType: file.type,
-      thresholdBytes: AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
-    });
-    this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-provisioning', {
-      name: file.name,
-      sizeBytes: file.size,
-    });
-    progressEmitter.provisioning();
-
-    let cloudflareVideoId: string | null = null;
-
-    try {
-      await (this.performance?.trace(
-        TRACE_NAMES.VIDEO_UPLOAD,
-        () =>
-          this._tusUpload(
-            file,
-            authToken,
-            threadId,
-            {
-              onProgress: (percent) => {
-                progressEmitter.uploading(percent);
-              },
-              onProvisioned: (nextCloudflareVideoId) => {
-                cloudflareVideoId = nextCloudflareVideoId;
-                this.logger.info('Cloudflare Stream TUS upload provisioned', {
-                  cloudflareVideoId: nextCloudflareVideoId,
-                  name: file.name,
-                  hasThreadId: !!threadId,
-                });
-                this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-uploading', {
-                  name: file.name,
-                  cloudflareVideoId: nextCloudflareVideoId,
-                });
-                progressEmitter.uploading(0);
-              },
-            },
-            cancellation
-          ),
-        {
-          attributes: {
-            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent-x-video-upload',
-            [ATTRIBUTE_NAMES.CONTENT_TYPE]: file.type,
-          },
-        }
-      ) ??
-        this._tusUpload(
-          file,
-          authToken,
-          threadId,
-          {
-            onProgress: (percent) => {
-              progressEmitter.uploading(percent);
-            },
-            onProvisioned: (nextCloudflareVideoId) => {
-              cloudflareVideoId = nextCloudflareVideoId;
-              this.logger.info('Cloudflare Stream TUS upload provisioned', {
-                cloudflareVideoId: nextCloudflareVideoId,
-                name: file.name,
-                hasThreadId: !!threadId,
-              });
-              this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-uploading', {
-                name: file.name,
-                cloudflareVideoId: nextCloudflareVideoId,
-              });
-              progressEmitter.uploading(0);
-            },
-          },
-          cancellation
-        ));
-
-      cancellation.throwIfCancelled();
-      if (!cloudflareVideoId) {
-        throw new Error('Cloudflare upload did not return a video ID');
-      }
-
-      const finalized = await this._finalizeCloudflareUpload(cloudflareVideoId, authToken);
-      const streamUrl = `https://watch.cloudflarestream.com/${cloudflareVideoId}`;
-
-      this.logger.info('Video uploaded to Cloudflare Stream for Agent X', {
-        cloudflareVideoId,
-        name: file.name,
-        sizeBytes: file.size,
-        readyToStream: finalized.readyToStream,
-        status: finalized.status,
-      });
-      this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-complete', {
-        name: file.name,
-        cloudflareVideoId,
-        readyToStream: finalized.readyToStream,
-      });
-      this.analytics?.trackEvent(APP_EVENTS.VIDEO_UPLOADED, {
-        source: 'agent-x-chat',
-        mimeType: file.type,
-        sizeBytes: file.size,
-        storageBackend: 'cloudflare',
-      });
-
-      await progressEmitter.complete({
-        streamUrl,
-        ...(finalized.download.url ? { downloadUrl: finalized.download.url } : {}),
-        cloudflareVideoId,
-        cloudflareStatus: finalized.status,
-        readyToStream: finalized.readyToStream,
-        ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
-        ...(finalized.durationSeconds !== null ? { durationSec: finalized.durationSeconds } : {}),
-      });
-    } catch (err) {
-      const msg = this._extractTusErrorMessage(err);
-      this.logger.error('Cloudflare Stream upload failed', err, {
-        name: file.name,
-        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-        sizeBytes: file.size,
-        mimeType: file.type,
-      });
-      this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
-        name: file.name,
-        phase: 'cloudflare-uploading',
-        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-      });
-      progressEmitter.fail(msg);
-    }
-  }
-
-  private async _tusUpload(
-    file: File,
-    authToken: string,
-    threadId: string | null | undefined,
-    options: {
-      readonly onProgress: (percent: number) => void;
-      readonly onProvisioned: (cloudflareVideoId: string) => void;
-    },
-    cancellation: VideoUploadCancellationContext
-  ): Promise<void> {
-    const { Upload } = await import('tus-js-client');
-    const endpoint = `${this.baseUrl}${AGENT_X_ENDPOINTS.CLOUDFLARE_DIRECT_URL}`;
-    const backendOrigin = this._getOrigin(endpoint);
-
-    await new Promise<void>((resolve, reject) => {
-      let provisioned = false;
-      const upload = new Upload(file, {
-        endpoint,
-        metadata: {
-          filename: file.name,
-          filetype: file.type,
-          context: AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
-          ...(threadId ? { threadId } : {}),
-        },
-        storeFingerprintForResuming: false,
-        retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
-        chunkSize: 8 * 1024 * 1024,
-        onBeforeRequest: (req) => {
-          if (this._getOrigin(req.getURL()) === backendOrigin) {
-            req.setHeader('Authorization', `Bearer ${authToken}`);
-          }
-        },
-        onAfterResponse: (req, res) => {
-          if (req.getMethod() !== 'POST' || provisioned) return;
-
-          const headerVideoId = res.getHeader('Stream-Media-Id')?.trim();
-          const urlVideoId = this._extractCloudflareVideoIdFromUrl(res.getHeader('Location'));
-          const cloudflareVideoId = headerVideoId || urlVideoId;
-
-          if (!cloudflareVideoId) {
-            throw new Error('Cloudflare upload endpoint did not return a video ID');
-          }
-
-          provisioned = true;
-          options.onProvisioned(cloudflareVideoId);
-        },
-        onError: (error) => {
-          if (cancellation.isCancelled()) {
-            reject(new VideoUploadCancelledError());
-            return;
-          }
-          reject(error);
-        },
-        onProgress: (bytesUploaded, bytesTotal) => {
-          const percent = bytesTotal > 0 ? Math.round((bytesUploaded / bytesTotal) * 100) : 0;
-          options.onProgress(Math.min(percent, 99));
-        },
-        onSuccess: () => {
-          options.onProgress(100);
-          resolve();
-        },
-      });
-
-      cancellation.bindTusAborter(() => {
-        void upload.abort(true).catch(() => undefined);
-      });
-
-      upload.start();
-    });
-
-    cancellation.clearTusAborter();
-  }
-
-  private _getOrigin(url: string): string | null {
-    try {
-      return new URL(url).origin;
-    } catch {
-      return null;
-    }
-  }
-
-  private _extractCloudflareVideoIdFromUrl(url: string | undefined): string | null {
-    if (!url) return null;
-
-    try {
-      const parsed = new URL(url);
-      const segments = parsed.pathname.split('/').filter(Boolean);
-      const candidate = segments.length > 0 ? segments[segments.length - 1]?.trim() : undefined;
-      return candidate || null;
-    } catch {
-      return null;
-    }
-  }
-
-  private _extractTusErrorMessage(err: unknown): string {
-    if (!err || typeof err !== 'object') {
-      return 'Cloudflare video upload failed';
-    }
-
-    const tusResponse = (
-      err as {
-        readonly originalResponse?: { getBody?: () => string; getStatus?: () => number };
-      }
-    ).originalResponse;
-
-    const responseBody = tusResponse?.getBody?.();
-    if (responseBody) {
-      try {
-        const parsed = JSON.parse(responseBody) as { error?: string };
-        if (parsed.error?.trim()) {
-          return parsed.error.trim();
-        }
-      } catch {
-        if (responseBody.trim()) {
-          return responseBody.trim();
-        }
-      }
-    }
-
-    if (err instanceof Error && err.message.trim()) {
-      return err.message;
-    }
-
-    const status = tusResponse?.getStatus?.();
-    if (typeof status === 'number') {
-      return `Cloudflare video upload failed with status ${status}`;
-    }
-
-    return 'Cloudflare video upload failed';
-  }
-
-  private async _finalizeCloudflareUpload(
-    cloudflareVideoId: string,
-    authToken: string
-  ): Promise<FinalizedHighlightVideoUpload> {
-    const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.CLOUDFLARE_FINALIZE}`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ cloudflareVideoId }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text().catch(() => `HTTP ${response.status}`);
-      throw new Error(`Cloudflare finalize failed: ${errText}`);
-    }
-
-    const finalized = (await response.json()) as CloudflareFinalizeResponse;
-    if (!finalized.success || !finalized.data) {
-      throw new Error(finalized.error ?? 'Failed to finalize Cloudflare video upload');
-    }
-
-    return finalized.data;
-  }
   /**
    * PUT the video to Firebase Storage, selecting the upload channel at runtime.
    *
@@ -2051,29 +1724,121 @@ export class AgentXVideoUploadService {
    * PUT the file directly to the GCS signed URL via XMLHttpRequest.
    * XHR is used (not fetch) because it exposes granular upload progress events.
    */
-  private _xhrPut(
+  private async _xhrPut(
     file: File,
     uploadUrl: string,
     onProgress: (percent: number) => void,
     cancellation: VideoUploadCancellationContext
+  ): Promise<void> {
+    if (!uploadUrl || typeof uploadUrl !== 'string') {
+      throw new Error(`Invalid upload URL provisioned: ${String(uploadUrl)}`);
+    }
+    const isResumable = uploadUrl.includes('upload_id=');
+
+    if (!isResumable) {
+      return this._putChunk(
+        file,
+        uploadUrl,
+        0,
+        file.size,
+        file.size,
+        cancellation,
+        false,
+        file.type,
+        onProgress
+      );
+    }
+
+    // To maximize upload speed by reducing HTTP overhead, use large chunk sizes.
+    // Chunk sizes MUST be multiples of 256KB (262,144 bytes).
+    const BASE_CHUNK = 256 * 1024;
+    let CHUNK_SIZE = BASE_CHUNK * 20; // Default 5MB
+    const totalSize = file.size;
+
+    if (totalSize > 500 * 1024 * 1024) {
+      CHUNK_SIZE = BASE_CHUNK * 400; // 100MB chunks for files > 500MB
+    } else if (totalSize > 100 * 1024 * 1024) {
+      CHUNK_SIZE = BASE_CHUNK * 200; // 50MB chunks for files > 100MB
+    } else if (totalSize > 30 * 1024 * 1024) {
+      CHUNK_SIZE = BASE_CHUNK * 100; // 25MB chunks for files > 30MB
+    }
+
+    if (totalSize === 0) {
+      await this._putChunk(file, uploadUrl, 0, 0, 0, cancellation, true, file.type);
+      onProgress(100);
+      return;
+    }
+
+    let start = 0;
+    while (start < totalSize) {
+      cancellation.throwIfCancelled();
+      const end = Math.min(start + CHUNK_SIZE, totalSize);
+      const chunk = file.slice(start, end, file.type);
+
+      const maxAttempts = 3;
+      let attempt = 0;
+      let success = false;
+
+      while (attempt < maxAttempts && !success) {
+        cancellation.throwIfCancelled();
+        attempt++;
+        try {
+          await this._putChunk(
+            chunk,
+            uploadUrl,
+            start,
+            end,
+            totalSize,
+            cancellation,
+            true,
+            file.type
+          );
+          success = true;
+        } catch (error) {
+          if (cancellation.isCancelled() || isVideoUploadCancelledError(error)) {
+            throw error;
+          }
+          if (attempt >= maxAttempts) {
+            throw error;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+
+      start = end;
+      onProgress(Math.min(99, Math.round((start / totalSize) * 100)));
+    }
+    onProgress(100);
+  }
+
+  private _putChunk(
+    chunk: Blob,
+    uploadUrl: string,
+    start: number,
+    end: number,
+    totalSize: number,
+    cancellation: VideoUploadCancellationContext,
+    isResumable: boolean,
+    mimeType: string,
+    onProgress?: (percent: number) => void
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       cancellation.bindXhr(xhr);
       xhr.timeout = AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs;
 
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable && event.total > 0) {
-          const percent = Math.round((event.loaded / event.total) * 100);
-          onProgress(Math.min(percent, 99)); // hold at 99 until complete fires
-        }
-      });
+      if (onProgress && !isResumable) {
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable && event.total > 0) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            onProgress(Math.min(percent, 99));
+          }
+        });
+      }
 
       xhr.addEventListener('load', () => {
         cancellation.clearXhr(xhr);
-        // GCS returns 200 for signed URL PUTs
-        if (xhr.status >= 200 && xhr.status < 300) {
-          onProgress(100);
+        if (xhr.status === 308 || (xhr.status >= 200 && xhr.status < 300)) {
           resolve();
         } else {
           reject(new Error(`GCS upload failed: HTTP ${xhr.status} — ${xhr.responseText}`));
@@ -2106,26 +1871,18 @@ export class AgentXVideoUploadService {
       });
 
       xhr.open('PUT', uploadUrl);
-      xhr.setRequestHeader('Content-Type', file.type);
-      // Bypass the Angular NGSW service worker for this request.
-      // The SW intercepts ALL fetch/XHR events (including PUT) and proxies them
-      // via its own scope.fetch() passthrough. For large video uploads that take
-      // several minutes, Chrome may kill the idle SW mid-upload, aborting the
-      // in-flight passthrough and returning a synthetic 504 Gateway Timeout.
-      // The `ngsw-bypass` header tells the SW to skip this request entirely and
-      // let the browser send it directly to the network.
-      // GCS signed URLs only sign 'content-type' and 'host' headers, so adding
-      // this extra header does NOT invalidate the signature.
-      xhr.setRequestHeader('ngsw-bypass', '1');
+      if (mimeType) {
+        xhr.setRequestHeader('Content-Type', mimeType);
+      }
+      if (isResumable && totalSize > 0) {
+        xhr.setRequestHeader('Content-Range', `bytes ${start}-${end - 1}/${totalSize}`);
+      }
 
-      // Chrome sometimes deadlocks its network thread when queuing massive Blobs,
-      // which prevents the native xhr.timeout from ever firing. We add an absolute
-      // JS-level fallback timeout to ensure the promise doesn't hang forever.
       const fallbackTimeoutId = setTimeout(() => {
         cancellation.clearXhr(xhr);
         xhr.abort();
         reject(new Error(`Video upload timed out (fallback). Chrome network thread stalled.`));
-      }, AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs + 5000); // Wait 5s longer than XHR timeout before fallback abort
+      }, AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs + 5000);
 
       const originalResolve = resolve;
       resolve = (value: void | PromiseLike<void>) => {
@@ -2139,7 +1896,7 @@ export class AgentXVideoUploadService {
         originalReject(reason);
       };
 
-      xhr.send(file);
+      xhr.send(chunk);
     });
   }
 }
