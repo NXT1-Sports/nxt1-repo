@@ -297,7 +297,12 @@ function buildPlaywrightRenderScript(input: HtmlPdfRenderInput): string {
   return `import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 
-const browser = await chromium.launch({ headless: true, args: ${launchArgs} });
+const executablePath = process.env.CHROME_EXECUTABLE_PATH || '/usr/bin/chromium';
+const browser = await chromium.launch({
+  headless: true,
+  args: ${launchArgs},
+  ...(executablePath ? { executablePath } : {}),
+});
 try {
   const page = await browser.newPage();
   await page.goto('file://' + resolve(process.cwd(), 'input.html'), { waitUntil: 'networkidle' });

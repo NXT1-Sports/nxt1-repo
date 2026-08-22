@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.106.8",
+  "version": "1.107.0",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -80,6 +80,7 @@
     "deploy:mcp:drawio": "bash ./scripts/deploy-drawio-mcp.sh",
     "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh",
     "deploy:mcp:microsoft-365": "bash ./scripts/deploy-microsoft-365-mcp.sh",
+    "agent:build-html-pdf-template": "node --import tsx scripts/agent/build-e2b-html-pdf-template.ts",
     "backfill:agent-message-interactions": "tsx scripts/backfill-agent-message-interactions.ts",
     "backfill:agent-message-interactions:commit": "tsx scripts/backfill-agent-message-interactions.ts --commit",
     "backfill:agent-message-interactions:prod": "NODE_ENV=production tsx scripts/backfill-agent-message-interactions.ts --commit",
