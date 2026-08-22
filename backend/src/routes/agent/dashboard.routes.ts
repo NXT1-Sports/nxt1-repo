@@ -26,11 +26,7 @@ import type {
   OperationsLogCursor,
   CompletedGoalRecord,
 } from '@nxt1/core';
-import {
-  AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
-  AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
-  normalizeBaseSportKey,
-} from '@nxt1/core';
+import { normalizeBaseSportKey } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
 import { upsertTeamFileFromAttachment } from '../../services/team/team-files-index.service.js';
@@ -2520,26 +2516,6 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
       });
       return;
     }
-    if (
-      uploadPurpose === 'video' &&
-      !isNativeUpload &&
-      fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES
-    ) {
-      res.status(413).json({
-        success: false,
-        error: `Videos ${formatSizeLabel(AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES)} and larger must use Cloudflare Stream TUS.`,
-        code: 'USE_CLOUDFLARE_TUS',
-      });
-      return;
-    }
-    if (uploadPurpose === 'video' && fileSize > AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE) {
-      res.status(400).json({
-        success: false,
-        error: `File exceeds Firebase video upload limit (${formatSizeLabel(AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE)}). Large Agent X videos must use Cloudflare Stream TUS.`,
-        code: 'FILE_TOO_LARGE',
-      });
-      return;
-    }
 
     const resolvedThreadId =
       typeof threadId === 'string' && threadId.trim() ? threadId.trim() : null;
@@ -2561,10 +2537,14 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
     const storageFile = bucket.file(storagePath) as {
       getSignedUrl: (options: {
         version: 'v4';
-        action: 'write' | 'read';
+        action: 'write' | 'read' | 'resumable';
         expires: number;
         contentType?: string;
         extensionHeaders?: Record<string, string>;
+      }) => Promise<[string]>;
+      createResumableUpload: (options?: {
+        metadata?: { contentType?: string };
+        origin?: string;
       }) => Promise<[string]>;
     };
 
@@ -2575,14 +2555,40 @@ router.post('/upload/video', appGuard, async (req: Request, res: Response) => {
     const readExpiresAtMs = Date.now() + 7 * 24 * 60 * 60 * 1000;
 
     const [uploadUrl, readUrl] = await Promise.all([
-      getSignedUrlWithTimeout(() =>
-        storageFile.getSignedUrl({
-          version: 'v4',
-          action: 'write',
-          expires: uploadExpiresAtMs,
-          contentType: mimeType,
-        })
-      ).then(([url]) => url),
+      uploadPurpose === 'video'
+        ? getSignedUrlWithTimeout(() =>
+            storageFile.getSignedUrl({
+              version: 'v4',
+              action: 'resumable',
+              expires: uploadExpiresAtMs,
+              contentType: mimeType,
+            })
+          ).then(async ([postUrl]) => {
+            const res = await fetch(postUrl, {
+              method: 'POST',
+              headers: {
+                'x-goog-resumable': 'start',
+                'content-type': mimeType,
+                origin: req.headers.origin || '*',
+              },
+            });
+            if (!res.ok) {
+              throw new Error(`Failed to create resumable session: HTTP ${res.status}`);
+            }
+            const location = res.headers.get('location');
+            if (!location) {
+              throw new Error('No Location header in resumable session response');
+            }
+            return location;
+          })
+        : getSignedUrlWithTimeout(() =>
+            storageFile.getSignedUrl({
+              version: 'v4',
+              action: 'write',
+              expires: uploadExpiresAtMs,
+              contentType: mimeType,
+            })
+          ).then(([url]) => url),
       getSignedUrlWithTimeout(() =>
         storageFile.getSignedUrl({
           version: 'v4',
