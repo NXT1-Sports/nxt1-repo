@@ -313,7 +313,7 @@ import { setAgentDependencies } from '../../../routes/agent/shared.js';
 import { setWelcomeDependencies } from '../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../services/agent-scrape.service.js';
 import { addJobCost } from './job-cost-tracker.js';
-import { getAgentRunConfig } from '../config/agent-app-config.js';
+import { getAgentRunConfig, isToolDisabled } from '../config/agent-app-config.js';
 import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
 
 /**
@@ -784,18 +784,40 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   }
 
   // ── 1e.3. Play diagram tools (LLM → diagrams.net export → Firebase) ─
-  const playDiagramService = new PlayDiagramService(llm);
-  toolRegistry.register(new CreatePlayDiagramTool(playDiagramService));
-  logger.info('Play diagram tools registered (create_play_diagram)');
+  if (isToolDisabled('create_play_diagram')) {
+    logger.warn('Play diagram tools disabled by agent-app-config (create_play_diagram)');
+  } else {
+    const playDiagramService = new PlayDiagramService(llm);
+    toolRegistry.register(new CreatePlayDiagramTool(playDiagramService));
+    logger.info('Play diagram tools registered (create_play_diagram)');
+  }
 
   // ── 1e.4. Board diagram tools (platform: plays + drills, with Firestore persistence) ─
-  const boardDiagramService = new BoardDiagramService(llm);
-  toolRegistry.register(new CreateBoardDiagramTool(boardDiagramService));
-  toolRegistry.register(new UpdateBoardDiagramTool(boardDiagramService));
-  toolRegistry.register(new DeleteBoardDiagramTool(boardDiagramService));
-  logger.info(
-    'Board diagram tools registered (create_board_diagram, update_board_diagram, delete_board_diagram)'
-  );
+  const enabledBoardDiagramTools = [
+    'create_board_diagram',
+    'update_board_diagram',
+    'delete_board_diagram',
+  ].filter((toolName) => !isToolDisabled(toolName));
+
+  if (enabledBoardDiagramTools.length === 0) {
+    logger.warn(
+      'Board diagram tools disabled by agent-app-config (create_board_diagram, update_board_diagram, delete_board_diagram)'
+    );
+  } else {
+    const boardDiagramService = new BoardDiagramService(llm);
+
+    if (enabledBoardDiagramTools.includes('create_board_diagram')) {
+      toolRegistry.register(new CreateBoardDiagramTool(boardDiagramService));
+    }
+    if (enabledBoardDiagramTools.includes('update_board_diagram')) {
+      toolRegistry.register(new UpdateBoardDiagramTool(boardDiagramService));
+    }
+    if (enabledBoardDiagramTools.includes('delete_board_diagram')) {
+      toolRegistry.register(new DeleteBoardDiagramTool(boardDiagramService));
+    }
+
+    logger.info(`Board diagram tools registered (${enabledBoardDiagramTools.join(', ')})`);
+  }
 
   const analyzeVideoTool = new AnalyzeVideoTool(
     scraperService,
