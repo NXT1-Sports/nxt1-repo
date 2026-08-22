@@ -1879,6 +1879,7 @@ export interface AgentAppConfig {
 }
 
 export interface ConfiguredCoordinatorDescriptor extends AgentDescriptor {
+  readonly id: CoordinatorIdentifier;
   readonly availableForRoles: readonly string[];
   readonly commands: readonly ConfiguredCoordinatorActionChip[];
   readonly scheduledActions: readonly ConfiguredCoordinatorActionChip[];
@@ -1900,12 +1901,19 @@ function toShellActionChip(action: ConfiguredCoordinatorActionChip): ShellAction
 }
 
 function buildFallbackExecutionPrompt(params: {
+  readonly coordinatorId: CoordinatorIdentifier;
   readonly coordinatorName: string;
   readonly coordinatorDescription: string;
   readonly action: ConfiguredCoordinatorActionChip;
   readonly surface: AgentXSelectedActionSurface;
   readonly role: DashboardRole;
 }): string {
+  const normalizedActionLabel = params.action.label.trim().toLowerCase();
+  const gamePlanArtifactInstruction =
+    params.coordinatorId === 'strategy_coordinator' && normalizedActionLabel.includes('game plan')
+      ? '7. For game plan actions, do not stop at a saved Team Files document. In the same run, route the deliverable through a real artifact path such as `render_html_pdf`, `dynamic_export` (PDF/PPTX/Gamma-style report), or `execute_python_code` (XLS/XLSX) based on the requested or best-fit format. Save to Files if useful, but always return an actual downloadable artifact unless the user explicitly asks for draft-only or chat-only output.'
+      : null;
+
   const surfaceInstruction =
     params.surface === 'scheduled'
       ? 'Treat this as a repeatable scheduled workflow. Build a concrete cadence, execution checklist, timing recommendations, and follow-up checkpoints.'
@@ -1924,6 +1932,7 @@ function buildFallbackExecutionPrompt(params: {
     '4. Ask follow-up questions only when information is truly blocking the deliverable.',
     '5. Tailor the response to the user role, sports workflow, and likely operational context.',
     '6. End with the clearest next action or decision the user should take.',
+    gamePlanArtifactInstruction,
   ]
     .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
     .join('\n');
@@ -2874,6 +2883,7 @@ export function resolveConfiguredCoordinatorActionForRole(
     return {
       ...toShellActionChip(fallbackAction),
       executionPrompt: buildFallbackExecutionPrompt({
+        coordinatorId: coordinator.id,
         coordinatorName: coordinator.name,
         coordinatorDescription: roleUi.description,
         action: fallbackAction,
@@ -2888,6 +2898,7 @@ export function resolveConfiguredCoordinatorActionForRole(
     executionPrompt:
       action.executionPrompt ??
       buildFallbackExecutionPrompt({
+        coordinatorId: coordinator.id,
         coordinatorName: coordinator.name,
         coordinatorDescription: roleUi.description,
         action,

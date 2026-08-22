@@ -552,6 +552,9 @@ describe('agent-app-config', () => {
     expect(action?.executionPrompt).toContain('Selected action: Game Plan.');
     expect(action?.executionPrompt).toContain('Execution requirements:');
     expect(action?.executionPrompt).toContain('Produce a concrete deliverable');
+    expect(action?.executionPrompt).toContain('route the deliverable through a real artifact path');
+    expect(action?.executionPrompt).toContain('dynamic_export');
+    expect(action?.executionPrompt).toContain('execute_python_code');
   });
 
   it('uses concept-first prompt text for brand creative dashboard actions', () => {
