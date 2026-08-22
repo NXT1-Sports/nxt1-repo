@@ -28,6 +28,8 @@
 #   SLACK_SALES_ALERT_WEBHOOK_URL - Dedicated sales webhook for successful billing alerts
 #   SLACK_NEW_ATHLETES_WEBHOOK_URL  - Production signup webhook for athlete signups
 #   SLACK_NEW_TEAMS_WEBHOOK_URL     - Production signup webhook for team/staff signups
+#   E2B_API_KEY - Shared E2B sandbox/API key used by HTML PDF and Python execution tools
+#   E2B_HTML_PDF_TEMPLATE - Optional E2B template slug for HTML PDF rendering
 #   (Optional legacy fallback) STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL / STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL
 # =============================================================================
 
@@ -184,6 +186,15 @@ jobs:
           upsert_optional_env_var \
             "SLACK_NEW_TEAMS_WEBHOOK_URL" \
             "$signup_teams_webhook"
+          upsert_optional_env_var \
+            "E2B_API_KEY" \
+            "${{ secrets.E2B_API_KEY }}"
+          upsert_optional_env_var \
+            "E2B_HTML_PDF_TEMPLATE" \
+            "${{ secrets.E2B_HTML_PDF_TEMPLATE }}"
+          upsert_env_var \
+            "HTML_PDF_RENDERER" \
+            "e2b"
           echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
           echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
 

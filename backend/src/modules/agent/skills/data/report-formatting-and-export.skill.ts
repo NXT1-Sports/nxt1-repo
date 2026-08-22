@@ -54,6 +54,7 @@ export class ReportFormattingAndExportSkill extends BaseSkill {
 - Choose format by staff workflow, not by presentation polish alone: if the artifact is meant to be edited, prefer 'execute_python_code'/XLSX first; if it must be a print/PDF artifact with fixed layout or sample-matching, use render_html_pdf.
 - Choose PPTX when coaches need flash cards, flashcards, a card deck, a slide-by-slide deck, scout-card packet, player-card packet, opponent briefing deck, recruiting pitch deck, parent/staff meeting deck, or presentation-first visual packet.
 - Callsheets, practice scripts, install sheets, scouting boards, and other coaching sheets should default to XLSX or native saved docs when the user does not explicitly name PDF.
+- If the user explicitly says PDF, printable, one-pager, share-ready PDF, or asks to match a fixed visual reference as a PDF, that explicit format request overrides the default XLSX/native-doc path and should go straight to render_html_pdf.
 - Wristband inserts and other physical quick-reference cards should default to render_html_pdf unless the user explicitly asks for an editable spreadsheet/source sheet.
 - If those same artifacts are explicitly requested as printable one-pagers or share-ready PDFs, route them to render_html_pdf first rather than dynamic_export.
 - Words like professional, polished, clean, organized, or branded do not by themselves justify switching a coaching sheet to PDF.
