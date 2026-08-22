@@ -45,6 +45,16 @@ export function shouldUseE2bHtmlPdfRunner(
   return hasConfiguredE2bTemplate;
 }
 
+export function getLocalChromiumLaunchArgs(
+  platform: NodeJS.Platform = process.platform
+): readonly string[] {
+  if (platform !== 'linux') {
+    return [];
+  }
+
+  return ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'];
+}
+
 const MAX_HTML_BYTES = 1_500_000;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
@@ -216,6 +226,7 @@ class LocalPlaywrightHtmlPdfRunner implements HtmlPdfRunner {
       const { chromium } = await moduleLoader('playwright');
       browser = await chromium.launch({
         headless: true,
+        args: [...getLocalChromiumLaunchArgs()],
         ...resolveLocalChromiumExecutablePath(),
       });
       const page = await browser.newPage();
@@ -231,7 +242,7 @@ class LocalPlaywrightHtmlPdfRunner implements HtmlPdfRunner {
     } catch (error) {
       throw new AgentEngineError(
         'AGENT_PIPELINE_FAILED',
-        'Local Playwright HTML PDF rendering failed. Ensure playwright is installed and Chrome/Chromium is available, or set HTML_PDF_RENDERER=e2b with a valid E2B template.',
+        `Local Playwright HTML PDF rendering failed: ${getErrorMessage(error)}. Ensure playwright is installed and Chrome/Chromium is available, or set HTML_PDF_RENDERER=e2b with a valid E2B template.`,
         { cause: error }
       );
     } finally {
@@ -241,7 +252,11 @@ class LocalPlaywrightHtmlPdfRunner implements HtmlPdfRunner {
 }
 
 interface LocalChromiumLike {
-  launch(options: { headless: boolean; executablePath?: string }): Promise<LocalBrowserLike>;
+  launch(options: {
+    headless: boolean;
+    executablePath?: string;
+    args?: readonly string[];
+  }): Promise<LocalBrowserLike>;
 }
 
 interface LocalBrowserLike {
@@ -278,10 +293,11 @@ interface E2bSandboxLike {
 function buildPlaywrightRenderScript(input: HtmlPdfRenderInput): string {
   const format = toPlaywrightFormat(input.pageSize);
   const landscape = input.orientation === 'landscape';
+  const launchArgs = JSON.stringify(getLocalChromiumLaunchArgs('linux'));
   return `import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true, args: ${launchArgs} });
 try {
   const page = await browser.newPage();
   await page.goto('file://' + resolve(process.cwd(), 'input.html'), { waitUntil: 'networkidle' });
