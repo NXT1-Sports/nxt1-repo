@@ -229,7 +229,7 @@ description: full execution intent for the coordinator — as detailed as needed
   }
 
   private getCoordinatorDescriptors(): readonly AgentDescriptor[] {
-    return getConfiguredCoordinatorDescriptors().filter((descriptor) => descriptor.id !== 'router');
+    return getConfiguredCoordinatorDescriptors();
   }
 
   private buildCapabilitySnapshotPrompt(snapshot: PlannerCapabilitySnapshot): string {
