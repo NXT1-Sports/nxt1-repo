@@ -62,7 +62,10 @@ import {
 import type { AgentJobDocument } from '../../modules/agent/queue/job.repository.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import { canManageTeamMutationForUser } from '../../services/team/team-intel-permissions.js';
-import { sendAgentXVideoUploadFailureAlert } from '../../services/communications/agent-x/agent-x-video-upload-failure-alert.service.js';
+import {
+  sendAgentXUploadFailureAlert,
+  sendAgentXVideoUploadFailureAlert,
+} from '../../services/communications/agent-x/agent-x-video-upload-failure-alert.service.js';
 import { BoardDiagramAssetService } from '../../modules/agent/tools/integrations/board-diagram/services/board-diagram-asset.service.js';
 import {
   BoardDiagramService,
@@ -2121,12 +2124,21 @@ router.post(
   uploadRateLimit,
   agentSingleFileUpload,
   async (req: Request, res: Response) => {
+    let alertUserId: string | null = null;
+    let alertTeamId: string | null = null;
+    let alertThreadId: string | null = null;
+    let alertFileName: string | null = null;
+    let alertMimeType: string | null = null;
+    let alertFileSizeBytes: number | null = null;
+    let alertStoragePath: string | null = null;
+
     try {
       const user = getAuthUser(req);
       if (!user?.uid) {
         res.status(401).json({ success: false, error: 'Unauthorized' });
         return;
       }
+      alertUserId = user.uid;
 
       const file = req.file;
       if (!file) {
@@ -2144,6 +2156,11 @@ router.post(
         typeof req.body?.sport === 'string' && req.body.sport.trim().length > 0
           ? req.body.sport.trim()
           : undefined;
+      alertThreadId = threadId;
+      alertTeamId = teamId;
+      alertFileName = normalizedFile.originalName;
+      alertMimeType = normalizedFile.mimeType;
+      alertFileSizeBytes = normalizedFile.sizeBytes;
       if (teamId) {
         const teamDoc = await req.firebase.db.collection('Teams').doc(teamId).get();
         if (!teamDoc.exists) {
@@ -2170,6 +2187,7 @@ router.post(
         fileName: normalizedFile.originalName,
         zone: 'media',
       });
+      alertStoragePath = storagePath;
 
       const { url: durableUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
@@ -2230,6 +2248,21 @@ router.post(
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Agent X file upload failed', { error: error.message, stack: error.stack });
+      await sendAgentXUploadFailureAlert({
+        stage: 'firebase_file_upload_failed',
+        error: error.message,
+        userId: alertUserId ?? req.user?.uid ?? null,
+        teamId: alertTeamId,
+        threadId: alertThreadId,
+        fileName: alertFileName,
+        mimeType: alertMimeType,
+        fileSizeBytes: alertFileSizeBytes,
+        storagePath: alertStoragePath,
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+        details: error.stack ?? null,
+      });
       res.status(500).json({ success: false, error: 'Failed to upload file' });
     }
   }
@@ -2247,12 +2280,20 @@ router.post(
   uploadRateLimit,
   agentSingleFileUpload,
   async (req: Request, res: Response) => {
+    let alertUserId: string | null = null;
+    let alertThreadId: string | null = null;
+    let alertFileName: string | null = null;
+    let alertMimeType: string | null = null;
+    let alertFileSizeBytes: number | null = null;
+    let alertStoragePath: string | null = null;
+
     try {
       const user = getAuthUser(req);
       if (!user?.uid) {
         res.status(401).json({ success: false, error: 'Unauthorized' });
         return;
       }
+      alertUserId = user.uid;
 
       const file = req.file;
       if (!file) {
@@ -2262,6 +2303,10 @@ router.post(
 
       const normalizedFile = normalizeAgentUploadFile(file);
       const threadId = (req.body?.threadId as string | undefined) ?? null;
+      alertThreadId = threadId;
+      alertFileName = normalizedFile.originalName;
+      alertMimeType = normalizedFile.mimeType;
+      alertFileSizeBytes = normalizedFile.sizeBytes;
       const bucket = req.firebase.storage.bucket();
       const storagePath = AgentMediaLifecycleService.buildStoragePath({
         userId: user.uid,
@@ -2270,6 +2315,7 @@ router.post(
         fileName: normalizedFile.originalName,
         zone: 'tmp',
       });
+      alertStoragePath = storagePath;
 
       const { url: durableUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
@@ -2300,6 +2346,20 @@ router.post(
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Agent X tmp upload failed', { error: error.message, stack: error.stack });
+      await sendAgentXUploadFailureAlert({
+        stage: 'firebase_tmp_upload_failed',
+        error: error.message,
+        userId: alertUserId ?? req.user?.uid ?? null,
+        threadId: alertThreadId,
+        fileName: alertFileName,
+        mimeType: alertMimeType,
+        fileSizeBytes: alertFileSizeBytes,
+        storagePath: alertStoragePath,
+        requestPath: req.originalUrl,
+        contentType: req.headers['content-type'],
+        userAgent: req.headers['user-agent'],
+        details: error.stack ?? null,
+      });
       res.status(500).json({ success: false, error: 'Failed to upload tmp file' });
     }
   }
@@ -2313,18 +2373,24 @@ router.post(
 // Body: { storagePath: string }
 // Returns: { url, storagePath, mimeType, sizeBytes }
 router.post('/upload/promote', appGuard, async (req: Request, res: Response) => {
+  let alertUserId: string | null = null;
+  let alertStoragePath: string | null = null;
+  let alertPromotedStoragePath: string | null = null;
+
   try {
     const user = getAuthUser(req);
     if (!user?.uid) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
     }
+    alertUserId = user.uid;
 
     const { storagePath } = req.body as { storagePath?: unknown };
     if (typeof storagePath !== 'string' || !storagePath.trim()) {
       res.status(400).json({ success: false, error: 'storagePath is required' });
       return;
     }
+    alertStoragePath = storagePath.trim();
 
     const bucket = req.firebase.storage.bucket();
     const promoted = await AgentMediaLifecycleService.promoteTmpObject({
@@ -2338,6 +2404,7 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
       from: storagePath,
       to: promoted.storagePath,
     });
+    alertPromotedStoragePath = promoted.storagePath;
 
     res.json({
       success: true,
@@ -2367,6 +2434,17 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
       return;
     }
     logger.error('Agent X promote failed', { error: error.message, stack: error.stack });
+    await sendAgentXUploadFailureAlert({
+      stage: 'firebase_tmp_promote_failed',
+      error: error.message,
+      userId: alertUserId ?? req.user?.uid ?? null,
+      storagePath: alertStoragePath,
+      promotedStoragePath: alertPromotedStoragePath,
+      requestPath: req.originalUrl,
+      contentType: req.headers['content-type'],
+      userAgent: req.headers['user-agent'],
+      details: error.stack ?? null,
+    });
     res.status(500).json({ success: false, error: 'Failed to promote file' });
   }
 });

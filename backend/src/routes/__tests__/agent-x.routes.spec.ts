@@ -7,6 +7,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import request from 'supertest';
 import { AGENT_X_MAX_NON_VIDEO_FILE_SIZE } from '@nxt1/core/ai';
 import { notifyDirectFileShare } from '../../services/communications/file-share-notifications.js';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
+import * as teamFilesIndexService from '../../services/team/team-files-index.service.js';
 import app, {
   __getMockFirestoreWrites,
   __getMockFirestoreDocument,
@@ -18,9 +20,19 @@ import app, {
 } from '../../test-app.js';
 import { expectExpressRouter } from './route-test.utils.js';
 
+const sendSlackAlertMock = vi.hoisted(() => vi.fn());
+
 vi.mock('../../services/communications/file-share-notifications.js', () => ({
   notifyDirectFileShare: vi.fn().mockResolvedValue({ dispatched: true, notificationId: 'notif-1' }),
 }));
+
+vi.mock('../../services/platform/alert.service.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../services/platform/alert.service.js')>();
+  return {
+    ...actual,
+    sendSlackAlert: sendSlackAlertMock,
+  };
+});
 
 describe('Agent X Routes', () => {
   let router: unknown;
@@ -41,6 +53,8 @@ describe('Agent X Routes', () => {
   beforeEach(() => {
     __resetMockFirestore();
     vi.mocked(notifyDirectFileShare).mockClear();
+    sendSlackAlertMock.mockReset();
+    sendSlackAlertMock.mockResolvedValue(true);
     setAgentDependencies({
       queueService: {
         enqueue: vi.fn().mockResolvedValue('job-123'),
@@ -197,6 +211,44 @@ describe('Agent X Routes', () => {
       error: 'File exceeds maximum size limit (50 MB)',
       code: 'FILE_TOO_LARGE',
     });
+  });
+
+  it('should send a Slack alert when a direct Agent X upload fails in storage', async () => {
+    vi.spyOn(AgentMediaLifecycleService, 'saveBufferAndSignRead').mockRejectedValueOnce(
+      new Error('gcs write down')
+    );
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/upload')
+      .set('Authorization', 'Bearer test-token')
+      .field('threadId', 'thread-upload-alert')
+      .attach('file', Buffer.from('film notes'), {
+        filename: 'notes.pdf',
+        contentType: 'application/pdf',
+      });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ success: false, error: 'Failed to upload file' });
+    expect(sendSlackAlertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'agent',
+        severity: 'critical',
+        title: 'Agent X Upload Failed',
+        fields: expect.arrayContaining([
+          { label: 'Stage', value: 'firebase_file_upload_failed' },
+          { label: 'User ID', value: 'test-user' },
+          { label: 'Thread ID', value: 'thread-upload-alert' },
+          { label: 'File Name', value: 'notes.pdf' },
+          { label: 'MIME Type', value: 'application/pdf' },
+          expect.objectContaining({
+            label: 'Storage Path',
+            value: expect.stringContaining(
+              'Users/test-user/threads/thread-upload-alert/media/pdf/'
+            ),
+          }),
+        ]),
+      })
+    );
   });
 
   it('should promote a stored user chat attachment into Team Files on demand', async () => {
@@ -721,6 +773,52 @@ describe('Agent X Routes', () => {
       })
     );
     expect(response.body.data.filmReview).not.toHaveProperty('teamId');
+  });
+
+  it('should send a Slack alert when uploaded film review creation fails', async () => {
+    vi.spyOn(teamFilesIndexService, 'upsertTeamFileFromAttachment').mockRejectedValueOnce(
+      new Error('firestore write down')
+    );
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/film-reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        sport: 'football',
+        title: 'User Scope Film Review',
+        videoUrl: 'https://example.com/uploads/user-film.mp4',
+        uploadMode: 'single_video',
+        attachment: {
+          id: 'attachment-film-user-alert',
+          url: 'https://example.com/uploads/user-film.mp4',
+          storagePath: 'Users/test-user/uploads/video/user-film.mp4',
+          name: 'user-film.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+        },
+      });
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ success: false, error: 'Failed to create film review' });
+    expect(sendSlackAlertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'agent',
+        severity: 'critical',
+        title: 'Agent X Film Review Failed',
+        fields: expect.arrayContaining([
+          { label: 'Stage', value: 'uploaded_create_failed' },
+          { label: 'User ID', value: 'test-user' },
+          { label: 'Title', value: 'User Scope Film Review' },
+          { label: 'Upload Mode', value: 'single_video' },
+          { label: 'Attachment', value: 'user-film.mp4' },
+          { label: 'MIME Type', value: 'video/mp4' },
+          { label: 'Storage Path', value: 'Users/test-user/uploads/video/user-film.mp4' },
+        ]),
+      })
+    );
   });
 
   it('should discard inline thumbnail data when creating a film review', async () => {

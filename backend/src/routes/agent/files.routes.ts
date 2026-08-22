@@ -40,6 +40,10 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { logger } from '../../utils/logger.js';
 import {
+  sendAgentXFilmReviewFailureAlert,
+  type AgentXFilmReviewFailureStage,
+} from '../../services/communications/agent-x/agent-x-video-upload-failure-alert.service.js';
+import {
   buildAclTeamKey,
   buildAclTeamManagerKey,
   buildDefaultTeamScopedAcl,
@@ -1985,7 +1989,70 @@ async function mutateNativeFilmReviewAtomically(params: {
   });
 }
 
-function sendFilmReviewMutationError(res: Response, error: Error, fallbackMessage: string): void {
+function shouldAlertFilmReviewMutationError(error: Error): boolean {
+  return (
+    !(error instanceof FilmReviewDrawingRevisionConflictError) &&
+    !(error instanceof TeamFilmReviewSourceBreakdownPatchError)
+  );
+}
+
+function dispatchFilmReviewFailureAlert(input: {
+  readonly req: Request;
+  readonly stage: AgentXFilmReviewFailureStage;
+  readonly error: Error;
+  readonly userId?: string | null;
+  readonly teamId?: string | null;
+  readonly fileId?: string | null;
+  readonly reviewId?: string | null;
+  readonly drawingId?: string | null;
+  readonly annotationId?: string | null;
+  readonly title?: string | null;
+  readonly uploadMode?: string | null;
+  readonly sourceCount?: number | null;
+  readonly attachmentName?: string | null;
+  readonly mimeType?: string | null;
+  readonly fileSizeBytes?: number | null;
+  readonly storagePath?: string | null;
+}): void {
+  void sendAgentXFilmReviewFailureAlert({
+    stage: input.stage,
+    error: input.error.message,
+    userId: input.userId,
+    teamId: input.teamId,
+    fileId: input.fileId,
+    reviewId: input.reviewId,
+    drawingId: input.drawingId,
+    annotationId: input.annotationId,
+    title: input.title,
+    uploadMode: input.uploadMode,
+    sourceCount: input.sourceCount,
+    attachmentName: input.attachmentName,
+    mimeType: input.mimeType,
+    fileSizeBytes: input.fileSizeBytes,
+    storagePath: input.storagePath,
+    requestPath: input.req.originalUrl,
+    contentType: input.req.headers['content-type'],
+    userAgent: input.req.headers['user-agent'],
+    details: input.error.stack ?? null,
+  });
+}
+
+function sendFilmReviewMutationError(
+  res: Response,
+  error: Error,
+  fallbackMessage: string,
+  alert?: {
+    readonly req: Request;
+    readonly stage: AgentXFilmReviewFailureStage;
+    readonly userId?: string | null;
+    readonly teamId?: string | null;
+    readonly fileId?: string | null;
+    readonly reviewId?: string | null;
+    readonly drawingId?: string | null;
+    readonly annotationId?: string | null;
+    readonly title?: string | null;
+  }
+): void {
   if (error instanceof FilmReviewDrawingRevisionConflictError) {
     res.status(409).json({
       success: false,
@@ -2006,6 +2073,9 @@ function sendFilmReviewMutationError(res: Response, error: Error, fallbackMessag
       ...(error.currentRevision !== undefined ? { currentRevision: error.currentRevision } : {}),
     });
     return;
+  }
+  if (alert && shouldAlertFilmReviewMutationError(error)) {
+    dispatchFilmReviewFailureAlert({ ...alert, error });
   }
   res.status(500).json({ success: false, error: fallbackMessage });
 }
@@ -5205,7 +5275,14 @@ router.post('/files/:fileId/film-review', appGuard, async (req: Request, res: Re
       error: error.message,
       stack: error.stack,
     });
-    sendFilmReviewMutationError(res, error, 'Failed to create film review');
+    sendFilmReviewMutationError(res, error, 'Failed to create film review', {
+      req,
+      stage: 'file_backed_create_failed',
+      userId: req.user?.uid ?? null,
+      teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+      fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      title: typeof req.body?.['title'] === 'string' ? req.body['title'] : null,
+    });
   }
 });
 
@@ -5425,6 +5502,25 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       error: error.message,
       stack: error.stack,
     });
+    const attachment =
+      req.body?.['attachment'] && typeof req.body['attachment'] === 'object'
+        ? (req.body['attachment'] as Record<string, unknown>)
+        : null;
+    dispatchFilmReviewFailureAlert({
+      req,
+      stage: 'uploaded_create_failed',
+      error,
+      userId: req.user?.uid ?? null,
+      teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+      title: typeof req.body?.['title'] === 'string' ? req.body['title'] : null,
+      uploadMode: typeof req.body?.['uploadMode'] === 'string' ? req.body['uploadMode'] : null,
+      sourceCount: Array.isArray(req.body?.['sources']) ? req.body['sources'].length : null,
+      attachmentName: typeof attachment?.['name'] === 'string' ? attachment['name'] : null,
+      mimeType: typeof attachment?.['mimeType'] === 'string' ? attachment['mimeType'] : null,
+      fileSizeBytes: typeof attachment?.['sizeBytes'] === 'number' ? attachment['sizeBytes'] : null,
+      storagePath:
+        typeof attachment?.['storagePath'] === 'string' ? attachment['storagePath'] : null,
+    });
     res.status(500).json({ success: false, error: 'Failed to create film review' });
   }
 });
@@ -5532,7 +5628,14 @@ router.patch('/files/:fileId/film-review', appGuard, async (req: Request, res: R
       error: error.message,
       stack: error.stack,
     });
-    sendFilmReviewMutationError(res, error, 'Failed to update film review');
+    sendFilmReviewMutationError(res, error, 'Failed to update film review', {
+      req,
+      stage: 'update_failed',
+      userId: req.user?.uid ?? null,
+      teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+      fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      title: typeof req.body?.['title'] === 'string' ? req.body['title'] : null,
+    });
   }
 });
 
@@ -5694,8 +5797,27 @@ router.post(
         stack: error.stack,
       });
       if (error instanceof TeamFilmReviewSourceBreakdownPatchError) {
-        sendFilmReviewMutationError(res, error, 'Failed to import film review breakdown');
+        sendFilmReviewMutationError(res, error, 'Failed to import film review breakdown', {
+          req,
+          stage: 'breakdown_import_failed',
+          userId: req.user?.uid ?? null,
+          teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+          fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+        });
       } else {
+        if (!isClientImportError) {
+          dispatchFilmReviewFailureAlert({
+            req,
+            stage: 'breakdown_import_failed',
+            error,
+            userId: req.user?.uid ?? null,
+            teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+            fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+            attachmentName: req.file?.originalname ?? null,
+            mimeType: req.file?.mimetype ?? null,
+            fileSizeBytes: req.file?.size ?? null,
+          });
+        }
         res.status(isClientImportError ? 400 : 500).json({ success: false, error: error.message });
       }
     }
@@ -5786,7 +5908,13 @@ router.post(
         error: error.message,
         stack: error.stack,
       });
-      sendFilmReviewMutationError(res, error, 'Failed to refresh film review AI');
+      sendFilmReviewMutationError(res, error, 'Failed to refresh film review AI', {
+        req,
+        stage: 'ai_refresh_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      });
     }
   }
 );
@@ -5980,7 +6108,13 @@ router.delete('/files/:fileId/film-review', appGuard, async (req: Request, res: 
       error: error.message,
       stack: error.stack,
     });
-    sendFilmReviewMutationError(res, error, 'Failed to delete film review');
+    sendFilmReviewMutationError(res, error, 'Failed to delete film review', {
+      req,
+      stage: 'delete_failed',
+      userId: req.user?.uid ?? null,
+      teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+      fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+    });
   }
 });
 
@@ -6033,7 +6167,13 @@ router.post(
         error: error.message,
         stack: error.stack,
       });
-      sendFilmReviewMutationError(res, error, 'Failed to create film review drawing');
+      sendFilmReviewMutationError(res, error, 'Failed to create film review drawing', {
+        req,
+        stage: 'drawing_create_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      });
     }
   }
 );
@@ -6077,6 +6217,14 @@ router.get('/files/:fileId/film-review/drawings', appGuard, async (req: Request,
     logger.error('Failed to list film review drawings', {
       error: error.message,
       stack: error.stack,
+    });
+    dispatchFilmReviewFailureAlert({
+      req,
+      stage: 'drawing_list_failed',
+      error,
+      userId: req.user?.uid ?? null,
+      teamId: typeof req.query['teamId'] === 'string' ? req.query['teamId'] : null,
+      fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
     });
     res.status(500).json({ success: false, error: 'Failed to load film review drawings' });
   }
@@ -6131,7 +6279,14 @@ router.patch(
         error: error.message,
         stack: error.stack,
       });
-      sendFilmReviewMutationError(res, error, 'Failed to update film review drawing');
+      sendFilmReviewMutationError(res, error, 'Failed to update film review drawing', {
+        req,
+        stage: 'drawing_update_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+        drawingId: typeof req.params['drawingId'] === 'string' ? req.params['drawingId'] : null,
+      });
     }
   }
 );
@@ -6182,7 +6337,14 @@ router.delete(
         error: error.message,
         stack: error.stack,
       });
-      sendFilmReviewMutationError(res, error, 'Failed to delete film review drawing');
+      sendFilmReviewMutationError(res, error, 'Failed to delete film review drawing', {
+        req,
+        stage: 'drawing_delete_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.query['teamId'] === 'string' ? req.query['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+        drawingId: typeof req.params['drawingId'] === 'string' ? req.params['drawingId'] : null,
+      });
     }
   }
 );
@@ -6281,7 +6443,13 @@ router.post(
         error: error.message,
         stack: error.stack,
       });
-      sendFilmReviewMutationError(res, error, 'Failed to add annotation');
+      sendFilmReviewMutationError(res, error, 'Failed to add annotation', {
+        req,
+        stage: 'annotation_create_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      });
     }
   }
 );
@@ -6359,7 +6527,15 @@ router.delete(
         error: error.message,
         stack: error.stack,
       });
-      sendFilmReviewMutationError(res, error, 'Failed to delete annotation');
+      sendFilmReviewMutationError(res, error, 'Failed to delete annotation', {
+        req,
+        stage: 'annotation_delete_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.query['teamId'] === 'string' ? req.query['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+        annotationId:
+          typeof req.params['annotationId'] === 'string' ? req.params['annotationId'] : null,
+      });
     }
   }
 );
