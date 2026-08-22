@@ -204,8 +204,11 @@ jobs:
           echo 'npm ci (clean install from package-lock.json)...'
           npm ci
 
-          echo 'Install Playwright Chromium for local HTML PDF rendering...'
-          npx playwright install --with-deps chromium
+          echo 'Ensure Chromium is installed for HTML PDF rendering...'
+          if ! command -v chromium > /dev/null 2>&1 && ! command -v google-chrome > /dev/null 2>&1; then
+            echo 'Installing chromium via apt...'
+            apt-get update && apt-get install -y --no-install-recommends chromium || apt-get install -y chromium-browser || true
+          fi
 
           echo 'npm run build (backend + shared packages only)...'
           npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
