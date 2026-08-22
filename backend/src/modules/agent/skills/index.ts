@@ -6,6 +6,7 @@
 export {
   BaseSkill,
   type SkillCategory,
+  type SkillReferenceImage,
   cosineSimilarity,
   DEFAULT_SKILL_THRESHOLD,
 } from './base.skill.js';
@@ -21,6 +22,7 @@ export { FilmBreakdownTaxonomySkill } from './evaluation/film-breakdown-taxonomy
 export { OpponentScoutingPacketSkill } from './evaluation/opponent-scouting-packet.skill.js';
 export { PredictivePerformanceAnalysisSkill } from './evaluation/predictive-performance-analysis.skill.js';
 export { DocumentAnalysisSkill } from './evaluation/document-analysis.skill.js';
+export { AthleticPerformanceAndCombineTrackerSkill } from './evaluation/athletic-performance-and-combine-tracker.skill.js';
 
 // Copywriting
 export { OutreachCopywritingSkill } from './copywriting/outreach-copywriting.skill.js';
@@ -33,6 +35,7 @@ export { CommunicationApprovalAndSafetySkill } from './compliance/communication-
 // Brand
 export { MediaCreativeIntentSkill } from './brand/media-creative-intent.skill.js';
 export { MediaPipelinePlaybooksSkill } from './brand/media-pipeline-playbooks.skill.js';
+export { HtmlCssDesignEngineeringSkill } from './brand/html-css-design-engineering.skill.js';
 export { StaticGraphicStyleSkill } from './brand/static-graphic-style.skill.js';
 export { VideoHighlightStyleSkill } from './brand/video-highlight-style.skill.js';
 export { SocialCaptionStyleSkill } from './brand/social-caption-style.skill.js';
@@ -49,6 +52,11 @@ export { LineupRotationOptimizerSkill } from './strategy/lineup-rotation-optimiz
 export { PlayDesignSimulationSkill } from './strategy/play-design-simulation.skill.js';
 export { PlayDiagramVerificationWorkflowSkill } from './strategy/play-diagram-verification-workflow.skill.js';
 export { PracticeScriptAndProgressionSkill } from './strategy/practice-script-and-progression.skill.js';
+export { FootballCallsheetDesignSkill } from './strategy/football-callsheet-design.skill.js';
+export { QbWristbandInsertDesignSkill } from './strategy/qb-wristband-insert-design.skill.js';
+export { PracticeScriptDesignSkill } from './strategy/practice-script-design.skill.js';
+export { RosterAndDepthChartDesignSkill } from './strategy/roster-and-depth-chart-design.skill.js';
+export { RecruitingBoardAndVisitTrackerSkill } from './strategy/recruiting-board-and-visit-tracker.skill.js';
 export { FilmComparisonFrameworkSkill } from './strategy/film-comparison-framework.skill.js';
 export { GameBreakdownAutomationSkill } from './strategy/game-breakdown-automation.skill.js';
 export { FilmViewingBatchProcessingWorkflowSkill } from './strategy/film-viewing-batch-processing-workflow.skill.js';
@@ -57,6 +65,8 @@ export { FilmReportSkill } from './strategy/film-report.skill.js';
 // Data
 export { DataNormalizationAndEntityResolutionSkill } from './data/data-normalization-and-entity-resolution.skill.js';
 export { ReportFormattingAndExportSkill } from './data/report-formatting-and-export.skill.js';
+export { OpenpyxlSpreadsheetDesignSkill } from './data/openpyxl-spreadsheet-design.skill.js';
+export { TeamBudgetAndFinancialsSkill } from './data/team-budget-and-financials.skill.js';
 
 // Knowledge (dynamic vector retrieval)
 export { GlobalKnowledgeSkill } from './knowledge/global-knowledge.skill.js';

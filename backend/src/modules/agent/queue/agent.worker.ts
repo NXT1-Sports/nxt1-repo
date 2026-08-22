@@ -456,7 +456,12 @@ function collectDynamicExportDocumentTargets(
       continue;
     }
 
-    if (record.toolName !== 'dynamic_export' || record.status !== 'success') continue;
+    if (
+      (record.toolName !== 'dynamic_export' && record.toolName !== 'execute_python_code') ||
+      record.status !== 'success'
+    ) {
+      continue;
+    }
 
     const explicitDocumentId = readTrimmedString(record.input?.['relatedDocumentId']);
     const documentId = explicitDocumentId ?? latestDocument?.id;

@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.104.3",
+  "version": "1.105.0",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -157,6 +157,7 @@
     "csv-parse": "^6.2.1",
     "csv-stringify": "^6.8.0",
     "dotenv": "^17.2.3",
+    "e2b": "^2.45.0",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",

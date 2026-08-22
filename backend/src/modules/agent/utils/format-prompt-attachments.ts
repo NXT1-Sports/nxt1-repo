@@ -28,6 +28,7 @@ export interface PromptFileAttachment {
   readonly url: string;
   readonly mimeType: string;
   readonly storagePath?: string;
+  readonly artifactRole?: 'source' | 'primary_document' | 'export' | 'derived';
 }
 
 export interface PromptImageAttachment {
@@ -88,10 +89,13 @@ export function formatImageAttachmentLabel(image: PromptImageAttachment): string
  * lightweight "doc reference" list that base agent appends to the intent.
  */
 export function formatDocumentAttachmentLabel(file: PromptFileAttachment): string {
+  const label =
+    file.artifactRole === 'source' ? 'Attached editable source document' : 'Attached document';
   const suffix = buildMetadataSuffix([
     `name: ${file.name}`,
     `mimeType: ${file.mimeType}`,
+    file.artifactRole ? `artifactRole: ${file.artifactRole}` : null,
     file.storagePath ? `storagePath: ${file.storagePath}` : null,
   ]);
-  return `[Attached document (${DO_NOT_REEMBED_HINT}): ${file.url}${suffix}]`;
+  return `[${label} (${DO_NOT_REEMBED_HINT}): ${file.url}${suffix}]`;
 }

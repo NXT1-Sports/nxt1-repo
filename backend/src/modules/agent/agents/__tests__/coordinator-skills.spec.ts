@@ -19,6 +19,7 @@ describe('coordinator skill bindings', () => {
     expect(agent.getSkills()).toContain('coach_game_plan_and_adjustments');
     expect(agent.getSkills()).toContain('predictive_performance_analysis');
     expect(agent.getSkills()).toContain('intel_report_quality');
+    expect(agent.getSkills()).toContain('html_css_design_engineering');
     expect(agent.getSkillBudget()).toBe(5);
   });
 
@@ -35,7 +36,9 @@ describe('coordinator skill bindings', () => {
     expect(agent.getSkills()).toContain('college_visit_planning');
     expect(agent.getSkills()).toContain('nil_deal_evaluation');
     expect(agent.getSkills()).toContain('play_design_simulation');
+    expect(agent.getSkills()).toContain('qb_wristband_insert_design');
     expect(agent.getSkills()).toContain('predictive_performance_analysis');
+    expect(agent.getSkills()).toContain('html_css_design_engineering');
     expect(agent.getSkillBudget()).toBe(5);
   });
 
@@ -44,6 +47,7 @@ describe('coordinator skill bindings', () => {
 
     expect(agent.getSkills()).toContain('data_normalization_and_entity_resolution');
     expect(agent.getSkills()).toContain('report_formatting_and_export');
+    expect(agent.getSkills()).toContain('html_css_design_engineering');
     expect(agent.getSkills()).toContain('global_knowledge');
     expect(agent.getSkillBudget()).toBe(3);
   });
@@ -54,6 +58,7 @@ describe('coordinator skill bindings', () => {
     expect(agent.getSkills()).toContain('recruiting_fit_scoring');
     expect(agent.getSkills()).toContain('college_visit_planning');
     expect(agent.getSkills()).toContain('nil_deal_evaluation');
+    expect(agent.getSkills()).toContain('html_css_design_engineering');
     expect(agent.getSkills()).toContain('communication_approval_and_safety');
     expect(agent.getSkills()).toContain('nil_and_brand_compliance');
     expect(agent.getSkillBudget()).toBe(5);
@@ -62,6 +67,7 @@ describe('coordinator skill bindings', () => {
   it('loads brand compliance skills for the brand coordinator', () => {
     const agent = new BrandCoordinatorAgent();
 
+    expect(agent.getSkills()).toContain('html_css_design_engineering');
     expect(agent.getSkills()).toContain('static_graphic_style');
     expect(agent.getSkills()).toContain('social_media_growth_strategy');
     expect(agent.getSkills()).toContain('nil_deal_evaluation');

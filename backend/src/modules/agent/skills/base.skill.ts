@@ -58,6 +58,12 @@ export function cosineSimilarity(a: readonly number[], b: readonly number[]): nu
 /** Default similarity threshold for skill matching. */
 export const DEFAULT_SKILL_THRESHOLD = 0.35;
 
+export interface SkillReferenceImage {
+  readonly url: string;
+  readonly name: string;
+  readonly mimeType: string;
+}
+
 export abstract class BaseSkill {
   /** Unique name of the skill. */
   abstract readonly name: string;
@@ -81,6 +87,10 @@ export abstract class BaseSkill {
    * @param params Optional dynamic context (e.g., sport, position, division)
    */
   abstract getPromptContext(params?: Record<string, unknown>): string;
+
+  getReferenceImages(_params?: Record<string, unknown>): readonly SkillReferenceImage[] {
+    return [];
+  }
 
   /**
    * Determine whether this skill is semantically relevant to the given intent.

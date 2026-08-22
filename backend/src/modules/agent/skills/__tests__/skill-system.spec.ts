@@ -15,6 +15,7 @@ import { FilmBreakdownTaxonomySkill } from '../evaluation/film-breakdown-taxonom
 import { PredictivePerformanceAnalysisSkill } from '../evaluation/predictive-performance-analysis.skill.js';
 import { OutreachCopywritingSkill } from '../copywriting/outreach-copywriting.skill.js';
 import { StaticGraphicStyleSkill } from '../brand/static-graphic-style.skill.js';
+import { HtmlCssDesignEngineeringSkill } from '../brand/html-css-design-engineering.skill.js';
 import { GlobalKnowledgeSkill } from '../knowledge/global-knowledge.skill.js';
 import { StrategyGameplanFrameworkSkill } from '../strategy/strategy-gameplan-framework.skill.js';
 import { DataNormalizationAndEntityResolutionSkill } from '../data/data-normalization-and-entity-resolution.skill.js';
@@ -26,6 +27,7 @@ import { CoachGamePlanAndAdjustmentsSkill } from '../strategy/coach-game-plan-an
 import { OpponentScoutingPacketSkill } from '../evaluation/opponent-scouting-packet.skill.js';
 import { LineupRotationOptimizerSkill } from '../strategy/lineup-rotation-optimizer.skill.js';
 import { PlayDesignSimulationSkill } from '../strategy/play-design-simulation.skill.js';
+import { QbWristbandInsertDesignSkill } from '../strategy/qb-wristband-insert-design.skill.js';
 import { CommunicationApprovalAndSafetySkill } from '../compliance/communication-approval-and-safety.skill.js';
 
 class EmptyContextSkill extends BaseSkill {
@@ -134,6 +136,21 @@ describe('BaseSkill.matchIntent', () => {
     expect(prompt).not.toContain('generate_image');
   });
 
+  it('should expose elite HTML/CSS layout engineering guidance', () => {
+    const skill = new HtmlCssDesignEngineeringSkill();
+    const prompt = skill.getPromptContext();
+
+    expect(skill.category).toBe('brand');
+    expect(prompt).toContain('Treat every HTML/CSS deliverable like elite frontend product work');
+    expect(prompt).toContain('Use CSS Grid');
+    expect(prompt).toContain(
+      'Use absolute positioning only when the job is true screenshot/paper-layout recreation'
+    );
+    expect(prompt).toContain(
+      'Do not use evenly distributed flex rows as a substitute for true composition'
+    );
+  });
+
   it('should classify global knowledge as knowledge', () => {
     const retrievalService = {
       retrieve: vi.fn().mockResolvedValue([]),
@@ -155,6 +172,7 @@ describe('BaseSkill.matchIntent', () => {
     expect(new OpponentScoutingPacketSkill().category).toBe('evaluation');
     expect(new LineupRotationOptimizerSkill().category).toBe('strategy');
     expect(new PlayDesignSimulationSkill().category).toBe('strategy');
+    expect(new QbWristbandInsertDesignSkill().category).toBe('strategy');
     expect(new PredictivePerformanceAnalysisSkill().category).toBe('evaluation');
   });
 
@@ -176,6 +194,8 @@ describe('BaseSkill.matchIntent', () => {
       'Rotation Design Principles'
     );
     expect(new PlayDesignSimulationSkill().getPromptContext()).toContain('Simulation Checklist');
+    expect(new QbWristbandInsertDesignSkill().getPromptContext()).toContain('4.75" x 2.5"');
+    expect(new QbWristbandInsertDesignSkill().getPromptContext()).toContain('4.0" x 3.0"');
     expect(new PredictivePerformanceAnalysisSkill().getPromptContext()).toContain('Scenario Bands');
   });
 

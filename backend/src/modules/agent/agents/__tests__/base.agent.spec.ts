@@ -1256,6 +1256,44 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Analyzing data');
   });
 
+  it('uses a clean spreadsheet label for Python execution without surfacing code', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('execute_python_code', {
+      code: [
+        'import openpyxl',
+        'from openpyxl.styles import Font',
+        'workbook = openpyxl.Workbook()',
+      ].join('\n'),
+      dataSources: [
+        {
+          sourceType: 'inline_json',
+          alias: 'rows',
+          value: [{ period: '1', call: 'Inside Zone' }],
+        },
+      ],
+    });
+
+    expect(label).toBe('Building spreadsheet');
+  });
+
+  it('uses a clean generic label for Python execution', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('execute_python_code', {
+      code: 'import pandas as pd\nprint(df.head())',
+      dataSources: [
+        {
+          sourceType: 'inline_json',
+          alias: 'df',
+          value: [{ value: 1 }],
+        },
+      ],
+    });
+
+    expect(label).toBe('Running Python analysis');
+  });
+
   it('uses role-neutral profile labels for get_user_profile', () => {
     const agent = new FakeAgent();
 
@@ -3820,6 +3858,66 @@ describe('BaseAgent identifier scrubbing', () => {
     );
     expect(textBody).not.toContain('[Extracted Attachment Content]');
     expect(textBody).not.toContain('| name | points | assists |');
+  });
+
+  it('labels editable HTML source attachments and instructs parse_document to reuse them first for revisions', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Will revise layout.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute(
+      'Update the spacing and move the boxes on that PDF layout',
+      {
+        ...createMockContext(),
+        attachments: [
+          {
+            url: 'https://storage.example/layout.pdf',
+            mimeType: 'application/pdf',
+            name: 'layout.pdf',
+            storagePath: 'Users/user-123/threads/thread-123/exports/layout.pdf',
+            artifactRole: 'export',
+          },
+          {
+            url: 'https://storage.example/layout.html',
+            mimeType: 'text/html',
+            name: 'layout.html',
+            storagePath: 'Users/user-123/threads/thread-123/exports/layout.html',
+            artifactRole: 'source',
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    const textBody =
+      typeof userMessage?.content === 'string'
+        ? userMessage.content
+        : JSON.stringify(userMessage?.content);
+
+    expect(textBody).toContain(
+      '[Attached editable source document (already visible to user — do not re-embed): https://storage.example/layout.html | name: layout.html | mimeType: text/html | artifactRole: source | storagePath: Users/user-123/threads/thread-123/exports/layout.html]'
+    );
+    expect(textBody).toContain('parse that editable source FIRST and reuse it for the revision');
+    expect(textBody).toContain(
+      'Do not reverse-engineer the PDF when the saved HTML source is available'
+    );
   });
 
   it('inlines signed storage image attachments as data URLs before calling the vision model', async () => {

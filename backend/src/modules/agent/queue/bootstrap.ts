@@ -148,9 +148,11 @@ import {
   DelegateTaskTool,
   DelegateToCoordinatorTool,
   DynamicExportTool,
+  ExecutePythonCodeTool,
   ExecuteSavedPlanTool,
   ExecuteSandboxScriptTool,
   PlanAndExecuteTool,
+  RenderHtmlPdfTool,
   WhoamiCapabilitiesTool,
 } from '../tools/system/index.js';
 import {
@@ -262,12 +264,14 @@ import {
   OpponentScoutingPacketSkill,
   PredictivePerformanceAnalysisSkill,
   DocumentAnalysisSkill,
+  AthleticPerformanceAndCombineTrackerSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
   NilAndBrandComplianceSkill,
   CommunicationApprovalAndSafetySkill,
   MediaCreativeIntentSkill,
   MediaPipelinePlaybooksSkill,
+  HtmlCssDesignEngineeringSkill,
   StaticGraphicStyleSkill,
   VideoHighlightStyleSkill,
   SocialCaptionStyleSkill,
@@ -281,11 +285,19 @@ import {
   LineupRotationOptimizerSkill,
   PlayDesignSimulationSkill,
   PlayDiagramVerificationWorkflowSkill,
+  PracticeScriptAndProgressionSkill,
+  FootballCallsheetDesignSkill,
+  PracticeScriptDesignSkill,
+  QbWristbandInsertDesignSkill,
+  RosterAndDepthChartDesignSkill,
+  RecruitingBoardAndVisitTrackerSkill,
   FilmComparisonFrameworkSkill,
   FilmViewingBatchProcessingWorkflowSkill,
   FilmReportSkill,
   DataNormalizationAndEntityResolutionSkill,
   ReportFormattingAndExportSkill,
+  OpenpyxlSpreadsheetDesignSkill,
+  TeamBudgetAndFinancialsSkill,
   GameBreakdownAutomationSkill,
   GlobalKnowledgeSkill,
 } from '../skills/index.js';
@@ -545,6 +557,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetCollegeLogosTool());
   toolRegistry.register(new GetConferenceLogosTool());
   toolRegistry.register(new ExecuteSandboxScriptTool(toolFirestore));
+  if (ExecutePythonCodeTool.isConfigured()) {
+    toolRegistry.register(new ExecutePythonCodeTool());
+    logger.info('E2B Python code interpreter registered (execute_python_code)');
+  } else {
+    logger.warn('E2B_API_KEY not configured — execute_python_code tool disabled');
+  }
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new ParseDocumentTool());
   toolRegistry.register(new EnrichDocumentNotesTool(llm));
@@ -557,6 +575,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   );
   toolRegistry.register(new ExtractHudlVideoTool());
   toolRegistry.register(new DynamicExportTool());
+  toolRegistry.register(new RenderHtmlPdfTool());
 
   let apifyMcpBridge: ApifyMcpBridgeService | undefined;
   let cfBridge: CloudflareMcpBridgeService | undefined;
@@ -827,12 +846,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new FilmBreakdownTaxonomySkill());
   skillRegistry.register(new OpponentScoutingPacketSkill());
   skillRegistry.register(new DocumentAnalysisSkill());
+  skillRegistry.register(new AthleticPerformanceAndCombineTrackerSkill());
   skillRegistry.register(new OutreachCopywritingSkill());
   skillRegistry.register(new ComplianceRulebookSkill());
   skillRegistry.register(new NilAndBrandComplianceSkill());
   skillRegistry.register(new CommunicationApprovalAndSafetySkill());
   skillRegistry.register(new MediaCreativeIntentSkill());
   skillRegistry.register(new MediaPipelinePlaybooksSkill());
+  skillRegistry.register(new HtmlCssDesignEngineeringSkill());
   skillRegistry.register(new StaticGraphicStyleSkill());
   skillRegistry.register(new VideoHighlightStyleSkill());
   skillRegistry.register(new SocialCaptionStyleSkill());
@@ -846,6 +867,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new LineupRotationOptimizerSkill());
   skillRegistry.register(new PlayDesignSimulationSkill());
   skillRegistry.register(new PlayDiagramVerificationWorkflowSkill());
+  skillRegistry.register(new PracticeScriptAndProgressionSkill());
+  skillRegistry.register(new FootballCallsheetDesignSkill());
+  skillRegistry.register(new PracticeScriptDesignSkill());
+  skillRegistry.register(new QbWristbandInsertDesignSkill());
+  skillRegistry.register(new RosterAndDepthChartDesignSkill());
+  skillRegistry.register(new RecruitingBoardAndVisitTrackerSkill());
   skillRegistry.register(new FilmComparisonFrameworkSkill());
   skillRegistry.register(new FilmViewingBatchProcessingWorkflowSkill());
   skillRegistry.register(new FilmReportSkill());
@@ -853,6 +880,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new PredictivePerformanceAnalysisSkill());
   skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
   skillRegistry.register(new ReportFormattingAndExportSkill());
+  skillRegistry.register(new OpenpyxlSpreadsheetDesignSkill());
+  skillRegistry.register(new TeamBudgetAndFinancialsSkill());
 
   // Global Knowledge Base — dynamic vector retrieval at runtime
   const knowledgeRetrieval = new KnowledgeRetrievalService(llm);
