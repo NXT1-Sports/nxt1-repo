@@ -4366,62 +4366,81 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
 
     try {
       let targetReviewId: string | null = null;
-      const uploadedSources: TeamFilmReviewSourceVideo[] = [];
+      const uploadedSources: TeamFilmReviewSourceVideo[] = new Array(validVideos.length);
       const sourceAngleMetadata = buildTeamFilmReviewSourceAngleMetadata(
         validVideos.map((file) => file.name)
       );
-      for (let index = 0; index < validVideos.length; index += 1) {
-        this.filesUploadCurrentFile.set(index + 1);
-        let file = validVideos[index] as File;
 
-        // Lazy-extract zip entry right before upload to prevent memory crash
-        if (
-          (file as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })._nxt1_lazy_entry
-        ) {
-          const entry = (file as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })
-            ._nxt1_lazy_entry!;
-          const blob = await entry.getData();
-          file = new File([blob], file.name, { type: file.type, lastModified: file.lastModified });
+      const MAX_CONCURRENT_LIBRARY_UPLOADS = 3;
+      let currentIndex = 0;
+
+      const worker = async () => {
+        while (currentIndex < validVideos.length) {
+          const index = currentIndex++;
+          this.filesUploadCurrentFile.set(Math.min(currentIndex, validVideos.length));
+          let file = validVideos[index] as File;
+
+          // Lazy-extract zip entry right before upload to prevent memory crash
+          if (
+            (file as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })
+              ._nxt1_lazy_entry
+          ) {
+            const entry = (file as File & { _nxt1_lazy_entry?: { getData: () => Promise<Blob> } })
+              ._nxt1_lazy_entry!;
+            const blob = await entry.getData();
+            file = new File([blob], file.name, {
+              type: file.type,
+              lastModified: file.lastModified,
+            });
+          }
+
+          const angleMetadata = sourceAngleMetadata[index];
+          this.filesUploadCurrentFileName.set(file.name);
+          const uploaded = await this.uploadSingleLibraryVideo(
+            file,
+            authToken,
+            index,
+            validVideos.length
+          );
+
+          uploadedSources[index] = {
+            id: `source-${index + 1}`,
+            order: index,
+            title: this.deriveFilmReviewTitleFromFile(file.name),
+            videoUrl: uploaded.streamUrl,
+            ...(angleMetadata?.cameraAngle ? { cameraAngle: angleMetadata.cameraAngle } : {}),
+            ...(angleMetadata?.angleGroupId ? { angleGroupId: angleMetadata.angleGroupId } : {}),
+            ...(angleMetadata?.angleDetectionSource
+              ? { angleDetectionSource: angleMetadata.angleDetectionSource }
+              : {}),
+            ...(uploaded.downloadUrl ? { downloadUrl: uploaded.downloadUrl } : {}),
+            ...(uploaded.storagePath ? { storagePath: uploaded.storagePath } : {}),
+            ...(uploaded.cloudflareVideoId
+              ? { cloudflareVideoId: uploaded.cloudflareVideoId }
+              : {}),
+            ...(uploaded.cloudflareStatus ? { cloudflareStatus: uploaded.cloudflareStatus } : {}),
+            ...(uploaded.readyToStream !== undefined
+              ? { readyToStream: uploaded.readyToStream }
+              : {}),
+            ...(uploaded.thumbnailUrl ? { thumbnailUrl: uploaded.thumbnailUrl } : {}),
+            ...(uploaded.durationSec !== undefined ? { durationSec: uploaded.durationSec } : {}),
+          };
+
+          // The local block-scoped 'file' reference will naturally go out of scope here,
+          // allowing the Garbage Collector to reclaim the Blob memory.
+          // Yield to the event loop to allow Garbage Collector to reclaim Blob memory
+          // This is critical when extracting hundreds of videos from a ZIP file in a tight loop.
+          // We use 3000ms (3 seconds) to give Chrome's network stack and GC ample time to
+          // clear the massive 500MB+ Blobs before we allocate the next one.
+          await new Promise((resolve) => setTimeout(resolve, 3000));
         }
+      };
 
-        const angleMetadata = sourceAngleMetadata[index];
-        this.filesUploadCurrentFileName.set(file.name);
-        const uploaded = await this.uploadSingleLibraryVideo(
-          file,
-          authToken,
-          index,
-          validVideos.length
-        );
-        uploadedSources.push({
-          id: `source-${index + 1}`,
-          order: index,
-          title: this.deriveFilmReviewTitleFromFile(file.name),
-          videoUrl: uploaded.streamUrl,
-          ...(angleMetadata?.cameraAngle ? { cameraAngle: angleMetadata.cameraAngle } : {}),
-          ...(angleMetadata?.angleGroupId ? { angleGroupId: angleMetadata.angleGroupId } : {}),
-          ...(angleMetadata?.angleDetectionSource
-            ? { angleDetectionSource: angleMetadata.angleDetectionSource }
-            : {}),
-          ...(uploaded.downloadUrl ? { downloadUrl: uploaded.downloadUrl } : {}),
-          ...(uploaded.storagePath ? { storagePath: uploaded.storagePath } : {}),
-          ...(uploaded.cloudflareVideoId ? { cloudflareVideoId: uploaded.cloudflareVideoId } : {}),
-          ...(uploaded.cloudflareStatus ? { cloudflareStatus: uploaded.cloudflareStatus } : {}),
-          ...(uploaded.readyToStream !== undefined
-            ? { readyToStream: uploaded.readyToStream }
-            : {}),
-          ...(uploaded.thumbnailUrl ? { thumbnailUrl: uploaded.thumbnailUrl } : {}),
-          ...(uploaded.durationSec !== undefined ? { durationSec: uploaded.durationSec } : {}),
-        });
-
-        // Explicitly clear local file reference to release the Blob
-        file = null as unknown as File;
-
-        // Yield to the event loop to allow Garbage Collector to reclaim Blob memory
-        // This is critical when extracting hundreds of videos from a ZIP file in a tight loop.
-        // We use 3000ms (3 seconds) to give Chrome's network stack and GC ample time to
-        // clear the massive 500MB+ Blobs before we allocate the next one.
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+      const workers = [];
+      for (let i = 0; i < Math.min(MAX_CONCURRENT_LIBRARY_UPLOADS, validVideos.length); i++) {
+        workers.push(worker());
       }
+      await Promise.all(workers);
 
       let importedPlayCount: number | null = null;
 
