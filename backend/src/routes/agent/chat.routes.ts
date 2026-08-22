@@ -2311,6 +2311,7 @@ async function streamOperationToSse(params: {
 
   const processLiveEvent = (msg: { event: string; data: unknown }): void => {
     if (closed) return;
+    idleTimeoutHandle.refresh();
 
     const seq = extractEventSeq(msg.data);
     if (seq !== null && seq <= lastSeq) {
