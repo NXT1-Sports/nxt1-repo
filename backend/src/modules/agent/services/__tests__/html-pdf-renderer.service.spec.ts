@@ -4,7 +4,6 @@ import {
   buildPlaywrightPdfOptions,
   getLocalChromiumLaunchArgs,
   HtmlPdfRendererService,
-  shouldUseE2bHtmlPdfRunner,
   type HtmlPdfRunner,
 } from '../html-pdf-renderer.service.js';
 
@@ -45,17 +44,6 @@ describe('HtmlPdfRendererService', () => {
     expect(getLocalChromiumLaunchArgs('darwin')).toEqual([]);
   });
 
-  it('uses local rendering in auto mode when no E2B HTML PDF template is configured', () => {
-    expect(shouldUseE2bHtmlPdfRunner(undefined, false)).toBe(false);
-    expect(shouldUseE2bHtmlPdfRunner('auto', false)).toBe(false);
-  });
-
-  it('uses E2B only when explicitly forced or when an HTML PDF template is configured', () => {
-    expect(shouldUseE2bHtmlPdfRunner('e2b', false)).toBe(true);
-    expect(shouldUseE2bHtmlPdfRunner('auto', true)).toBe(true);
-    expect(shouldUseE2bHtmlPdfRunner('local', true)).toBe(false);
-  });
-
   it('renders a valid complete HTML document and returns metadata', async () => {
     const runner: HtmlPdfRunner = { render: vi.fn().mockResolvedValue(pdfBytes(1)) };
     const service = new HtmlPdfRendererService(runner);
@@ -77,22 +65,6 @@ describe('HtmlPdfRendererService', () => {
       verified: true,
       warnings: [],
     });
-  });
-
-  it('reports local Playwright metadata when the injected runner uses the local engine', async () => {
-    const runner: HtmlPdfRunner = {
-      engine: 'local-playwright',
-      render: vi.fn().mockResolvedValue(pdfBytes(1)),
-    };
-    const service = new HtmlPdfRendererService(runner);
-
-    const result = await service.render({
-      html: VALID_HTML,
-      pageSize: 'LETTER',
-      orientation: 'landscape',
-    });
-
-    expect(result.metadata.engine).toBe('local-playwright');
   });
 
   it('rejects partial HTML snippets', async () => {

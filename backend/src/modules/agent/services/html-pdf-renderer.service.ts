@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 
 export type HtmlPdfPageSize = 'LETTER' | 'LEGAL' | 'TABLOID' | 'A4';
@@ -35,21 +34,11 @@ export interface HtmlPdfRenderResult {
   readonly metadata: HtmlPdfRenderMetadata;
 }
 
-export type HtmlPdfRenderEngine = 'e2b-playwright' | 'local-playwright';
+export type HtmlPdfRenderEngine = 'e2b-playwright';
 
 export interface HtmlPdfRunner {
   readonly engine?: HtmlPdfRenderEngine;
   render(input: HtmlPdfRenderInput): Promise<Buffer>;
-}
-
-export function shouldUseE2bHtmlPdfRunner(
-  requestedMode: string | undefined,
-  hasConfiguredE2bTemplate: boolean
-): boolean {
-  const mode = requestedMode?.trim().toLowerCase() ?? 'auto';
-  if (mode === 'local') return false;
-  if (mode === 'e2b') return true;
-  return hasConfiguredE2bTemplate;
 }
 
 export function getLocalChromiumLaunchArgs(
@@ -66,7 +55,7 @@ const MAX_HTML_BYTES = 1_500_000;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
 export class HtmlPdfRendererService {
-  constructor(private readonly runner: HtmlPdfRunner = new AutoHtmlPdfRunner()) {}
+  constructor(private readonly runner: HtmlPdfRunner = new E2bHtmlPdfRunner()) {}
 
   async render(input: HtmlPdfRenderInput): Promise<HtmlPdfRenderResult> {
     this.validateHtml(input.html);
@@ -141,46 +130,6 @@ export class HtmlPdfRendererService {
   }
 }
 
-class AutoHtmlPdfRunner implements HtmlPdfRunner {
-  readonly e2bRunner = new E2bHtmlPdfRunner();
-  readonly localRunner = new LocalPlaywrightHtmlPdfRunner();
-  engine: HtmlPdfRenderEngine = 'e2b-playwright';
-
-  async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const mode = process.env['HTML_PDF_RENDERER']?.trim().toLowerCase() ?? 'auto';
-    const hasConfiguredE2bTemplate = Boolean(process.env['E2B_HTML_PDF_TEMPLATE']?.trim());
-    if (mode === 'local') {
-      this.engine = 'local-playwright';
-      return this.localRunner.render(input);
-    }
-
-    if (!shouldUseE2bHtmlPdfRunner(mode, hasConfiguredE2bTemplate)) {
-      this.engine = 'local-playwright';
-      return this.localRunner.render(input);
-    }
-
-    try {
-      this.engine = 'e2b-playwright';
-      return await this.e2bRunner.render(input);
-    } catch (error) {
-      if (mode === 'e2b') {
-        throw error;
-      }
-
-      try {
-        this.engine = 'local-playwright';
-        return await this.localRunner.render(input);
-      } catch (fallbackError) {
-        throw new AgentEngineError(
-          'AGENT_PIPELINE_FAILED',
-          `HTML PDF rendering failed in E2B and local Playwright fallback. E2B error: ${getErrorMessage(error)}. Local error: ${getErrorMessage(fallbackError)}`,
-          { cause: fallbackError }
-        );
-      }
-    }
-  }
-}
-
 class E2bHtmlPdfRunner implements HtmlPdfRunner {
   async render(input: HtmlPdfRenderInput): Promise<Buffer> {
     const template = process.env['E2B_HTML_PDF_TEMPLATE']?.trim() || 'nxt1-html-pdf-renderer';
@@ -221,66 +170,6 @@ class E2bHtmlPdfRunner implements HtmlPdfRunner {
       await sandbox?.kill().catch(() => undefined);
     }
   }
-}
-
-class LocalPlaywrightHtmlPdfRunner implements HtmlPdfRunner {
-  readonly engine = 'local-playwright' as const;
-
-  async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const moduleLoader = new Function('specifier', 'return import(specifier)') as (
-      specifier: string
-    ) => Promise<{ chromium: LocalChromiumLike }>;
-
-    let browser: LocalBrowserLike | undefined;
-    try {
-      const { chromium } = await moduleLoader('playwright');
-      browser = await chromium.launch({
-        headless: true,
-        args: [...getLocalChromiumLaunchArgs()],
-        ...resolveLocalChromiumExecutablePath(),
-      });
-      const page = await browser.newPage();
-      await page.emulateMedia({ media: 'print' });
-      await page.setContent(input.html, { waitUntil: 'networkidle' });
-      const pdf = await page.pdf(buildPlaywrightPdfOptions(input));
-      return Buffer.from(pdf);
-    } catch (error) {
-      throw new AgentEngineError(
-        'AGENT_PIPELINE_FAILED',
-        `Local Playwright HTML PDF rendering failed: ${getErrorMessage(error)}. Ensure playwright is installed and Chrome/Chromium is available, or set HTML_PDF_RENDERER=e2b with a valid E2B template.`,
-        { cause: error }
-      );
-    } finally {
-      await browser?.close().catch(() => undefined);
-    }
-  }
-}
-
-interface LocalChromiumLike {
-  launch(options: {
-    headless: boolean;
-    executablePath?: string;
-    args?: readonly string[];
-  }): Promise<LocalBrowserLike>;
-}
-
-interface LocalBrowserLike {
-  newPage(): Promise<LocalPageLike>;
-  close(): Promise<void>;
-}
-
-interface LocalPageLike {
-  emulateMedia(options: { media: 'print' }): Promise<void>;
-  setContent(html: string, options?: { waitUntil?: 'networkidle' }): Promise<void>;
-  pdf(options: {
-    format?: string;
-    width?: string;
-    height?: string;
-    landscape: boolean;
-    printBackground: boolean;
-    preferCSSPageSize: boolean;
-    margin: { top: string; right: string; bottom: string; left: string };
-  }): Promise<Uint8Array>;
 }
 
 interface E2bSandboxLike {
@@ -356,24 +245,6 @@ function toPlaywrightFormat(pageSize: HtmlPdfPageSize): string {
   if (pageSize === 'LEGAL') return 'Legal';
   if (pageSize === 'TABLOID') return 'Tabloid';
   return 'Letter';
-}
-
-function resolveLocalChromiumExecutablePath(): { readonly executablePath?: string } {
-  const configured = process.env['CHROME_EXECUTABLE_PATH']?.trim();
-  if (configured && existsSync(configured)) {
-    return { executablePath: configured };
-  }
-
-  const candidates = [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ];
-
-  const executablePath = candidates.find((candidate) => existsSync(candidate));
-  return executablePath ? { executablePath } : {};
 }
 
 function getErrorMessage(error: unknown): string {

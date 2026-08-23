@@ -19,3 +19,15 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Release builds currently ship with minification disabled, but we keep the
+# MSAL/Common auth fragments stable so future shrinking changes do not reintroduce
+# restore-time crashes in CurrentTaskAuthorizationActivity.
+-keep class com.microsoft.identity.common.** { *; }
+-keep interface com.microsoft.identity.common.** { *; }
+-keep class com.microsoft.identity.client.** { *; }
+-keep interface com.microsoft.identity.client.** { *; }
+
+# FragmentManager restores fragments by class name from saved state.
+-keep public class * extends androidx.fragment.app.Fragment
+-keep public class * extends android.app.Fragment
