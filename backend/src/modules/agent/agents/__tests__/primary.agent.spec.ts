@@ -351,8 +351,16 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'Do NOT satisfy those requests by creating a universal document unless the user explicitly asks for a separate written report/notes document in addition to the film-review mutation.'
     );
-    expect(prompt).toContain('clear user-requested play/drill diagram generation');
+    expect(prompt).toContain('visual diagram generation is currently disabled');
+    expect(prompt).toContain('Do NOT promise that a diagram can be created right now');
+    expect(prompt).toContain('integration is still in progress');
+    expect(prompt).toContain('Route to `strategy_coordinator` for the best written fallback');
+    expect(prompt).toContain('do NOT say you can create or generate diagrams');
     expect(prompt).toContain(
+      'do NOT ask diagram-generation-specific intake like how many diagrams'
+    );
+    expect(prompt).not.toContain('clear user-requested play/drill diagram generation');
+    expect(prompt).not.toContain(
       'delegate to `strategy_coordinator` immediately and do not ask permission first'
     );
     expect(prompt).toContain('do one short internal verification pass and double-check');
@@ -369,6 +377,9 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'ask what they want to do with the file before delegating or mutating anything'
     );
+    expect(prompt).toContain('Explicit video save routing (CRITICAL)');
+    expect(prompt).toContain('delegate to `performance_coordinator` for Film Review persistence');
+    expect(prompt).toContain('Coach/director/team video saves default to Film Review');
     // Decision boundary: direct lookup vs. delegate for recruiting
     expect(prompt).toContain('Simple factual lookup');
     expect(prompt).toContain('use `search_colleges` or `search_college_coaches` directly');

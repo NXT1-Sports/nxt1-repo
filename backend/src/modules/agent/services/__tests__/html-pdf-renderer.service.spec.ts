@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import {
+  buildPlaywrightPdfOptions,
   getLocalChromiumLaunchArgs,
   HtmlPdfRendererService,
   shouldUseE2bHtmlPdfRunner,
@@ -15,6 +16,23 @@ function pdfBytes(pageCount = 1): Buffer {
 }
 
 describe('HtmlPdfRendererService', () => {
+  it('uses custom page dimensions when provided', () => {
+    expect(
+      buildPlaywrightPdfOptions({
+        html: VALID_HTML,
+        pageSize: 'LETTER',
+        orientation: 'landscape',
+        pageWidth: 4.75,
+        pageHeight: 2.5,
+        pageUnit: 'in',
+      })
+    ).toMatchObject({
+      width: '4.75in',
+      height: '2.5in',
+      preferCSSPageSize: true,
+    });
+  });
+
   it('uses hardened Chromium launch args on linux only', () => {
     expect(getLocalChromiumLaunchArgs('linux')).toEqual(
       expect.arrayContaining([

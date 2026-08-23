@@ -130,6 +130,7 @@ describe('RenderHtmlPdfTool', () => {
           type: 'doc',
           artifactRole: 'source',
         }),
+        revisionHint: expect.stringContaining('ask Agent X to adjust this PDF'),
         relatedDocumentId: 'doc-1',
         sourceDocumentIds: ['source-doc-1'],
         sourceAttachmentIds: ['source-attachment-1'],
@@ -152,7 +153,7 @@ describe('RenderHtmlPdfTool', () => {
     });
   });
 
-  it('rejects exact-match exports that use generic document flow', async () => {
+  it('renders exact-match exports best-effort instead of blocking on layout lint', async () => {
     const result = await tool.execute(
       {
         html: '<!doctype html><html><head><style>.grid{display:flex}.col{flex:1}</style></head><body><main class="grid"><section class="col">Depth chart</section></main></body></html>',
@@ -162,9 +163,52 @@ describe('RenderHtmlPdfTool', () => {
       context
     );
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('professional print layout');
-    expect(render).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageSize: 'LETTER',
+        orientation: 'landscape',
+      })
+    );
+  });
+
+  it('passes custom wristband dimensions through to the renderer', async () => {
+    const result = await tool.execute(
+      {
+        html: '<!doctype html><html><head><style>@page{size:4.75in 2.5in;margin:0}body{width:4.75in;height:2.5in}.card{width:100%;height:100%;display:grid;grid-template-columns:1fr 1fr}</style></head><body><main class="card">QB wristband</main></body></html>',
+        fileName: 'qb-wristband.pdf',
+        layoutIntent: 'exact_match',
+        pageWidth: 4.75,
+        pageHeight: 2.5,
+        pageUnit: 'in',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pageWidth: 4.75,
+        pageHeight: 2.5,
+        pageUnit: 'in',
+      })
+    );
+  });
+
+  it('uses title as a fallback filename when fileName is omitted', async () => {
+    const result = await tool.execute(
+      {
+        html: '<!doctype html><html><head><style>@page{size:11in 8.5in landscape;margin:0.15in}.card{width:100%;height:100%;display:flex}</style></head><body><main class="card">Scout team play card</main></body></html>',
+        title: 'NXT1 Falcons - Scout Team Play Cards',
+        layoutIntent: 'exact_match',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(result).toMatchObject({
+      data: { fileName: 'NXT1 Falcons - Scout Team Play Cards.pdf' },
+    });
   });
 
   it('defaults to landscape letter best-fit operational exports', async () => {

@@ -4,11 +4,15 @@ import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 
 export type HtmlPdfPageSize = 'LETTER' | 'LEGAL' | 'TABLOID' | 'A4';
 export type HtmlPdfOrientation = 'portrait' | 'landscape';
+export type HtmlPdfPageUnit = 'in' | 'mm' | 'cm' | 'px' | 'pt';
 
 export interface HtmlPdfRenderInput {
   readonly html: string;
   readonly pageSize: HtmlPdfPageSize;
   readonly orientation: HtmlPdfOrientation;
+  readonly pageWidth?: number;
+  readonly pageHeight?: number;
+  readonly pageUnit?: HtmlPdfPageUnit;
   readonly expectedPageCount?: number;
   readonly signal?: AbortSignal;
 }
@@ -17,6 +21,9 @@ export interface HtmlPdfRenderMetadata {
   readonly engine: HtmlPdfRenderEngine;
   readonly pageSize: HtmlPdfPageSize;
   readonly orientation: HtmlPdfOrientation;
+  readonly pageWidth?: number;
+  readonly pageHeight?: number;
+  readonly pageUnit?: HtmlPdfPageUnit;
   readonly expectedPageCount?: number;
   readonly pageCount?: number;
   readonly verified: boolean;
@@ -91,6 +98,9 @@ export class HtmlPdfRendererService {
         engine: this.runner.engine ?? 'e2b-playwright',
         pageSize: input.pageSize,
         orientation: input.orientation,
+        ...(input.pageWidth ? { pageWidth: input.pageWidth } : {}),
+        ...(input.pageHeight ? { pageHeight: input.pageHeight } : {}),
+        ...(input.pageUnit ? { pageUnit: input.pageUnit } : {}),
         ...(input.expectedPageCount ? { expectedPageCount: input.expectedPageCount } : {}),
         ...(pageCount ? { pageCount } : {}),
         verified: warnings.length === 0,
@@ -232,12 +242,7 @@ class LocalPlaywrightHtmlPdfRunner implements HtmlPdfRunner {
       const page = await browser.newPage();
       await page.emulateMedia({ media: 'print' });
       await page.setContent(input.html, { waitUntil: 'networkidle' });
-      const pdf = await page.pdf({
-        format: toPlaywrightFormat(input.pageSize),
-        landscape: input.orientation === 'landscape',
-        printBackground: true,
-        margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
-      });
+      const pdf = await page.pdf(buildPlaywrightPdfOptions(input));
       return Buffer.from(pdf);
     } catch (error) {
       throw new AgentEngineError(
@@ -268,9 +273,12 @@ interface LocalPageLike {
   emulateMedia(options: { media: 'print' }): Promise<void>;
   setContent(html: string, options?: { waitUntil?: 'networkidle' }): Promise<void>;
   pdf(options: {
-    format: string;
+    format?: string;
+    width?: string;
+    height?: string;
     landscape: boolean;
     printBackground: boolean;
+    preferCSSPageSize: boolean;
     margin: { top: string; right: string; bottom: string; left: string };
   }): Promise<Uint8Array>;
 }
@@ -291,9 +299,8 @@ interface E2bSandboxLike {
 }
 
 function buildPlaywrightRenderScript(input: HtmlPdfRenderInput): string {
-  const format = toPlaywrightFormat(input.pageSize);
-  const landscape = input.orientation === 'landscape';
   const launchArgs = JSON.stringify(getLocalChromiumLaunchArgs('linux'));
+  const pdfOptions = JSON.stringify(buildPlaywrightPdfOptions(input));
   return `import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 
@@ -307,16 +314,41 @@ try {
   const page = await browser.newPage();
   await page.goto('file://' + resolve(process.cwd(), 'input.html'), { waitUntil: 'networkidle' });
   await page.pdf({
+    ...${pdfOptions},
     path: resolve(process.cwd(), 'output.pdf'),
-    format: ${JSON.stringify(format)},
-    landscape: ${JSON.stringify(landscape)},
-    printBackground: true,
-    margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
   });
 } finally {
   await browser.close();
 }
 `;
+}
+
+export function buildPlaywrightPdfOptions(input: HtmlPdfRenderInput): {
+  readonly format?: string;
+  readonly width?: string;
+  readonly height?: string;
+  readonly landscape: boolean;
+  readonly printBackground: boolean;
+  readonly preferCSSPageSize: boolean;
+  readonly margin: {
+    readonly top: string;
+    readonly right: string;
+    readonly bottom: string;
+    readonly left: string;
+  };
+} {
+  const unit = input.pageUnit ?? 'in';
+  const customSize = input.pageWidth && input.pageHeight;
+
+  return {
+    ...(customSize
+      ? { width: `${input.pageWidth}${unit}`, height: `${input.pageHeight}${unit}` }
+      : { format: toPlaywrightFormat(input.pageSize) }),
+    landscape: input.orientation === 'landscape',
+    printBackground: true,
+    preferCSSPageSize: true,
+    margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
+  };
 }
 
 function toPlaywrightFormat(pageSize: HtmlPdfPageSize): string {

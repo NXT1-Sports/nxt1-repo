@@ -72,7 +72,7 @@ Choose the artifact tool based on output shape:
 | Output Shape                     | Primary Tool                                                       | Examples                                                                                         |
 | -------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | Connected native document/table  | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs                             |
-| Spreadsheet / workbook export    | `execute_python_code`                                              | XLSX files, trackers, matrices, callsheets, budgets, dashboards, formula workbooks               |
+| Spreadsheet / workbook export    | `execute_python_code`                                              | Explicit XLSX files, trackers, matrices, budgets, dashboards, formula workbooks, editable sheets |
 | Exact-layout PDF from HTML/CSS   | `render_html_pdf`                                                  | Sample-matched PDFs, one-page staff sheets, callsheets, wristbands, depth charts, sideline cards |
 | Gamma-style report / slide deck  | `dynamic_export`                                                   | Presentation decks, multi-page narrative reports, scout-card packets, briefing decks             |
 | Fallback document / table export | `dynamic_export`                                                   | Fallback PDF/XLSX/CSV export when no better dedicated path fits                                  |
@@ -95,16 +95,18 @@ back to the saved record.
 **Exact PDF rule:** When the user asks to match a sample image, screenshot,
 paper form, staff sheet, or reference layout exactly, use `render_html_pdf` with
 complete HTML/CSS instead of Gamma or `dynamic_export`. Also use
-`render_html_pdf` for operational PDFs where box placement, columns, page count,
-and print geometry matter (callsheets, wristbands, depth charts, sideline cards,
-practice matrices). Use `execute_python_code`/XLSX or connected spreadsheet
-tools instead when the primary requirement is editability.
+`render_html_pdf` by default for user-facing printable/share-ready operational
+PDFs such as callsheets, wristbands, depth charts, sideline cards, practice
+matrices, and similar coaching artifacts. Use `execute_python_code`/XLSX or
+connected spreadsheet tools only when the primary requirement is editability or
+the user explicitly asks for spreadsheet/workbook output.
 
 **Routing order (mandatory):**
 
-1. One-page or fixed-layout PDFs first -> `render_html_pdf`
+1. User-facing printable/share-ready PDFs first -> `render_html_pdf`
 2. Presentation decks and Gamma-style reports -> `dynamic_export`
-3. Editable spreadsheets/workbooks -> `execute_python_code` first
+3. Editable spreadsheets/workbooks only when explicitly requested ->
+   `execute_python_code`
 4. `dynamic_export` is the last fallback for PDF/XLSX when the dedicated path
    above is not the right fit or is unavailable
 

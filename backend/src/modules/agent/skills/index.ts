@@ -23,6 +23,7 @@ export { OpponentScoutingPacketSkill } from './evaluation/opponent-scouting-pack
 export { PredictivePerformanceAnalysisSkill } from './evaluation/predictive-performance-analysis.skill.js';
 export { DocumentAnalysisSkill } from './evaluation/document-analysis.skill.js';
 export { AthleticPerformanceAndCombineTrackerSkill } from './evaluation/athletic-performance-and-combine-tracker.skill.js';
+export { PlayerScoutCardDesignSkill } from './evaluation/player-scout-card-design.skill.js';
 
 // Copywriting
 export { OutreachCopywritingSkill } from './copywriting/outreach-copywriting.skill.js';
@@ -54,6 +55,7 @@ export { PlayDiagramVerificationWorkflowSkill } from './strategy/play-diagram-ve
 export { PracticeScriptAndProgressionSkill } from './strategy/practice-script-and-progression.skill.js';
 export { FootballCallsheetDesignSkill } from './strategy/football-callsheet-design.skill.js';
 export { QbWristbandInsertDesignSkill } from './strategy/qb-wristband-insert-design.skill.js';
+export { ScoutTeamCardDesignSkill } from './strategy/scout-team-card-design.skill.js';
 export { PracticeScriptDesignSkill } from './strategy/practice-script-design.skill.js';
 export { RosterAndDepthChartDesignSkill } from './strategy/roster-and-depth-chart-design.skill.js';
 export { RecruitingBoardAndVisitTrackerSkill } from './strategy/recruiting-board-and-visit-tracker.skill.js';

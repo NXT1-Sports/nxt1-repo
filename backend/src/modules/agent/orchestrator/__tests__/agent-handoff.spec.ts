@@ -67,6 +67,24 @@ describe('Agent handoff and tool narrowing', () => {
     expect(forced).not.toContain('generate_chart_visualization');
   });
 
+  it('defaults callsheet creation to render_html_pdf instead of dynamic_export', () => {
+    const forced = computeForcedToolInclusions('Build a Maumelle-style callsheet from our plays.');
+
+    expect(forced).toContain('create_universal_team_document');
+    expect(forced).toContain('render_html_pdf');
+    expect(forced).not.toContain('dynamic_export');
+  });
+
+  it('uses execute_python_code for explicit editable callsheet spreadsheet requests', () => {
+    const forced = computeForcedToolInclusions(
+      'Build an editable XLSX workbook callsheet from our plays.'
+    );
+
+    expect(forced).toContain('create_universal_team_document');
+    expect(forced).toContain('execute_python_code');
+    expect(forced).not.toContain('render_html_pdf');
+  });
+
   it('routes known film breakdown corrections through the lossless patch writer', () => {
     const forced = computeForcedToolInclusions(
       'Set DEF FRONT to Odd on the selected film breakdown row.'
@@ -82,7 +100,19 @@ describe('Agent handoff and tool narrowing', () => {
     );
 
     expect(forced).toContain('analyze_film_review_source_breakdowns');
+    expect(forced).toContain('import_film_review_breakdown');
     expect(forced).toContain('patch_film_review_source_breakdowns');
+  });
+
+  it('forces film review tools for explicit video saves into Files or Lab', () => {
+    const forced = computeForcedToolInclusions(
+      'Save this attached video file in the Lab so I can review it later.'
+    );
+
+    expect(forced).toContain('save_film_review');
+    expect(forced).toContain('add_film_review_source');
+    expect(forced).toContain('get_film_review');
+    expect(forced).toContain('list_film_reviews');
   });
 
   it('buildTaskIntent scopes handoff to objective and enforces task boundaries', () => {
@@ -782,6 +812,15 @@ describe('Agent handoff and tool narrowing', () => {
         entityGroup: 'user_tools',
       },
       {
+        name: 'render_html_pdf',
+        description: 'Render a printable callsheet or coaching document.',
+        parameters: {},
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
         name: 'dynamic_export',
         description: 'Export a callsheet or coaching document.',
         parameters: {},
@@ -866,7 +905,8 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('parse_document');
     expect(usedToolNames).toContain('render_pdf_pages');
     expect(usedToolNames).toContain('create_universal_team_document');
-    expect(usedToolNames).toContain('dynamic_export');
+    expect(usedToolNames).toContain('render_html_pdf');
+    expect(usedToolNames).not.toContain('dynamic_export');
   });
 
   it('marks explicit failed coordinator results as failed tasks', async () => {

@@ -328,6 +328,14 @@ class FakeAgent extends BaseAgent {
     ).withConfiguredSystemPrompt(basePrompt);
   }
 
+  callNormalizeDeliverableLinks(summary: string, data: Record<string, unknown>): string {
+    return (
+      this as unknown as {
+        normalizeDeliverableLinks: (summaryArg: string, dataArg: Record<string, unknown>) => string;
+      }
+    ).normalizeDeliverableLinks(summary, data);
+  }
+
   callSummarizeMiddleExchangesWithLlm(
     middleExchanges: readonly LLMMessage[][],
     llm: { complete: (...args: unknown[]) => Promise<{ content: string | null }> },
@@ -851,6 +859,9 @@ describe('BaseAgent runtime date guardrail', () => {
       'if the user asked for a first run later today but `nextRun` jumped about a week'
     );
     expect(prompt).toContain('Files contract: saved files, folders, film reviews');
+    expect(prompt).toContain('Video save routing (CRITICAL)');
+    expect(prompt).toContain('use the Film Review path');
+    expect(prompt).toContain('preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`');
     expect(prompt).toContain('editableViaUniversalDocumentTool: false');
     expect(prompt).toContain('SAME selected Files item');
     expect(prompt).toContain('For Files-backed artifacts, run semantic Files discovery first');
@@ -2724,6 +2735,37 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       })
     );
+  });
+
+  it('strips malformed nested export links and appends clean deliverable links', () => {
+    const agent = new FakeAgent();
+    const downloadUrl =
+      'http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/scout-play-cards-falcons.pdf?path=Users%2Fseed_director_01%2Fthreads%2Fthread%2Fexports%2Ffile.pdf&mime=application%2Fpdf&exp=123&sig=abc';
+
+    const normalized = agent.callNormalizeDeliverableLinks(
+      `Done. **[Scout Team Play Cards]([http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/scout-](http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/scout-) play-cards-falcons.pdf?path=broken)**`,
+      {
+        attachments: [
+          {
+            url: downloadUrl,
+            name: 'scout-play-cards-falcons.pdf',
+            mimeType: 'application/pdf',
+            artifactRole: 'export',
+          },
+          {
+            url: 'http://localhost:3000/source.html',
+            name: 'scout-play-cards-falcons.html',
+            mimeType: 'text/html',
+            artifactRole: 'source',
+          },
+        ],
+      }
+    );
+
+    expect(normalized).toContain('Deliverables:');
+    expect(normalized).toContain(`[scout-play-cards-falcons.pdf](${downloadUrl})`);
+    expect(normalized).not.toContain('[http://localhost');
+    expect(normalized).not.toContain('source.html');
   });
 
   it('attributes orchestration LLM calls to the agent bucket after dynamic export runs', async () => {

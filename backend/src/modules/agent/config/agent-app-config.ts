@@ -60,6 +60,13 @@ const FALLBACK_MAX_AGENTIC_TURNS = 18;
 const FALLBACK_MAX_JOB_ATTEMPTS = 2;
 const FALLBACK_RETRY_BACKOFF_MS = 5_000;
 
+const FORCED_DISABLED_AGENT_TOOLS = Object.freeze([
+  'create_play_diagram',
+  'create_board_diagram',
+  'update_board_diagram',
+  'delete_board_diagram',
+]);
+
 /** Primary Agent (single-agent native tool-calling loop) defaults. */
 const FALLBACK_THREAD_AS_TRUTH = true;
 const FALLBACK_PRIMARY_THREAD_HISTORY_WINDOW = 40;
@@ -2543,7 +2550,7 @@ export function parseAgentAppConfig(
       disabledTools: Object.freeze(
         Array.from(
           new Set(
-            featureFlags.disabledTools
+            [...FORCED_DISABLED_AGENT_TOOLS, ...featureFlags.disabledTools]
               .map((toolName) => toolName.trim())
               .filter((toolName) => toolName.length > 0)
           )
@@ -2777,6 +2784,10 @@ export function isToolDisabled(
   const normalizedToolName = toolName.trim();
   if (!normalizedToolName) {
     return false;
+  }
+
+  if (FORCED_DISABLED_AGENT_TOOLS.includes(normalizedToolName)) {
+    return true;
   }
 
   if (config.featureFlags.disabledTools.includes(normalizedToolName)) {

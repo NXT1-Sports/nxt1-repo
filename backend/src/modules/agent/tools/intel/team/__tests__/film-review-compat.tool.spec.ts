@@ -13,6 +13,7 @@ import {
   RefreshFilmReviewAiTool,
   GetFilmReviewSourceBreakdownTool,
   GetFilmReviewTool,
+  ImportFilmReviewBreakdownTool,
   ListFilmReviewSourcesTool,
   ListFilmReviewsTool,
   PatchFilmReviewSourceBreakdownsTool,
@@ -413,20 +414,39 @@ describe('film review compatibility tools', () => {
   it('creates a personal film review without teamId', async () => {
     const db = createDb([]);
     const tool = new SaveFilmReviewTool(db as never);
+    const thumbnailUrl = 'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/thumb.jpg';
 
     const result = await tool.execute(
       {
         title: 'Solo Training Session',
         sport: 'football',
         videoUrl: 'https://cdn.example.com/personal-review.mp4',
+        storagePath: 'Users/athlete-1/agent-x/videos/personal-review.mp4',
+        thumbnailUrl,
+        durationSec: 42,
       },
       { userId: 'athlete-1' }
     );
 
     expect(result.success).toBe(true);
-    const data = result.data as { review: { title: string; teamId?: string | null } };
+    const data = result.data as { review: { id: string; title: string; teamId?: string | null } };
     expect(data.review.title).toBe('Solo Training Session');
     expect(data.review.teamId ?? null).toBeNull();
+
+    const createdSnapshot = await db.collection('UniversalFiles').doc(data.review.id).get();
+    const createdData = createdSnapshot.data();
+    const payload = createdData?.['payload'] as Record<string, unknown>;
+    const asset = payload['asset'] as Record<string, unknown>;
+    const filmReview = payload['filmReview'] as Record<string, unknown>;
+    const sources = filmReview['sources'] as Array<Record<string, unknown>>;
+
+    expect(createdData?.['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(payload['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(asset['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(filmReview['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(sources[0]?.['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(sources[0]?.['storagePath']).toBe('Users/athlete-1/agent-x/videos/personal-review.mp4');
+    expect(sources[0]?.['durationSec']).toBe(42);
   });
 
   it('lists only the authenticated user workspace reviews', async () => {
@@ -885,6 +905,89 @@ describe('film review compatibility tools', () => {
     expect(data.review.title).toBe('IMG_0093 2.MOV Breakdown');
     expect(data.review.sport).toBe('football');
     expect(data.review.timeline?.[0]?.sourceId).toBe('source-1');
+  });
+
+  it('updates an existing film review with Firebase thumbnail metadata for the Files list', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    const tool = new UpdateFilmReviewTool(db as never);
+    const thumbnailUrl = 'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/review-thumb.jpg';
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        storagePath: 'Users/coach-1/agent-x/videos/review-1.mp4',
+        thumbnailUrl,
+        durationSec: 64,
+        downloadUrl: 'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/review-1.mp4',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const updatedSnapshot = await db.collection('UniversalFiles').doc('review-1').get();
+    const updatedData = updatedSnapshot.data();
+    const payload = updatedData?.['payload'] as Record<string, unknown>;
+    const asset = payload['asset'] as Record<string, unknown>;
+    const filmReview = payload['filmReview'] as Record<string, unknown>;
+    const sources = filmReview['sources'] as Array<Record<string, unknown>>;
+
+    expect(updatedData?.['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(payload['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(asset['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(filmReview['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(sources[0]?.['thumbnailUrl']).toBe(thumbnailUrl);
+    expect(sources[0]?.['storagePath']).toBe('Users/coach-1/agent-x/videos/review-1.mp4');
+    expect(sources[0]?.['durationSec']).toBe(64);
+    expect(sources[0]?.['downloadUrl']).toBe(
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/review-1.mp4'
+    );
+  });
+
+  it('imports a breakdown attachment into an existing film review through the Agent tool', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    const tool = new ImportFilmReviewBreakdownTool(db as never, async () => ({
+      buffer: Buffer.from('Play,Start,End,ODK,Play Type,Result\n1,0:10,0:18,O,Pass,Complete\n'),
+      fileName: 'hudl-breakdown.csv',
+      mimeType: 'text/csv',
+      storagePath: 'Users/coach-1/agent-x/breakdowns/hudl-breakdown.csv',
+    }));
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        storagePath: 'Users/coach-1/agent-x/breakdowns/hudl-breakdown.csv',
+        fileName: 'hudl-breakdown.csv',
+        mimeType: 'text/csv',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({ playCount: 1, rowCount: 1 });
+
+    const updatedSnapshot = await db.collection('UniversalFiles').doc('review-1').get();
+    const filmReview = (updatedSnapshot.data()?.['payload'] as Record<string, unknown>)[
+      'filmReview'
+    ] as Record<string, unknown>;
+    const timeline = filmReview['timeline'] as Array<Record<string, unknown>>;
+    const breakdownSource = filmReview['breakdownSource'] as Record<string, unknown>;
+
+    expect(filmReview['timelineState']).toBe('ready');
+    expect(timeline[0]).toMatchObject({
+      number: 1,
+      startSec: 10,
+      endSec: 18,
+      tags: { odk: 'O', playType: 'Pass', result: 'Complete' },
+    });
+    expect(breakdownSource).toMatchObject({
+      provider: 'csv',
+      fileName: 'hudl-breakdown.csv',
+      mimeType: 'text/csv',
+      storagePath: 'Users/coach-1/agent-x/breakdowns/hudl-breakdown.csv',
+      rowCount: 1,
+      playCount: 1,
+      importedBy: 'coach-1',
+    });
   });
 
   it('adds a source clip to an existing review', async () => {

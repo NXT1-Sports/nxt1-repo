@@ -28,6 +28,8 @@ import { OpponentScoutingPacketSkill } from '../evaluation/opponent-scouting-pac
 import { LineupRotationOptimizerSkill } from '../strategy/lineup-rotation-optimizer.skill.js';
 import { PlayDesignSimulationSkill } from '../strategy/play-design-simulation.skill.js';
 import { QbWristbandInsertDesignSkill } from '../strategy/qb-wristband-insert-design.skill.js';
+import { ScoutTeamCardDesignSkill } from '../strategy/scout-team-card-design.skill.js';
+import { PlayerScoutCardDesignSkill } from '../evaluation/player-scout-card-design.skill.js';
 import { CommunicationApprovalAndSafetySkill } from '../compliance/communication-approval-and-safety.skill.js';
 
 class EmptyContextSkill extends BaseSkill {
@@ -173,6 +175,8 @@ describe('BaseSkill.matchIntent', () => {
     expect(new LineupRotationOptimizerSkill().category).toBe('strategy');
     expect(new PlayDesignSimulationSkill().category).toBe('strategy');
     expect(new QbWristbandInsertDesignSkill().category).toBe('strategy');
+    expect(new ScoutTeamCardDesignSkill().category).toBe('strategy');
+    expect(new PlayerScoutCardDesignSkill().category).toBe('evaluation');
     expect(new PredictivePerformanceAnalysisSkill().category).toBe('evaluation');
   });
 
@@ -196,6 +200,62 @@ describe('BaseSkill.matchIntent', () => {
     expect(new PlayDesignSimulationSkill().getPromptContext()).toContain('Simulation Checklist');
     expect(new QbWristbandInsertDesignSkill().getPromptContext()).toContain('4.75" x 2.5"');
     expect(new QbWristbandInsertDesignSkill().getPromptContext()).toContain('4.0" x 3.0"');
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain('render_html_pdf');
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain('opponent **play/look**');
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'Do you want scout-team play/look cards for practice, or player/personnel scout cards?'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'placeholder opponent plays, formations, motions, assignments, and coaching cues'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain('DIAGRAM');
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'one scout play/look card per PDF page'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'fill roughly 90-95% of the printable page width and height'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'dominant field-sized DIAGRAM / LOOK CARD placeholder region'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'target roughly 70-80% of page width and 55-65% of page height'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'Do not rely on `height: 100%` alone.'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      '`.diagram-zone { min-height: 5.8in; }`'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'Do not make the diagram box a short horizontal strip.'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'A skinny middle diagram strip is not acceptable.'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'The diagram zone must have a concrete CSS height/min-height'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'later send real opponent diagram images, look-card screenshots, or play images'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'A top-only band with most of the page blank is not acceptable.'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'Use one page with multiple mini cards only if the user explicitly asks'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'Do not write out a fake diagram, route drawing, or field sketch in prose.'
+    );
+    expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain(
+      'should not contain invented routes, arrows, formations, player dots, field markings'
+    );
+    expect(new PlayerScoutCardDesignSkill().getPromptContext()).toContain('dynamic_export');
+    expect(new PlayerScoutCardDesignSkill().getPromptContext()).toContain('generate_graphic');
+    expect(new PlayerScoutCardDesignSkill().getPromptContext()).toContain(
+      'not scout-team look cards'
+    );
     expect(new PredictivePerformanceAnalysisSkill().getPromptContext()).toContain('Scenario Bands');
   });
 

@@ -279,14 +279,28 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
   const asksToCreateStrategyArtifact =
     mentionsFilesBackedArtifact &&
     /\b(create|make|build|generate|produce|export|draft|write)\b/i.test(normalizedIntent);
+  const asksForEditableSheet =
+    /\b(xlsx|excel|spreadsheet|workbook|editable\s+(?:sheet|matrix|file)|editable)\b/i.test(
+      normalizedIntent
+    );
+  const asksForPrintableCoachSheet =
+    /\b(callsheet|call\s+sheet|call\s+menu|practice\s+script|wristband|depth\s+chart|sideline\s+sheet|one-pager|printable|share-ready)\b/i.test(
+      normalizedIntent
+    );
 
   if (asksToCreateStrategyArtifact) {
     forced.add('create_universal_team_document');
-    forced.add('dynamic_export');
+    if (asksForPrintableCoachSheet && !asksForEditableSheet) {
+      forced.add('render_html_pdf');
+    } else if (asksForEditableSheet) {
+      forced.add('execute_python_code');
+    } else {
+      forced.add('dynamic_export');
+    }
   }
 
   const mentionsFilmReviewPointer =
-    /\b(film review|selected film|selected clips?|selected plays?|source breakdown|breakdown rows|wide clip|odk|down\/?distance)\b/i.test(
+    /\b(film review|selected film|that film|this film|current film|selected clips?|selected plays?|source breakdown|breakdown rows|wide clip|odk|down\/?distance)\b/i.test(
       normalizedIntent
     ) || /\bfilmreviewid|sourceids?|selectedsourceids\b/i.test(normalizedIntent);
 
@@ -342,6 +356,7 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     );
 
   if (asksForSelectedFilmBreakdownTagging) {
+    forced.add('import_film_review_breakdown');
     forced.add('patch_film_review_source_breakdowns');
   }
 
@@ -359,6 +374,13 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     /\b(attached video|video attachment|videoattachments?|cloudflarevideoid|hudl|youtube|instagram|twitter|x\.com|firebasestorage|storage\.googleapis|cloudflarestream)\b/.test(
       normalizedIntent
     ) || /\.(mp4|mov|m4v|webm|avi|mkv)(?:\b|[?#/])/.test(normalizedIntent);
+  const asksToSaveVideoToLibrary =
+    mentionsVideoSource &&
+    /\b(save|upload|add|import|put)\b/.test(normalizedIntent) &&
+    /\b(file|files|lab|library|film review|film-review|video|clip|tape)\b/.test(normalizedIntent) &&
+    !/\b(profile video|athlete profile|timeline|feed|post|generic storage|storage-only|just store|creative edit|highlight reel|promo|teaser)\b/.test(
+      normalizedIntent
+    );
   const asksForCreativeVideoOutput =
     /\b(create|make|generate|produce|build|cut|edit|clip|trim|assemble|merge)\b/.test(
       normalizedIntent
@@ -377,6 +399,13 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     forced.add('ffmpeg_trim_video');
     forced.add('ffmpeg_merge_videos');
     forced.add('ffmpeg_generate_thumbnail');
+  }
+
+  if (asksToSaveVideoToLibrary) {
+    forced.add('save_film_review');
+    forced.add('add_film_review_source');
+    forced.add('get_film_review');
+    forced.add('list_film_reviews');
   }
 
   if (asksForBrandVisualOutput) {

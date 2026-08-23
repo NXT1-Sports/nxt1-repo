@@ -240,7 +240,7 @@ function buildPythonExecutionError(error: PythonExecutionResult['error']): {
 export class ExecutePythonCodeTool extends BaseTool {
   readonly name = 'execute_python_code';
   readonly description =
-    'Run sandboxed Python code for advanced data analysis and generated artifacts. This is the default tool for user-facing spreadsheets, Excel files, workbooks, trackers, matrices, schedules, callsheets, budgets, dashboards, and any XLSX deliverable because Python/openpyxl can create cleaner multi-sheet workbooks with formulas, frozen panes, formatting, charts, and professional layouts. Also use it for pandas transformations, matplotlib chart files, and custom analysis artifacts. Write files to /home/user/outputs so they can be uploaded and returned as thread-scoped attachments.';
+    'Run sandboxed Python code for advanced data analysis and generated artifacts. Use this tool when the user explicitly asks for spreadsheets, Excel files, XLSX, workbooks, trackers, matrices, editable schedules, editable callsheets, budgets, dashboards, or another editable grid deliverable because Python/openpyxl can create cleaner multi-sheet workbooks with formulas, frozen panes, formatting, charts, and professional layouts. Do not use this as the primary lane for printable PDFs; use render_html_pdf for printable/share-ready artifacts unless the user asks for an editable sheet. Also use it for pandas transformations, matplotlib chart files, and custom analysis artifacts. Write files to /home/user/outputs so they can be uploaded and returned as thread-scoped attachments.';
   readonly parameters = ExecutePythonCodeInputSchema;
   readonly isMutation = true;
   readonly category = 'data' as const;

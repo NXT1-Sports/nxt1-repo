@@ -249,6 +249,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
   '- Hydrated selected-context contract: when the app injects a clearly labeled expanded or hydrated selected-context block (for example selected database rows, clip breakdown rows, or document excerpts), treat that block as trusted first-party context for the current request. Answer from that block first. Only call retrieval tools when the block is missing facts needed for the answer, appears stale/contradictory, or the user explicitly asks for broader lookup, fresh analysis, save/update, or extraction work.',
   '- Files contract: saved files, folders, film reviews, and managed documents live in the user-visible Files panel. Default to the user\'s personal Files scope when the user does not explicitly ask to use a shared/team library. Internally use the universal-document and folder tools (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`, `list_team_file_folders`, `move_universal_file_to_folder`) as implementation details, but user-facing language should say "your Files", "your folder", or the exact folder/file name. Only say "team" or "shared" when the user explicitly requested shared/team Files or the selected artifact itself is visibly shared/team-scoped.',
+  '- Video save routing (CRITICAL): when a coach, director, or team workflow user explicitly asks to save, upload, add, import, or put an attached/linked video file in Files/Lab and they do not explicitly request an athlete profile video, timeline/feed post, generic storage-only file, or creative edit, use the Film Review path. Create a new review with `save_film_review` or add to an existing review with `add_film_review_source`, and preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`, `readyToStream`, and duration metadata so the Files/Lab thumbnail and playback remain durable.',
   "- Files ingestion recovery (CRITICAL): if `parse_document` or `render_pdf_pages` returns `data.recovery`, follow that recovery object exactly. Do NOT retry the same inline parse/render loop. Save the upload to Files with `create_universal_team_document` using the provided `sourceFile`, then continue from the returned document id. For PDFs, immediately call `enrich_document_notes` and answer from the saved record's `artifactSummary`/`artifactNotes`. This applies to every domain and every file family, not just playbooks.",
   '- PDF note enrichment rule (CRITICAL): when reviewing, analyzing, summarizing, or generating notes for a PDF file (such as a playbook, callsheet, install sheet, scout report, deck, or multi-page PDF document) in Files, ALWAYS call `enrich_document_notes` on the document ID instead of `parse_document`. `parse_document` only extracts plain text OCR and skips visual play drawings and formation diagrams. `enrich_document_notes` renders every page visually and saves full page-by-page AI notes onto the record.',
   '- Notes-first rule: when `get_universal_team_document` returns existing `artifactSummary` or `artifactNotes`, treat those notes as authoritative first-party extracted context before attempting fresh raw-file parsing. Exception: if existing `artifactNotes` are text-only OCR notes, lack visual diagram coverage, or the user explicitly asks to re-analyze, regenerate notes, or visually review play drawings/diagrams, run `enrich_document_notes` to perform a complete page-by-page visual pass.',
@@ -355,6 +356,20 @@ const ARTIFACT_KEYS = [
   'audioUrl',
   'thumbnailUrl',
 ] as const satisfies ReadonlyArray<keyof AgentArtifactHandoff>;
+
+const DELIVERABLE_URL_KEYS = [
+  'url',
+  'downloadUrl',
+  'pdfUrl',
+  'exportUrl',
+  'fileUrl',
+  'outputUrl',
+] as const;
+
+type AgentDeliverableLink = {
+  readonly url: string;
+  readonly name?: string;
+};
 
 /**
  * Ledger entry recorded after each successful tool execution within a runLoop (Tier 3).
@@ -1391,9 +1406,8 @@ export abstract class BaseAgent {
     // context pruning and allow augmentToolCallWithArtifact to recover artifacts
     // even when the originating tool message has been evicted from messages[].
     const artifactLedger: ArtifactLedgerEntry[] = [];
-    const requestedDeliverableTools = resolveRequestedDeliverableTools(
-      this.extractLatestUserText(messages)
-    );
+    const latestUserText = this.extractLatestUserText(messages);
+    const requestedDeliverableTools = resolveRequestedDeliverableTools(latestUserText);
     let completedToolCallCount = 0;
     const recentToolNames: string[] = [];
     let lastProgressCommentaryAtMs = 0;
@@ -1648,7 +1662,10 @@ export abstract class BaseAgent {
           summary = this.resolveDelegationShortCircuitSummary(extractedToolData, toolCallRecords);
         }
 
-        summary = sanitizeAgentOutputText(summary);
+        summary = this.normalizeDeliverableLinks(
+          sanitizeAgentOutputText(summary),
+          extractedToolData
+        );
 
         // Only stream the summary if it was synthesized because result.content was already streamed
         if (onStreamEvent && summary.trim() && isSynthesized) {
@@ -1718,7 +1735,6 @@ export abstract class BaseAgent {
           (record) => record.status === 'success'
         );
         const artifactToolWasAttempted = artifactToolInvocations.length > 0;
-        // FAIL only when an artifact was REQUESTED but NEVER produced.
         const deliverableMissing =
           artifactToolWasAttempted && !anyArtifactToolSucceeded && !hasDeliverableArtifact;
 
@@ -2305,7 +2321,6 @@ export abstract class BaseAgent {
       toolCallRecords.some(
         (record) => record.status === 'success' && requestedDeliverableTools.has(record.toolName)
       );
-
     if (completedArtifactAtIterationLimit) {
       logger.info(
         `[${this.id}] Iteration limit reached after deliverable completion — preserving successful result`,
@@ -3165,6 +3180,81 @@ export abstract class BaseAgent {
     }
 
     return records;
+  }
+
+  private normalizeDeliverableLinks(summary: string, data: Record<string, unknown>): string {
+    const links = this.collectDeliverableLinks(data);
+    if (links.length === 0) return summary;
+
+    const cleaned = this.stripMalformedExportMarkdown(summary);
+    const missingLinks = links.filter((link) => !cleaned.includes(link.url));
+    if (missingLinks.length === 0) return cleaned;
+
+    const prefix = cleaned.trim().length > 0 ? `${cleaned.trim()}\n\n` : '';
+    const lines = missingLinks.map(
+      (link) => `- [${this.resolveDeliverableLabel(link)}](${link.url})`
+    );
+    return `${prefix}Deliverables:\n${lines.join('\n')}`;
+  }
+
+  private collectDeliverableLinks(value: unknown): AgentDeliverableLink[] {
+    const seen = new Set<string>();
+    const links: AgentDeliverableLink[] = [];
+
+    const add = (url: unknown, name?: unknown): void => {
+      if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) return;
+      const normalizedUrl = url.trim();
+      if (seen.has(normalizedUrl)) return;
+      seen.add(normalizedUrl);
+      links.push({
+        url: normalizedUrl,
+        ...(typeof name === 'string' && name.trim() ? { name: name.trim() } : {}),
+      });
+    };
+
+    const visit = (candidate: unknown): void => {
+      if (!candidate || typeof candidate !== 'object') return;
+      if (Array.isArray(candidate)) {
+        for (const entry of candidate) visit(entry);
+        return;
+      }
+
+      const record = candidate as Record<string, unknown>;
+      const artifactRole = typeof record['artifactRole'] === 'string' ? record['artifactRole'] : '';
+      const mimeType = typeof record['mimeType'] === 'string' ? record['mimeType'] : '';
+      const isSourceArtifact = artifactRole === 'source' || /^text\/html/i.test(mimeType);
+      for (const key of DELIVERABLE_URL_KEYS) {
+        if (key in record && !isSourceArtifact)
+          add(record[key], record['name'] ?? record['fileName']);
+      }
+
+      for (const key of ['attachments', 'files', 'mediaArtifact', 'mediaArtifacts', 'result']) {
+        if (key in record) visit(record[key]);
+      }
+    };
+
+    visit(value);
+    return links;
+  }
+
+  private stripMalformedExportMarkdown(summary: string): string {
+    return summary
+      .replace(/!?\[[^\]]*\]\(\[[^\]]*\]\([^)]*media-proxy\/export[^)]*\)[^)]*\)/g, '')
+      .replace(/!?\[[^\]]*\]\([^)]*media-proxy\/export[^)]*\s+[^)]*\)/g, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  private resolveDeliverableLabel(link: AgentDeliverableLink): string {
+    if (link.name) return link.name;
+    try {
+      const parsed = new URL(link.url);
+      const filename = parsed.pathname.split('/').pop();
+      return filename ? decodeURIComponent(filename) : 'Download';
+    } catch {
+      return 'Download';
+    }
   }
 
   /**
