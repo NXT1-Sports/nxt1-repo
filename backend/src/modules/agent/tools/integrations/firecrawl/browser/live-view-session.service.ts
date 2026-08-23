@@ -64,6 +64,12 @@ interface ActiveSession {
   readonly expiresAt: Date;
 }
 
+interface PlatformRegistryEntry {
+  readonly platform: string;
+  readonly label: string;
+  readonly loginUrl?: string | null;
+}
+
 interface PersistedActiveSessionRecord {
   readonly sessionId: string;
   readonly userId: string;
@@ -201,6 +207,7 @@ const LIVE_VIEW_MEDIA_EXTRACT_DEADLINE_MS = 90_000;
 const LIVE_VIEW_PLAYLIST_EXTRACT_DEADLINE_MS = 90_000;
 const MAX_PROMPT_EXECUTION_RETRIES = 1;
 const LIVE_VIEW_SESSION_COLLECTION = 'agentXLiveViewSessions';
+const PLATFORM_REGISTRY_ENTRIES = PLATFORM_REGISTRY as readonly PlatformRegistryEntry[];
 
 /**
  * NOTE: We intentionally do NOT pass a `timeout` parameter to Firecrawl's
@@ -436,7 +443,9 @@ export class LiveViewSessionService {
   /**
    * Execute Playwright code in an active scrape interact session.
    * Uses `language: 'node'` (Playwright) — the default for the interact API.
-   * The `agent-browser` bash CLI is only available in /v2/browser sessions.
+   * Current Firecrawl interact sessions also support bash `agent-browser`
+   * commands; dedicated probe helpers use that mode when refs/snapshots are a
+   * better fit than Playwright code.
    */
   private async executeBrowserCommand(sessionId: string, code: string): Promise<string> {
     try {
@@ -790,7 +799,9 @@ export class LiveViewSessionService {
 
     // If an explicit platform key was provided, use it
     if (request.platformKey) {
-      const platformDef = PLATFORM_REGISTRY.find((p) => p.platform === request.platformKey);
+      const platformDef = PLATFORM_REGISTRY_ENTRIES.find(
+        (platform) => platform.platform === request.platformKey
+      );
       if (platformDef) {
         return {
           resolvedUrl: validatedUrl,
@@ -802,7 +813,7 @@ export class LiveViewSessionService {
     }
 
     // Try to match hostname to a known platform
-    for (const def of PLATFORM_REGISTRY) {
+    for (const def of PLATFORM_REGISTRY_ENTRIES) {
       if (!def.loginUrl) continue;
       try {
         const platformHost = new URL(def.loginUrl).hostname.toLowerCase();
@@ -945,8 +956,9 @@ export class LiveViewSessionService {
     //   - `prompt` for AI-driven actions
     //   - `code` for Playwright-based control
     //
-    // We use a simple fast javascript code snippet to acquire the session quickly.
-    // (The `agent-browser` bash CLI is only available in /v2/browser sessions.)
+    // We use a simple fast JavaScript snippet to acquire the session quickly.
+    // Later interactions may use prompt, Playwright code, or bash `agent-browser`
+    // commands against this same scrape-bound interact session.
     //
     // If this fails with a profile write-lock (stale session that
     // stopInteraction didn't fully release), retry the entire scrape+interact
