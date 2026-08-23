@@ -16,6 +16,32 @@ import type { LiveViewSessionService } from './live-view-session.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { z } from 'zod';
 
+interface ActionTokenMatch {
+  readonly action: string;
+  readonly index: number;
+}
+
+interface CompiledPromptContract {
+  readonly compiledPrompt: string;
+  readonly action: string;
+  readonly rawStep: string;
+}
+
+interface CompiledPromptPlan {
+  readonly kind: 'single' | 'sequence';
+  readonly contracts: readonly CompiledPromptContract[];
+}
+
+type PromptCompilationResult =
+  | {
+      readonly ok: true;
+      readonly plan: CompiledPromptPlan;
+    }
+  | {
+      readonly ok: false;
+      readonly error: string;
+    };
+
 export class InteractWithLiveViewTool extends BaseTool {
   readonly name = 'interact_with_live_view';
 
@@ -27,6 +53,7 @@ export class InteractWithLiveViewTool extends BaseTool {
     'The user watches the actions happen in real time in their side panel. ' +
     'Use this whenever the user wants actions performed in the page that is already open in live view. ' +
     'This tool is for navigation and page manipulation only: clicking tabs, signing in, opening menus, expanding playlists, scrolling, or moving between pages. ' +
+    'Compound navigation requests are executed as a bounded sequence of focused actions against the same live browser session. ' +
     'Before any visually ambiguous page-changing action, use read_live_view and/or capture_live_view_screenshot so the current page state is grounded. ' +
     'For requests to watch, analyze, report on, or batch-process Hudl clips/playlists/plays, use extract_live_view_media through the film coordinator workflow. ' +
     'Do NOT use this tool to watch video, evaluate plays, infer what happened in motion, grade technique from playback, or simulate film study by clicking through frames or playlist items. ' +
@@ -86,6 +113,7 @@ export class InteractWithLiveViewTool extends BaseTool {
 
   private static readonly MAX_COMPILED_PROMPT_CHARS = 320;
   private static readonly MAX_FORM_FILL_PROMPT_CHARS = 1800;
+  private static readonly MAX_SEQUENCE_STEPS = 8;
 
   private static readonly PRE_INTERACTION_SCREENSHOT_OPTIONS = {
     format: 'jpeg' as const,
@@ -115,12 +143,21 @@ export class InteractWithLiveViewTool extends BaseTool {
   }
 
   private extractActionTokens(prompt: string): string[] {
-    const matches = prompt.matchAll(InteractWithLiveViewTool.ACTION_TOKEN_REGEX);
+    const matches = this.extractActionMatches(prompt);
     const tokens: string[] = [];
     for (const match of matches) {
+      tokens.push(match.action);
+    }
+    return tokens;
+  }
+
+  private extractActionMatches(prompt: string): ActionTokenMatch[] {
+    const matches = prompt.matchAll(InteractWithLiveViewTool.ACTION_TOKEN_REGEX);
+    const tokens: ActionTokenMatch[] = [];
+    for (const match of matches) {
       const token = match[0]?.trim();
-      if (!token) continue;
-      tokens.push(this.canonicalAction(token));
+      if (!token || typeof match.index !== 'number') continue;
+      tokens.push({ action: this.canonicalAction(token), index: match.index });
     }
     return tokens;
   }
@@ -137,6 +174,33 @@ export class InteractWithLiveViewTool extends BaseTool {
   private isFormFillActionSet(actions: string[]): boolean {
     if (actions.length < 2) return false;
     return actions.every((a) => InteractWithLiveViewTool.FORM_FILL_ACTION_VERBS.has(a));
+  }
+
+  private normalizeStepPrompt(value: string): string {
+    return this.normalizeWhitespace(
+      value
+        .replace(/^[,.;:\-\s]+/, '')
+        .replace(/[,.;:\-\s]+$/, '')
+        .replace(/^(?:and\s+then|then|after\s+that|next|and)\s+/i, '')
+        .replace(/\s+(?:and\s+then|then|after\s+that|next|and)$/i, '')
+    );
+  }
+
+  private splitPromptIntoActionSteps(
+    prompt: string,
+    matches: readonly ActionTokenMatch[]
+  ): string[] {
+    const orderedMatches = [...matches].sort((a, b) => a.index - b.index);
+    const steps: string[] = [];
+
+    for (let i = 0; i < orderedMatches.length; i++) {
+      const start = orderedMatches[i].index;
+      const end = orderedMatches[i + 1]?.index ?? prompt.length;
+      const step = this.normalizeStepPrompt(prompt.slice(start, end));
+      if (step) steps.push(step);
+    }
+
+    return steps;
   }
 
   private buildTargetPhrase(prompt: string, action: string): string {
@@ -158,15 +222,14 @@ export class InteractWithLiveViewTool extends BaseTool {
     return 'most relevant visible interactive element';
   }
 
-  private compilePromptContract(prompt: string):
+  private compileSinglePromptContract(prompt: string):
     | {
-        ok: true;
-        compiledPrompt: string;
-        action: string;
+        readonly ok: true;
+        readonly contract: CompiledPromptContract;
       }
     | {
-        ok: false;
-        error: string;
+        readonly ok: false;
+        readonly error: string;
       } {
     const normalized = this.normalizeWhitespace(prompt);
 
@@ -194,7 +257,10 @@ export class InteractWithLiveViewTool extends BaseTool {
           ? contract.slice(0, InteractWithLiveViewTool.MAX_FORM_FILL_PROMPT_CHARS).trimEnd()
           : contract;
 
-      return { ok: true, compiledPrompt, action: 'form_fill' };
+      return {
+        ok: true,
+        contract: { compiledPrompt, action: 'form_fill', rawStep: normalized },
+      };
     }
 
     if (actions.length === 0) {
@@ -208,7 +274,7 @@ export class InteractWithLiveViewTool extends BaseTool {
     if (actions.length > 1) {
       return {
         ok: false,
-        error: `Interaction prompt includes multiple actions (${actions.join(', ')}). Send one focused action per call.`,
+        error: `Interaction step includes multiple actions (${actions.join(', ')}). Split it into focused steps.`,
       };
     }
 
@@ -229,7 +295,54 @@ export class InteractWithLiveViewTool extends BaseTool {
         ? contract.slice(0, InteractWithLiveViewTool.MAX_COMPILED_PROMPT_CHARS).trimEnd()
         : contract;
 
-    return { ok: true, compiledPrompt, action };
+    return { ok: true, contract: { compiledPrompt, action, rawStep: normalized } };
+  }
+
+  private compilePromptPlan(prompt: string): PromptCompilationResult {
+    const normalized = this.normalizeWhitespace(prompt);
+    const actionMatches = this.extractActionMatches(normalized);
+    const actions = actionMatches.map((match) => match.action);
+    const uniqueActions = Array.from(new Set(actions));
+
+    if (
+      actionMatches.length <= 1 ||
+      this.isBulkFormFillPrompt(normalized) ||
+      this.isFormFillActionSet(actions)
+    ) {
+      const single = this.compileSinglePromptContract(normalized);
+      return single.ok
+        ? { ok: true, plan: { kind: 'single', contracts: [single.contract] } }
+        : single;
+    }
+
+    if (actionMatches.length > InteractWithLiveViewTool.MAX_SEQUENCE_STEPS) {
+      return {
+        ok: false,
+        error: `Interaction prompt includes ${actionMatches.length} actions. Keep live-view sequences to ${InteractWithLiveViewTool.MAX_SEQUENCE_STEPS} focused steps or split the request.`,
+      };
+    }
+
+    const stepPrompts = this.splitPromptIntoActionSteps(normalized, actionMatches);
+    if (stepPrompts.length < 2) {
+      return {
+        ok: false,
+        error: `Interaction prompt includes multiple actions (${uniqueActions.join(', ')}) but could not be split into safe focused steps.`,
+      };
+    }
+
+    const contracts: CompiledPromptContract[] = [];
+    for (const stepPrompt of stepPrompts) {
+      const compiled = this.compileSinglePromptContract(stepPrompt);
+      if (!compiled.ok) {
+        return {
+          ok: false,
+          error: `Could not compile step "${stepPrompt}": ${compiled.error}`,
+        };
+      }
+      contracts.push(compiled.contract);
+    }
+
+    return { ok: true, plan: { kind: 'sequence', contracts } };
   }
 
   private isReadOnlyPrompt(prompt: string): boolean {
@@ -427,7 +540,7 @@ export class InteractWithLiveViewTool extends BaseTool {
         };
       }
 
-      const compiled = this.compilePromptContract(prompt);
+      const compiled = this.compilePromptPlan(prompt);
       if (!compiled.ok) {
         logger.warn('[InteractWithLiveViewTool] Prompt rejected by contract compiler', {
           sessionId,
@@ -447,21 +560,108 @@ export class InteractWithLiveViewTool extends BaseTool {
         };
       }
 
-      const compiledPrompt = compiled.compiledPrompt;
+      const { plan } = compiled;
+      const stepResults: Array<{
+        readonly stepNumber: number;
+        readonly action: string;
+        readonly rawStep: string;
+        readonly compiledPrompt: string;
+        readonly success: boolean;
+        readonly output: string;
+        readonly verification?: unknown;
+      }> = [];
 
-      const result = await this.sessionService.executePrompt(sessionId, userId, compiledPrompt);
+      for (let index = 0; index < plan.contracts.length; index++) {
+        const contract = plan.contracts[index];
+        const result = await this.sessionService.executePrompt(
+          sessionId,
+          userId,
+          contract.compiledPrompt
+        );
 
-      logger.info('[InteractWithLiveViewTool] Prompt executed', {
+        stepResults.push({
+          stepNumber: index + 1,
+          action: contract.action,
+          rawStep: contract.rawStep,
+          compiledPrompt: contract.compiledPrompt,
+          success: result.success,
+          output: result.output,
+          ...(result.verification ? { verification: result.verification } : {}),
+        });
+
+        logger.info('[InteractWithLiveViewTool] Prompt step executed', {
+          sessionId,
+          userId,
+          stepNumber: index + 1,
+          stepCount: plan.contracts.length,
+          action: contract.action,
+          success: result.success,
+          rawPromptLength: prompt.length,
+          compiledPromptLength: contract.compiledPrompt.length,
+          outputLength: result.output.length,
+        });
+
+        if (!result.success) {
+          return {
+            success: false,
+            error: result.output,
+            data: {
+              sessionId,
+              preflight: {
+                url: preflight.url,
+                title: preflight.title,
+                contentPreview: preflight.content.slice(0, 4000),
+              },
+              grounding,
+              promptContract:
+                plan.kind === 'single'
+                  ? {
+                      action: contract.action,
+                      rawPrompt: prompt,
+                      compiledPrompt: contract.compiledPrompt,
+                      rawLength: prompt.length,
+                      compiledLength: contract.compiledPrompt.length,
+                    }
+                  : {
+                      action: 'sequence',
+                      rawPrompt: prompt,
+                      stepCount: plan.contracts.length,
+                      rawLength: prompt.length,
+                    },
+              promptContracts: plan.contracts,
+              steps: stepResults,
+              scannedBeforeInteraction: true,
+              screenshotCapturedBeforeInteraction: grounding.screenshot.ok,
+              output: result.output,
+              message:
+                plan.kind === 'single'
+                  ? `Interaction failed: ${result.output}`
+                  : `Live-view sequence stopped at step ${index + 1} of ${plan.contracts.length}: ${result.output}`,
+            },
+          };
+        }
+      }
+
+      const finalResult = stepResults[stepResults.length - 1];
+      const output =
+        plan.kind === 'single'
+          ? finalResult.output
+          : stepResults
+              .map((step) => `${step.stepNumber}. ${step.action}: ${step.output}`)
+              .join('\n');
+
+      logger.info('[InteractWithLiveViewTool] Prompt plan executed', {
         sessionId,
         userId,
-        success: result.success,
+        success: true,
+        planKind: plan.kind,
+        stepCount: plan.contracts.length,
         rawPromptLength: prompt.length,
-        compiledPromptLength: compiledPrompt.length,
-        outputLength: result.output.length,
+        outputLength: output.length,
       });
 
       return {
-        success: result.success,
+        success: true,
         data: {
           sessionId,
           preflight: {
@@ -470,26 +670,36 @@ export class InteractWithLiveViewTool extends BaseTool {
             contentPreview: preflight.content.slice(0, 4000),
           },
           grounding,
-          promptContract: {
-            action: compiled.action,
-            rawPrompt: prompt,
-            compiledPrompt,
-            rawLength: prompt.length,
-            compiledLength: compiledPrompt.length,
-          },
+          promptContract:
+            plan.kind === 'single'
+              ? {
+                  action: finalResult.action,
+                  rawPrompt: prompt,
+                  compiledPrompt: finalResult.compiledPrompt,
+                  rawLength: prompt.length,
+                  compiledLength: finalResult.compiledPrompt.length,
+                }
+              : {
+                  action: 'sequence',
+                  rawPrompt: prompt,
+                  stepCount: plan.contracts.length,
+                  rawLength: prompt.length,
+                },
+          promptContracts: plan.contracts,
+          steps: stepResults,
           scannedBeforeInteraction: true,
           screenshotCapturedBeforeInteraction: grounding.screenshot.ok,
-          output: result.output,
-          ...(result.verification
+          output,
+          ...(finalResult.verification
             ? {
-                verification: result.verification,
+                verification: finalResult.verification,
               }
             : {}),
-          message: result.success
-            ? `Interaction completed. The user can see the changes in their live view panel. Firecrawl AI response: ${result.output}`
-            : `Interaction failed: ${result.output}`,
+          message:
+            plan.kind === 'single'
+              ? `Interaction completed. The user can see the changes in their live view panel. Firecrawl AI response: ${finalResult.output}`
+              : `Completed ${stepResults.length} live-view steps. The user can see the changes in their live view panel.`,
         },
-        ...(result.success ? {} : { error: result.output }),
       };
     } catch (err) {
       const message =

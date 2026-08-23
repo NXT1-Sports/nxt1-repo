@@ -184,13 +184,19 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:node="remove" />
 
-    <!-- Fix Issue #4: Android 11 (API 30) requires explicit package visibility declarations.
-         Without this, MSAL cannot query or bind to the Custom Tabs service (Chrome/browser),
-         causing the OAuth browser-based auth flow to fail silently or crash in
-         CurrentTaskAuthorizationActivity during the redirect phase. -->
+    <!-- Fix Issue #4: Android 11+ requires explicit package visibility declarations
+         for both Custom Tabs service discovery and general browser resolution. If
+         either lookup is filtered out, MSAL can fail to reconstruct the expected
+         browser auth flow and surface restore-time crashes in
+         CurrentTaskAuthorizationActivity. -->
     <queries>
         <intent>
             <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
         </intent>
     </queries>
 </manifest>
