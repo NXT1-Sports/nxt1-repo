@@ -56,7 +56,7 @@ const WORKFLOW_RULES: readonly WorkflowRule[] = [
     confidence: 'high',
     matches: (input) => /\b(call\s*sheet|callsheet|call\s+menu|wristband)\b/i.test(input.intent),
     reason: 'Callsheets and call menus belong to Strategy.',
-    recoveryInstruction: `Continue this callsheet workflow locally. ${STRATEGY_FILES_PREFLIGHT} Build situational sections from verified play concepts and film tendencies, then default to a coach-editable artifact unless the user asks for PDF.`,
+    recoveryInstruction: `Continue this callsheet workflow locally. ${STRATEGY_FILES_PREFLIGHT} Build situational sections from verified play concepts and film tendencies, then default to render_html_pdf for a printable staff-ready artifact unless the user explicitly asks for an editable XLSX/workbook.`,
   },
   {
     workflowId: 'practice_script_from_playbook',

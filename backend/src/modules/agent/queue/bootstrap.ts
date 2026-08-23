@@ -81,6 +81,7 @@ import {
   ListFilmReviewSourcesTool,
   GetFilmReviewSourceBreakdownTool,
   SearchFilmReviewBreakdownRowsTool,
+  ImportFilmReviewBreakdownTool,
   SaveFilmReviewTool,
   UpdateFilmReviewTool,
   UpdateFilmReviewSourceBreakdownTool,
@@ -501,6 +502,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
   toolRegistry.register(new SearchFilmReviewBreakdownRowsTool(toolFirestore));
+  toolRegistry.register(new ImportFilmReviewBreakdownTool(toolFirestore));
   toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
   const updateFilmReviewSourceBreakdownTool = new UpdateFilmReviewSourceBreakdownTool(

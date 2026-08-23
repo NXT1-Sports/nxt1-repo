@@ -66,7 +66,7 @@ import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
-import { getCachedAgentAppConfig } from '../config/agent-app-config.js';
+import { getCachedAgentAppConfig, isToolDisabled } from '../config/agent-app-config.js';
 import { getRouterToolPolicy, isToolAllowedByPatterns } from './tool-policy.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 
@@ -142,6 +142,30 @@ const BRAND_MEDIA_ROUTER_FALLBACK_TOOLS = new Set([
 
 const PRIMARY_AGENT_MODEL_OVERRIDE = '~anthropic/claude-sonnet-latest';
 
+const PRIMARY_DIAGRAM_MUTATION_EXCEPTION_ENABLED =
+  '   Exception: clear user-requested play/drill diagram generation is a low-risk visual deliverable, not a save/apply mutation. If sport/concept/positions/kind are present or resolvable, delegate to `strategy_coordinator` immediately and do not ask permission first.';
+
+const PRIMARY_DIAGRAM_MUTATION_EXCEPTION_DISABLED =
+  '   Exception: play/drill diagram requests are still strategy-owned, but visual diagram generation is currently disabled while the integration is still in progress. Do NOT promise that a diagram can be created right now. Route to `strategy_coordinator` for the best written fallback or adjacent strategy deliverable instead, and only ask intake questions needed for that fallback.';
+
+const PRIMARY_DIAGRAM_INTAKE_ENABLED =
+  '      Play diagrams: sport + formation/concept + positions.';
+
+const PRIMARY_DIAGRAM_INTAKE_DISABLED =
+  '      Play / drill fallback: sport + formation/concept or drill objective if needed to produce a written breakdown. Do NOT ask diagram-generation-specific intake as if visual diagram tooling is already available.';
+
+const PRIMARY_DIAGRAM_CONFIRMATION_RULE_ENABLED =
+  '      Skip confirmation for clear diagram-only requests because the user already asked for the visual deliverable.';
+
+const PRIMARY_DIAGRAM_CONFIRMATION_RULE_DISABLED =
+  '      When diagrams are disabled, do not frame the request as an immediate visual deliverable. You may still route without extra approval, but first explain briefly that the integration is in progress and position the response as written strategy help, not a generated diagram.';
+
+const PRIMARY_DIAGRAM_ROUTING_RULE_ENABLED =
+  '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "build a game plan", "organize our playbook files", or requests multi-artifact strategy generation with diagrams/files → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.';
+
+const PRIMARY_DIAGRAM_ROUTING_RULE_DISABLED =
+  '    - When a user asks to "draw a play", "create play diagrams", or "diagram routes" while diagram tools are disabled, do NOT say you can create or generate diagrams, do NOT ask diagram-generation-specific intake like how many diagrams, and do NOT frame the handoff as drawing them up. Explain briefly that the diagram integration is still in progress, then route to `strategy_coordinator` only for the best written fallback or adjacent strategy deliverable. Requests to design a playbook, build a game plan, or organize playbook files still route to `strategy_coordinator`, but they must be framed as non-diagram strategy work unless visual generation is actually enabled.';
+
 const PRIMARY_OPERATING_CONTRACT = [
   '## Primary Operating Contract (2026)',
   '',
@@ -170,7 +194,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '   Clear user-requested creation of a NEW artifact, document, report, plan, schedule, or export that should be retrievable later counts as creation intent and does NOT require an extra approval checkpoint before delegation, unless the user asked for draft-only/transient output or the action would overwrite an existing saved record.',
   '   This includes requests like "create a game plan", "build a callsheet", "make a scout report", "create a practice script", "create an export or PDF", "generate a schedule", "write a training program", or "create a development plan".',
   "   Reason: the user's clear create/build/make/generate request already authorizes the first saved version; the safety checkpoint is for destructive or ambiguous mutations.",
-  '   Exception: clear user-requested play/drill diagram generation is a low-risk visual deliverable, not a save/apply mutation. If sport/concept/positions/kind are present or resolvable, delegate to `strategy_coordinator` immediately and do not ask permission first.',
+  PRIMARY_DIAGRAM_MUTATION_EXCEPTION_ENABLED,
   '',
   '2) Before choosing the first tool, sketch the likely steps to finish the request and check whether any required step depends on coordinator-owned tools.',
   '3) For simple_routing: route immediately when the answer can be completed from router-owned tools without clarification overhead.',
@@ -181,8 +205,8 @@ const PRIMARY_OPERATING_CONTRACT = [
   '      Training program / Training framework: target teams or athletes + duration + phase goal + sports covered. Route to `performance_coordinator`.',
   '      Email/outreach: confirmed recipient(s) + goal/tone.',
   '      Export/PDF/CSV/XLSX/PPTX: audience + branding preference, plus preferred file format when the user already implies one. Use PPTX for slide decks, flash cards, card decks, scout-card packets, briefing decks, pitch decks, and meeting-ready presentations.',
-  '      HARD FORMAT RULE: If the user explicitly says PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, cards, or asks for a file to open in PowerPoint, the downstream artifact format is PPTX unless a connected native Microsoft PowerPoint tool is actually used. Never route that request to PDF as a fallback.',
-  '      Play diagrams: sport + formation/concept + positions.',
+  '      HARD FORMAT RULE: If the user explicitly says PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, cards, or asks for a file to open in PowerPoint, the downstream artifact format is PPTX unless a connected native Microsoft PowerPoint tool is actually used. Exception: scout team play cards, scout-team look cards, and scout-period cards are printable practice PDFs and route to render_html_pdf unless the user explicitly asks for slides/deck/PPTX. Never route that request to PDF as a fallback.',
+  PRIMARY_DIAGRAM_INTAKE_ENABLED,
   '   a1) If the request appears to depend on team files, saved strategy artifacts, playbook terminology, prior installs, callsheets, uploaded documents, or video analysis that should use team vocabulary, assume a document/context pre-flight is required before execution.',
   '       Include that expectation in the handoff so the coordinator checks Team Files and selected uploads before producing tactical recommendations or naming concepts.',
   '       If the first exact document lookup would likely be too narrow, expect the coordinator to broaden the search instead of stopping after one miss.',
@@ -191,7 +215,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '   d) Once all required context is gathered, write a brief "Here is what I will do" summary.',
   '      If the next step would overwrite, delete, publish, send, archive, or revise an existing saved artifact, explicitly ask "Should I go ahead?" before delegating.',
   '      If the user clearly asked to create a NEW artifact/document/report/plan and did not ask for draft-only output, treat that request as authorization to create and persist the first version without a second confirmation turn.',
-  '      Skip confirmation for clear diagram-only requests because the user already asked for the visual deliverable.',
+  PRIMARY_DIAGRAM_CONFIRMATION_RULE_ENABLED,
   '   e) After the user confirms, delegate to the coordinator with full gathered context included in the handoff payload.',
   '',
   '   EXCEPTION — Skip step (d) confirmation but never skip intake when the user already said "yes", "go ahead", "do it",',
@@ -214,6 +238,9 @@ const PRIMARY_OPERATING_CONTRACT = [
   '   - If the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, treat the intent as ambiguous.',
   '   - In that case, ask what they want to do with the file before delegating or mutating anything. Offer concrete options when useful (for example: analyze it, save it to a profile, turn it into a post, edit it, or keep it ready).',
   '   - Do not assume that an upload alone means profile save, library import, publishing, sending, or posting.',
+  '6e) Explicit video save routing (CRITICAL):',
+  '   - If the user explicitly asks to save, upload, add, import, or put an attached/linked video file in Files/Lab, and they do not explicitly request an athlete profile video, timeline/feed post, generic storage-only file, or creative edit, delegate to `performance_coordinator` for Film Review persistence.',
+  '   - Coach/director/team video saves default to Film Review because Film Reviews are Files/Lab items. The coordinator should use `save_film_review` for a new review or `add_film_review_source` for an existing review and preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`, `readyToStream`, and duration metadata.',
   '7) Tool path decision for recruiting and college lookup:',
   "   - Simple factual lookup (find programs by division/state, look up a coach's contact): use `search_colleges` or `search_college_coaches` directly — no delegation needed.",
   '   - Full recruiting workflow (outreach drafting, email sequences, presentation generation, multi-step strategy): use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`.',
@@ -294,7 +321,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '10d-ii) Play Diagram & Game Plan Routing Rule (CRITICAL — NO EXCEPTIONS):',
   '    - NEVER call `create_play_diagram` or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh) directly from the router — these tools are coordinator-owned and are NOT in the router tool policy. This restriction does NOT apply to Files document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and Files folder organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly only when the user is asking for Files document/folder work rather than film-review mutation work.',
   '    - Play diagrams, matchup-specific game plans, organized strategy libraries, and requests to fetch or review existing saved strategy files are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees, coaching diagrams, tactical strategy artifacts, and game-planning context, not creative/marketing assets.',
-  '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "build a game plan", "organize our playbook files", or requests multi-artifact strategy generation with diagrams/files → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
+  PRIMARY_DIAGRAM_ROUTING_RULE_ENABLED,
   '    - When a user asks to "show my game plans", "pull the game plan", "find the Duke game plan", "open the last game plan", or otherwise retrieve a saved game plan → delegate to `strategy_coordinator` via `delegate_to_coordinator`, not direct router tools.',
   '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
   '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
@@ -433,6 +460,8 @@ export class PrimaryAgent extends BaseAgent {
 
   getSystemPrompt(context: AgentSessionContext): string {
     const cfg = getCachedAgentAppConfig();
+    const diagramToolsEnabled =
+      !isToolDisabled('create_play_diagram', cfg) && !isToolDisabled('create_board_diagram', cfg);
     const useCompact = cfg.capabilityCard?.useCompactInPrompt ?? true;
     const card = this.capabilities.current();
     const capabilityCard = useCompact
@@ -456,10 +485,25 @@ export class PrimaryAgent extends BaseAgent {
       ...(modeAddendum ? { modeAddendum } : {}),
     });
 
-    const operatingContract =
+    const baseOperatingContract =
       executionMode === 'plan'
         ? `${PLAN_EXECUTION_MODE_ADDENDUM}\n\n${PRIMARY_PLAN_OPERATING_CONTRACT}`
         : PRIMARY_OPERATING_CONTRACT;
+
+    const operatingContract =
+      diagramToolsEnabled || executionMode === 'plan'
+        ? baseOperatingContract
+        : baseOperatingContract
+            .replace(
+              PRIMARY_DIAGRAM_MUTATION_EXCEPTION_ENABLED,
+              PRIMARY_DIAGRAM_MUTATION_EXCEPTION_DISABLED
+            )
+            .replace(PRIMARY_DIAGRAM_INTAKE_ENABLED, PRIMARY_DIAGRAM_INTAKE_DISABLED)
+            .replace(
+              PRIMARY_DIAGRAM_CONFIRMATION_RULE_ENABLED,
+              PRIMARY_DIAGRAM_CONFIRMATION_RULE_DISABLED
+            )
+            .replace(PRIMARY_DIAGRAM_ROUTING_RULE_ENABLED, PRIMARY_DIAGRAM_ROUTING_RULE_DISABLED);
 
     return `${prompt}\n\n${operatingContract}`;
   }

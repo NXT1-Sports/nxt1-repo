@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.107.3",
+  "version": "1.108.2",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -175,7 +175,6 @@
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^6.1.200",
     "pdfmake": "^0.3.11",
-    "playwright": "^1.62.1",
     "pptxgenjs": "^4.0.1",
     "rate-limit-redis": "^5.0.0",
     "reflect-metadata": "^0.2.2",

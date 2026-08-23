@@ -39,7 +39,8 @@ describe('Strategy Coordinator diagram tool gating', () => {
     expect(prompt).toContain(
       'Do NOT call `create_play_diagram`, `create_board_diagram`, `update_board_diagram`, or `delete_board_diagram`.'
     );
-    expect(prompt).toContain('visual diagram generation is not enabled yet');
+    expect(prompt).toContain('visual diagram generation is not available yet');
+    expect(prompt).toContain('integration is actively being worked on');
     expect(prompt).not.toContain('**PLAY DIAGRAMS (`create_play_diagram`):**');
     expect(prompt).not.toContain(
       '**DRILL BOARDS (`create_board_diagram` with `kind: "sport_drill"`):**'
@@ -62,7 +63,10 @@ describe('Strategy Coordinator diagram tool gating', () => {
     expect(prompt).toContain('For play requests, offer a written concept breakdown');
     expect(prompt).toContain('For drill requests, offer a written drill setup');
     expect(prompt).toContain(
-      'You explain that diagram generation is not enabled yet and provide a concise written breakdown instead'
+      'Proactively redirect into the best adjacent deliverable you can complete now'
+    );
+    expect(prompt).toContain(
+      'You explain that the diagram integration is still in progress, provide a concise written breakdown, and offer the closest useful deliverable you can produce right now'
     );
   });
 });

@@ -226,6 +226,29 @@ describe('agent-app-config', () => {
     expect(isToolDisabled('search_web')).toBe(false);
   });
 
+  it('keeps diagram tools disabled even when Firestore clears disabledTools', () => {
+    const config = parseAgentAppConfig({
+      featureFlags: {
+        disabledTools: [],
+      },
+    });
+
+    setCachedAgentAppConfig(config);
+
+    expect(config.featureFlags.disabledTools).toEqual(
+      expect.arrayContaining([
+        'create_play_diagram',
+        'create_board_diagram',
+        'update_board_diagram',
+        'delete_board_diagram',
+      ])
+    );
+    expect(isToolDisabled('create_play_diagram')).toBe(true);
+    expect(isToolDisabled('create_board_diagram')).toBe(true);
+    expect(isToolDisabled('update_board_diagram')).toBe(true);
+    expect(isToolDisabled('delete_board_diagram')).toBe(true);
+  });
+
   it('parses coordinator UI metadata for dynamic dashboard rendering', () => {
     const config = parseAgentAppConfig({
       coordinators: [

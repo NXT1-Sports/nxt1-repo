@@ -859,15 +859,54 @@ describe('InteractWithLiveViewTool', () => {
       expect(data['content']).toContain('Welcome to Hudl');
     });
 
-    it('should reject prompts with multiple actions', async () => {
+    it('should execute prompts with multiple actions as a focused sequence', async () => {
+      const result = await tool.execute({
+        prompt: 'Click login and then type my password',
+        userId: TEST_USER_ID,
+      });
+
+      expect(result.success).toBe(true);
+      expect(service.executePrompt).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(service.executePrompt).mock.calls[0][2]).toContain('ACTION: CLICK');
+      expect(vi.mocked(service.executePrompt).mock.calls[1][2]).toContain('ACTION: TYPE');
+
+      const data = result.data as Record<string, unknown>;
+      expect(data['promptContract']).toEqual(
+        expect.objectContaining({
+          action: 'sequence',
+          rawPrompt: 'Click login and then type my password',
+          stepCount: 2,
+        })
+      );
+      expect(data['message']).toContain('Completed 2 live-view steps');
+
+      const steps = data['steps'] as Array<Record<string, unknown>>;
+      expect(steps).toHaveLength(2);
+      expect(steps[0]).toEqual(expect.objectContaining({ stepNumber: 1, action: 'click' }));
+      expect(steps[1]).toEqual(expect.objectContaining({ stepNumber: 2, action: 'type' }));
+    });
+
+    it('should stop a multi-step prompt when a step fails', async () => {
+      service = createMockService({
+        executePrompt: vi
+          .fn()
+          .mockResolvedValueOnce({ success: true, output: 'Clicked login.' })
+          .mockResolvedValueOnce({ success: false, output: 'Password field was not visible.' }),
+      } as unknown as Partial<LiveViewSessionService>);
+      tool = new InteractWithLiveViewTool(service);
+
       const result = await tool.execute({
         prompt: 'Click login and then type my password',
         userId: TEST_USER_ID,
       });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('multiple actions');
-      expect(service.executePrompt).not.toHaveBeenCalled();
+      expect(result.error).toBe('Password field was not visible.');
+      expect(service.executePrompt).toHaveBeenCalledTimes(2);
+
+      const data = result.data as Record<string, unknown>;
+      expect(data['message']).toContain('stopped at step 2 of 2');
+      expect(data['steps']).toHaveLength(2);
     });
   });
 

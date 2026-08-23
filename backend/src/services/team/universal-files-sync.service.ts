@@ -137,6 +137,13 @@ function attachFilmReviewToBaseFileRecord(
     fileData['payload'] && typeof fileData['payload'] === 'object'
       ? (fileData['payload'] as Record<string, unknown>)
       : {};
+  const asset =
+    payload['asset'] && typeof payload['asset'] === 'object'
+      ? {
+          ...(payload['asset'] as Record<string, unknown>),
+          ...(review.thumbnailUrl ? { thumbnailUrl: review.thumbnailUrl } : {}),
+        }
+      : undefined;
   const sourceRef =
     fileData['sourceRef'] && typeof fileData['sourceRef'] === 'object'
       ? (fileData['sourceRef'] as Record<string, unknown>)
@@ -192,6 +199,8 @@ function attachFilmReviewToBaseFileRecord(
     },
     payload: {
       ...payload,
+      ...(review.thumbnailUrl ? { thumbnailUrl: review.thumbnailUrl } : {}),
+      ...(asset ? { asset } : {}),
       filmReview: projectedDocument.payload,
     },
   });

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import type { Storage } from 'firebase-admin/storage';
 import { z } from 'zod';
 import type { AgentXAttachment, TeamFileFolderDoc, TeamFilmReviewPlayTagValue } from '@nxt1/core';
 import {
@@ -11,6 +12,7 @@ import {
   resolveTeamFilmReviewSportTagSchemaKey,
   resolveTeamFilmReviewRowOwnership,
   type TeamFilmReviewAnnotation,
+  type TeamFilmReviewBreakdownSource,
   type TeamFilmReviewDoc,
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewRowOwnership,
@@ -31,6 +33,7 @@ import {
   upsertUniversalFileFromFilmReview,
 } from '../../../../../services/team/universal-files-sync.service.js';
 import { scheduleUniversalFileSemanticSync } from '../../../../../services/team/universal-file-semantic.service.js';
+import { parseHudlBreakdownBuffer } from '../../../../../services/team/hudl-breakdown-import.service.js';
 import {
   getFilmReviewSourceBreakdown,
   listUserScopedUniversalFilmReviews,
@@ -96,6 +99,10 @@ const SaveFilmReviewInputSchema = z.object({
   sport: z.string().trim().min(1).optional(),
   videoUrl: z.string().trim().url().optional(),
   sourceUrl: z.string().trim().url().optional(),
+  downloadUrl: z.string().trim().url().optional(),
+  storagePath: z.string().trim().min(1).optional(),
+  thumbnailUrl: z.string().trim().url().optional(),
+  durationSec: z.number().finite().nonnegative().optional(),
   timeline: TimelineRowsInputSchema.optional(),
   aiSummary: z.string().trim().min(1).optional(),
   keyInsights: z
@@ -111,6 +118,10 @@ const UpdateFilmReviewInputSchema = z.object({
   title: z.string().trim().min(1).optional(),
   sport: z.string().trim().min(1).optional(),
   timeline: TimelineRowsInputSchema.optional(),
+  downloadUrl: z.string().trim().url().nullable().optional(),
+  storagePath: z.string().trim().min(1).nullable().optional(),
+  thumbnailUrl: z.string().trim().url().nullable().optional(),
+  durationSec: z.number().finite().nonnegative().nullable().optional(),
   aiSummary: z.string().trim().min(1).nullable().optional(),
   keyInsights: z
     .union([z.string().trim().min(1), z.array(z.string().trim().min(1)).min(1), z.null()])
@@ -177,6 +188,21 @@ const DeleteFilmReviewSourceBreakdownInputSchema = z.object({
   filmReviewId: z.string().trim().min(1),
   sourceId: z.string().trim().min(1),
 });
+
+const ImportFilmReviewBreakdownInputSchema = z
+  .object({
+    filmReviewId: z.string().trim().min(1),
+    teamId: z.string().trim().min(1).optional(),
+    url: z.string().trim().url().optional(),
+    storagePath: z.string().trim().min(1).optional(),
+    fileName: z.string().trim().min(1),
+    mimeType: z.string().trim().min(1),
+    expectedRevision: z.number().int().nonnegative().optional(),
+  })
+  .refine((value) => Boolean(value.url || value.storagePath), {
+    message: 'url or storagePath is required.',
+    path: ['url'],
+  });
 
 const SourceVideoSchema = z.object({
   id: z.string().trim().min(1),
@@ -837,6 +863,211 @@ function resolveSelectedSources(
     );
 }
 
+type FilmReviewSourceGroup = {
+  readonly id: string;
+  readonly sources: readonly TeamFilmReviewSourceVideo[];
+};
+
+type BreakdownFilePayload = {
+  readonly buffer: Buffer;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly storagePath?: string;
+};
+
+type BreakdownFileResolver = (
+  input: z.infer<typeof ImportFilmReviewBreakdownInputSchema>,
+  context?: ToolExecutionContext
+) => Promise<BreakdownFilePayload>;
+
+function resolveFilmReviewBreakdownProvider(
+  fileName: string,
+  mimeType: string
+): TeamFilmReviewBreakdownSource['provider'] {
+  const normalizedName = fileName.trim().toLowerCase();
+  if (normalizedName.endsWith('.xlsx')) return 'hudl';
+  if (normalizedName.endsWith('.csv') || mimeType.trim().toLowerCase() === 'text/csv') {
+    return 'csv';
+  }
+  return 'manual_import';
+}
+
+function resolveFilmReviewSourceGroupKey(source: TeamFilmReviewSourceVideo, index: number): string {
+  const angleGroupId = source.angleGroupId?.trim();
+  if (angleGroupId) return `angle:${angleGroupId}`;
+
+  const sourceId = source.id.trim();
+  return sourceId ? `source:${sourceId}` : `source-index:${index}`;
+}
+
+function groupFilmReviewSourcesByPlay(
+  sources: readonly TeamFilmReviewSourceVideo[]
+): readonly FilmReviewSourceGroup[] {
+  const groups = new Map<string, TeamFilmReviewSourceVideo[]>();
+
+  sources.forEach((source, index) => {
+    const groupKey = resolveFilmReviewSourceGroupKey(source, index);
+    const group = groups.get(groupKey) ?? [];
+    group.push(source);
+    groups.set(groupKey, group);
+  });
+
+  return [...groups.entries()].map(([id, group]) => ({ id, sources: group }));
+}
+
+function selectPrimaryFilmReviewSource(group: FilmReviewSourceGroup): TeamFilmReviewSourceVideo {
+  return (
+    group.sources.find((source) => source.cameraAngle === 'wide') ??
+    (group.sources[0] as TeamFilmReviewSourceVideo)
+  );
+}
+
+function resolveFilmReviewSourceGroupIds(group: FilmReviewSourceGroup): readonly string[] {
+  return [...new Set(group.sources.map((source) => source.id.trim()).filter(Boolean))];
+}
+
+function resolveFilmReviewSourceGroupDuration(group: FilmReviewSourceGroup): number {
+  const durations = group.sources
+    .map((source) => source.durationSec)
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  return Math.max(1, ...durations, 1);
+}
+
+function normalizeImportedBreakdownTimeline(
+  review: Pick<TeamFilmReviewDoc, 'uploadMode' | 'sources' | 'timeline'>,
+  parsedTimeline: readonly TeamFilmReviewPlaySegment[],
+  parsedWarnings: readonly string[]
+): {
+  readonly timeline: readonly TeamFilmReviewPlaySegment[];
+  readonly warnings: readonly string[];
+} {
+  const sources = review.sources ?? [];
+  if (review.uploadMode !== 'batch_clips' || sources.length <= 1) {
+    return { timeline: parsedTimeline, warnings: parsedWarnings };
+  }
+
+  const sourceGroups = groupFilmReviewSourcesByPlay(sources);
+  const warnings = [...parsedWarnings];
+  if (parsedTimeline.length !== sourceGroups.length) {
+    warnings.push(
+      parsedTimeline.length > sourceGroups.length
+        ? 'The breakdown file has more rows than uploaded plays. Extra rows were ignored so playback stays matched to each grouped play.'
+        : 'The breakdown file has fewer rows than uploaded plays. Unmatched plays kept their existing placeholders so playback stays matched to each grouped play.'
+    );
+  }
+
+  const existingBySourceId = new Map(
+    (review.timeline ?? []).flatMap((segment) => {
+      const sourceIds = segment.sourceIds?.length
+        ? segment.sourceIds
+        : segment.sourceId
+          ? [segment.sourceId]
+          : [];
+      return sourceIds
+        .map((sourceId) => sourceId.trim())
+        .filter((sourceId) => sourceId.length > 0)
+        .map((sourceId) => [sourceId, segment] as const);
+    })
+  );
+
+  const timeline = sourceGroups.map((group, index) => {
+    const primarySource = selectPrimaryFilmReviewSource(group);
+    const sourceIds = resolveFilmReviewSourceGroupIds(group);
+    const imported = parsedTimeline[index] ?? null;
+    if (!imported) {
+      const existing = sourceIds
+        .map((sourceId) => existingBySourceId.get(sourceId))
+        .find((segment): segment is TeamFilmReviewPlaySegment => !!segment);
+      return existing
+        ? { ...existing, number: index + 1, sourceId: primarySource.id, sourceIds }
+        : {
+            id: `play-${primarySource.id}`,
+            number: index + 1,
+            label: primarySource.title?.trim() || `Clip ${index + 1}`,
+            startSec: 0,
+            endSec: resolveFilmReviewSourceGroupDuration(group),
+            sourceId: primarySource.id,
+            sourceIds,
+          };
+    }
+
+    const importedDuration = Math.max(1, imported.endSec - imported.startSec);
+    const sourceDuration = resolveFilmReviewSourceGroupDuration(group);
+
+    return {
+      ...imported,
+      id: imported.id?.trim() || `play-${primarySource.id}`,
+      number: index + 1,
+      label: imported.label.trim() || primarySource.title?.trim() || `Clip ${index + 1}`,
+      startSec: 0,
+      endSec: sourceDuration || importedDuration,
+      sourceId: primarySource.id,
+      sourceIds,
+    };
+  });
+
+  return { timeline, warnings };
+}
+
+async function resolveStorageForEnvironment(environment?: ToolExecutionContext['environment']) {
+  if (environment === 'staging') {
+    const module = await import('../../../../../utils/firebase-staging.js');
+    return module.stagingStorage;
+  }
+
+  const module = await import('../../../../../utils/firebase.js');
+  return module.storage;
+}
+
+async function downloadBreakdownFileFromStorage(
+  storage: Storage,
+  storagePath: string
+): Promise<Buffer> {
+  const file = storage.bucket().file(storagePath) as {
+    download: () => Promise<[Buffer]>;
+  };
+  const [buffer] = await file.download();
+  return buffer;
+}
+
+async function defaultResolveBreakdownFile(
+  input: z.infer<typeof ImportFilmReviewBreakdownInputSchema>,
+  context?: ToolExecutionContext
+): Promise<BreakdownFilePayload> {
+  const fileName = input.fileName.trim();
+  const mimeType = input.mimeType.trim().toLowerCase();
+  const storagePath = normalizeOptionalString(input.storagePath);
+  if (storagePath) {
+    try {
+      const storage = await resolveStorageForEnvironment(context?.environment);
+      const buffer = await downloadBreakdownFileFromStorage(storage, storagePath);
+      return { buffer, fileName, mimeType, storagePath };
+    } catch (error) {
+      if (!input.url) {
+        throw error;
+      }
+    }
+  }
+
+  const url = normalizeOptionalString(input.url);
+  if (!url) {
+    throw new Error('Breakdown import requires a Firebase storagePath or downloadable URL.');
+  }
+
+  const response = await fetch(url, { signal: context?.signal });
+  if (!response.ok) {
+    throw new Error(`Failed to download breakdown file: ${response.status} ${response.statusText}`);
+  }
+
+  return {
+    buffer: Buffer.from(await response.arrayBuffer()),
+    fileName,
+    mimeType,
+    ...(storagePath ? { storagePath } : {}),
+  };
+}
+
 type ExtractFilmReviewClipSelection = {
   readonly review: TeamFilmReviewDoc;
   readonly selectedSources: readonly TeamFilmReviewSourceVideo[];
@@ -961,6 +1192,10 @@ async function resolveReviewForMutation(input: {
   readonly sport?: string;
   readonly videoUrl?: string;
   readonly sourceUrl?: string;
+  readonly downloadUrl?: string | null;
+  readonly storagePath?: string | null;
+  readonly thumbnailUrl?: string | null;
+  readonly durationSec?: number | null;
 }): Promise<{ review: TeamFilmReviewDoc; teamId?: string } | { error: string }> {
   if (input.filmReviewId) {
     const review = await loadUniversalFilmReview(input.db, input.filmReviewId);
@@ -973,6 +1208,9 @@ async function resolveReviewForMutation(input: {
   const teamId = normalizeOptionalString(input.teamId);
   const mediaUrl =
     normalizeOptionalString(input.videoUrl) ?? normalizeOptionalString(input.sourceUrl);
+  const storagePath = normalizeNullableString(input.storagePath) ?? undefined;
+  const thumbnailUrl = normalizeNullableString(input.thumbnailUrl) ?? undefined;
+  const downloadUrl = normalizeNullableString(input.downloadUrl) ?? undefined;
   if (!mediaUrl) {
     return {
       error:
@@ -990,11 +1228,13 @@ async function resolveReviewForMutation(input: {
     attachment: {
       id: randomUUID(),
       url: mediaUrl,
+      ...(storagePath ? { storagePath } : {}),
       name: buildAttachmentName(normalizeOptionalString(input.title), mediaUrl),
       mimeType: 'video/mp4',
       type: 'video',
-      sizeBytes: 1,
+      sizeBytes: 0,
       readyToStream: true,
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
     } satisfies AgentXAttachment,
   });
   const review = await loadUniversalFilmReview(input.db, fileId);
@@ -1002,7 +1242,25 @@ async function resolveReviewForMutation(input: {
     return { error: 'Film review could not be created from the supplied video URL.' };
   }
 
-  return { review, teamId };
+  const sourceMetadata = {
+    ...(downloadUrl ? { downloadUrl } : {}),
+    ...(input.durationSec !== undefined && input.durationSec !== null
+      ? { durationSec: input.durationSec }
+      : {}),
+  } satisfies Partial<TeamFilmReviewSourceVideo>;
+
+  if (Object.keys(sourceMetadata).length === 0) {
+    return { review, teamId };
+  }
+
+  return {
+    review: buildUpdatedReview({
+      existing: review,
+      userId: input.contextUserId,
+      sourceMetadata,
+    }),
+    teamId,
+  };
 }
 
 function buildUpdatedReview(input: {
@@ -1016,14 +1274,39 @@ function buildUpdatedReview(input: {
   readonly tags?: readonly string[] | null;
   readonly uploadMode?: TeamFilmReviewDoc['uploadMode'];
   readonly status?: TeamFilmReviewDoc['status'];
+  readonly storagePath?: string | null;
+  readonly thumbnailUrl?: string | null;
+  readonly durationSec?: number | null;
+  readonly sourceMetadata?: Partial<TeamFilmReviewSourceVideo>;
 }): TeamFilmReviewDoc {
   const now = new Date().toISOString();
+  const storagePath =
+    input.storagePath !== undefined ? normalizeNullableString(input.storagePath) : undefined;
+  const thumbnailUrl =
+    input.thumbnailUrl !== undefined ? normalizeNullableString(input.thumbnailUrl) : undefined;
+  const durationSec = input.durationSec !== undefined ? input.durationSec : undefined;
+  const sourceMetadata = input.sourceMetadata ?? {};
+  const sources = input.existing.sources?.map((source, index) =>
+    index === 0
+      ? {
+          ...source,
+          ...sourceMetadata,
+          ...(storagePath !== undefined ? { storagePath: storagePath ?? undefined } : {}),
+          ...(thumbnailUrl !== undefined ? { thumbnailUrl: thumbnailUrl ?? undefined } : {}),
+          ...(durationSec !== undefined ? { durationSec: durationSec ?? undefined } : {}),
+        }
+      : source
+  );
   const nextReview: TeamFilmReviewDoc = {
     ...input.existing,
+    ...(sources ? { sources } : {}),
     ...(input.title ? { title: input.title } : {}),
     ...(input.sport ? { sport: input.sport.toLowerCase() } : {}),
     ...(input.uploadMode ? { uploadMode: input.uploadMode } : {}),
     ...(input.status ? { status: input.status } : {}),
+    ...(storagePath !== undefined ? { storagePath: storagePath ?? undefined } : {}),
+    ...(thumbnailUrl !== undefined ? { thumbnailUrl: thumbnailUrl ?? undefined } : {}),
+    ...(durationSec !== undefined ? { durationSec: durationSec ?? undefined } : {}),
     ...(input.aiSummary !== undefined ? { aiSummary: input.aiSummary ?? undefined } : {}),
     ...(input.keyInsights !== undefined ? { keyInsights: input.keyInsights ?? undefined } : {}),
     ...(input.tags !== undefined ? { tags: input.tags ?? undefined } : {}),
@@ -1675,6 +1958,10 @@ export class SaveFilmReviewTool extends BaseTool {
       sport: parsed.data.sport,
       videoUrl: parsed.data.videoUrl,
       sourceUrl: parsed.data.sourceUrl,
+      downloadUrl: parsed.data.downloadUrl,
+      storagePath: parsed.data.storagePath,
+      thumbnailUrl: parsed.data.thumbnailUrl,
+      durationSec: parsed.data.durationSec,
     });
     if ('error' in resolved) {
       return { success: false, error: resolved.error };
@@ -1715,6 +2002,14 @@ export class SaveFilmReviewTool extends BaseTool {
       tags: normalizeStringList(parsed.data.tags),
       uploadMode: parsed.data.uploadMode,
       status: parsed.data.status,
+      storagePath: parsed.data.storagePath,
+      thumbnailUrl: parsed.data.thumbnailUrl,
+      durationSec: parsed.data.durationSec,
+      sourceMetadata: {
+        ...(parsed.data.downloadUrl !== undefined
+          ? { downloadUrl: normalizeNullableString(parsed.data.downloadUrl) ?? undefined }
+          : {}),
+      },
     });
 
     await persistAuthorizedFilmReview({
@@ -1803,6 +2098,14 @@ export class UpdateFilmReviewTool extends BaseTool {
       tags: parsed.data.tags === null ? null : normalizeStringList(parsed.data.tags),
       uploadMode: parsed.data.uploadMode,
       status: parsed.data.status,
+      storagePath: parsed.data.storagePath,
+      thumbnailUrl: parsed.data.thumbnailUrl,
+      durationSec: parsed.data.durationSec,
+      sourceMetadata: {
+        ...(parsed.data.downloadUrl !== undefined
+          ? { downloadUrl: normalizeNullableString(parsed.data.downloadUrl) ?? undefined }
+          : {}),
+      },
     });
 
     await persistAuthorizedFilmReview({
@@ -1820,6 +2123,134 @@ export class UpdateFilmReviewTool extends BaseTool {
         summary: summarizeFilmReview(updated),
       },
     };
+  }
+}
+
+export class ImportFilmReviewBreakdownTool extends BaseTool {
+  readonly name = 'import_film_review_breakdown';
+  readonly description =
+    'Import a Hudl-style breakdown spreadsheet/CSV attachment into an existing UniversalFiles-backed film review, using the same parser and row matching behavior as the Film Review panel import action.';
+
+  readonly parameters = ImportFilmReviewBreakdownInputSchema;
+  override readonly allowedAgents = ['performance_coordinator', 'strategy_coordinator'] as const;
+  readonly isMutation = true;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  private readonly db: Firestore;
+
+  constructor(
+    db?: Firestore,
+    private readonly resolveBreakdownFile: BreakdownFileResolver = defaultResolveBreakdownFile
+  ) {
+    super();
+    this.db = db ?? getFirestore();
+  }
+
+  async execute(
+    input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const parsed = ImportFilmReviewBreakdownInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return this.zodError(parsed.error);
+    }
+
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
+    if (!review) {
+      return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
+    }
+
+    const requestedTeamId = normalizeOptionalString(parsed.data.teamId);
+    if (requestedTeamId && normalizeOptionalString(review.teamId) !== requestedTeamId) {
+      return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
+    }
+
+    const permission = await assertReviewAccess(this.db, review, context.userId, 'write');
+    if (!permission.ok) {
+      return { success: false, error: permission.error };
+    }
+
+    try {
+      const breakdownFile = await this.resolveBreakdownFile(parsed.data, context);
+      const parsedBreakdown = await parseHudlBreakdownBuffer({
+        buffer: breakdownFile.buffer,
+        fileName: breakdownFile.fileName,
+        mimeType: breakdownFile.mimeType,
+        sport: review.sport,
+      });
+
+      if (parsedBreakdown.timeline.length === 0) {
+        return {
+          success: false,
+          isValidationError: true,
+          error: parsedBreakdown.warnings[0] ?? 'No playable rows found in breakdown file',
+        };
+      }
+
+      const normalizedBreakdown = normalizeImportedBreakdownTimeline(
+        review,
+        parsedBreakdown.timeline,
+        parsedBreakdown.warnings
+      );
+      const now = new Date().toISOString();
+      const breakdownSource: TeamFilmReviewBreakdownSource = {
+        provider: resolveFilmReviewBreakdownProvider(
+          breakdownFile.fileName,
+          breakdownFile.mimeType
+        ),
+        fileName: breakdownFile.fileName,
+        mimeType: breakdownFile.mimeType,
+        ...(breakdownFile.storagePath ? { storagePath: breakdownFile.storagePath } : {}),
+        ...(parsedBreakdown.sheetName ? { sheetName: parsedBreakdown.sheetName } : {}),
+        rowCount: parsedBreakdown.rowCount,
+        playCount: normalizedBreakdown.timeline.length,
+        importedBy: context.userId,
+        importedAt: now,
+      };
+      const updated: TeamFilmReviewDoc = {
+        ...review,
+        timeline: normalizedBreakdown.timeline,
+        timelineState: 'ready',
+        timelineGeneratedAt: now,
+        timelineError: null,
+        breakdownSource,
+        durationSec: normalizedBreakdown.timeline.reduce(
+          (max, play) => Math.max(max, play.endSec),
+          review.durationSec ?? 0
+        ),
+        updatedBy: context.userId,
+        updatedAt: now,
+      };
+
+      await persistAuthorizedFilmReview({
+        db: this.db,
+        review: updated,
+        expectedRevision: parsed.data.expectedRevision ?? getTeamFilmReviewRevision(review),
+        userId: context.userId,
+      });
+
+      return {
+        success: true,
+        markdown: `Imported breakdown **${breakdownFile.fileName}** into **${updated.title}** (${normalizedBreakdown.timeline.length} plays).`,
+        data: {
+          filmReview: normalizeReviewForResponse(updated),
+          playCount: normalizedBreakdown.timeline.length,
+          rowCount: parsedBreakdown.rowCount,
+          ...(parsedBreakdown.sheetName ? { sheetName: parsedBreakdown.sheetName } : {}),
+          warnings: normalizedBreakdown.warnings,
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to import film review breakdown',
+      };
+    }
   }
 }
 

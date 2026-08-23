@@ -22,7 +22,7 @@ function resolveRouteBase(params?: Record<string, unknown>): string | null {
 export class FootballCallsheetDesignSkill extends BaseSkill {
   readonly name = 'football_callsheet_design';
   readonly description =
-    'Design game-day football callsheets and play menus as coach-ready single-board spreadsheets using the Maumelle-style dense multi-panel reference layout: one landscape worksheet, many compact side-by-side panels, numbered rows, situational color bands, print setup, and functional color coding.';
+    'Design game-day football callsheets and play menus as coach-ready printable multi-panel PDFs using the Maumelle-style dense reference layout: one landscape board, many compact side-by-side panels, numbered rows, situational color bands, print setup, and functional color coding. Use editable spreadsheets only when explicitly requested.';
   readonly category: SkillCategory = 'strategy';
 
   override getReferenceImages(params?: Record<string, unknown>): readonly SkillReferenceImage[] {
@@ -41,15 +41,20 @@ export class FootballCallsheetDesignSkill extends BaseSkill {
   }
 
   getPromptContext(): string {
-    return `## Football Callsheet And Play Menu Spreadsheet Design
+    return `## Football Callsheet And Play Menu Design
+
+  ### Default Artifact Route
+  - Default to \`render_html_pdf\` for game-day callsheets and play menus. These are sideline print tools first.
+  - Use \`execute_python_code\` / XLSX only when the user explicitly asks for Excel, XLSX, spreadsheet, workbook, or editable sheet output.
+  - Do not use \`dynamic_export\` as the primary callsheet route unless the user asks for a Gamma-style report/deck/packet instead of a sideline board.
 
 ### Sheet Count Rule
-- Default to one unified sheet for game-day callsheets and play menus.
-- Split into multiple tabs only if the user asks, or if the sheet must separate offense, defense, special teams, or opponent sections.
+  - Default to one unified landscape board for game-day callsheets and play menus.
+  - Split into multiple files/pages/tabs only if the user asks, or if the deliverable must separate offense, defense, special teams, or opponent sections.
 
 ### Board Layout Rule
 - A real football callsheet should usually be a dense multi-panel board across the page, not one long vertical table.
-- Build multiple side-by-side panels on the same worksheet using column groups separated by narrow spacer columns.
+- Build multiple side-by-side panels on the same landscape PDF page using compact cards/panels separated by narrow gutters. For explicit XLSX asks, use equivalent worksheet column groups.
 - Each panel can have its own mini-table with compact columns such as #, personnel, formation, and play/call.
 - Stack smaller situational sections vertically inside each panel to maximize printed space.
 - Use one long vertical table only when the user explicitly asks for a simple list/table export.
@@ -124,7 +129,7 @@ Use compact columns that coaches scan during a game:
 - Keep rows compact enough for printing but tall enough for notes to wrap.
 - Use fit-to-width print settings and repeat header rows on printed pages.
 - Use landscape orientation, tight margins, small but readable fonts, and fit-to-width print setup for sideline boards.
-- The finished worksheet should read as one of the functional color-coded boards coaches use first and a spreadsheet second.
+- The finished callsheet should read as one of the functional color-coded boards coaches use first and a file format second.
 
 ### Quality Gate
 - The final sheet should feel like a sideline tool, not a report.

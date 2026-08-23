@@ -424,6 +424,7 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'move_universal_file_to_folder',
   'save_film_review',
   'update_film_review',
+  'import_film_review_breakdown',
   'delete_film_review',
   'add_film_review_source',
   'analyze_film_review_source_breakdowns',
@@ -543,6 +544,11 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateKey: 'mutation_update_film_review',
     templateBaseDomain: 'performance',
     tags: ['film-review', 'video', 'coaching'],
+  },
+  import_film_review_breakdown: {
+    templateKey: 'mutation_update_film_review_source_breakdown',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'breakdown-import', 'coaching'],
   },
   update_film_review_source_breakdown: {
     templateKey: 'mutation_update_film_review_source_breakdown',

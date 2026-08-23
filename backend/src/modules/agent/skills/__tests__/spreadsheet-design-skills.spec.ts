@@ -31,7 +31,8 @@ describe('modular spreadsheet design skills', () => {
     const callsheetPrompt = new FootballCallsheetDesignSkill().getPromptContext();
     const wristbandPrompt = new QbWristbandInsertDesignSkill().getPromptContext();
 
-    expect(callsheetPrompt).toContain('one unified sheet');
+    expect(callsheetPrompt).toContain('one unified landscape board');
+    expect(callsheetPrompt).toContain('Default to `render_html_pdf`');
     expect(callsheetPrompt).toContain('Maumelle-Style Staff Callsheet');
     expect(callsheetPrompt).toContain('maumelle-callsheet-reference.png');
     expect(callsheetPrompt).toContain('If the runtime has this image attached or hosted as a URL');

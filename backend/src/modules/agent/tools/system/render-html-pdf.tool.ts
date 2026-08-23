@@ -14,19 +14,30 @@ import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 
 const HTML_PDF_DOWNLOAD_URL_TTL_MS_NO_EXPIRE = 100 * 365 * 24 * 60 * 60 * 1000;
+const HTML_PDF_REVISION_HINT =
+  'You can ask Agent X to adjust this PDF by describing the change. The editable HTML source was saved with the PDF, so Agent X can update that source and rerender the document.';
 
 const RenderHtmlPdfInputSchema = z.object({
   html: z
     .string()
     .min(1)
     .describe(
-      'Complete HTML document with inline CSS. For exact_match, use print CSS with @page, a fixed-size page/sheet/canvas container, and coordinate/grid positioned elements rather than generic flowing text.'
+      'Complete HTML document with inline CSS. For exact_match, use print CSS with @page, a fixed-size page/sheet/canvas container, and coordinate/grid positioned elements rather than generic flowing text. For best_fit_operational, normal document flow, tables, flexbox, and grid layouts are allowed as long as the result is still a printable PDF.'
     ),
-  fileName: z.string().trim().min(1),
+  fileName: z.string().trim().min(1).optional(),
+  title: z.string().trim().min(1).optional(),
   pageSize: z.enum(['LETTER', 'LEGAL', 'TABLOID', 'A4']).optional(),
   orientation: z.enum(['portrait', 'landscape']).optional(),
+  pageWidth: z.number().positive().max(200).optional(),
+  pageHeight: z.number().positive().max(200).optional(),
+  pageUnit: z.enum(['in', 'mm', 'cm', 'px', 'pt']).optional(),
   expectedPageCount: z.number().int().min(1).max(100).optional(),
-  layoutIntent: z.enum(['exact_match', 'best_fit_operational']).optional(),
+  layoutIntent: z
+    .enum(['exact_match', 'best_fit_operational'])
+    .optional()
+    .describe(
+      'Use exact_match only when matching a sample/reference layout closely or when physical geometry is critical (wristbands, fixed cards, paper inserts). Use best_fit_operational for ordinary printable PDFs where the design can adapt more freely to the content.'
+    ),
   relatedDocumentId: z.string().trim().min(1).optional(),
   sourceDocumentIds: z.array(z.string().trim().min(1)).optional(),
   sourceAttachmentIds: z.array(z.string().trim().min(1)).optional(),
@@ -40,7 +51,8 @@ export class RenderHtmlPdfTool extends BaseTool {
   readonly description =
     'Renders exact-match or best-fit operational PDFs from complete HTML/CSS and persists the editable source HTML alongside the PDF. ' +
     'Use this instead of Gamma or dynamic_export when the user asks to match a sample image/template exactly, ' +
-    'make a one-page PDF like a reference, or create operational box/grid layouts such as depth charts, callsheets, wristbands, roster cards, or sideline sheets.';
+    'make a one-page PDF like a reference, or create printable operational layouts such as depth charts, callsheets, wristbands, roster cards, or sideline sheets. ' +
+    'Important: exact_match is for sample-matched/fixed-geometry work; best_fit_operational is for freer printable designs that should still render as PDF.';
 
   readonly parameters = RenderHtmlPdfInputSchema;
   readonly isMutation = true;
@@ -68,11 +80,13 @@ export class RenderHtmlPdfTool extends BaseTool {
 
     try {
       const normalized = this.normalizeInput(parsed.data, context);
-      this.validateExactMatchHtml(normalized);
       const renderResult = await this.renderer.render({
         html: normalized.html,
         pageSize: normalized.pageSize,
         orientation: normalized.orientation,
+        pageWidth: normalized.pageWidth,
+        pageHeight: normalized.pageHeight,
+        pageUnit: normalized.pageUnit,
         expectedPageCount: normalized.expectedPageCount,
         signal: context?.signal,
       });
@@ -88,7 +102,7 @@ export class RenderHtmlPdfTool extends BaseTool {
     const pageSize: HtmlPdfPageSize = input.pageSize ?? 'LETTER';
     const orientation: HtmlPdfOrientation = input.orientation ?? 'landscape';
     const artifactGroupId = input.artifactGroupId ?? context?.operationId ?? undefined;
-    const safeName = this.sanitizeFileName(input.fileName);
+    const safeName = this.sanitizeFileName(input.fileName ?? input.title ?? 'html-pdf-export');
 
     return {
       ...input,
@@ -97,34 +111,6 @@ export class RenderHtmlPdfTool extends BaseTool {
       orientation,
       artifactGroupId,
     };
-  }
-
-  private validateExactMatchHtml(input: ReturnType<RenderHtmlPdfTool['normalizeInput']>): void {
-    if (input.layoutIntent !== 'exact_match') return;
-
-    const missing: string[] = [];
-    if (!/@page\s*{[^}]*size\s*:/is.test(input.html)) {
-      missing.push('@page size rule matching the requested paper/orientation');
-    }
-
-    if (
-      !/(?:\.|#)(?:page|sheet|canvas)[\w-]*\s*{[^}]*width\s*:\s*[\d.]+(?:in|mm|cm|px|pt)[^}]*height\s*:\s*[\d.]+(?:in|mm|cm|px|pt)/is.test(
-        input.html
-      )
-    ) {
-      missing.push('fixed-size page/sheet/canvas CSS container with explicit width and height');
-    }
-
-    if (!/(position\s*:\s*absolute|display\s*:\s*grid|grid-template)/i.test(input.html)) {
-      missing.push('coordinate-based layout using absolute positioning or CSS grid');
-    }
-
-    if (missing.length === 0) return;
-
-    throw new AgentEngineError(
-      'AGENT_VALIDATION_FAILED',
-      `Exact-match HTML PDFs must be built like a professional print layout, not a generic document flow. Missing: ${missing.join('; ')}. Rebuild the HTML with a fixed paper canvas, explicit print geometry, and positioned boxes that match the reference layout.`
-    );
   }
 
   private async uploadResult(
@@ -246,6 +232,7 @@ export class RenderHtmlPdfTool extends BaseTool {
         layoutIntent: input.layoutIntent ?? 'best_fit_operational',
         renderMetadata: renderResult.metadata,
         editableSource: sourceAttachment,
+        revisionHint: HTML_PDF_REVISION_HINT,
         ...(input.relatedDocumentId ? { relatedDocumentId: input.relatedDocumentId } : {}),
         ...(input.sourceDocumentIds?.length ? { sourceDocumentIds: input.sourceDocumentIds } : {}),
         ...(input.sourceAttachmentIds?.length

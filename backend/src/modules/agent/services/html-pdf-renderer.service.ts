@@ -1,14 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 
 export type HtmlPdfPageSize = 'LETTER' | 'LEGAL' | 'TABLOID' | 'A4';
 export type HtmlPdfOrientation = 'portrait' | 'landscape';
+export type HtmlPdfPageUnit = 'in' | 'mm' | 'cm' | 'px' | 'pt';
 
 export interface HtmlPdfRenderInput {
   readonly html: string;
   readonly pageSize: HtmlPdfPageSize;
   readonly orientation: HtmlPdfOrientation;
+  readonly pageWidth?: number;
+  readonly pageHeight?: number;
+  readonly pageUnit?: HtmlPdfPageUnit;
   readonly expectedPageCount?: number;
   readonly signal?: AbortSignal;
 }
@@ -17,6 +20,9 @@ export interface HtmlPdfRenderMetadata {
   readonly engine: HtmlPdfRenderEngine;
   readonly pageSize: HtmlPdfPageSize;
   readonly orientation: HtmlPdfOrientation;
+  readonly pageWidth?: number;
+  readonly pageHeight?: number;
+  readonly pageUnit?: HtmlPdfPageUnit;
   readonly expectedPageCount?: number;
   readonly pageCount?: number;
   readonly verified: boolean;
@@ -28,21 +34,11 @@ export interface HtmlPdfRenderResult {
   readonly metadata: HtmlPdfRenderMetadata;
 }
 
-export type HtmlPdfRenderEngine = 'e2b-playwright' | 'local-playwright';
+export type HtmlPdfRenderEngine = 'e2b-playwright';
 
 export interface HtmlPdfRunner {
   readonly engine?: HtmlPdfRenderEngine;
   render(input: HtmlPdfRenderInput): Promise<Buffer>;
-}
-
-export function shouldUseE2bHtmlPdfRunner(
-  requestedMode: string | undefined,
-  hasConfiguredE2bTemplate: boolean
-): boolean {
-  const mode = requestedMode?.trim().toLowerCase() ?? 'auto';
-  if (mode === 'local') return false;
-  if (mode === 'e2b') return true;
-  return hasConfiguredE2bTemplate;
 }
 
 export function getLocalChromiumLaunchArgs(
@@ -59,7 +55,7 @@ const MAX_HTML_BYTES = 1_500_000;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
 export class HtmlPdfRendererService {
-  constructor(private readonly runner: HtmlPdfRunner = new AutoHtmlPdfRunner()) {}
+  constructor(private readonly runner: HtmlPdfRunner = new E2bHtmlPdfRunner()) {}
 
   async render(input: HtmlPdfRenderInput): Promise<HtmlPdfRenderResult> {
     this.validateHtml(input.html);
@@ -91,6 +87,9 @@ export class HtmlPdfRendererService {
         engine: this.runner.engine ?? 'e2b-playwright',
         pageSize: input.pageSize,
         orientation: input.orientation,
+        ...(input.pageWidth ? { pageWidth: input.pageWidth } : {}),
+        ...(input.pageHeight ? { pageHeight: input.pageHeight } : {}),
+        ...(input.pageUnit ? { pageUnit: input.pageUnit } : {}),
         ...(input.expectedPageCount ? { expectedPageCount: input.expectedPageCount } : {}),
         ...(pageCount ? { pageCount } : {}),
         verified: warnings.length === 0,
@@ -127,46 +126,6 @@ export class HtmlPdfRendererService {
         'AGENT_VALIDATION_FAILED',
         'HTML PDF rendering does not allow script tags.'
       );
-    }
-  }
-}
-
-class AutoHtmlPdfRunner implements HtmlPdfRunner {
-  readonly e2bRunner = new E2bHtmlPdfRunner();
-  readonly localRunner = new LocalPlaywrightHtmlPdfRunner();
-  engine: HtmlPdfRenderEngine = 'e2b-playwright';
-
-  async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const mode = process.env['HTML_PDF_RENDERER']?.trim().toLowerCase() ?? 'auto';
-    const hasConfiguredE2bTemplate = Boolean(process.env['E2B_HTML_PDF_TEMPLATE']?.trim());
-    if (mode === 'local') {
-      this.engine = 'local-playwright';
-      return this.localRunner.render(input);
-    }
-
-    if (!shouldUseE2bHtmlPdfRunner(mode, hasConfiguredE2bTemplate)) {
-      this.engine = 'local-playwright';
-      return this.localRunner.render(input);
-    }
-
-    try {
-      this.engine = 'e2b-playwright';
-      return await this.e2bRunner.render(input);
-    } catch (error) {
-      if (mode === 'e2b') {
-        throw error;
-      }
-
-      try {
-        this.engine = 'local-playwright';
-        return await this.localRunner.render(input);
-      } catch (fallbackError) {
-        throw new AgentEngineError(
-          'AGENT_PIPELINE_FAILED',
-          `HTML PDF rendering failed in E2B and local Playwright fallback. E2B error: ${getErrorMessage(error)}. Local error: ${getErrorMessage(fallbackError)}`,
-          { cause: fallbackError }
-        );
-      }
     }
   }
 }
@@ -213,68 +172,6 @@ class E2bHtmlPdfRunner implements HtmlPdfRunner {
   }
 }
 
-class LocalPlaywrightHtmlPdfRunner implements HtmlPdfRunner {
-  readonly engine = 'local-playwright' as const;
-
-  async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const moduleLoader = new Function('specifier', 'return import(specifier)') as (
-      specifier: string
-    ) => Promise<{ chromium: LocalChromiumLike }>;
-
-    let browser: LocalBrowserLike | undefined;
-    try {
-      const { chromium } = await moduleLoader('playwright');
-      browser = await chromium.launch({
-        headless: true,
-        args: [...getLocalChromiumLaunchArgs()],
-        ...resolveLocalChromiumExecutablePath(),
-      });
-      const page = await browser.newPage();
-      await page.emulateMedia({ media: 'print' });
-      await page.setContent(input.html, { waitUntil: 'networkidle' });
-      const pdf = await page.pdf({
-        format: toPlaywrightFormat(input.pageSize),
-        landscape: input.orientation === 'landscape',
-        printBackground: true,
-        margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
-      });
-      return Buffer.from(pdf);
-    } catch (error) {
-      throw new AgentEngineError(
-        'AGENT_PIPELINE_FAILED',
-        `Local Playwright HTML PDF rendering failed: ${getErrorMessage(error)}. Ensure playwright is installed and Chrome/Chromium is available, or set HTML_PDF_RENDERER=e2b with a valid E2B template.`,
-        { cause: error }
-      );
-    } finally {
-      await browser?.close().catch(() => undefined);
-    }
-  }
-}
-
-interface LocalChromiumLike {
-  launch(options: {
-    headless: boolean;
-    executablePath?: string;
-    args?: readonly string[];
-  }): Promise<LocalBrowserLike>;
-}
-
-interface LocalBrowserLike {
-  newPage(): Promise<LocalPageLike>;
-  close(): Promise<void>;
-}
-
-interface LocalPageLike {
-  emulateMedia(options: { media: 'print' }): Promise<void>;
-  setContent(html: string, options?: { waitUntil?: 'networkidle' }): Promise<void>;
-  pdf(options: {
-    format: string;
-    landscape: boolean;
-    printBackground: boolean;
-    margin: { top: string; right: string; bottom: string; left: string };
-  }): Promise<Uint8Array>;
-}
-
 interface E2bSandboxLike {
   readonly files: {
     makeDir(path: string): Promise<boolean>;
@@ -291,9 +188,8 @@ interface E2bSandboxLike {
 }
 
 function buildPlaywrightRenderScript(input: HtmlPdfRenderInput): string {
-  const format = toPlaywrightFormat(input.pageSize);
-  const landscape = input.orientation === 'landscape';
   const launchArgs = JSON.stringify(getLocalChromiumLaunchArgs('linux'));
+  const pdfOptions = JSON.stringify(buildPlaywrightPdfOptions(input));
   return `import { chromium } from 'playwright';
 import { resolve } from 'node:path';
 
@@ -307,11 +203,8 @@ try {
   const page = await browser.newPage();
   await page.goto('file://' + resolve(process.cwd(), 'input.html'), { waitUntil: 'networkidle' });
   await page.pdf({
+    ...${pdfOptions},
     path: resolve(process.cwd(), 'output.pdf'),
-    format: ${JSON.stringify(format)},
-    landscape: ${JSON.stringify(landscape)},
-    printBackground: true,
-    margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
   });
 } finally {
   await browser.close();
@@ -319,29 +212,39 @@ try {
 `;
 }
 
+export function buildPlaywrightPdfOptions(input: HtmlPdfRenderInput): {
+  readonly format?: string;
+  readonly width?: string;
+  readonly height?: string;
+  readonly landscape: boolean;
+  readonly printBackground: boolean;
+  readonly preferCSSPageSize: boolean;
+  readonly margin: {
+    readonly top: string;
+    readonly right: string;
+    readonly bottom: string;
+    readonly left: string;
+  };
+} {
+  const unit = input.pageUnit ?? 'in';
+  const customSize = input.pageWidth && input.pageHeight;
+
+  return {
+    ...(customSize
+      ? { width: `${input.pageWidth}${unit}`, height: `${input.pageHeight}${unit}` }
+      : { format: toPlaywrightFormat(input.pageSize) }),
+    landscape: input.orientation === 'landscape',
+    printBackground: true,
+    preferCSSPageSize: true,
+    margin: { top: '0in', right: '0in', bottom: '0in', left: '0in' },
+  };
+}
+
 function toPlaywrightFormat(pageSize: HtmlPdfPageSize): string {
   if (pageSize === 'A4') return 'A4';
   if (pageSize === 'LEGAL') return 'Legal';
   if (pageSize === 'TABLOID') return 'Tabloid';
   return 'Letter';
-}
-
-function resolveLocalChromiumExecutablePath(): { readonly executablePath?: string } {
-  const configured = process.env['CHROME_EXECUTABLE_PATH']?.trim();
-  if (configured && existsSync(configured)) {
-    return { executablePath: configured };
-  }
-
-  const candidates = [
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    '/Applications/Chromium.app/Contents/MacOS/Chromium',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-  ];
-
-  const executablePath = candidates.find((candidate) => existsSync(candidate));
-  return executablePath ? { executablePath } : {};
 }
 
 function getErrorMessage(error: unknown): string {

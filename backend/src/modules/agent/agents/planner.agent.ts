@@ -38,6 +38,7 @@ import type {
 } from '@nxt1/core';
 import { COORDINATOR_AGENT_IDS, MODEL_ROUTING_DEFAULTS } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import { getCachedAgentAppConfig, isToolDisabled } from '../config/agent-app-config.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { OnStreamEvent } from '../queue/event-writer.js';
@@ -167,12 +168,19 @@ export class PlannerAgent extends BaseAgent {
   }
 
   private getStrictPlanningPrompt(_context: AgentSessionContext): string {
+    const cfg = getCachedAgentAppConfig();
+    const diagramToolsEnabled =
+      !isToolDisabled('create_play_diagram', cfg) && !isToolDisabled('create_board_diagram', cfg);
     const agentCatalogue = this.getCoordinatorDescriptors()
       .map(
         (a) =>
           `- **${a.name}** (id: "${a.id}"): ${a.description}\n  Capabilities: ${a.capabilities.join(', ')}`
       )
       .join('\n');
+
+    const artifactDiagramProtocol = diagramToolsEnabled
+      ? 'Use generate_chart_visualization for charts/funnels/process visuals, create_play_diagram or create_board_diagram for play/drill diagrams, and native media tools for graphics/video/audio outputs.'
+      : 'Use generate_chart_visualization for charts/funnels/process visuals. For play/drill diagram requests, do NOT plan create_play_diagram or create_board_diagram while the diagram integration is still in progress; plan a written fallback or adjacent strategy artifact instead. Use native media tools for graphics/video/audio outputs.';
 
     const prompt = `You are the action planner for Agent X. The request has already been classified as an ACTION.
 
@@ -198,8 +206,8 @@ ${agentCatalogue}
 10b. For pointer-based saved artifacts, the plan should usually inspect the backing record before recommendation or mutation work. Example patterns: Team Files document -> inspect artifact before summarizing/editing; film review or sourceId -> inspect review/breakdown before analysis/update; folder organization request -> inspect folder tree before move/create/delete steps.
 10c. Routine saved-profile field edits belong to data_coordinator, not admin_coordinator. Examples: changing first name, last name, display name, email, phone, bio/aboutMe, city/state/country, or sport-scoped positions should route to data_coordinator because they are canonical record updates.
 10d. Use admin_coordinator only when the work is actually compliance, governance, support-ticketing, scheduling policy, or operational administration. Do not send profile-field mutations to admin_coordinator just because they sound like "account management."
-11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing artifact, always add a description directive that selects the best-fit output tool and tells the coordinator to reference the artifact in the chat summary instead of pasting raw content. Use execute_python_code by default for XLSX, Excel, spreadsheets, workbooks, trackers, matrices, schedules, callsheets, budgets, dashboard-style sheets, and editable grid deliverables so Python/openpyxl can build professional multi-sheet files with formulas and styling. Use dynamic_export for PDFs/CSVs/PPTX decks/documents/tables and as the XLSX fallback only when execute_python_code is unavailable or the user explicitly asks for a quick/simple template export. Choose PPTX for slide-by-slide coach decks, flash cards, card decks, scout-card packets, player/opponent briefing decks, recruiting pitch decks, meeting decks, and other presentation-first artifacts; choose PDF for print-first readable summaries and CSV for raw flat tables. Use generate_chart_visualization for charts/funnels/process visuals, create_play_diagram or create_board_diagram for play/drill diagrams, and native media tools for graphics/video/audio outputs.
-11a. HARD FORMAT RULE: If the user explicitly says PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, cards, or asks for a file to open in PowerPoint, the plan directive MUST tell the coordinator to produce PPTX. If native Microsoft PowerPoint is unavailable, use dynamic_export format="pptx". Never plan a PDF-only substitute for an explicit PowerPoint/PPTX/card-deck request.
+11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing artifact, always add a description directive that selects the best-fit output tool and tells the coordinator to reference the artifact in the chat summary instead of pasting raw content. Use render_html_pdf by default for printable/share-ready/user-facing PDF artifacts, one-pagers, fixed-layout staff sheets, quick-reference cards, callsheets, practice scripts, depth charts, sideline sheets, and other operational documents unless the user explicitly asks for a spreadsheet/workbook/editable sheet. Use execute_python_code only when the user explicitly wants XLSX, Excel, spreadsheet, workbook, tracker, matrix, or editable grid output. Use dynamic_export for Gamma-style reports, multi-page narrative reports, PPTX decks/documents/tables, CSV exports, and only as the PDF/XLSX fallback when the dedicated route is unavailable or not appropriate. Choose PPTX for slide-by-slide coach decks, flash cards, card decks, scout-card packets, player/opponent briefing decks, recruiting pitch decks, meeting decks, and other presentation-first artifacts; choose CSV for raw flat tables. ${artifactDiagramProtocol}
+11a. HARD FORMAT RULE: If the user explicitly says PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, cards, or asks for a file to open in PowerPoint, the plan directive MUST tell the coordinator to produce PPTX. Exception: scout team play cards, scout-team look cards, and scout-period cards are printable practice PDFs and should route to render_html_pdf unless the user explicitly asks for slides, slide deck, PPT, or PPTX. If native Microsoft PowerPoint is unavailable, use dynamic_export format="pptx". Never plan a PDF-only substitute for an explicit PowerPoint/PPTX/card-deck request.
 12. When the work naturally has sequential phases, split it into multiple tasks even if the same coordinator owns every phase. Do not collapse setup -> production -> QA/delivery into one generic task just because a single coordinator can do all of it.
 13. Creative media workflows such as highlight reels, highlight videos, promo edits, branded clip packages, or multi-clip video production should usually be planned as separate phases: stage assets/context, produce the media artifact, then validate/deliver the final output. Only keep them as one task when the user explicitly asks for a simple merge, raw cut, plain trim, or another truly single-step edit.
 
