@@ -149,6 +149,7 @@ function createDb(options: {
       }
 
       if (name === 'TeamFileFolders') {
+        const folderQuery = createQuery(folderDocs);
         return {
           doc: vi.fn().mockImplementation((id: string) => {
             const matchingDoc = folderDocs.find((doc) => doc.id === id);
@@ -170,6 +171,7 @@ function createDb(options: {
             .mockImplementation((field: string, _op: string, value: unknown) =>
               createQuery(folderDocs, [{ field, value }])
             ),
+          limit: folderQuery.limit,
         };
       }
 
@@ -257,6 +259,47 @@ describe('universal team folder Agent X tools', () => {
       folders: [
         expect.objectContaining({ id: 'folder-1', name: 'Alpha' }),
         expect.objectContaining({ id: 'folder-2', name: 'Zeta' }),
+      ],
+    });
+  });
+
+  it('lists visible user-scoped folders when teamId is omitted', async () => {
+    const { db } = createDb({
+      folderDocs: [
+        makeDoc('practice-plans', {
+          name: 'Practice Plans',
+          normalizedName: 'practice plans',
+          sortOrder: 0,
+          createdByUserId: 'coach-1',
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+        makeDoc('shared-installs', {
+          teamId: 'team-1',
+          name: 'Shared Installs',
+          normalizedName: 'shared installs',
+          sortOrder: 1,
+          createdByUserId: 'coach-1',
+          readAccessKeys: ['team:team-1'],
+          writeAccessKeys: ['user:coach-1'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      ],
+    });
+
+    const tool = new ListTeamFileFoldersTool(db as never);
+    const result = await tool.execute({}, { userId: 'test-user' });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      teamId: '',
+      count: 2,
+      folders: [
+        expect.objectContaining({ id: 'practice-plans', name: 'Practice Plans' }),
+        expect.objectContaining({ id: 'shared-installs', name: 'Shared Installs' }),
       ],
     });
   });

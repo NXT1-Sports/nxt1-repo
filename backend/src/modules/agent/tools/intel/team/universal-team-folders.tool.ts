@@ -302,11 +302,13 @@ async function listTeamFileFoldersByScope(
   db: Firestore,
   teamId: string
 ): Promise<readonly TeamFileFolderDoc[]> {
-  const snapshot = await db
-    .collection(TEAM_FILE_FOLDERS_COLLECTION)
-    .where('teamId', '==', teamId)
-    .limit(250)
-    .get();
+  const snapshot = teamId
+    ? await db
+        .collection(TEAM_FILE_FOLDERS_COLLECTION)
+        .where('teamId', '==', teamId)
+        .limit(250)
+        .get()
+    : await db.collection(TEAM_FILE_FOLDERS_COLLECTION).limit(250).get();
 
   return snapshot.docs
     .map((doc) => toTeamFileFolderDoc(doc.id, (doc.data() ?? {}) as Record<string, unknown>))
