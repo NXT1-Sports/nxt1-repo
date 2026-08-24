@@ -1012,6 +1012,54 @@ describe('film review compatibility tools', () => {
     expect(data.sources.map((source) => source.id)).toEqual(['source-1', 'source-2']);
   });
 
+  it('retries adding a source when the review revision advances before commit', async () => {
+    const db = createDb([makeFilmReviewFile('review-1')]);
+    db.beforeNextTransaction(() => {
+      db.mutateUniversalFile('review-1', (current) => {
+        const payload = current['payload'] as Record<string, unknown>;
+        const filmReview = payload['filmReview'] as Record<string, unknown>;
+        return {
+          ...current,
+          payload: {
+            ...payload,
+            filmReview: {
+              ...filmReview,
+              reviewRevision: 1,
+              aiSummary: 'Updated by a concurrent analysis pass.',
+            },
+          },
+        };
+      });
+    });
+    const tool = new AddFilmReviewSourceTool(db as never);
+
+    const result = await tool.execute(
+      {
+        filmReviewId: 'review-1',
+        source: {
+          id: 'source-2',
+          order: 1,
+          title: 'Endzone Copy',
+          videoUrl: 'https://cdn.example.com/video-2.mp4',
+        },
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(db.runTransaction).toHaveBeenCalledTimes(2);
+
+    const updatedSnapshot = await db.collection('UniversalFiles').doc('review-1').get();
+    const filmReview = (updatedSnapshot.data()?.['payload'] as Record<string, unknown>)[
+      'filmReview'
+    ] as Record<string, unknown>;
+    const sources = filmReview['sources'] as Array<Record<string, unknown>>;
+
+    expect(filmReview['reviewRevision']).toBe(2);
+    expect(filmReview['aiSummary']).toBe('Updated by a concurrent analysis pass.');
+    expect(sources.map((source) => source['id'])).toEqual(['source-1', 'source-2']);
+  });
+
   it('creates extracted clip reviews directly in the requested Files folder', async () => {
     const db = createDb([makeFilmReviewFile('review-1')], [makeFolder('folder-film')]);
     const sourceThumbnailUrl = 'https://cdn.example.com/video-thumb.jpg';

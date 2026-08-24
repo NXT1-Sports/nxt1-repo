@@ -2545,6 +2545,25 @@ export class AddFilmReviewSourceTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
+  private buildSuccessResult(input: {
+    readonly review: TeamFilmReviewDoc;
+    readonly source: TeamFilmReviewSourceVideo;
+    readonly alreadyPresent?: boolean;
+  }): ToolResult {
+    return {
+      success: true,
+      markdown: input.alreadyPresent
+        ? `Source video **${input.source.title ?? input.source.id}** already exists in **${input.review.title}**.`
+        : `Added source video **${input.source.title ?? input.source.id}** to **${input.review.title}**.`,
+      data: {
+        filmReviewId: input.review.id,
+        source: input.source,
+        sources: input.review.sources ?? [],
+        summary: summarizeFilmReview(input.review),
+      },
+    };
+  }
+
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
@@ -2581,23 +2600,80 @@ export class AddFilmReviewSourceTool extends BaseTool {
       sources: [...existingSources, source],
     });
 
-    await persistAuthorizedFilmReview({
-      db: this.db,
-      review: updated,
-      expectedRevision: getTeamFilmReviewRevision(review),
-      userId: context.userId,
-    });
+    try {
+      await persistAuthorizedFilmReview({
+        db: this.db,
+        review: updated,
+        expectedRevision: getTeamFilmReviewRevision(review),
+        userId: context.userId,
+      });
+      return this.buildSuccessResult({ review: updated, source });
+    } catch (error) {
+      if (
+        !(error instanceof TeamFilmReviewSourceBreakdownPatchError) ||
+        error.code !== 'REVISION_CONFLICT'
+      ) {
+        throw error;
+      }
 
-    return {
-      success: true,
-      markdown: `Added source video **${source.title ?? source.id}** to **${updated.title}**.`,
-      data: {
-        filmReviewId: updated.id,
-        source,
-        sources: updated.sources ?? [],
-        summary: summarizeFilmReview(updated),
-      },
-    };
+      const latestReview = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
+      if (!latestReview) {
+        return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
+      }
+      const latestPermission = await assertReviewAccess(
+        this.db,
+        latestReview,
+        context.userId,
+        'write'
+      );
+      if (!latestPermission.ok) {
+        return { success: false, error: latestPermission.error };
+      }
+
+      const latestSources = latestReview.sources ?? [];
+      const existingSource = latestSources.find((entry) => entry.id === source.id);
+      if (existingSource) {
+        return this.buildSuccessResult({
+          review: latestReview,
+          source: existingSource,
+          alreadyPresent: true,
+        });
+      }
+
+      const retryUpdated = buildUpdatedSourceReview({
+        existing: latestReview,
+        userId: context.userId,
+        sources: [...latestSources, source],
+      });
+
+      try {
+        await persistAuthorizedFilmReview({
+          db: this.db,
+          review: retryUpdated,
+          expectedRevision: getTeamFilmReviewRevision(latestReview),
+          userId: context.userId,
+        });
+      } catch (retryError) {
+        if (
+          retryError instanceof TeamFilmReviewSourceBreakdownPatchError &&
+          retryError.code === 'REVISION_CONFLICT'
+        ) {
+          return {
+            success: false,
+            error: retryError.message,
+            isValidationError: true,
+            data: {
+              code: retryError.code,
+              currentRevision:
+                retryError.currentRevision ?? getTeamFilmReviewRevision(latestReview),
+            },
+          };
+        }
+        throw retryError;
+      }
+
+      return this.buildSuccessResult({ review: retryUpdated, source });
+    }
   }
 }
 
