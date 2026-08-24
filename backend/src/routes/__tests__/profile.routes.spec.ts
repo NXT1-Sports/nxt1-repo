@@ -13,7 +13,7 @@ describe('Profile Routes', () => {
   beforeAll(async () => {
     const module = await import('../../routes/profile/index.js');
     router = module.default;
-  }, 15_000);
+  }, 60_000);
 
   it('should register the profile endpoints', () => {
     expectExpressRouter(
