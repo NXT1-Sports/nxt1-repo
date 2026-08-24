@@ -443,7 +443,9 @@ KEY: The artifact is the deliverable. The chat is the story.
 ```
 
 This directive ensures coordinators prioritize artifact generation over chat
-bloat.
+bloat. A saved Files document or plan draft may accompany the work, but it is a
+supporting record rather than a replacement for the best-fit export/media
+deliverable when that deliverable lane exists.
 
 ## Planner Agent Direction
 
