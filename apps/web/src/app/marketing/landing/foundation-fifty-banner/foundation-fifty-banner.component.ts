@@ -100,6 +100,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.crestviewHs,
   },
   {
+    id: 'dickinson-tx-hs',
+    name: 'Dickinson High School',
+    location: 'Dickinson, TX',
+    src: PARTNER_TEAM_LOGO_PATHS.dickinsonTxHs,
+  },
+  {
     id: 'dixie-heights-hs',
     name: 'Dixie Heights High School',
     location: 'Edgewood, KY',
@@ -142,6 +148,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.glassboroHs,
   },
   {
+    id: 'hillsboro-hs',
+    name: 'Hillsboro High School',
+    location: 'Hillsboro, NJ',
+    src: PARTNER_TEAM_LOGO_PATHS.hillsboroHs,
+  },
+  {
     id: 'hoover-hs',
     name: 'Hoover High School',
     location: 'North Canton, OH',
@@ -158,6 +170,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     name: 'Lake High School',
     location: 'Uniontown, OH',
     src: PARTNER_TEAM_LOGO_PATHS.lakeHs,
+  },
+  {
+    id: 'lincoln-county-hs',
+    name: 'Lincoln County High School',
+    location: 'Stanford, KY',
+    src: PARTNER_TEAM_LOGO_PATHS.lincolnCountyHs,
   },
   {
     id: 'loudon-sports-academy-hs',
