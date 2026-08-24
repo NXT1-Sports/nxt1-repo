@@ -371,6 +371,106 @@ describe('AgentXFilmReviewPanelComponent', () => {
     ).toBe('02:05');
   });
 
+  it('adds imported custom breakdown columns to the visible timeline grid', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      breakdownSource: {
+        provider: 'csv',
+        fileName: 'week-1.csv',
+        rowCount: 2,
+        playCount: 2,
+        customColumns: [
+          {
+            id: 'backsets',
+            label: 'Backsets',
+            valueType: 'string',
+            width: 'regular',
+          },
+          {
+            id: 'isscripted',
+            label: 'Is Scripted',
+            valueType: 'boolean',
+            width: 'compact',
+          },
+        ],
+      },
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 8,
+          sourceId: 'source-1',
+          tags: {
+            odk: 'O',
+            backsets: 'Pistol Strong',
+            isscripted: true,
+          },
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as {
+      currentTimelineColumns: () => readonly {
+        readonly id: string;
+        readonly label: string;
+      }[];
+      getTimelineColumnDisplayValue: (
+        play: TeamFilmReviewPlaySegment,
+        column: {
+          readonly kind: 'tag';
+          readonly id: string;
+          readonly label: string;
+          readonly fieldKey: string;
+          readonly width: 'compact' | 'regular' | 'wide';
+          readonly tagDefinition: {
+            readonly id: string;
+            readonly label: string;
+            readonly valueType: 'string' | 'number' | 'enum' | 'boolean';
+          };
+        }
+      ) => string;
+    };
+
+    const timelineColumns = componentAccess.currentTimelineColumns();
+    const backsetsColumn = timelineColumns.find((column) => column.id === 'tag:backsets');
+    const scriptedColumn = timelineColumns.find((column) => column.id === 'tag:isscripted');
+    const firstPlay = reviewSignal()!.timeline![0]!;
+
+    expect(backsetsColumn).toMatchObject({ label: 'Backsets' });
+    expect(scriptedColumn).toMatchObject({ label: 'Is Scripted' });
+    expect(
+      componentAccess.getTimelineColumnDisplayValue(firstPlay, {
+        id: 'tag:backsets',
+        kind: 'tag',
+        label: 'Backsets',
+        fieldKey: 'tag:backsets',
+        width: 'regular',
+        tagDefinition: {
+          id: 'backsets',
+          label: 'Backsets',
+          valueType: 'string',
+        },
+      })
+    ).toBe('Pistol Strong');
+    expect(
+      componentAccess.getTimelineColumnDisplayValue(firstPlay, {
+        id: 'tag:isscripted',
+        kind: 'tag',
+        label: 'Is Scripted',
+        fieldKey: 'tag:isscripted',
+        width: 'compact',
+        tagDefinition: {
+          id: 'isscripted',
+          label: 'Is Scripted',
+          valueType: 'boolean',
+        },
+      })
+    ).toBe('Y');
+  });
+
   it('switches the current play to the matching wide or tight source angle', () => {
     reviewSignal.set({
       ...createReviewDoc(),

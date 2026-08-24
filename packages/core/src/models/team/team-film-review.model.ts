@@ -1270,6 +1270,8 @@ export interface TeamFilmReviewBreakdownSource {
   readonly mimeType: string;
   readonly storagePath?: string;
   readonly sheetName?: string;
+  /** Imported headers that do not map to the built-in sport schema. */
+  readonly customColumns?: readonly TeamFilmReviewSportTagDefinition[];
   readonly rowCount: number;
   readonly playCount: number;
   readonly importedBy: string;

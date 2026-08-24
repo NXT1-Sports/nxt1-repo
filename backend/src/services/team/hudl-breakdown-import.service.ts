@@ -17,6 +17,7 @@ export interface HudlBreakdownParseInput {
 export interface HudlBreakdownParseResult {
   readonly timeline: readonly TeamFilmReviewPlaySegment[];
   readonly sheetName?: string;
+  readonly customColumns?: readonly TeamFilmReviewSportTagDefinition[];
   readonly rowCount: number;
   readonly warnings: readonly string[];
 }
@@ -265,6 +266,132 @@ function coerceTagValue(
   return text;
 }
 
+function parseStrictNumericValue(value: unknown): number | null {
+  const text = cellValueToString(value).replace(/,/g, '').trim();
+  if (!text || !/^-?\d+(?:\.\d+)?$/.test(text)) {
+    return null;
+  }
+
+  const numeric = Number(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parseBooleanLikeValue(value: unknown): boolean | null {
+  const normalized = cellValueToString(value).trim().toLowerCase();
+  if (!normalized) return null;
+  if (['yes', 'y', 'true', '1'].includes(normalized)) return true;
+  if (['no', 'n', 'false', '0'].includes(normalized)) return false;
+  return null;
+}
+
+function inferCustomColumnValueType(
+  values: readonly unknown[]
+): TeamFilmReviewSportTagDefinition['valueType'] {
+  const nonEmptyValues = values.filter((value) => cellValueToString(value).length > 0);
+  if (nonEmptyValues.length === 0) {
+    return 'string';
+  }
+
+  if (nonEmptyValues.every((value) => parseStrictNumericValue(value) !== null)) {
+    return 'number';
+  }
+
+  if (nonEmptyValues.every((value) => parseBooleanLikeValue(value) !== null)) {
+    return 'boolean';
+  }
+
+  return 'string';
+}
+
+function inferCustomColumnWidth(
+  header: string,
+  values: readonly unknown[]
+): NonNullable<TeamFilmReviewSportTagDefinition['width']> {
+  const longestLength = [header, ...values.map((value) => cellValueToString(value))].reduce(
+    (maxLength, value) => Math.max(maxLength, value.trim().length),
+    0
+  );
+
+  if (longestLength <= 6) return 'compact';
+  if (longestLength >= 18) return 'wide';
+  return 'regular';
+}
+
+function coerceCustomTagValue(
+  value: unknown,
+  definition: TeamFilmReviewSportTagDefinition
+): TeamFilmReviewPlayTagValue | undefined {
+  const text = cellValueToString(value);
+  if (!text) return undefined;
+
+  switch (definition.valueType) {
+    case 'number': {
+      const numeric = parseStrictNumericValue(value);
+      return numeric ?? undefined;
+    }
+    case 'boolean': {
+      const booleanValue = parseBooleanLikeValue(value);
+      return booleanValue ?? text;
+    }
+    default:
+      return text;
+  }
+}
+
+function buildCustomTagColumns(
+  headers: readonly string[],
+  dataRows: readonly (readonly unknown[])[],
+  usedHeaderIndexes: ReadonlySet<number>,
+  usedTagIds: ReadonlySet<string>
+): readonly {
+  readonly match: HeaderMatch;
+  readonly definition: TeamFilmReviewSportTagDefinition;
+}[] {
+  const resolvedTagIds = new Set(usedTagIds);
+  const columns: Array<{
+    readonly match: HeaderMatch;
+    readonly definition: TeamFilmReviewSportTagDefinition;
+  }> = [];
+
+  for (let index = 0; index < headers.length; index += 1) {
+    if (usedHeaderIndexes.has(index)) {
+      continue;
+    }
+
+    const header = headers[index]?.trim() ?? '';
+    if (!header) {
+      continue;
+    }
+
+    const columnValues = dataRows.map((row) => row[index]);
+    if (!columnValues.some((value) => cellValueToString(value).length > 0)) {
+      continue;
+    }
+
+    const baseId = normalizeHeaderKey(header) || 'customcolumn';
+    let columnId = baseId;
+    let suffix = 2;
+    while (resolvedTagIds.has(columnId)) {
+      columnId = `${baseId}${suffix}`;
+      suffix += 1;
+    }
+    resolvedTagIds.add(columnId);
+
+    columns.push({
+      match: { index, header },
+      definition: {
+        id: columnId,
+        label: header,
+        valueType: inferCustomColumnValueType(columnValues),
+        width: inferCustomColumnWidth(header, columnValues),
+        description: `Imported from breakdown column "${header}".`,
+      },
+    });
+  }
+
+  return columns;
+}
+
 function rowHasContent(row: readonly unknown[]): boolean {
   return row.some((cell) => cellValueToString(cell).length > 0);
 }
@@ -469,6 +596,20 @@ export function parseHudlBreakdownRows(
     .slice(headerIndex + 1)
     .filter(rowHasContent)
     .slice(0, MAX_BREAKDOWN_ROWS);
+  const usedHeaderIndexes = new Set<number>(
+    [numberMatch, labelMatch, startMatch, endMatch, durationMatch]
+      .map((match) => match?.index)
+      .filter((index): index is number => typeof index === 'number')
+  );
+  for (const match of tagColumns.values()) {
+    usedHeaderIndexes.add(match.index);
+  }
+  const customColumns = buildCustomTagColumns(
+    headers,
+    dataRows,
+    usedHeaderIndexes,
+    new Set(tagDefinitions.map((definition) => definition.id))
+  );
 
   for (let index = 0; index < dataRows.length; index += 1) {
     const row = dataRows[index] ?? [];
@@ -483,6 +624,11 @@ export function parseHudlBreakdownRows(
       const match = tagColumns.get(definition.id) ?? null;
       const tagValue = coerceTagValue(getCell(row, match), definition);
       if (tagValue !== undefined) tags[definition.id] = tagValue;
+    }
+
+    for (const column of customColumns) {
+      const tagValue = coerceCustomTagValue(getCell(row, column.match), column.definition);
+      if (tagValue !== undefined) tags[column.definition.id] = tagValue;
     }
 
     const label = buildPlayLabel(row, labelMatch, number, tags);
@@ -518,6 +664,9 @@ export function parseHudlBreakdownRows(
 
   return {
     timeline,
+    ...(customColumns.length > 0
+      ? { customColumns: customColumns.map((column) => column.definition) }
+      : {}),
     rowCount: dataRows.length,
     warnings,
   };
