@@ -174,6 +174,7 @@ describe('Agent tool exposure regressions', () => {
       'If the user only uploads or attaches an image or video without explicitly asking to save it'
     );
     expect(prompt).toContain('First ask what they want to do with the file');
+    expect(prompt).toContain('promote it into Film Review in the Lab/Files for deeper analysis');
     expect(prompt).toContain('Coach/director video save routing (CRITICAL)');
     expect(prompt).toContain('it belongs to `performance_coordinator`');
     expect(prompt).toContain(
@@ -485,6 +486,11 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('semantic Files discovery -> selected/referenced File hydration');
     expect(prompt).toContain('Do not use the legacy playbook database path');
     expect(prompt).toContain('When the deliverable can also be a richer artifact');
+    expect(prompt).toContain(
+      'ALSO produce the best-fit export or artifact in the same workflow by default'
+    );
+    expect(prompt).toContain('create/update a companion Files record');
+    expect(prompt).toContain('generate the best-fit default deliverable in the same flow');
     expect(prompt).toContain('saved film review/cutup, video clip, or downloadable package');
     expect(prompt).toContain(
       'For film-review strategy workflows, existing breakdown data comes first'

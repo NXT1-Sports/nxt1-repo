@@ -861,6 +861,7 @@ describe('BaseAgent runtime date guardrail', () => {
     expect(prompt).toContain('Files contract: saved files, folders, film reviews');
     expect(prompt).toContain('Video save routing (CRITICAL)');
     expect(prompt).toContain('use the Film Review path');
+    expect(prompt).toContain('promote it into Film Review in the Lab/Files for deeper analysis');
     expect(prompt).toContain('preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`');
     expect(prompt).toContain('editableViaUniversalDocumentTool: false');
     expect(prompt).toContain('SAME selected Files item');
@@ -2766,6 +2767,19 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(normalized).toContain(`[scout-play-cards-falcons.pdf](${downloadUrl})`);
     expect(normalized).not.toContain('[http://localhost');
     expect(normalized).not.toContain('source.html');
+  });
+
+  it('appends deliverable links for top-level image artifacts', () => {
+    const agent = new FakeAgent();
+    const imageUrl = 'https://cdn.example.com/generated/scout-card.png';
+
+    const normalized = agent.callNormalizeDeliverableLinks('Your graphic is ready.', {
+      imageUrl,
+      fileName: 'scout-card.png',
+    });
+
+    expect(normalized).toContain('Deliverables:');
+    expect(normalized).toContain(`[scout-card.png](${imageUrl})`);
   });
 
   it('attributes orchestration LLM calls to the agent bucket after dynamic export runs', async () => {

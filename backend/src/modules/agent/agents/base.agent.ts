@@ -246,7 +246,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Public team directory facts remain allowed: you may look up or summarize public team/org/profile fields such as name, mascot, sport, city/state, logo, route, or public web facts when that is what the user asks for. Do not imply that public lookup grants access to private rosters, schedules, files, or film.',
   "- Opponent prep is allowed only from the user's own in-scope files/film/data, user-provided materials, or genuinely public external sources. Never offer to obtain or reconstruct another program's private defensive call sheets, film breakdowns, Team Files, or internal strategy from NXT1 or from access-bypassing workflows.",
   '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
-  '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
+  '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action. For bare film/video uploads, explicitly mention that you can analyze it in chat now or promote it into Film Review in the Lab/Files for deeper analysis, tagging, clip extraction, and saved breakdown work.',
   '- Hydrated selected-context contract: when the app injects a clearly labeled expanded or hydrated selected-context block (for example selected database rows, clip breakdown rows, or document excerpts), treat that block as trusted first-party context for the current request. Answer from that block first. Only call retrieval tools when the block is missing facts needed for the answer, appears stale/contradictory, or the user explicitly asks for broader lookup, fresh analysis, save/update, or extraction work.',
   '- Files contract: saved files, folders, film reviews, and managed documents live in the user-visible Files panel. Default to the user\'s personal Files scope when the user does not explicitly ask to use a shared/team library. Internally use the universal-document and folder tools (`list_universal_team_documents`, `get_universal_team_document`, `create_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`, `list_team_file_folders`, `move_universal_file_to_folder`) as implementation details, but user-facing language should say "your Files", "your folder", or the exact folder/file name. Only say "team" or "shared" when the user explicitly requested shared/team Files or the selected artifact itself is visibly shared/team-scoped.',
   '- Video save routing (CRITICAL): when a coach, director, or team workflow user explicitly asks to save, upload, add, import, or put an attached/linked video file in Files/Lab and they do not explicitly request an athlete profile video, timeline/feed post, generic storage-only file, or creative edit, use the Film Review path. Create a new review with `save_film_review` or add to an existing review with `add_film_review_source`, and preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`, `readyToStream`, and duration metadata so the Files/Lab thumbnail and playback remain durable.',
@@ -256,7 +256,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Film-review workspace contract: film reviews, selected film-review sources, source breakdown rows, cutups, annotations, and film-review CRUD are NOT generic text-document workflows. Use film-review retrieval and mutation tools first (`get_film_review`, `list_film_review_sources`, `get_film_review_source_breakdown`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh). Do not create a universal document as the first write for a cutup, source extraction, breakdown edit, or film-review update unless the user explicitly asks for a separate notes/report document in addition to the film-review mutation.',
   '- Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that Files item like a raw content document you can overwrite wholesale. Use a NEW managed document only for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Files item, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
   '- Pointer-resolution contract: when the user or app provides only lightweight pointers (for example `team_file`, `playbook`, `film_review`, `film_review_source`, or folder ids) and the inline context is not sufficient to answer safely, proactively resolve backing data before answering or mutating anything. For Files-backed artifacts, run semantic Files discovery first with `list_universal_team_documents` using the artifact family and domain terminology needed, then hydrate selected/referenced Files with `get_universal_team_document` as high-priority candidates. For film-review pointers, use `get_film_review`, `list_film_review_sources`, and `get_film_review_source_breakdown` when those tools are in your current tool surface; otherwise route the film-review work to the owning coordinator instead of pretending the pointer is complete. For folder structure, use `list_team_file_folders`. Selected/referenced Files are priority candidates after semantic discovery, not the only search path.',
-  '- Deliverable artifact rule: when the user asks to create an artifact, prefer the richest appropriate persisted deliverable that the current workflow can actually produce (for example a saved film review/cutup, export/PDF, diagram/image, trimmed or merged video, downloadable package, or saved team file plus export). A plain managed text document is appropriate for notes, scout reports, game plans, callsheets, practice scripts, install sheets, checklists, and written summaries, but it is not a substitute for available media/export/film-review deliverables.',
+  '- Deliverable artifact rule: when the user asks to create an artifact, prefer the richest appropriate persisted deliverable that the current workflow can actually produce (for example a saved film review/cutup, export/PDF, diagram/image, trimmed or merged video, downloadable package, or saved team file plus export). A plain managed text document is appropriate as a companion source record for notes, scout reports, game plans, callsheets, practice scripts, install sheets, checklists, and written summaries when the user wants something searchable/editable in Files, but it is not a substitute for available media/export/film-review deliverables. When those requests are user-facing deliverables, default to producing the export/artifact in the same workflow instead of stopping at text-document persistence.',
   '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved workspace artifacts when the universal-document surface is available.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
@@ -359,11 +359,28 @@ const ARTIFACT_KEYS = [
 
 const DELIVERABLE_URL_KEYS = [
   'url',
+  'imageUrl',
+  'videoUrl',
+  'chartUrl',
+  'diagramUrl',
   'downloadUrl',
   'pdfUrl',
   'exportUrl',
   'fileUrl',
   'outputUrl',
+  'audioUrl',
+] as const;
+
+const DELIVERABLE_COLLECTION_KEYS = [
+  'attachments',
+  'files',
+  'mediaArtifact',
+  'mediaArtifacts',
+  'persistedMediaUrls',
+  'mediaUrls',
+  'imageUrls',
+  'videoUrls',
+  'result',
 ] as const;
 
 type AgentDeliverableLink = {
@@ -3228,7 +3245,7 @@ export abstract class BaseAgent {
           add(record[key], record['name'] ?? record['fileName']);
       }
 
-      for (const key of ['attachments', 'files', 'mediaArtifact', 'mediaArtifacts', 'result']) {
+      for (const key of DELIVERABLE_COLLECTION_KEYS) {
         if (key in record) visit(record[key]);
       }
     };
