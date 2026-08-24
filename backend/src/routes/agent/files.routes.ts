@@ -5746,6 +5746,7 @@ router.post(
         mimeType: file.mimetype,
         storagePath,
         ...(parsed.sheetName ? { sheetName: parsed.sheetName } : {}),
+        ...(parsed.customColumns?.length ? { customColumns: parsed.customColumns } : {}),
         rowCount: parsed.rowCount,
         playCount: normalizedBreakdown.timeline.length,
         importedBy: user.uid,

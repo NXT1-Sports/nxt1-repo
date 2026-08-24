@@ -146,6 +146,7 @@ type FilmReviewDragSource = FilmListReview & {
     readonly provider: 'hudl' | 'csv' | 'manual_import';
     readonly fileName: string;
     readonly sheetName?: string;
+    readonly customColumns?: readonly TeamFilmReviewSportTagDefinition[];
     readonly rowCount: number;
     readonly playCount: number;
   };
@@ -5034,7 +5035,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.panelSport() || reviewSport || '';
   });
   protected readonly currentTimelineTagColumns = computed(() =>
-    getTeamFilmReviewSportTagDefinitions(this.effectiveSportContext())
+    this.resolveTimelineTagColumns(this.selectedReview(), this.effectiveSportContext())
   );
   protected readonly defaultTimelineColumns = computed(() =>
     this.buildDefaultTimelineColumns(this.currentTimelineTagColumns())
@@ -9778,7 +9779,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const sportContext = this.normalizeSport(review.sport) ?? this.panelSport() ?? '';
     const columns = this.applyTimelineColumnOrder(
-      this.buildDefaultTimelineColumns(getTeamFilmReviewSportTagDefinitions(sportContext)),
+      this.buildDefaultTimelineColumns(this.resolveTimelineTagColumns(review, sportContext)),
       this.timelineColumnOrder()
     );
     if (columns.length === 0) return null;
@@ -10961,6 +10962,137 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         width: 'compact',
       },
     ];
+  }
+
+  private resolveTimelineTagColumns(
+    review: FilmReviewDragSource | null | undefined,
+    sport?: string | null
+  ): readonly TeamFilmReviewSportTagDefinition[] {
+    const defaultColumns = getTeamFilmReviewSportTagDefinitions(sport);
+    const resolvedColumns = [...defaultColumns];
+    const seenIds = new Set(defaultColumns.map((column) => column.id));
+    const customColumns = review?.breakdownSource?.customColumns ?? [];
+
+    for (const column of customColumns) {
+      if (seenIds.has(column.id)) {
+        continue;
+      }
+      resolvedColumns.push(column);
+      seenIds.add(column.id);
+    }
+
+    const inferredCustomColumns = this.inferTimelineTagColumns(review, seenIds, customColumns);
+    if (inferredCustomColumns.length === 0) {
+      return resolvedColumns;
+    }
+
+    return [...resolvedColumns, ...inferredCustomColumns];
+  }
+
+  private inferTimelineTagColumns(
+    review: FilmReviewDragSource | null | undefined,
+    seenIds: ReadonlySet<string>,
+    customColumns: readonly TeamFilmReviewSportTagDefinition[]
+  ): readonly TeamFilmReviewSportTagDefinition[] {
+    const timeline = this.resolveEffectiveTimeline(review);
+    if (timeline.length === 0) {
+      return [];
+    }
+
+    const customLabels = new Map(customColumns.map((column) => [column.id, column.label] as const));
+    const nextSeenIds = new Set(seenIds);
+    const valuesByTagId = new Map<string, TeamFilmReviewPlayTagValue[]>();
+    const orderedTagIds: string[] = [];
+
+    for (const play of timeline) {
+      for (const [tagId, rawValue] of Object.entries(play.tags ?? {})) {
+        if (nextSeenIds.has(tagId)) {
+          continue;
+        }
+
+        const existingValues = valuesByTagId.get(tagId);
+        if (existingValues) {
+          existingValues.push(rawValue);
+        } else {
+          valuesByTagId.set(tagId, [rawValue]);
+          orderedTagIds.push(tagId);
+        }
+      }
+    }
+
+    return orderedTagIds.map((tagId) => {
+      nextSeenIds.add(tagId);
+      const values = valuesByTagId.get(tagId) ?? [];
+      const label = customLabels.get(tagId) ?? this.humanizeTimelineTagLabel(tagId);
+      return {
+        id: tagId,
+        label,
+        valueType: this.inferTimelineTagValueType(values),
+        width: this.inferTimelineTagColumnWidth(label, values),
+        description: `Imported breakdown column ${label}.`,
+      } satisfies TeamFilmReviewSportTagDefinition;
+    });
+  }
+
+  private inferTimelineTagValueType(
+    values: readonly TeamFilmReviewPlayTagValue[]
+  ): TeamFilmReviewSportTagDefinition['valueType'] {
+    const nonNullValues = values.filter(
+      (value): value is Exclude<TeamFilmReviewPlayTagValue, null> => value !== null
+    );
+    if (nonNullValues.length === 0) {
+      return 'string';
+    }
+
+    if (nonNullValues.every((value) => typeof value === 'boolean')) {
+      return 'boolean';
+    }
+
+    if (nonNullValues.every((value) => typeof value === 'number')) {
+      return 'number';
+    }
+
+    return 'string';
+  }
+
+  private inferTimelineTagColumnWidth(
+    label: string,
+    values: readonly TeamFilmReviewPlayTagValue[]
+  ): TeamFilmReviewSportTagColumnWidth {
+    const longestValueLength = [
+      label,
+      ...values.map((value) => this.formatTimelineTagValueForWidth(value)),
+    ].reduce((maxLength, value) => Math.max(maxLength, value.trim().length), 0);
+
+    if (longestValueLength <= 6) {
+      return 'compact';
+    }
+    if (longestValueLength >= 18) {
+      return 'wide';
+    }
+    return 'regular';
+  }
+
+  private formatTimelineTagValueForWidth(value: TeamFilmReviewPlayTagValue): string {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'boolean') {
+      return value ? 'Y' : 'N';
+    }
+    return String(value).trim();
+  }
+
+  private humanizeTimelineTagLabel(tagId: string): string {
+    const normalized = tagId
+      .replace(/[_-]+/g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .trim();
+    if (!normalized) {
+      return 'Custom';
+    }
+
+    return normalized.replace(/\b\w/g, (character) => character.toUpperCase());
   }
 
   private applyTimelineColumnOrder(

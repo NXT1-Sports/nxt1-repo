@@ -41,6 +41,47 @@ describe('Hudl breakdown import service', () => {
     );
   });
 
+  it('preserves custom breakdown columns alongside the built-in football schema', () => {
+    const result = parseHudlBreakdownRows(
+      [
+        ['Play #', 'OFF PLAY', 'BACKSETS', 'OFFENSIVE PLAY FAMILY', 'IS SCRIPTED'],
+        [1, 'Inside Zone', 'Pistol Strong', 'Gap Scheme', 'Yes'],
+        [2, 'Boot Pass', 'Gun Trips', 'Play Action', 'No'],
+      ],
+      'football'
+    );
+
+    expect(result.customColumns).toEqual([
+      expect.objectContaining({
+        id: 'backsets',
+        label: 'BACKSETS',
+        valueType: 'string',
+      }),
+      expect.objectContaining({
+        id: 'offensiveplayfamily',
+        label: 'OFFENSIVE PLAY FAMILY',
+        valueType: 'string',
+      }),
+      expect.objectContaining({
+        id: 'isscripted',
+        label: 'IS SCRIPTED',
+        valueType: 'boolean',
+      }),
+    ]);
+    expect(result.timeline[0]?.tags).toMatchObject({
+      offPlay: 'Inside Zone',
+      backsets: 'Pistol Strong',
+      offensiveplayfamily: 'Gap Scheme',
+      isscripted: true,
+    });
+    expect(result.timeline[1]?.tags).toMatchObject({
+      offPlay: 'Boot Pass',
+      backsets: 'Gun Trips',
+      offensiveplayfamily: 'Play Action',
+      isscripted: false,
+    });
+  });
+
   it('parses an xlsx workbook export and preserves the worksheet name', async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Hudl Export');
