@@ -85,9 +85,9 @@ export class MediaStagingService {
   async stageFromUrl(request: StageRemoteMediaRequest): Promise<StagedMediaResult> {
     const validatedUrl = validateUrl(request.sourceUrl);
     const parsedSourceUrl = new URL(validatedUrl);
-    const bucket = this.resolveStorage(request.environment).bucket();
+    const targetBucket = this.resolveStorage(request.environment).bucket();
     const directOwnedStage = await this.tryStageOwnedFirebaseObject({
-      bucket,
+      targetBucket,
       validatedUrl,
       parsedSourceUrl,
       request,
@@ -131,11 +131,11 @@ export class MediaStagingService {
       `${Date.now()}-${hash}-${fileName}`,
     ].join('/');
 
-    const file = bucket.file(storagePath);
+    const file = targetBucket.file(storagePath);
     let uploaded: { readonly sizeBytes: number; readonly signedUrl: string };
     try {
       uploaded = await this.streamToStorage(
-        bucket,
+        targetBucket,
         storagePath,
         response,
         mimeType,
@@ -220,7 +220,7 @@ export class MediaStagingService {
   }
 
   private async tryStageOwnedFirebaseObject(params: {
-    readonly bucket: ReturnType<Storage['bucket']>;
+    readonly targetBucket: ReturnType<Storage['bucket']>;
     readonly validatedUrl: string;
     readonly parsedSourceUrl: URL;
     readonly request: StageRemoteMediaRequest;
@@ -230,15 +230,16 @@ export class MediaStagingService {
       return null;
     }
 
-    if (firebaseScope.bucketName !== params.bucket.name) {
-      return null;
-    }
-
     if (!firebaseScope.storagePath.startsWith(`Users/${params.request.staging.userId}/`)) {
       return null;
     }
 
-    const sourceFile = params.bucket.file(firebaseScope.storagePath) as {
+    const sourceBucket = this.resolveStorageBucket(
+      firebaseScope.bucketName,
+      params.request.environment
+    );
+
+    const sourceFile = sourceBucket.file(firebaseScope.storagePath) as {
       exists: () => Promise<[boolean]>;
       getMetadata: () => Promise<[Record<string, unknown>, ...unknown[]]>;
       copy: (destination: unknown) => Promise<unknown>;
@@ -277,7 +278,7 @@ export class MediaStagingService {
       mediaKind,
       `${Date.now()}-${hash}-${fileName}`,
     ].join('/');
-    const stagedFile = params.bucket.file(storagePath) as {
+    const stagedFile = params.targetBucket.file(storagePath) as {
       setMetadata: (metadata: {
         contentType: string;
         cacheControl: string;
@@ -308,7 +309,7 @@ export class MediaStagingService {
         const [sourceBuffer] = await sourceFile.download();
         this.assertBufferStageable(sourceBuffer, mediaKind);
         const uploaded = await this.uploadBufferToStorage({
-          bucket: params.bucket,
+          bucket: params.targetBucket,
           storagePath,
           mimeType,
           cacheControl: 'private, max-age=3600',
@@ -350,7 +351,7 @@ export class MediaStagingService {
       const readUrlUrl =
         fallbackSignedUrl ??
         (await AgentMediaLifecycleService.ensureFirebaseDownloadUrl({
-          bucket: params.bucket,
+          bucket: params.targetBucket,
           storagePath,
         }));
       const readUrl = { url: readUrlUrl, expiresAt: expiresAtDate.toISOString() };
@@ -407,6 +408,26 @@ export class MediaStagingService {
     if (environment === 'staging') return stagingStorage;
     if (environment === 'production') return defaultStorage;
     return process.env['NODE_ENV'] === 'staging' ? stagingStorage : defaultStorage;
+  }
+
+  private resolveStorageBucket(
+    bucketName: string,
+    environment?: ToolExecutionContext['environment']
+  ): ReturnType<Storage['bucket']> {
+    const stagingBucketName =
+      process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-staging-v2.firebasestorage.app';
+    const productionBucketName =
+      process.env['FIREBASE_STORAGE_BUCKET'] ?? 'nxt-1-v2.firebasestorage.app';
+
+    if (bucketName === stagingBucketName) {
+      return stagingStorage.bucket(bucketName);
+    }
+
+    if (bucketName === productionBucketName) {
+      return defaultStorage.bucket(bucketName);
+    }
+
+    return this.resolveStorage(environment).bucket(bucketName);
   }
 
   private sanitizeHeaders(headers?: Readonly<Record<string, string>>): Record<string, string> {
