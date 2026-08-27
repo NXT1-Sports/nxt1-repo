@@ -64,6 +64,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.brushHs,
   },
   {
+    id: 'buchtel-hs',
+    name: 'Buchtel High School',
+    location: 'Akron, OH',
+    src: PARTNER_TEAM_LOGO_PATHS.buchtelHs,
+  },
+  {
     id: 'canton-mckinley-hs',
     name: 'Canton McKinley High School',
     location: 'Canton, OH',
@@ -208,6 +214,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.nordoniaHs,
   },
   {
+    id: 'north-hs',
+    name: 'North High School',
+    location: 'Akron, OH',
+    src: PARTNER_TEAM_LOGO_PATHS.northHs,
+  },
+  {
     id: 'perry-pirates-hs',
     name: 'Perry Pirates',
     location: 'Perry, OH',
@@ -218,6 +230,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     name: 'Pulaski County High School',
     location: 'Somerset, KY',
     src: PARTNER_TEAM_LOGO_PATHS.pulaskiCountyHs,
+  },
+  {
+    id: 'rouse-hs',
+    name: 'Rouse High School',
+    location: 'Leander, TX',
+    src: PARTNER_TEAM_LOGO_PATHS.rouseHs,
   },
   {
     id: 'salem-hs',
@@ -961,7 +979,7 @@ export class FoundationFiftyBannerComponent {
   protected readonly partnerLogos = PARTNER_TEAM_LOGOS;
   protected readonly partnerLogoRows = FOUNDATION_PARTNER_ROWS;
   protected readonly visibleLogosPerRow = FOUNDATION_VISIBLE_LOGO_COUNT / FOUNDATION_LOGO_ROW_COUNT;
-  protected readonly partnerProgressLabel = `${this.partnerLogos.length}/${FOUNDATION_TEAM_LIMIT}`;
+  protected readonly partnerProgressLabel = '41/50';
   protected readonly partnerProgressPercent =
     (this.partnerLogos.length / FOUNDATION_TEAM_LIMIT) * 100;
 
