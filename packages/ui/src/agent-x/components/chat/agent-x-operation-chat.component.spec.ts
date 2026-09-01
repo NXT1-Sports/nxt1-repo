@@ -70,6 +70,29 @@ type QuickActionDraftHelper = {
   onQuickAction(action: OperationQuickAction): Promise<void>;
 };
 
+type PendingComposerReplyHelper = {
+  messages: () => readonly OperationMessage[];
+  activeYieldState: ReturnType<typeof signal<AgentYieldState | null>>;
+  yieldResolved: ReturnType<typeof signal<boolean>>;
+  resolveExternalCardStateForMessage(
+    msg: OperationMessage,
+    idx: number
+  ): 'idle' | 'submitting' | 'resolved' | null;
+  approvalCardStateForMessage(
+    msg: OperationMessage,
+    idx: number
+  ): 'idle' | 'submitting' | 'resolved' | null;
+  approvalYieldForMessage(msg: OperationMessage): AgentYieldState | null;
+  isAskUserYield(msg: OperationMessage): boolean;
+  resolveYieldOperationId(yieldState?: AgentYieldState | null): string | undefined;
+  pendingComposerReplyTarget(): {
+    kind: 'ask_user' | 'approval';
+    messageId?: string;
+    operationId?: string;
+  } | null;
+  isAwaitingComposerReply(): boolean;
+};
+
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
   const component = Object.create(AgentXOperationChatComponent.prototype) as StripHelper;
 
@@ -415,6 +438,47 @@ describe('AgentXOperationChatComponent quick action drafting', () => {
     expect(component.inputValue()).toBe("Build a practice script for tomorrow's workout.");
     expect(component._pendingSelectedAction()).toEqual(action.selectedAction);
     expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('AgentXOperationChatComponent composer reply routing', () => {
+  it('treats pending approval cards as composer-reply targets', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as PendingComposerReplyHelper;
+
+    const approvalYield: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review and approve this email.',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolInput: {
+          toEmail: 'john@nxt1sports.com',
+          subject: 'Agent X update',
+          bodyHtml: '<p>Hello</p>',
+        },
+      },
+    };
+
+    const approvalMessage: OperationMessage = {
+      id: 'approval-msg-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-01T12:00:00.000Z'),
+      operationId: 'op-email-approval',
+      yieldState: approvalYield,
+    };
+
+    component.messages = () => [approvalMessage];
+    component.activeYieldState = signal(null);
+    component.yieldResolved = signal(false);
+
+    expect(component.pendingComposerReplyTarget()).toEqual({
+      kind: 'approval',
+      messageId: 'approval-msg-1',
+      operationId: 'op-email-approval',
+    });
+    expect(component.isAwaitingComposerReply()).toBe(true);
   });
 });
 
