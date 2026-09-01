@@ -15,27 +15,27 @@ import { BaseSkill, type SkillCategory } from '../base.skill.js';
 export class DocumentAnalysisSkill extends BaseSkill {
   readonly name = 'document_analysis';
   readonly description =
-    'Parse uploaded documents (PDFs, Word, Excel, HTML), generate page-by-page AI notes with full visual vision analysis ' +
-    'for diagram-heavy playbooks, scout decks, or film breakdowns, and synthesize multi-modal analysis for tactics, formations, strategy, scouting, and coaching insights.';
+    'Parse uploaded documents (PDFs, PPTX decks, Word, Excel, HTML), generate persistent page-by-page or slide-by-slide AI notes ' +
+    'for playbooks, scout decks, or film breakdowns, and synthesize multi-modal analysis for tactics, formations, strategy, scouting, and coaching insights.';
   readonly category: SkillCategory = 'evaluation';
 
   getPromptContext(): string {
     return `## Document Analysis Pipeline
 
-### Team Files PDFs & Playbooks (CRITICAL PRIMARY PATH)
+### Team Files PDFs & PPTX Decks (CRITICAL PRIMARY PATH)
 
-**For any Team Files PDF, playbook, scout deck, callsheet, or drawing/diagram-heavy PDF document:**
+**For any Team Files PDF, PPTX deck, playbook, scout deck, callsheet, or drawing/diagram-heavy saved document:**
 1. Call \`enrich_document_notes\` with the \`documentId\` (UniversalFiles document ID).
 2. \`enrich_document_notes\` is a single atomic tool that:
-   - Renders every PDF page visually in backend concurrency batches.
-   - Analyzes every page with multi-modal vision LLMs, capturing play drawings, formations, route trees, coverage alignments, tables, and text.
+  - For PDFs: renders every page visually in backend concurrency batches and analyzes each page with multi-modal vision LLMs.
+  - For PPTX: extracts slide text and speaker notes, then generates slide-by-slide artifact notes without hallucinating unseen visuals.
    - Saves \`artifactSummary\` and \`artifactNotes\` back onto the same record automatically.
    - Returns a compact receipt for immediate answer generation.
-3. Do NOT call \`parse_document\` for PDF playbooks or drawing-heavy documents when \`enrich_document_notes\` is available. \`parse_document\` only extracts text OCR and completely misses visual drawings and diagrams.
+3. Do NOT call \`parse_document\` for saved Team Files PDFs or PPTX decks when the user wants persistent notes on that same record. Use \`parse_document\` only for quick inline reading. PDF parsing is text-only OCR, and PPTX parsing is text plus speaker notes only.
 
-### Inline / Non-PDF Document Workflow
+### Inline / Non-Team-Files Document Workflow
 
-**For non-PDF attachments (spreadsheets, Word, CSVs, HTML) or raw URL parsing:**
+**For raw uploads, raw URLs, or non-Team-Files attachments (including PPTX, spreadsheets, Word, CSVs, HTML):**
 1. Call \`parse_document\` with the document URL or storage path.
 2. Inspect the returned \`metadata\`:
    - \`parseMode\`: 'ocr' (PDF with OCR) | 'auto' (non-PDF) | 'fallback' (local PDF text extraction)
@@ -53,7 +53,7 @@ The parser auto-detects diagram-heavy documents using keyword matching:
 - **Tactics/Execution**: tactic, tactics, pattern, set play, drill, drill progression, infield, outfield
 - **Sports-Specific**: faceoff (lacrosse), corner kick (soccer), power play (hockey), serve-receive (volleyball), line change (hockey)
 
-If a PDF document contains these keywords or represents a playbook/scout deck, prefer \`enrich_document_notes\`.
+If a saved PDF or PPTX document contains these keywords or represents a playbook/scout deck, prefer \`enrich_document_notes\`.
 
 ### When to Call render_pdf_pages
 

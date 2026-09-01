@@ -10,6 +10,7 @@ import { stagingDb, stagingStorage } from '../../../../utils/firebase-staging.js
 import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
+import { extractPptxDocumentContent, isPptxDocument } from './pptx-text-extractor.js';
 
 type PdfParseRuntimeModule = {
   PDFParse: new (options: { data: Uint8Array | Buffer }) => {
@@ -184,6 +185,41 @@ function buildSuggestedVisionPages(pageCount: number | null): readonly number[] 
   return Array.from({ length: pageCount }, (_, index) => index + 1);
 }
 
+function buildPptxMarkdown(
+  fileName: string,
+  slides: readonly {
+    slideNumber: number;
+    slideText: string;
+    speakerNotes: string;
+    hasVisualElements: boolean;
+  }[]
+): string {
+  const lines = [`# ${fileName}`, ''];
+
+  for (const slide of slides) {
+    lines.push(`## Slide ${slide.slideNumber}`);
+    if (slide.slideText) {
+      lines.push(slide.slideText);
+      lines.push('');
+    }
+    if (slide.speakerNotes) {
+      lines.push('Speaker Notes:');
+      lines.push(slide.speakerNotes);
+      lines.push('');
+    }
+    if (!slide.slideText && !slide.speakerNotes) {
+      lines.push(
+        slide.hasVisualElements
+          ? 'No extractable slide text or speaker notes were found. Visual elements are present, but this PPTX path does not render slide imagery.'
+          : 'No extractable slide text or speaker notes were found on this slide.'
+      );
+      lines.push('');
+    }
+  }
+
+  return trimAttachmentText(lines.join('\n'));
+}
+
 function renderCsvPreview(rawText: string): string {
   const parsed = parseCsv(rawText, {
     skip_empty_lines: true,
@@ -267,9 +303,9 @@ function normalizeUniversalDocumentId(value: string): string {
 export class ParseDocumentTool extends BaseTool {
   readonly name = 'parse_document';
   readonly description =
-    'Read an uploaded document attachment (PDF, spreadsheet, Word document, CSV, or HTML file) and return prompt-ready markdown text. ' +
+    'Read an uploaded document attachment (PDF, PPTX, spreadsheet, Word document, CSV, or HTML file) and return prompt-ready markdown text. ' +
     'Use parse_document for quick inline text questions or text-heavy documents (schedules, contracts, rosters, meeting notes). ' +
-    'For playbooks, X-and-O diagram/drawing-heavy PDFs, or generating and persisting page-by-page AI notes onto a Team Files record, use enrich_document_notes instead.';
+    'For Team Files PDFs or PPTX decks where you need persistent page-by-page or slide-by-slide artifact notes on the saved record, use enrich_document_notes instead.';
 
   readonly parameters = ParseDocumentInputSchema;
   readonly isMutation = false;
@@ -485,9 +521,11 @@ export class ParseDocumentTool extends BaseTool {
 
       const buffer = Buffer.from(await response.arrayBuffer());
 
-      const parsedResult = shouldUseFirecrawl(mimeType, fileName)
-        ? await this.parseWithFirecrawl(buffer, fileName, mimeType)
-        : await this.parseWithFallback(buffer, fileName, mimeType);
+      const parsedResult = isPptxDocument(mimeType, fileName)
+        ? await this.parsePptx(buffer, fileName, mimeType)
+        : shouldUseFirecrawl(mimeType, fileName)
+          ? await this.parseWithFirecrawl(buffer, fileName, mimeType)
+          : await this.parseWithFallback(buffer, fileName, mimeType);
 
       if (!parsedResult.markdown) {
         return buildRecoverableParseFailure({
@@ -519,7 +557,12 @@ export class ParseDocumentTool extends BaseTool {
                 pdfToolRecommendation:
                   'This is a PDF document. parse_document extracts plain text/OCR. For playbooks, diagram/drawing-heavy PDFs, or complete page-by-page visual AI notes, call enrich_document_notes with the UniversalFiles document ID instead.',
               }
-            : {}),
+            : isPptxDocument(mimeType, fileName)
+              ? {
+                  pptxToolRecommendation:
+                    'This is a PPTX document. parse_document extracts slide text and speaker notes only. For slide-by-slide artifact notes saved back onto a Team Files record, call enrich_document_notes with the UniversalFiles document ID instead.',
+                }
+              : {}),
         },
         markdown: parsedResult.markdown,
       };
@@ -708,6 +751,40 @@ export class ParseDocumentTool extends BaseTool {
       metadata: {
         ...buildUnknownMetadata(),
         contentType: mimeType || null,
+      },
+    };
+  }
+
+  private async parsePptx(
+    buffer: Buffer,
+    fileName: string,
+    mimeType: string
+  ): Promise<ParseCacheEntry> {
+    const extracted = await extractPptxDocumentContent(buffer);
+    const markdown = buildPptxMarkdown(fileName, extracted.slides);
+    const containsVisuals = extracted.slides.some((slide) => slide.hasVisualElements);
+
+    return {
+      markdown,
+      source: 'fallback',
+      metadata: {
+        title: fileName,
+        contentType:
+          mimeType || 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        pageCount: extracted.slideCount,
+        pageCountSource: 'unknown',
+        parseMode: 'fallback',
+        extractedImages: [],
+        extractedImageCount: 0,
+        containsImages: containsVisuals,
+        imageDetectionSource: 'unknown',
+        visionAssetSource: 'none',
+        requiresVisionReview: containsVisuals,
+        visionReviewReason: containsVisuals
+          ? 'PPTX extraction captured slide text and speaker notes only. Visual slide layout and diagrams were not rendered.'
+          : null,
+        recommendedNextAction: null,
+        suggestedVisionPages: null,
       },
     };
   }

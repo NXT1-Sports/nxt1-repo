@@ -16,6 +16,12 @@ import {
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
+import {
+  extractPptxDocumentContent,
+  isPptxDocument,
+  type PptxDocumentContent,
+  type PptxSlideContent,
+} from './pptx-text-extractor.js';
 
 const MAX_REMOTE_PDF_BYTES = 96 * 1024 * 1024;
 const DEFAULT_RENDER_SCALE = 1.8;
@@ -52,6 +58,7 @@ type ResolvedDocumentTransport = {
 
 type PageAnalysis = {
   readonly pageNumber: number;
+  readonly unitLabel: 'Page' | 'Slide';
   readonly status: 'analyzed' | 'failed';
   readonly notes: string;
   readonly width?: number;
@@ -151,7 +158,42 @@ function buildPagePrompt(fileName: string, pageNumber: number, promptOverride?: 
   );
 }
 
-function buildArtifactNotes(fileName: string, analyses: readonly PageAnalysis[]): string {
+function buildSlidePrompt(options: {
+  readonly fileName: string;
+  readonly slide: PptxSlideContent;
+  readonly promptOverride?: string;
+}): string {
+  const customInstruction = options.promptOverride
+    ? `\n\nAdditional user instruction:\n${options.promptOverride}`
+    : '';
+  const extractedSlideText = options.slide.slideText || 'None extracted.';
+  const extractedSpeakerNotes = options.slide.speakerNotes || 'None extracted.';
+  const visualCoverageNotice = options.slide.hasVisualElements
+    ? `\n\nVisual elements detected on this slide: yes (${options.slide.visualElementCount || 1} element${options.slide.visualElementCount === 1 ? '' : 's'}). Do not infer exact diagram geometry, spacing, or layout because this PPTX path does not render slide imagery.`
+    : '\n\nVisual elements detected on this slide: no obvious embedded picture/chart objects detected in the PPTX XML.';
+
+  return (
+    `Analyze slide ${options.slide.slideNumber} of ${options.fileName} using ONLY the extracted slide text and speaker notes below. ` +
+    'Write precise slide notes for a coaching/staff file record. Capture headings, bullets, decisions, assignments, coaching points, tables, action items, dates, and names supported by the extracted text. ' +
+    'Never hallucinate hidden visuals, exact diagram shapes, or layout details that were not rendered.' +
+    visualCoverageNotice +
+    '\n\nExtracted slide text:\n' +
+    extractedSlideText +
+    '\n\nExtracted speaker notes:\n' +
+    extractedSpeakerNotes +
+    customInstruction
+  );
+}
+
+function buildSectionHeading(unitLabel: 'Page' | 'Slide'): string {
+  return unitLabel === 'Slide' ? 'Slide-by-slide notes' : 'Page-by-page notes';
+}
+
+function buildArtifactNotes(
+  fileName: string,
+  analyses: readonly PageAnalysis[],
+  unitLabel: 'Page' | 'Slide'
+): string {
   const analyzedCount = analyses.filter((analysis) => analysis.status === 'analyzed').length;
   const failedCount = analyses.length - analyzedCount;
   const lines = [
@@ -161,14 +203,16 @@ function buildArtifactNotes(fileName: string, analyses: readonly PageAnalysis[])
     `Analyzed pages: ${analyzedCount}`,
     `Failed pages: ${failedCount}`,
     '',
-    '## Page-by-page notes',
+    `## ${buildSectionHeading(unitLabel)}`,
     '',
   ];
 
   for (const analysis of analyses) {
-    lines.push(`### Page ${analysis.pageNumber}`);
+    lines.push(`### ${analysis.unitLabel} ${analysis.pageNumber}`);
     if (analysis.status === 'failed') {
-      lines.push(`Unable to analyze this page: ${analysis.error ?? 'Unknown error.'}`);
+      lines.push(
+        `Unable to analyze this ${analysis.unitLabel.toLowerCase()}: ${analysis.error ?? 'Unknown error.'}`
+      );
     } else {
       lines.push(analysis.notes);
     }
@@ -178,16 +222,24 @@ function buildArtifactNotes(fileName: string, analyses: readonly PageAnalysis[])
   return truncateText(lines.join('\n'), MAX_ARTIFACT_NOTES_CHARS);
 }
 
-function buildFallbackSummary(fileName: string, analyses: readonly PageAnalysis[]): string {
+function buildFallbackSummary(
+  fileName: string,
+  analyses: readonly PageAnalysis[],
+  unitLabel: 'page' | 'slide'
+): string {
   const analyzedCount = analyses.filter((analysis) => analysis.status === 'analyzed').length;
   const failedCount = analyses.length - analyzedCount;
-  return `${fileName}: generated page-by-page AI notes for ${analyzedCount} of ${analyses.length} page${analyses.length === 1 ? '' : 's'}${failedCount ? `; ${failedCount} page${failedCount === 1 ? '' : 's'} failed analysis` : ''}.`;
+  return `${fileName}: generated ${unitLabel}-by-${unitLabel} AI notes for ${analyzedCount} of ${analyses.length} ${unitLabel}${analyses.length === 1 ? '' : 's'}${failedCount ? `; ${failedCount} ${unitLabel}${failedCount === 1 ? '' : 's'} failed analysis` : ''}.`;
 }
 
-function buildTags(fileName: string, pageCount: number): string[] {
+function buildTags(fileName: string, pageCount: number, unitLabel: 'Page' | 'Slide'): string[] {
   const tags = ['ai-notes', 'page-by-page'];
   if (/playbook/i.test(fileName)) tags.push('playbook');
   if (pageCount >= 50) tags.push('large-document');
+  if (unitLabel === 'Slide') {
+    tags.push('slide-deck');
+    tags[1] = 'slide-by-slide';
+  }
   return tags;
 }
 
@@ -274,10 +326,13 @@ export class EnrichDocumentNotesTool extends BaseTool {
       resolvedTransport.fileName ?? normalizeOptionalString(record['title']) ?? 'document.pdf';
     const mimeType = resolvedTransport.mimeType?.toLowerCase();
 
-    if (!isPdfDocument(mimeType, fileName)) {
+    const isPdfFile = isPdfDocument(mimeType, fileName);
+    const pptxDocument = isPptxDocument(mimeType, fileName);
+
+    if (!isPdfFile && !pptxDocument) {
       return {
         success: false,
-        error: 'enrich_document_notes currently supports PDF files only.',
+        error: 'enrich_document_notes currently supports PDF and PPTX files only.',
       };
     }
 
@@ -288,13 +343,29 @@ export class EnrichDocumentNotesTool extends BaseTool {
     });
 
     try {
-      const pdfSource = await this.loadPdfBuffer(resolvedTransport, context);
-      if ('error' in pdfSource) {
-        return { success: false, error: pdfSource.error };
+      const documentSource = await this.loadDocumentBuffer(
+        resolvedTransport,
+        isPdfFile ? 'PDF' : 'PPTX',
+        context
+      );
+      if ('error' in documentSource) {
+        return { success: false, error: documentSource.error };
+      }
+
+      if (pptxDocument) {
+        return this.enrichPptxDocument({
+          buffer: documentSource.buffer,
+          documentId,
+          documentRef,
+          fileName,
+          concurrency: parsed.data.concurrency ?? DEFAULT_CONCURRENCY,
+          promptOverride: parsed.data.promptOverride,
+          context,
+        });
       }
 
       const loadingTask = pdfjs.getDocument({
-        data: new Uint8Array(pdfSource.buffer),
+        data: new Uint8Array(documentSource.buffer),
         useWorkerFetch: false,
         disableFontFace: true,
         useSystemFonts: true,
@@ -312,8 +383,13 @@ export class EnrichDocumentNotesTool extends BaseTool {
           promptOverride: parsed.data.promptOverride,
           context,
         });
-        const artifactNotes = buildArtifactNotes(fileName, analyses);
-        const artifactSummary = await this.summarizeDocumentNotes(fileName, analyses, context);
+        const artifactNotes = buildArtifactNotes(fileName, analyses, 'Page');
+        const artifactSummary = await this.summarizeDocumentNotes(
+          fileName,
+          analyses,
+          context,
+          'page'
+        );
         const analyzedCount = analyses.filter((analysis) => analysis.status === 'analyzed').length;
         const failedCount = analyses.length - analyzedCount;
         const generatedAt = new Date().toISOString();
@@ -321,7 +397,7 @@ export class EnrichDocumentNotesTool extends BaseTool {
         await documentRef.update({
           artifactSummary,
           artifactNotes,
-          artifactTags: buildTags(fileName, analyses.length),
+          artifactTags: buildTags(fileName, analyses.length, 'Page'),
           artifactStatus: failedCount > 0 ? 'partial' : 'ready',
           artifactGeneratedAt: generatedAt,
           artifactClassification: {
@@ -444,8 +520,95 @@ export class EnrichDocumentNotesTool extends BaseTool {
     return canAccessByKeys(writeAccessKeys, buildGrantedAccessKeys(accessContext));
   }
 
-  private async loadPdfBuffer(
+  private async enrichPptxDocument(options: {
+    readonly buffer: Buffer;
+    readonly documentId: string;
+    readonly documentRef: FirebaseFirestore.DocumentReference;
+    readonly fileName: string;
+    readonly concurrency: number;
+    readonly promptOverride?: string;
+    readonly context?: ToolExecutionContext;
+  }): Promise<ToolResult> {
+    const pptxContent = await extractPptxDocumentContent(options.buffer);
+    if (pptxContent.slideCount < 1) {
+      return {
+        success: false,
+        error: 'No slides could be extracted from this PPTX file.',
+      };
+    }
+
+    const analyses = await this.analyzeSlides({
+      pptxContent,
+      fileName: options.fileName,
+      concurrency: options.concurrency,
+      promptOverride: options.promptOverride,
+      context: options.context,
+    });
+    const artifactNotes = buildArtifactNotes(options.fileName, analyses, 'Slide');
+    const artifactSummary = await this.summarizeDocumentNotes(
+      options.fileName,
+      analyses,
+      options.context,
+      'slide'
+    );
+    const analyzedCount = analyses.filter((analysis) => analysis.status === 'analyzed').length;
+    const failedCount = analyses.length - analyzedCount;
+    const generatedAt = new Date().toISOString();
+    const visualElementCount = pptxContent.slides.reduce(
+      (total, slide) => total + slide.visualElementCount,
+      0
+    );
+
+    await options.documentRef.update({
+      artifactSummary,
+      artifactNotes,
+      artifactTags: buildTags(options.fileName, analyses.length, 'Slide'),
+      artifactStatus: failedCount > 0 ? 'partial' : 'ready',
+      artifactGeneratedAt: generatedAt,
+      artifactClassification: {
+        kind: 'ai_slide_notes',
+        source: 'enrich_document_notes',
+        pageCount: analyses.length,
+        analyzedPageCount: analyzedCount,
+        failedPageCount: failedCount,
+        unitKind: 'slide',
+        visualElementCount,
+      },
+      updatedAt: generatedAt,
+    });
+
+    logger.info('[EnrichDocumentNotesTool] PPTX slide notes generated', {
+      documentId: options.documentId,
+      fileName: options.fileName,
+      slideCount: analyses.length,
+      analyzedCount,
+      failedCount,
+      visualElementCount,
+    });
+
+    return {
+      success: true,
+      data: {
+        documentId: options.documentId,
+        fileName: options.fileName,
+        pageCount: analyses.length,
+        analyzedPageCount: analyzedCount,
+        failedPageCount: failedCount,
+        artifactStatus: failedCount > 0 ? 'partial' : 'ready',
+        unitKind: 'slide',
+      },
+      markdown:
+        `Generated slide-by-slide AI notes for ${analyzedCount} of ${analyses.length} slide` +
+        `${analyses.length === 1 ? '' : 's'} in ${options.fileName} and saved them back to the same Team Files record.` +
+        (failedCount
+          ? ` ${failedCount} slide${failedCount === 1 ? '' : 's'} could not be analyzed.`
+          : ''),
+    };
+  }
+
+  private async loadDocumentBuffer(
     transport: ResolvedDocumentTransport,
+    documentLabel: 'PDF' | 'PPTX',
     context?: ToolExecutionContext
   ): Promise<{ buffer: Buffer } | { error: string }> {
     const normalizedStoragePath = transport.storagePath?.trim();
@@ -456,7 +619,9 @@ export class EnrichDocumentNotesTool extends BaseTool {
       const [buffer] = await file.download();
 
       if (buffer.byteLength > MAX_REMOTE_PDF_BYTES) {
-        return { error: `PDF exceeds the ${MAX_REMOTE_PDF_BYTES} byte enrichment limit.` };
+        return {
+          error: `${documentLabel} exceeds the ${MAX_REMOTE_PDF_BYTES} byte enrichment limit.`,
+        };
       }
 
       return { buffer };
@@ -464,25 +629,78 @@ export class EnrichDocumentNotesTool extends BaseTool {
 
     const directUrl = transport.url?.trim();
     if (!directUrl) {
-      return { error: 'Could not resolve a downloadable PDF URL or storagePath for this file.' };
+      return {
+        error: `Could not resolve a downloadable ${documentLabel} URL or storagePath for this file.`,
+      };
     }
 
     const response = await fetch(directUrl, { signal: context?.signal });
     if (!response.ok) {
-      return { error: `Failed to download PDF: ${response.status} ${response.statusText}` };
+      return {
+        error: `Failed to download ${documentLabel}: ${response.status} ${response.statusText}`,
+      };
     }
 
     const contentLength = Number(response.headers.get('content-length') ?? '0');
     if (Number.isFinite(contentLength) && contentLength > MAX_REMOTE_PDF_BYTES) {
-      return { error: `PDF exceeds the ${MAX_REMOTE_PDF_BYTES} byte enrichment limit.` };
+      return {
+        error: `${documentLabel} exceeds the ${MAX_REMOTE_PDF_BYTES} byte enrichment limit.`,
+      };
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength > MAX_REMOTE_PDF_BYTES) {
-      return { error: `PDF exceeds the ${MAX_REMOTE_PDF_BYTES} byte enrichment limit.` };
+      return {
+        error: `${documentLabel} exceeds the ${MAX_REMOTE_PDF_BYTES} byte enrichment limit.`,
+      };
     }
 
     return { buffer };
+  }
+
+  private async analyzeSlides(options: {
+    readonly pptxContent: PptxDocumentContent;
+    readonly fileName: string;
+    readonly concurrency: number;
+    readonly promptOverride?: string;
+    readonly context?: ToolExecutionContext;
+  }): Promise<PageAnalysis[]> {
+    const analyses: PageAnalysis[] = [];
+    const slideNumbers = options.pptxContent.slides.map((slide) => slide.slideNumber);
+
+    for (let start = 0; start < options.pptxContent.slides.length; start += options.concurrency) {
+      const batch = options.pptxContent.slides.slice(start, start + options.concurrency);
+      options.context?.emitStage?.('processing_media', {
+        icon: 'document',
+        phase: 'enrich_document_notes_batch',
+        target: options.fileName,
+        startPage: batch[0]?.slideNumber,
+        endPage: batch[batch.length - 1]?.slideNumber,
+        pageCount: slideNumbers.length,
+        unitKind: 'slide',
+      });
+
+      logger.info('[EnrichDocumentNotesTool] Processing PPTX slide batch', {
+        fileName: options.fileName,
+        startSlide: batch[0]?.slideNumber,
+        endSlide: batch[batch.length - 1]?.slideNumber,
+        slideCount: slideNumbers.length,
+      });
+
+      const batchResults = await Promise.all(
+        batch.map((slide) =>
+          this.analyzeSlide({
+            slide,
+            fileName: options.fileName,
+            promptOverride: options.promptOverride,
+            context: options.context,
+          })
+        )
+      );
+      analyses.push(...batchResults);
+    }
+
+    return analyses.sort((left, right) => left.pageNumber - right.pageNumber);
   }
 
   private async analyzePages(options: {
@@ -575,6 +793,7 @@ export class EnrichDocumentNotesTool extends BaseTool {
 
       return {
         pageNumber: options.pageNumber,
+        unitLabel: 'Page',
         status: 'analyzed',
         notes: truncateText(notes, MAX_PAGE_NOTE_CHARS),
         width: canvasTarget.canvas.width,
@@ -589,6 +808,7 @@ export class EnrichDocumentNotesTool extends BaseTool {
       });
       return {
         pageNumber: options.pageNumber,
+        unitLabel: 'Page',
         status: 'failed',
         notes: '',
         error: message,
@@ -597,6 +817,49 @@ export class EnrichDocumentNotesTool extends BaseTool {
       if (canvasTarget) {
         canvasFactory.destroy(canvasTarget);
       }
+    }
+  }
+
+  private async analyzeSlide(options: {
+    readonly slide: PptxSlideContent;
+    readonly fileName: string;
+    readonly promptOverride?: string;
+    readonly context?: ToolExecutionContext;
+  }): Promise<PageAnalysis> {
+    try {
+      const hasExtractedText =
+        options.slide.slideText.trim().length > 0 || options.slide.speakerNotes.trim().length > 0;
+      const notes = hasExtractedText
+        ? await this.generateSlideNotes({
+            fileName: options.fileName,
+            slide: options.slide,
+            promptOverride: options.promptOverride,
+            context: options.context,
+          })
+        : options.slide.hasVisualElements
+          ? 'No extractable slide text or speaker notes were found. Visual elements are present on this slide, but this PPTX enrichment path does not render slide imagery, so exact diagram or layout details cannot be verified.'
+          : 'No extractable slide text or speaker notes were found on this slide.';
+
+      return {
+        pageNumber: options.slide.slideNumber,
+        unitLabel: 'Slide',
+        status: 'analyzed',
+        notes: truncateText(notes, MAX_PAGE_NOTE_CHARS),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Slide analysis failed.';
+      logger.warn('[EnrichDocumentNotesTool] PPTX slide analysis failed', {
+        fileName: options.fileName,
+        slideNumber: options.slide.slideNumber,
+        error: message,
+      });
+      return {
+        pageNumber: options.slide.slideNumber,
+        unitLabel: 'Slide',
+        status: 'failed',
+        notes: '',
+        error: message,
+      };
     }
   }
 
@@ -650,18 +913,64 @@ export class EnrichDocumentNotesTool extends BaseTool {
       : 'No reliable page notes were returned.';
   }
 
+  private async generateSlideNotes(options: {
+    readonly fileName: string;
+    readonly slide: PptxSlideContent;
+    readonly promptOverride?: string;
+    readonly context?: ToolExecutionContext;
+  }): Promise<string> {
+    const messages: LLMMessage[] = [
+      {
+        role: 'system',
+        content:
+          'You are an elite sports operations document analyst for NXT1. ' +
+          'You convert PowerPoint slide text and speaker notes into precise, evidence-grounded notes for coaches, scouts, staff, and operators. ' +
+          'Never hallucinate hidden visuals or unseen diagram geometry. If something is unclear or only implied by missing visuals, say so explicitly.',
+      },
+      {
+        role: 'user',
+        content: buildSlidePrompt({
+          fileName: options.fileName,
+          slide: options.slide,
+          promptOverride: options.promptOverride,
+        }),
+      },
+    ];
+
+    const result = await this.llm.complete(messages, {
+      maxTokens: 900,
+      temperature: 0.1,
+      signal: AbortSignal.timeout(PAGE_ANALYSIS_TIMEOUT_MS),
+      ...(options.context?.operationId && options.context.userId
+        ? {
+            telemetryContext: {
+              operationId: options.context.operationId,
+              userId: options.context.userId,
+              agentId: 'data_coordinator',
+              feature: 'document-slide-notes-enrichment',
+            },
+          }
+        : {}),
+    });
+
+    return typeof result.content === 'string' && result.content.trim()
+      ? result.content.trim()
+      : 'No reliable slide notes were returned.';
+  }
+
   private async summarizeDocumentNotes(
     fileName: string,
     analyses: readonly PageAnalysis[],
-    context?: ToolExecutionContext
+    context?: ToolExecutionContext,
+    unitLabel: 'page' | 'slide' = 'page'
   ): Promise<string> {
     const source = analyses
       .filter((analysis) => analysis.status === 'analyzed')
-      .map((analysis) => `Page ${analysis.pageNumber}: ${analysis.notes}`)
+      .map((analysis) => `${analysis.unitLabel} ${analysis.pageNumber}: ${analysis.notes}`)
       .join('\n\n');
 
     if (!source.trim()) {
-      return buildFallbackSummary(fileName, analyses);
+      return buildFallbackSummary(fileName, analyses, unitLabel);
     }
 
     try {
@@ -675,7 +984,7 @@ export class EnrichDocumentNotesTool extends BaseTool {
           role: 'user',
           content:
             `Write a 2-4 sentence summary for the generated notes on ${fileName}. ` +
-            'Include overall document purpose and the most important coaching/staff takeaways.\n\n' +
+            `Include overall document purpose and the most important coaching/staff takeaways supported by these ${unitLabel}-level notes.\n\n` +
             truncateText(source, SUMMARY_SOURCE_CHAR_LIMIT),
         },
       ];
@@ -697,13 +1006,13 @@ export class EnrichDocumentNotesTool extends BaseTool {
 
       return typeof result.content === 'string' && result.content.trim()
         ? truncateText(result.content.trim(), 1_500)
-        : buildFallbackSummary(fileName, analyses);
+        : buildFallbackSummary(fileName, analyses, unitLabel);
     } catch (error) {
       logger.warn('[EnrichDocumentNotesTool] Summary generation failed; using fallback', {
         fileName,
         error: error instanceof Error ? error.message : String(error),
       });
-      return buildFallbackSummary(fileName, analyses);
+      return buildFallbackSummary(fileName, analyses, unitLabel);
     }
   }
 }
