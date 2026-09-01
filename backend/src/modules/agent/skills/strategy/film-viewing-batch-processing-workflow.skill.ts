@@ -31,7 +31,13 @@ When a coach wants to systematically review an entire game or long footage, use 
 - Coach says: "Break down the full game"
 - Coach says: "Analyze the entire 2nd half"
 - Coach says: "Review all their defensive plays"
+- Coach asks how to work with private Hudl game film, downloaded Hudl clips, or a Hudl export package/ZIP in NXT1
 - You need systematic, deterministic analysis of long footage
+
+### Hudl Intake Truth
+- Public or already-accessible Hudl video URLs can use the current Hudl/media extraction path.
+- Private Hudl library film, auth-gated pages, downloaded game files, and Hudl export ZIPs should be uploaded through The Lab on desktop so they become saved Film Review artifacts Agent X can work from.
+- A Hudl ZIP/package is an intake container, not a guaranteed parsed format. Do not claim automatic ZIP unpacking, clip import, or package parsing unless a tool result explicitly confirms it. Use the supported pieces: video files as Film Review sources and Hudl-style CSV/XLSX breakdown sheets through \`import_film_review_breakdown\`.
 
 ### The Batch Processing Steps
 

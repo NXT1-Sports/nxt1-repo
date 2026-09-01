@@ -153,6 +153,9 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('Hudl fallback boundary');
     expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
     expect(prompt).toContain('at the top next to Action Plan');
+    expect(prompt).toContain('downloaded Hudl export packages, ZIP exports');
+    expect(prompt).toContain('import supported Hudl-style breakdown sheets separately');
+    expect(prompt).toContain('Do not promise automatic unpacking or parsing of a Hudl ZIP/package');
     expect(prompt).toContain('This fallback is for inaccessible/private assets only');
     expect(prompt).toContain('present outcomes in clean product language');
     expect(prompt).toContain('### Social URL Exception (CRITICAL)');
@@ -311,6 +314,14 @@ describe('Agent tool exposure regressions', () => {
       'Use `update_film_review_source_breakdown` only when the user explicitly requests a complete source-table rebuild or import'
     );
     expect(prompt).toContain('call `import_film_review_breakdown`');
+    expect(prompt).toContain('Hudl ZIP/package truth rule');
+    expect(prompt).toContain('does not provide a first-class automatic ZIP/package importer');
+    expect(prompt).toContain('video source(s) for Film Review plus CSV/XLSX breakdown sheets');
+    expect(prompt).toContain(
+      'Do NOT present live view to the user as a recommended way to get Hudl film into NXT1'
+    );
+    expect(prompt).toContain('desktop The Lab upload for the main stable workflow');
+    expect(prompt).toContain('a Hudl link only when it is a directly accessible public video page');
     expect(prompt).toContain(
       'Use `analyze_film_review_sources` only for player-stat extraction; it does not update source-breakdown tables or schema-backed tag rows.'
     );
@@ -499,8 +510,16 @@ describe('Agent tool exposure regressions', () => {
       'Film-review cutups, selected-source extraction, source CRUD, breakdown CRUD'
     );
     expect(prompt).toContain('Hudl strategy fallback boundary');
-    expect(prompt).toContain('upload their film and other Hudl materials there');
+    expect(prompt).toContain(
+      'upload the full-game video, individual clips, breakdown CSV/XLSX, ZIP export'
+    );
     expect(prompt).toContain('continue the strategy workflow from those uploaded artifacts');
+    expect(prompt).toContain('Do not promise automatic unpacking or parsing of a Hudl ZIP/package');
+    expect(prompt).toContain(
+      'Do NOT present live view to the user as a recommended way to get Hudl film into NXT1'
+    );
+    expect(prompt).toContain('desktop The Lab upload for the main stable workflow');
+    expect(prompt).toContain('a Hudl link only when it is a directly accessible public video page');
     expect(prompt).toContain('must not replace public or already-accessible Hudl sources');
     expect(prompt).toContain('For full-game-to-clips workflows, use the real tool chain only');
     expect(prompt).toContain('There is no `batch_full_video` tool');

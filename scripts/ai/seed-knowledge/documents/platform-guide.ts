@@ -112,19 +112,19 @@ Coaches and Directors manage their team through the Manage Team interface, organ
 
 ### Connected Sources
 
-Connecting external platforms to your NXT1 profile powers Agent X with more — more data, more context, and more accurate intelligence. When you link a source, Agent X can automatically pull in your stats, film, rankings, and evaluations and use that data in everything it does for you: generating intel reports, finding college matches, drafting recruiting emails, and building performance analysis.
+Connecting external platforms to your NXT1 profile powers Agent X with more — more data, more context, and more accurate intelligence. When you link a source, Agent X can remember and monitor the source and use accessible data in everything it does for you: generating intel reports, finding college matches, drafting recruiting emails, and building performance analysis. Do not assume every source has full native account sync; private/auth-gated sources may require upload or an accessible link.
 
 Connected sources can be linked globally (apply to all your sports) or scoped to a specific sport or team.
 
 **Supported platforms include:**
 - MaxPreps — high school stats and game logs
-- Hudl — video highlights and film
+- Hudl — downloaded game film uploaded through The Lab for Film Review workflows, plus public video links as a secondary shortcut when they are directly accessible and not login-walled
 - 247Sports, Rivals, On3 — recruiting ratings and rankings
 - Perfect Game, Prep Baseball Report — baseball-specific evaluations
 - NCSA Athletic Recruiting — recruiting profiles
 - USA Football — football-specific data
 
-To connect a source, go to your profile → Edit Profile → Sports Info → Connected Sources, or ask Agent X: *"Connect my MaxPreps profile."*
+To connect a source, go to your profile → Edit Profile → Sports Info → Connected Sources, or ask Agent X: *"Connect my MaxPreps profile."* For Hudl game film, use NXT1 desktop → Agent X → The Lab as the main stable workflow, then upload the full-game video, individual clips, any Hudl-style CSV/XLSX breakdown sheet, or a ZIP export/package for safekeeping. A Hudl link is only a secondary shortcut when it is a directly accessible public video page and not behind login. Agent X can create or update Film Reviews from supported video files and import supported breakdown sheets separately; it should not promise automatic ZIP/package parsing unless processing confirms it.
 
 Data from connected sources is labeled with a verified badge and the platform's favicon in your intelligence views, so coaches can see exactly where each number came from.
 
