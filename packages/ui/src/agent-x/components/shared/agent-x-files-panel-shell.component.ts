@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, Input, output, viewChild } from '@angular/core';
+import { AGENT_X_WORKSPACE_TERMS } from '@nxt1/core/ai';
 import type { AgentXLibraryFile } from '../../services/agent-x-files.service';
 
 import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component';
@@ -47,7 +48,7 @@ export class AgentXFilesPanelComponent {
   }
 
   public getInlineHeaderTitle(): string {
-    return this.innerPanel()?.getInlineHeaderTitle() ?? 'The Lab';
+    return this.innerPanel()?.getInlineHeaderTitle() ?? AGENT_X_WORKSPACE_TERMS.workspaceTitle;
   }
 
   public async refreshData(options?: { readonly background?: boolean }): Promise<void> {

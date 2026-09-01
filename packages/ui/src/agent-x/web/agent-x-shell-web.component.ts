@@ -108,6 +108,7 @@ import {
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
   type AgentYieldState,
+  AGENT_X_WORKSPACE_TERMS,
   AGENT_X_RUNTIME_CONFIG,
 } from '@nxt1/core/ai';
 import type { TeamFilmReviewDoc } from '@nxt1/core';
@@ -5105,7 +5106,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     'practiceScripts'
   );
   protected readonly gameplansPanelLabel = withAgentXReleaseLabel('Game Plans', 'gameplans');
-  protected readonly filesPanelLabel = withAgentXReleaseLabel('The Lab', 'filmReview');
+  protected readonly filesPanelLabel = withAgentXReleaseLabel(
+    AGENT_X_WORKSPACE_TERMS.workspaceTitle,
+    'filmReview'
+  );
   protected readonly filmReviewPanelLabel = withAgentXReleaseLabel('Film', 'filmReview');
   protected readonly diagramsPanelLabel = withAgentXReleaseLabel('Diagrams Lab', 'diagramsLab');
   protected readonly agentXShellTestIds = AGENT_X_SHELL_TEST_IDS;
@@ -5209,7 +5213,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly filesHeaderTitle = computed(() => {
     const panel = this.filesPanel();
-    const title = !panel || !panel.isInlineVideoView() ? 'The Lab' : panel.getInlineHeaderTitle();
+    const title =
+      !panel || !panel.isInlineVideoView()
+        ? AGENT_X_WORKSPACE_TERMS.workspaceTitle
+        : panel.getInlineHeaderTitle();
     return withAgentXReleaseLabel(title, 'filmReview');
   });
   protected readonly resolveVisibleAgentXSelectedContexts =

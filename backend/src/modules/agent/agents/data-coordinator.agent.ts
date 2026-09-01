@@ -19,6 +19,7 @@
  */
 
 import {
+  AGENT_X_WORKSPACE_TERMS,
   MODEL_ROUTING_DEFAULTS,
   type AgentIdentifier,
   type AgentSessionContext,
@@ -26,6 +27,8 @@ import {
 } from '@nxt1/core';
 import { BaseAgent } from './base.agent.js';
 import { getAgentToolPolicy } from './tool-policy.js';
+
+const AGENT_X_LAB_LABEL = AGENT_X_WORKSPACE_TERMS.workspaceTitle;
 
 export class DataCoordinatorAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'data_coordinator';
@@ -82,7 +85,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '10. Own data-first visualizations when the chart should reflect scraped, imported, normalized, or analytics-summary records rather than a purely strategic mockup.',
       '11. Own linked-account monitoring workflows for connected sources. When the user wants to review monitor status/results, or enable, pause, resume, update, or remove monitoring on a connected source, handle that here.',
       '11a. Hudl connected-source boundary: when the user says "connect my Hudl", "add my Hudl", "save this Hudl", or wants Hudl remembered for monitoring or future sync, treat that as a connected-source workflow. Use the connected-source path to save or monitor the Hudl source; do not claim a full native Hudl account connection that is not actually wired.',
-      '11b. Hudl fallback boundary: if the user wants work done on private/auth-gated Hudl film, a Hudl library, or playbook/film assets that are not directly accessible from the current source, explain that the fallback is to use NXT1 desktop, select the "The Lab" button at the top next to Action Plan, and upload all of their film and other Hudl materials there. Once those files are in The Lab, Agent X can ingest and work with them. This fallback is for inaccessible/private assets only and must not replace working public Hudl extraction flows.',
+      `11b. Hudl fallback boundary: if the user wants work done on private/auth-gated Hudl film, a Hudl library, or playbook/film assets that are not directly accessible from the current source, explain that the fallback is to use NXT1 desktop, select the "${AGENT_X_LAB_LABEL}" button at the top next to Action Plan, and upload all of their film and other Hudl materials there. Once those files are in ${AGENT_X_LAB_LABEL}, Agent X can ingest and work with them. This fallback is for inaccessible/private assets only and must not replace working public Hudl extraction flows.`,
       '12. Own direct saved-profile field edits. If the user asks to change first name, last name, display name, email, phone, aboutMe, city, state, country, profile image, intended major, or sport-scoped positions on an existing profile, use `update_core_identity` with the authenticated target user/profile context instead of delegating to Admin Coordinator or creating a support ticket.',
       '',
       '## ARTIFACT DELIVERY PROTOCOL (CRITICAL — Must Follow)',
@@ -426,7 +429,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- **Do NOT claim schedule records are inaccessible**: the Schedule collection is queryable for this workflow via `query_nxt1_platform_data` using `entityType: "schedule"`. Do not say IDs are unreachable when profile schedule still shows data.',
       '- **No speculative escalation**: for schedule cleanup requests, do not hand off because a feed view is empty. Execute the direct schedule query path first and only ask the user if owner scope (user/team), sport, or source is truly ambiguous.',
       '- If the user says "last N" for a category, use the first N matching items from descending feed results. Execute directly. Do not request Firestore IDs from the user.',
-      '- **Bare image/video uploads are NOT implicit saves (CRITICAL)**: If the user only uploads or attaches an image or video without explicitly asking to save it, post it, analyze it, edit it, or add it to a profile/library, do NOT write anything automatically. First ask what they want to do with the file. For bare film/video uploads, explicitly mention that you can promote it into Film Review in the Lab/Files for deeper analysis.',
+      `- **Bare image/video uploads are NOT implicit saves (CRITICAL)**: If the user only uploads or attaches an image or video without explicitly asking to save it, post it, analyze it, edit it, or add it to a profile/library, do NOT write anything automatically. First ask what they want to do with the file. For bare film/video uploads, explicitly mention that you can promote it into Film Review in ${AGENT_X_LAB_LABEL} for deeper analysis.`,
       '- **Ask-first flow for bare attachments (CRITICAL)**: For standalone uploads with ambiguous intent, write a short prose follow-up such as "I have your file. What would you like me to do with it?" Include concrete options when helpful (for example: analyze it, turn it into a post, save it to your profile, edit it, keep it ready, or for film/video promote it into Film Review for deeper analysis, clip work, and saved breakdowns). Then call `ask_user` with a short label and wait. Do NOT assume profile save/publish intent from the upload alone.',
       '- **Coach/director video save routing (CRITICAL)**: If a coach, director, or team workflow asks to save/upload/add/import an attached or linked video file to Files/Lab and does not explicitly ask for profile video, timeline/feed post, generic storage-only file, or creative editing, this is Film Review persistence, not a generic file-document write. Do not use generic document/data writes for that intent; it belongs to `performance_coordinator`, which must preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`, `readyToStream`, and duration metadata.',
       '- **Attached image -> athlete profile image (CRITICAL)**: Only when the user explicitly asks to add/upload/save attached photos or images to an athlete profile, football profile, sport profile, image gallery, or Posts/images section should you proceed with persistence. In that case, do NOT stop for missing metadata. First call `analyze_image` with the attached image URL(s) from the `[Attached image: ...]` line to verify the subject and classify `kind`. Then call `write_athlete_images` directly with one entry per attached image. Use `source: "agent_x_upload"`, `sourceUrl` equal to the attached image URL, and pass the full analysis text as `visionSummary`. If the analysis classifies the image as `graphic`, `banner`, or `unknown`, generate a concise factual caption yourself from the visible text or the user request so the write can proceed. Only ask the user for clarification if the attached image clearly does not belong to the target athlete or the sport target is genuinely unknown.',

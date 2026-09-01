@@ -174,7 +174,7 @@ describe('Agent tool exposure regressions', () => {
       'If the user only uploads or attaches an image or video without explicitly asking to save it'
     );
     expect(prompt).toContain('First ask what they want to do with the file');
-    expect(prompt).toContain('promote it into Film Review in the Lab/Files for deeper analysis');
+    expect(prompt).toContain('promote it into Film Review in The Lab for deeper analysis');
     expect(prompt).toContain('Coach/director video save routing (CRITICAL)');
     expect(prompt).toContain('it belongs to `performance_coordinator`');
     expect(prompt).toContain(

@@ -861,7 +861,7 @@ describe('BaseAgent runtime date guardrail', () => {
     expect(prompt).toContain('Files contract: saved files, folders, film reviews');
     expect(prompt).toContain('Video save routing (CRITICAL)');
     expect(prompt).toContain('use the Film Review path');
-    expect(prompt).toContain('promote it into Film Review in the Lab/Files for deeper analysis');
+    expect(prompt).toContain('promote it into Film Review in The Lab for deeper analysis');
     expect(prompt).toContain('preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`');
     expect(prompt).toContain('editableViaUniversalDocumentTool: false');
     expect(prompt).toContain('SAME selected Files item');

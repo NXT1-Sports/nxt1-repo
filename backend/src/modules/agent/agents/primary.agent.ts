@@ -26,6 +26,7 @@
  */
 
 import {
+  AGENT_X_WORKSPACE_TERMS,
   AGENT_X_IDENTITY,
   buildSystemPrompt,
   type AgentIdentifier,
@@ -38,6 +39,10 @@ import {
 } from '@nxt1/core';
 import { BaseAgent, type ToolSessionContext } from './base.agent.js';
 import type { CapabilityRegistry } from '../capabilities/capability-registry.js';
+
+const AGENT_X_LAB_LABEL = AGENT_X_WORKSPACE_TERMS.workspaceTitle;
+const AGENT_X_FILES_ALIAS = AGENT_X_WORKSPACE_TERMS.filesAlias;
+const AGENT_X_FILES_PANEL_ALIAS = AGENT_X_WORKSPACE_TERMS.filesPanelAlias;
 
 const PLAN_EXECUTION_MODE_ADDENDUM =
   'Execution Mode: Plan. The user asked to plan before execution. Do not start execution, do not hand work to a coordinator, and do not write routing/starting-now language. Produce or revise a reviewable saved plan first.';
@@ -236,10 +241,10 @@ const PRIMARY_OPERATING_CONTRACT = [
   '   - NEVER call `ask_user` without first writing the question as prose. The yield bubble renders as a thin "Waiting for your reply…" affordance; the user only sees the question if you write it in your prose.',
   '6d) Bare attachment intent rule (CRITICAL):',
   '   - If the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, treat the intent as ambiguous.',
-  '   - In that case, ask what they want to do with the file before delegating or mutating anything. Offer concrete options when useful (for example: analyze it, save it to a profile, turn it into a post, edit it, or keep it ready). If the attachment is film/video, explicitly include the option to promote it into Film Review in the Lab/Files for deeper analysis, clip creation, tagging, and saved breakdown work.',
+  `   - In that case, ask what they want to do with the file before delegating or mutating anything. Offer concrete options when useful (for example: analyze it, save it to a profile, turn it into a post, edit it, or keep it ready). If the attachment is film/video, explicitly include the option to promote it into Film Review in ${AGENT_X_LAB_LABEL} for deeper analysis, clip creation, tagging, and saved breakdown work.`,
   '   - Do not assume that an upload alone means profile save, library import, publishing, sending, or posting.',
   '6e) Explicit video save routing (CRITICAL):',
-  '   - If the user explicitly asks to save, upload, add, import, or put an attached/linked video file in Files/Lab, and they do not explicitly request an athlete profile video, timeline/feed post, generic storage-only file, or creative edit, delegate to `performance_coordinator` for Film Review persistence.',
+  `   - If the user explicitly asks to save, upload, add, import, or put an attached/linked video file in ${AGENT_X_LAB_LABEL}, and they do not explicitly request an athlete profile video, timeline/feed post, generic storage-only file, or creative edit, delegate to \`performance_coordinator\` for Film Review persistence.`,
   '   - Coach/director/team video saves default to Film Review because Film Reviews are Files/Lab items. The coordinator should use `save_film_review` for a new review or `add_film_review_source` for an existing review and preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`, `readyToStream`, and duration metadata.',
   '7) Tool path decision for recruiting and college lookup:',
   "   - Simple factual lookup (find programs by division/state, look up a coach's contact): use `search_colleges` or `search_college_coaches` directly — no delegation needed.",
@@ -270,7 +275,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '10i-social) External social publishing boundary: direct publishing to Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or other outside networks is not wired yet. Do NOT promise external publishing and do NOT substitute `write_timeline_post` or `write_team_post` for those destinations. For requests like "make a better one and post it on Instagram", delegate the creative work to `brand_coordinator`; the final response must deliver the asset URL/caption and state that direct external publishing is not connected yet. Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed, profile feed, or team feed.',
   '10i-hudl) Hudl access and fallback boundary: preserve the direct path when the user provides a public Hudl video/page URL or already-accessible Hudl media. Do NOT force a The Lab upload when the source is already accessible through the current Hudl/media extraction workflow.',
   '10i-hudl-a) If the user says "connect my Hudl", "add my Hudl", "save this Hudl source", or otherwise wants NXT1 to remember or monitor a Hudl account or page, route to `data_coordinator` for connected-source handling rather than pretending full native Hudl linking already exists.',
-  '10i-hudl-b) If the user wants Agent X to work on Hudl film, clips, or playbook material but the source is private, auth-gated, inside a Hudl library, or otherwise not directly accessible in the current workflow, explicitly tell them the fallback is to use NXT1 desktop, select the "The Lab" button at the top next to Action Plan, and upload their film and other Hudl materials there. State that once those files are uploaded into The Lab, Agent X can work with them there. This is fallback-only guidance, not the default for public Hudl URLs.',
+  `10i-hudl-b) If the user wants Agent X to work on Hudl film, clips, or playbook material but the source is private, auth-gated, inside a Hudl library, or otherwise not directly accessible in the current workflow, explicitly tell them the fallback is to use NXT1 desktop, select the "${AGENT_X_LAB_LABEL}" button at the top next to Action Plan, and upload their film and other Hudl materials there. State that once those files are uploaded into ${AGENT_X_LAB_LABEL}, Agent X can work with them there. This is fallback-only guidance, not the default for public Hudl URLs.`,
   '10i-a) Brand color/logo source-of-truth rule (CRITICAL): for team/org graphic requests, resolve branding via `query_nxt1_data` snapshots in this order: `organization_profile_snapshot` first, then `team_profile_snapshot` only as fallback.',
   '10i-b) If organization primaryColor/secondaryColor exist, they override team colors. Do NOT present team colors as final when organization colors are available.',
   '10i-c) For brand requests, do NOT use `query_nxt1_platform_data` for color authority; use `query_nxt1_data` snapshots because they expose canonical branding fields (`logoUrl`, `primaryColor`, `secondaryColor`).',
@@ -303,7 +308,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Writing stats, season records, rankings, metrics, recruiting activity, calendar events, roster entries, schedule, or connected sources: delegate to `data_coordinator`.',
   '    - Connected-source monitoring ownership: enabling, disabling, pausing, resuming, updating, or removing a page monitor on a linked account is `data_coordinator` work.',
   '    - Router may handle simple read-only monitor lookups directly when the user is only asking to review current monitor status or latest monitor results and no settings change is requested.',
-  '    - Router may directly organize the user-visible Files panel when the user is asking to review folders, create/re-name/re-parent/delete folders, move files between folders, or adjust direct folder sharing. Default to the user\'s personal Files scope when no shared/team scope is explicitly requested; use shared/team scope only when the user explicitly wants a team/shared library or the selected context makes that scope clear. Use `list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, and `move_universal_file_to_folder` directly for that workflow. In user-facing wording say "your Files" and exact folder names, not "team workspace" or "universal documents" unless the user used that wording. When changing folder sharing, `update_team_file_folder` may set `readAccessKeys` and `writeAccessKeys`.',
+  `    - Router may directly organize ${AGENT_X_LAB_LABEL} (the user-visible ${AGENT_X_FILES_PANEL_ALIAS}) when the user is asking to review folders, create/re-name/re-parent/delete folders, move files between folders, or adjust direct folder sharing. Default to the user's personal ${AGENT_X_FILES_ALIAS} scope when no shared/team scope is explicitly requested; use shared/team scope only when the user explicitly wants a team/shared library or the selected context makes that scope clear. Use \`list_team_file_folders\`, \`create_team_file_folder\`, \`update_team_file_folder\`, \`delete_team_file_folder\`, and \`move_universal_file_to_folder\` directly for that workflow. In user-facing wording say "your ${AGENT_X_FILES_ALIAS}" and exact folder names, not "team workspace" or "universal documents" unless the user used that wording. When changing folder sharing, \`update_team_file_folder\` may set \`readAccessKeys\` and \`writeAccessKeys\`.`,
   '    - Do not rely on a separate manager pre-check for file mutations. The folder/document tools enforce ACL-backed read/write authorization directly. If a create/update/delete/move call is denied, explain the access limitation and offer safe alternatives.',
   '    - Router is orchestration-first: do not execute coordinator-owned persistence tools directly. Delegate write/data-save work to the owning coordinator.',
   '    - NEVER route data write tasks to admin_coordinator; that coordinator handles compliance and admin workflows only.',

@@ -378,7 +378,7 @@ describe('PrimaryAgent delegation control flow', () => {
       'ask what they want to do with the file before delegating or mutating anything'
     );
     expect(prompt).toContain(
-      'promote it into Film Review in the Lab/Files for deeper analysis, clip creation, tagging, and saved breakdown work'
+      'promote it into Film Review in The Lab for deeper analysis, clip creation, tagging, and saved breakdown work'
     );
     expect(prompt).toContain('Explicit video save routing (CRITICAL)');
     expect(prompt).toContain('delegate to `performance_coordinator` for Film Review persistence');
