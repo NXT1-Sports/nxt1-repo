@@ -593,7 +593,7 @@ describe('Agent tool exposure regressions', () => {
     }
   });
 
-  it('keeps Google Workspace limited to email sending for the router policy', () => {
+  it('exposes direct first-party Google Drive tools to router while blocking unapproved docs/sheets tools', () => {
     const routerTools = getEffectiveAgentToolPolicy('router');
     const strategyTools = getEffectiveAgentToolPolicy('strategy_coordinator');
 
@@ -616,19 +616,22 @@ describe('Agent tool exposure regressions', () => {
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('send_email_via_nxt1', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('batch_send_email_via_nxt1', routerTools)).toBe(false);
-    expect(isToolAllowedByPatterns('gmail_send_email', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('create_drive_folder', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('upload_drive_file', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('search_drive_files', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('read_drive_file', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('delete_drive_file', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(false);
-    expect(isToolAllowedByPatterns('drive_search_files', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('docs_create_document', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('sheets_create_spreadsheet', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('create_presentation_from_markdown', routerTools)).toBe(false);
   });
 
   it('supports wildcard matching beyond simple prefix-only patterns', () => {
-    expect(isToolAllowedByPatterns('run_google_workspace_tool', ['*google_workspace*'])).toBe(true);
+    expect(isToolAllowedByPatterns('create_drive_folder', ['*drive*'])).toBe(true);
     expect(isToolAllowedByPatterns('calendar_get_events', ['*get_*'])).toBe(true);
-    expect(isToolAllowedByPatterns('drive_upload_file', ['*upload*'])).toBe(true);
+    expect(isToolAllowedByPatterns('upload_drive_file', ['*upload*'])).toBe(true);
     expect(isToolAllowedByPatterns('analyze_video', ['*upload*'])).toBe(false);
   });
 

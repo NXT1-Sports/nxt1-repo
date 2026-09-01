@@ -61,8 +61,11 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'list_recurring_tasks',
   'list_microsoft_365_tools',
   'run_microsoft_365_tool',
-  'list_google_workspace_tools',
-  'run_google_workspace_tool',
+  'create_drive_folder',
+  'upload_drive_file',
+  'search_drive_files',
+  'read_drive_file',
+  'delete_drive_file',
   'search_nxt1_platform',
   'query_nxt1_platform_data',
   'list_nxt1_data_views',
@@ -141,9 +144,12 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'list_recurring_tasks',
   'send_email',
   'batch_send_email',
-  // Google Workspace is limited to email workflows for now; broader Docs/
-  // Sheets/Slides/Drive actions are intentionally not exposed.
-  'gmail_send_email',
+  // Google Drive user-scoped file management
+  'create_drive_folder',
+  'upload_drive_file',
+  'search_drive_files',
+  'read_drive_file',
+  'delete_drive_file',
   'list_microsoft_365_tools',
   'run_microsoft_365_tool',
 ];

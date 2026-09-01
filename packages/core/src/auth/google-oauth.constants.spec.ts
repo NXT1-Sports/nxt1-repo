@@ -14,6 +14,10 @@ describe('google oauth constants', () => {
       ...GOOGLE_IDENTITY_SCOPES,
       ...GOOGLE_WORKSPACE_PERMISSION_SCOPES,
     ]);
+    expect(GOOGLE_WORKSPACE_PERMISSION_SCOPES).toEqual([
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/drive.file',
+    ]);
   });
 
   it('keeps the gmail-only connect flow narrower than the full workspace bundle', () => {

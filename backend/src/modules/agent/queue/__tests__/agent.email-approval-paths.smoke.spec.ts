@@ -43,20 +43,6 @@ const CASES = [
     expectedVariant: 'email',
   },
   {
-    label: 'run_google_workspace_tool',
-    toolName: 'run_google_workspace_tool',
-    toolInput: {
-      toolName: 'gmail_send_email',
-      arguments: {
-        to: ['coach1@example.com', 'coach2@example.com'],
-        subject: 'Wrapped Gmail update',
-        body: '<p>Wrapped Gmail body</p>',
-      },
-    },
-    expectedTitle: 'Review and Approve Emails (2 recipients)',
-    expectedVariant: 'email-batch',
-  },
-  {
     label: 'run_microsoft_365_tool',
     toolName: 'run_microsoft_365_tool',
     toolInput: {

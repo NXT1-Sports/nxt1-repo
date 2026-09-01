@@ -6,8 +6,9 @@
 export const GOOGLE_IDENTITY_SCOPES = ['openid', 'email', 'profile'] as const;
 
 export const GOOGLE_WORKSPACE_PERMISSION_SCOPES = [
-  // Agent X currently supports outbound Gmail send only.
+  // Agent X currently supports outbound Gmail send plus limited Drive access.
   'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/drive.file',
 ] as const;
 
 export const GOOGLE_OAUTH_SCOPES = [

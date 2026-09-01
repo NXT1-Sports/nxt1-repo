@@ -2215,12 +2215,6 @@ export class AgentXActionCardComponent implements OnDestroy {
     if (name === 'send_email') return 'email';
     if (name === 'gmail_send_email')
       return this.legacyGmailRecipientCount() > 1 ? 'email-batch' : 'email';
-    if (name === 'run_google_workspace_tool') {
-      const input = (this.yield().pendingToolCall?.toolInput ?? {}) as Record<string, unknown>;
-      if (input['toolName'] === 'gmail_send_email') {
-        return this.legacyGmailRecipientCount(input['arguments']) > 1 ? 'email-batch' : 'email';
-      }
-    }
     if (name === 'batch_send_email') return 'email-batch';
     if (
       name === 'write_timeline_post' ||

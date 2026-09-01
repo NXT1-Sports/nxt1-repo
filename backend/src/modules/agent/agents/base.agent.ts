@@ -4705,6 +4705,11 @@ export abstract class BaseAgent {
       sheets_clear_range: 'Clearing spreadsheet range',
 
       // Workspace & Documents — Google Drive
+      create_drive_folder: 'Creating Google Drive folder',
+      upload_drive_file: 'Uploading to Google Drive',
+      search_drive_files: 'Searching Google Drive',
+      read_drive_file: 'Reading Google Drive file',
+      delete_drive_file: 'Deleting Google Drive file',
       drive_create_folder: 'Creating folder',
       drive_delete_file: 'Deleting file',
       drive_list_shared_drives: 'Listing shared drives',
@@ -4741,8 +4746,6 @@ export abstract class BaseAgent {
 
       // Workspace & Documents — Support
       create_support_ticket: 'Creating support ticket',
-      list_google_workspace_tools: 'Checking Google Workspace tools',
-      run_google_workspace_tool: 'Using Google Workspace',
       list_microsoft_365_tools: 'Checking Microsoft 365 tools',
       run_microsoft_365_tool: 'Using Microsoft 365',
 

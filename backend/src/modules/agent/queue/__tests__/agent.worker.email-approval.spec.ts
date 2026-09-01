@@ -115,30 +115,6 @@ describe('AgentWorker :: Approval Cards', () => {
       expect(card.payload.emailData.subject).toBe('Gmail Schedule Update');
       expect(card.payload.actions[1].label).toBe('Send');
     });
-
-    it('should render batch email approval card for wrapped Google Workspace Gmail send', () => {
-      const card = renderApprovalCard({
-        toolName: 'run_google_workspace_tool',
-        toolInput: {
-          toolName: 'gmail_send_email',
-          arguments: {
-            to: ['coach1@example.com', 'coach2@example.com'],
-            subject: 'Gmail Campaign Update',
-            body: '<p>Here is my latest recruiting update.</p>',
-          },
-        },
-      });
-
-      expect(card.type).toBe('confirmation');
-      expect(card.title).toBe('Review and Approve Emails (2 recipients)');
-      expect(card.payload.variant).toBe('email-batch');
-      expect(card.payload.emailData.recipients).toEqual([
-        'coach1@example.com',
-        'coach2@example.com',
-      ]);
-      expect(card.payload.emailData.subject).toBe('Gmail Campaign Update');
-      expect(card.payload.actions[1].label).toBe('Send All');
-    });
   });
 
   describe('batch email (batch_send_email)', () => {

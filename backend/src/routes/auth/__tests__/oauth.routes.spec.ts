@@ -1,7 +1,11 @@
 import express, { type RequestHandler } from 'express';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OAUTH_TOKEN_SUBCOLLECTION, GOOGLE_OAUTH_TOKEN_DOC_ID } from '@nxt1/core/auth';
+import {
+  GOOGLE_OAUTH_SCOPES,
+  OAUTH_TOKEN_SUBCOLLECTION,
+  GOOGLE_OAUTH_TOKEN_DOC_ID,
+} from '@nxt1/core/auth';
 import { encodeOAuthState } from '../shared.js';
 
 const invalidateProfileCaches = vi.fn();
@@ -192,6 +196,18 @@ describe('OAuth Routes', () => {
     });
   }
 
+  it('creates a Google OAuth URL with the canonical workspace scopes', async () => {
+    const db = createFakeDb();
+
+    const app = await createApp(db);
+    const response = await request(app).get('/google/connect-url?origin=https://nxt1sports.com');
+
+    expect(response.status).toBe(200);
+
+    const oauthUrl = new URL(response.body.url);
+    expect(oauthUrl.searchParams.get('scope')?.split(' ')).toEqual(GOOGLE_OAUTH_SCOPES);
+  });
+
   it('creates an admin mailbox OAuth URL targeting the mailbox user', async () => {
     const db = createFakeDb();
     db.__seedUser('mailbox-user', 'nxt1@nxt1sports.com');
@@ -215,6 +231,7 @@ describe('OAuth Routes', () => {
     });
 
     const oauthUrl = new URL(response.body.url);
+    expect(oauthUrl.searchParams.get('scope')?.split(' ')).toEqual(GOOGLE_OAUTH_SCOPES);
     const encodedState = oauthUrl.searchParams.get('state');
     expect(encodedState).toBeTruthy();
     const decodedState = JSON.parse(Buffer.from(encodedState!, 'base64url').toString()) as {
