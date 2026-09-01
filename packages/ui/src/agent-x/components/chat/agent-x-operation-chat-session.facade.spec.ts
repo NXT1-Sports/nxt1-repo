@@ -99,6 +99,15 @@ type Canonicalizer = {
   ): string;
 };
 
+type ThreadReloadHelper = {
+  configure(host: AgentXOperationChatSessionFacadeHost): void;
+  applyLoadedThreadMessages(
+    threadId: string,
+    items: readonly AgentMessage[],
+    latestPausedYieldState?: unknown
+  ): Promise<void>;
+};
+
 describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
   const facade = Object.create(AgentXOperationChatSessionFacade.prototype) as Canonicalizer;
 
@@ -2425,6 +2434,126 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).not.toContain('ask-pending-tool-1');
     expect(ids).toContain('ask-pending-tool-2');
     expect(ids).not.toContain('ask-pending-yield');
+  });
+
+  it('keeps unanswered ask_user tool steps live when a thread rehydrates', async () => {
+    const reloadFacade = Object.create(
+      AgentXOperationChatSessionFacade.prototype
+    ) as ThreadReloadHelper;
+    const operationId = '715c70c8-75b8-4b7d-a87d-9f3a737dec01';
+    const userPrompt: AgentMessage = {
+      id: 'user-ask-reload',
+      threadId: 'thread-ask-reload',
+      userId: 'user-1',
+      role: 'user',
+      content: 'Ask me one question before building the plan.',
+      origin: 'user',
+      operationId,
+      createdAt: '2026-09-01T12:00:00.000Z',
+    };
+    const toolCall = assistantMessage('tool-ask-reload', 'assistant_tool_call', {
+      threadId: 'thread-ask-reload',
+      operationId,
+      content: 'I need one answer before I continue.',
+      steps: [
+        {
+          id: 'step-ask-user',
+          label: 'Requesting your input',
+          status: 'active',
+          stageType: 'tool',
+        },
+      ],
+      parts: [
+        {
+          type: 'tool-steps',
+          steps: [
+            {
+              id: 'step-ask-user-part',
+              label: 'Requesting your input',
+              status: 'active',
+              stageType: 'tool',
+            },
+          ],
+        },
+      ],
+    });
+    const yieldRow = assistantMessage('yield-ask-reload', 'assistant_yield', {
+      threadId: 'thread-ask-reload',
+      operationId,
+      content: 'What is the biggest priority this week?',
+      resultData: { yieldState: { reason: 'needs_input' } },
+    });
+    let renderedMessages: OperationMessage[] = [];
+    const messagesSignal = Object.assign(
+      vi.fn(() => renderedMessages),
+      {
+        set: vi.fn((next: OperationMessage[]) => {
+          renderedMessages = next;
+        }),
+        update: vi.fn((updater: (items: OperationMessage[]) => OperationMessage[]) => {
+          renderedMessages = updater(renderedMessages);
+          return renderedMessages;
+        }),
+      }
+    );
+    let currentOperationId: string | null = null;
+    let operationStatus: ReturnType<AgentXOperationChatSessionFacadeHost['getOperationStatus']> =
+      'processing';
+    const setCurrentOperationId = vi.fn((next: string | null) => {
+      currentOperationId = next;
+    });
+    const setOperationStatus = vi.fn((next: typeof operationStatus) => {
+      operationStatus = next;
+    });
+
+    Object.assign(reloadFacade as unknown as Record<string, unknown>, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      operationEventService: {
+        getEnqueueWaitingEntry: vi.fn().mockReturnValue(null),
+        emitOperationStatusUpdated: vi.fn(),
+        getStoredEventState: vi.fn(),
+      },
+      streamRegistry: { hasActiveStream: vi.fn().mockReturnValue(false) },
+      messageFacade: {
+        messages: messagesSignal,
+        upsertInlineYieldMessage: vi.fn(),
+        settleActiveToolSteps: vi.fn(),
+        pushMessage: vi.fn(),
+      },
+      generateThumbnailsForHistoryVideos: vi.fn(),
+    });
+    reloadFacade.configure({
+      contextId: () => operationId,
+      contextType: () => 'operation',
+      getOperationStatus: () => operationStatus,
+      setOperationStatus,
+      getCurrentOperationId: () => currentOperationId,
+      setCurrentOperationId,
+      resumeOperationId: () => '',
+      activeYieldState: (() => null) as never,
+      yieldResolved: (() => false) as never,
+      applyYieldState: vi.fn(),
+      hasUserSent: () => true,
+      markUserMessageSent: vi.fn(),
+      uid: () => 'uid-1',
+    } as unknown as AgentXOperationChatSessionFacadeHost);
+
+    await reloadFacade.applyLoadedThreadMessages('thread-ask-reload', [
+      userPrompt,
+      toolCall,
+      yieldRow,
+    ]);
+
+    const renderedToolCall = renderedMessages.find((message) => message.id === 'tool-ask-reload');
+    const renderedStepPart = renderedToolCall?.parts?.find(
+      (part): part is Extract<AgentXMessagePart, { type: 'tool-steps' }> =>
+        part.type === 'tool-steps'
+    );
+
+    expect(setCurrentOperationId).toHaveBeenCalledWith(operationId);
+    expect(setOperationStatus).toHaveBeenCalledWith('awaiting_input');
+    expect(renderedToolCall?.steps?.[0]?.status).toBe('active');
+    expect(renderedStepPart?.steps[0]?.status).toBe('active');
   });
 
   // ── Regression: Bug A ─────────────────────────────────────────────────────
