@@ -545,6 +545,9 @@ export interface AgentXLibraryFolderTreeController {
       .agent-x-library-folder-tree .film-playlist-folder {
         display: grid;
         gap: 6px;
+        width: 100%;
+        min-width: 0;
+        max-width: 100%;
         border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: 10px;
         background: color-mix(in srgb, var(--nxt1-color-surface-100) 92%, transparent);
@@ -575,11 +578,14 @@ export interface AgentXLibraryFolderTreeController {
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__header {
+        box-sizing: border-box;
         display: grid;
         grid-template-columns: 28px minmax(0, 1fr) 32px;
         align-items: center;
         gap: 4px;
         width: 100%;
+        min-width: 0;
+        max-width: 100%;
         min-height: 38px;
         padding: 0 6px 0 30px;
         position: relative;
@@ -594,6 +600,7 @@ export interface AgentXLibraryFolderTreeController {
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        overflow: hidden;
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__menu-anchor {
@@ -606,12 +613,14 @@ export interface AgentXLibraryFolderTreeController {
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__toggle {
+        box-sizing: border-box;
         display: grid;
         grid-template-columns: 18px 18px minmax(0, 1fr) auto;
         align-items: center;
         gap: 8px;
         width: 100%;
         min-width: 0;
+        max-width: 100%;
         min-height: 38px;
         border: 0;
         background: transparent;
@@ -619,6 +628,7 @@ export interface AgentXLibraryFolderTreeController {
         text-align: left;
         padding: 7px 8px 7px 10px;
         cursor: pointer;
+        overflow: hidden;
       }
 
       .agent-x-library-folder-tree .film-playlist-folder__toggle:hover {
