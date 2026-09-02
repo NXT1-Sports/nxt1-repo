@@ -51,8 +51,7 @@ Backfill operations, data patches, and reconciliation tasks.
 Service and MCP deployments.
 
 - **MCP Deployment**: `deploy-chart-mcp.sh`, `deploy-ffmpeg-mcp.sh`,
-  `deploy-google-workspace-mcp.sh`, `deploy-microsoft-365-mcp.sh`,
-  `deploy-stateful-mcp.sh`
+  `deploy-microsoft-365-mcp.sh`, `deploy-stateful-mcp.sh`
 - **Other**: `deploy-mobile-bundle.ts`, `deploy.sh`
 
 ### 📧 `email/` (1 script)

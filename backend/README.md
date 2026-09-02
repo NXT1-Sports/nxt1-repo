@@ -235,19 +235,6 @@ Use this pattern only when the MCP already exposes HTTP on `$PORT` and persists
 simple flat files. Do not mount SQLite databases or other lock-heavy storage
 over Cloud Storage volumes.
 
-For Google Workspace MCP, use
-[backend/scripts/deploy-google-workspace-mcp.sh](/Users/johnkeller/My Mac
-(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-google-workspace-mcp.sh).
-After deployment, set `GOOGLE_WORKSPACE_MCP_URL` in the backend runtime
-environment / Secret Manager to the service `/mcp` URL and add the service
-`/oauth2callback` URL to the Google OAuth client. | `npm run dev:staging` | Dev
-server with staging config | | `npm run dev:prod` | Dev server with production
-config | | `npm run build` | Compile TypeScript to `dist/` | |
-`npm run build:watch` | Watch mode compilation | | `npm run typecheck` |
-Type-check without emitting | | `npm run lint` | Run ESLint | |
-`npm run lint:fix` | Auto-fix lint issues | | `npm run clean` | Remove dist/,
-node_modules/ |
-
 For FFmpeg MCP, use [backend/scripts/deploy-ffmpeg-mcp.sh](/Users/johnkeller/My
 Mac
 (Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/scripts/deploy-ffmpeg-mcp.sh).

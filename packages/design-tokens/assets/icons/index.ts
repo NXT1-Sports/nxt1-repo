@@ -88,6 +88,26 @@ export const UI_ICONS = {
     paths: [{ d: 'M6 4h4v16H6z' }, { d: 'M14 4h4v16h-4z' }],
   },
 
+  /** Volume icon (for video controls) */
+  volume: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M11 5 6 9H3v6h3l5 4V5z' },
+      { d: 'M15.5 8.5a5 5 0 0 1 0 7' },
+      { d: 'M18.5 5.5a9 9 0 0 1 0 13' },
+    ],
+  },
+
+  /** Muted volume icon (for video controls) */
+  volumeMute: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M11 5 6 9H3v6h3l5 4V5z' }, { d: 'M16 9l5 5' }, { d: 'M21 9l-5 5' }],
+  },
+
   /** Expand/Fullscreen icon (for video controls) */
   expand: {
     viewBox: '0 0 24 24',

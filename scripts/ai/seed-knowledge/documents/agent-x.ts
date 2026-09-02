@@ -212,6 +212,13 @@ Intel Reports include **missing data prompts** — if key data is unavailable, t
 - **Delete video** — permanently remove a video from your library
 - **Analyze video** — watch a video and extract insights
 
+### Hudl Game Film and The Lab
+Agent X handles Hudl film according to source access:
+- The main stable workflow is **The Lab** on desktop for full games, private Hudl library film, auth-gated pages, downloaded full-game files, and Hudl export ZIPs.
+- Public Hudl video links can be pasted into chat only as a secondary shortcut when they are directly accessible public video or highlight pages and not behind a login wall.
+- Supported video files can become Film Review sources. Hudl-style CSV/XLSX breakdown sheets can be imported into a known Film Review as structured rows.
+- A Hudl ZIP/package can be saved with film materials, but Agent X must not promise automatic unpacking or parsing unless a processing tool explicitly confirms that package import happened. The reliable path is to use the supported pieces from the package: video files plus breakdown sheets.
+
 ### Graphic Generation
 - **Generate a graphic** — create a custom image or social media graphic using AI based on a text description
 

@@ -328,6 +328,108 @@ describe('AgentXFilmReviewPanelComponent', () => {
     });
   });
 
+  it('falls back to the visible playback source thumbnail when the dragged source has no poster', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      sources: [
+        {
+          id: 'wide-20',
+          order: 0,
+          title: 'Clip 020 Wide',
+          videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
+          cloudflareVideoId: 'wide-20-cf',
+          cameraAngle: 'wide',
+          angleGroupId: 'clip-020',
+        },
+        {
+          id: 'tight-20',
+          order: 1,
+          title: 'Clip 020 Tight',
+          videoUrl: 'https://cdn.example.com/clip-020-tight.mp4',
+          thumbnailUrl: 'https://cdn.example.com/clip-020-tight.jpg',
+          cloudflareVideoId: 'tight-20-cf',
+          cameraAngle: 'tight',
+          angleGroupId: 'clip-020',
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-20',
+          number: 20,
+          label: 'Mesh Concept',
+          startSec: 5,
+          endSec: 12,
+          sourceId: 'wide-20',
+          sourceIds: ['wide-20', 'tight-20'],
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const componentAccess = component as unknown as FilmReviewPanelTestAccess;
+    componentAccess.selectedCameraAngle.set('tight');
+
+    const context = componentAccess.buildFilmPlayDragContext(
+      reviewSignal()!,
+      {
+        id: 'play-20',
+        number: 20,
+        label: 'Mesh Concept',
+        startSec: 5,
+        endSec: 12,
+        sourceId: 'wide-20',
+        sourceIds: ['wide-20', 'tight-20'],
+      },
+      0
+    );
+
+    expect(context.media).toMatchObject({
+      videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
+      thumbnailUrl: 'https://cdn.example.com/clip-020-tight.jpg',
+      cloudflareVideoId: 'wide-20-cf',
+    });
+  });
+
+  it('falls back to the review thumbnail when no source poster is available', () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      thumbnailUrl: 'https://cdn.example.com/review/fallback.jpg',
+      sources: [
+        {
+          id: 'source-1',
+          order: 0,
+          title: 'Source Clip 1',
+          videoUrl: 'https://cdn.example.com/source-1.mp4',
+          cloudflareVideoId: 'source-1-cf',
+        },
+      ],
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Inside Zone',
+          startSec: 0,
+          endSec: 1,
+          sourceId: 'source-1',
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const panelHarness = component as unknown as FilmReviewPanelTestHarness;
+    const context = panelHarness.buildFilmPlayDragContext(
+      reviewSignal()!,
+      reviewSignal()!.timeline![0]!,
+      0
+    );
+
+    expect(context.media).toMatchObject({
+      videoUrl: 'https://cdn.example.com/source-1.mp4',
+      thumbnailUrl: 'https://cdn.example.com/review/fallback.jpg',
+      cloudflareVideoId: 'source-1-cf',
+    });
+  });
+
   it('shows the real source duration for placeholder source rows in the breakdown table', () => {
     const review = createReviewDoc();
     reviewSignal.set({

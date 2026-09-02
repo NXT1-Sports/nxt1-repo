@@ -56,6 +56,8 @@ function createMockContext(overrides?: Partial<AgentSessionContext>): AgentSessi
   };
 }
 
+const PLANNER_LLM_TIMEOUT_MS = 300_000;
+
 describe('PlannerAgent', () => {
   let context: AgentSessionContext;
 
@@ -219,6 +221,21 @@ describe('PlannerAgent', () => {
     expect(plannerCall[1]).toContain('[Coordinator Capability Snapshot]');
     expect(plannerCall[1]).toContain('snapshot-hash');
     expect(plannerCall[2].outputSchema.name).toBe('planner_execution_plan');
+    expect(plannerCall[2].timeoutMs).toBe(PLANNER_LLM_TIMEOUT_MS);
+  });
+
+  it('passes the operation signal and extended timeout to non-streamed planning', async () => {
+    const signal = new AbortController().signal;
+    const llm = createMockLLM(createStrictPlannerResponse());
+    const planner = new PlannerAgent(llm);
+
+    await planner.execute('Build plan', createMockContext({ signal }), []);
+
+    const plannerCall = (llm.prompt as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(plannerCall[2]).toMatchObject({
+      signal,
+      timeoutMs: PLANNER_LLM_TIMEOUT_MS,
+    });
   });
 
   it('returns clarification data when the planner requests missing input', async () => {
@@ -386,6 +403,8 @@ describe('PlannerAgent', () => {
     );
 
     expect(llm.completeStream).toHaveBeenCalledTimes(1);
+    const streamCall = (llm.completeStream as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(streamCall[1].timeoutMs).toBe(PLANNER_LLM_TIMEOUT_MS);
     expect(events).toEqual(['Thinking first...', 'Thinking second...']);
     expect(result.summary).toBe('Planned successfully.');
   });

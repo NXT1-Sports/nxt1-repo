@@ -2,6 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import { ElementRef } from '@angular/core';
+import type { AgentXSelectedContext } from '@nxt1/core/ai';
 
 describe('AgentXInputBarComponent', () => {
   let fixture: ComponentFixture<AgentXInputBarComponent>;
@@ -91,6 +92,50 @@ describe('AgentXInputBarComponent', () => {
     });
 
     expect(layout.offsetX).toBe(-92);
+  });
+
+  it('falls back to a Cloudflare poster when the selected context thumbnail fails', () => {
+    const context: AgentXSelectedContext = {
+      id: 'film-play:review-1:play-1',
+      kind: 'film_play',
+      title: 'Play 1',
+      media: {
+        videoUrl: 'https://cdn.example.com/source-1.mp4',
+        thumbnailUrl: 'https://cdn.example.com/source-1.jpg',
+        cloudflareVideoId: 'source-1-cf',
+      },
+    };
+
+    expect(getContextPreviewUrl(component, context)).toBe('https://cdn.example.com/source-1.jpg');
+
+    markContextPreviewFailed(component, context, 'https://cdn.example.com/source-1.jpg');
+
+    expect(getContextPreviewUrl(component, context)).toBe(
+      'https://videodelivery.net/source-1-cf/thumbnails/thumbnail.jpg'
+    );
+  });
+
+  it('drops to the video fallback when every image candidate fails', () => {
+    const context: AgentXSelectedContext = {
+      id: 'film-play:review-1:play-1',
+      kind: 'film_play',
+      title: 'Play 1',
+      media: {
+        videoUrl: 'https://cdn.example.com/source-1.mp4',
+        thumbnailUrl: 'https://cdn.example.com/source-1.jpg',
+        cloudflareVideoId: 'source-1-cf',
+      },
+    };
+
+    markContextPreviewFailed(component, context, 'https://cdn.example.com/source-1.jpg');
+    markContextPreviewFailed(
+      component,
+      context,
+      'https://videodelivery.net/source-1-cf/thumbnails/thumbnail.jpg'
+    );
+
+    expect(getContextPreviewUrl(component, context)).toBeNull();
+    expect(getContextVideoUrl(component, context)).toBe('https://cdn.example.com/source-1.mp4');
   });
 
   function flushAnimationFrames(): void {
@@ -184,4 +229,38 @@ function createMeasuredElement(rect: DOMRect, scrollHeight: number): HTMLElement
     scrollHeight,
     getBoundingClientRect: () => rect,
   } as unknown as HTMLElement;
+}
+
+function getContextPreviewUrl(
+  component: AgentXInputBarComponent,
+  context: AgentXSelectedContext
+): string | null {
+  return (
+    component as unknown as {
+      contextPreviewUrl: (context: AgentXSelectedContext) => string | null;
+    }
+  ).contextPreviewUrl(context);
+}
+
+function getContextVideoUrl(
+  component: AgentXInputBarComponent,
+  context: AgentXSelectedContext
+): string | null {
+  return (
+    component as unknown as {
+      contextVideoUrl: (context: AgentXSelectedContext) => string | null;
+    }
+  ).contextVideoUrl(context);
+}
+
+function markContextPreviewFailed(
+  component: AgentXInputBarComponent,
+  context: AgentXSelectedContext,
+  previewUrl: string
+): void {
+  (
+    component as unknown as {
+      onContextPreviewError: (context: AgentXSelectedContext, previewUrl: string) => void;
+    }
+  ).onContextPreviewError(context, previewUrl);
 }

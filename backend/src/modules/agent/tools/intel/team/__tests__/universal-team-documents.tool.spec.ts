@@ -1128,6 +1128,79 @@ describe('universal team document Agent X tools', () => {
     );
   });
 
+  it('preserves slide-by-slide enrich_document_notes artifactNotes when later patches send condensed notes', async () => {
+    mockCanManageTeamMutationForUser.mockResolvedValue(false);
+    const slideBySlideNotes = [
+      '# AI Notes: Scout Deck.pptx',
+      '',
+      'Processed pages: 2',
+      'Analyzed pages: 2',
+      'Failed pages: 0',
+      '',
+      '## Slide-by-slide notes',
+      '',
+      '### Slide 1',
+      '- Install notes',
+      '',
+      '### Slide 2',
+      '- Third-down answers',
+    ].join('\n');
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'upload-slide-notes',
+        exists: true,
+        data: () => ({
+          id: 'upload-slide-notes',
+          teamId: '',
+          type: 'file',
+          ownerUserId: 'test-user',
+          title: 'Scout Deck.pptx',
+          normalizedTitle: 'scout deck.pptx',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            storagePath: 'Users/test-user/uploads/pptx/unbound/123_scout-deck.pptx',
+            mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          },
+          artifactClassification: {
+            kind: 'ai_slide_notes',
+            source: 'enrich_document_notes',
+            pageCount: 2,
+            analyzedPageCount: 2,
+            failedPageCount: 0,
+            unitKind: 'slide',
+          },
+          artifactSummary: 'Original slide summary',
+          artifactNotes: slideBySlideNotes,
+          readAccessKeys: ['user:test-user'],
+          writeAccessKeys: ['user:test-user'],
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'upload-slide-notes',
+        patch: {
+          artifactSummary: 'Condensed deck synthesis.',
+          artifactNotes: 'Condensed deck synthesis with key takeaways.',
+        },
+      },
+      { userId: 'test-user' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(universalSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifactSummary: 'Condensed deck synthesis.',
+        artifactNotes: slideBySlideNotes,
+      })
+    );
+  });
+
   it('rejects document share updates from non-owners without team-manage access', async () => {
     mockCanManageTeamMutationForUser.mockResolvedValue(false);
     const { db, universalSet } = createDb({

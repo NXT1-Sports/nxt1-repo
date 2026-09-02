@@ -1049,20 +1049,6 @@ function extractEmailApprovalDraft(
     };
   }
 
-  if (toolName === 'run_google_workspace_tool') {
-    const nestedToolName =
-      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
-    if (nestedToolName !== 'gmail_send_email') return null;
-
-    const args =
-      toolInput['arguments'] &&
-      typeof toolInput['arguments'] === 'object' &&
-      !Array.isArray(toolInput['arguments'])
-        ? (toolInput['arguments'] as Record<string, unknown>)
-        : {};
-    return extractEmailApprovalDraft('gmail_send_email', args);
-  }
-
   if (toolName === 'run_microsoft_365_tool') {
     const nestedToolName =
       typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';

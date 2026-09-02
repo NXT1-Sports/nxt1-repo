@@ -187,11 +187,11 @@ import {
   Microsoft365McpSessionService,
   ListMicrosoft365ToolsTool,
   RunMicrosoft365ToolTool,
-  GoogleWorkspaceMcpSessionService,
-  GoogleWorkspaceToolCatalogService,
-  DynamicGoogleWorkspaceTool,
-  ListGoogleWorkspaceToolsTool,
-  RunGoogleWorkspaceToolTool,
+  CreateDriveFolderTool,
+  UploadDriveFileTool,
+  SearchDriveFilesTool,
+  ReadDriveFileTool,
+  DeleteDriveFileTool,
   RunwayMcpBridgeService,
   FirecrawlScrapeTool,
   FirecrawlSearchTool,
@@ -436,16 +436,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     );
   }
 
-  let googleWorkspaceMcpSessionService: GoogleWorkspaceMcpSessionService | null = null;
-  try {
-    googleWorkspaceMcpSessionService = new GoogleWorkspaceMcpSessionService();
-    logger.info('Google Workspace MCP session service initialized');
-  } catch (error) {
-    logger.warn('Google Workspace MCP session service failed to initialize', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
   let microsoft365McpSessionService: Microsoft365McpSessionService | null = null;
   try {
     microsoft365McpSessionService = new Microsoft365McpSessionService();
@@ -678,37 +668,15 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     );
   }
 
-  // ── 1d.2. Google Workspace MCP tools (user-scoped productivity actions) ───
-  if (googleWorkspaceMcpSessionService) {
-    // Schema discovery tool (kept for debugging and edge cases)
-    toolRegistry.register(new ListGoogleWorkspaceToolsTool(googleWorkspaceMcpSessionService));
-    // Generic fallback remains available even if discovery fails.
-    toolRegistry.register(new RunGoogleWorkspaceToolTool(googleWorkspaceMcpSessionService));
-
-    try {
-      const googleWorkspaceCatalog = new GoogleWorkspaceToolCatalogService();
-      const discoveredGoogleWorkspaceTools = await googleWorkspaceCatalog.listTools();
-
-      for (const definition of discoveredGoogleWorkspaceTools) {
-        toolRegistry.register(
-          new DynamicGoogleWorkspaceTool(googleWorkspaceMcpSessionService, definition)
-        );
-      }
-
-      logger.info('Google Workspace MCP tools registered from live discovery', {
-        infrastructureTools: 2,
-        discoveredCount: discoveredGoogleWorkspaceTools.length,
-        discoveredToolNames: discoveredGoogleWorkspaceTools.map((tool) => tool.name),
-      });
-    } catch (error) {
-      logger.warn(
-        'Google Workspace dynamic tool discovery failed — generic MCP tools remain enabled',
-        {
-          error: error instanceof Error ? error.message : String(error),
-        }
-      );
-    }
-  }
+  // ── 1d.2. Google Drive tools (direct REST API) ───────────────────────────
+  toolRegistry.register(new CreateDriveFolderTool());
+  toolRegistry.register(new UploadDriveFileTool());
+  toolRegistry.register(new SearchDriveFilesTool());
+  toolRegistry.register(new ReadDriveFileTool());
+  toolRegistry.register(new DeleteDriveFileTool());
+  logger.info(
+    'Google Drive tools registered (create_drive_folder, upload_drive_file, search_drive_files, read_drive_file, delete_drive_file)'
+  );
 
   // ── 1d.3. Microsoft 365 MCP tools (user-scoped productivity actions) ────
   if (microsoft365McpSessionService) {
@@ -1014,7 +982,6 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     await baseWorker.shutdown();
     await pubsub.shutdown();
     await queueService.shutdown();
-    await googleWorkspaceMcpSessionService?.shutdown();
     await microsoft365McpSessionService?.shutdown();
     logger.info('Agent X queue engine shut down');
   };

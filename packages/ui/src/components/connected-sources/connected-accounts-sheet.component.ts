@@ -82,6 +82,13 @@ import {
         </div>
       }
       <div class="nxt1-sheet-body" [class.nxt1-sheet-body--hidden]="firecrawlLoading()">
+        <div class="nxt1-sheet-google-note" role="note" aria-label="Google Drive reconnect note">
+          <nxt1-icon name="information-circle-outline" [size]="16" />
+          <p>
+            Reconnect Google after the Drive rollout if you want Agent X to use the new app-scoped
+            Google Drive actions.
+          </p>
+        </div>
         <!-- Shared connected accounts editor (same as onboarding) -->
         <nxt1-onboarding-link-drop-step
           [linkSourcesData]="effectiveLinkSources()"
@@ -140,6 +147,29 @@ import {
         flex-direction: column;
         gap: var(--nxt1-spacing-4);
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4) var(--nxt1-spacing-8);
+      }
+
+      .nxt1-sheet-google-note {
+        display: flex;
+        gap: var(--nxt1-spacing-3, 12px);
+        align-items: flex-start;
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+        border-radius: var(--nxt1-radius-lg, 16px);
+        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+      }
+
+      .nxt1-sheet-google-note p {
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .nxt1-sheet-google-note nxt1-icon {
+        margin-top: 1px;
+        color: var(--nxt1-color-primary, #ccff00);
+        flex: 0 0 auto;
       }
 
       .nxt1-sheet-body--hidden {

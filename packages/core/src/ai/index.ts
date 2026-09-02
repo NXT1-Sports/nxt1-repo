@@ -167,7 +167,7 @@ export {
   resolveAttachmentType,
 } from './agent-x.constants';
 
-export { AGENT_X_RUNTIME_CONFIG } from './agent-x-runtime.constants';
+export { AGENT_X_RUNTIME_CONFIG, AGENT_X_WORKSPACE_TERMS } from './agent-x-runtime.constants';
 
 // Content types (mode-specific)
 export type {

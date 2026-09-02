@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import JSZip from 'jszip';
 
 const { mockParse, mockPdfGetText, mockPdfDestroy } = vi.hoisted(() => ({
   mockParse: vi.fn(),
@@ -23,6 +24,28 @@ import type { ToolExecutionContext } from '../../base.tool.js';
 import { ParseDocumentTool } from '../parse-document.tool.js';
 
 const mockFetch = vi.fn();
+
+async function createPptxBuffer(): Promise<Buffer> {
+  const zip = new JSZip();
+  zip.file(
+    'ppt/slides/slide1.xml',
+    '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Install Menu</a:t></a:r></a:p><a:p><a:r><a:t>Trips Right Flood</a:t></a:r></a:p></p:txBody></p:sp><p:pic /></p:spTree></p:cSld></p:sld>'
+  );
+  zip.file(
+    'ppt/slides/_rels/slide1.xml.rels',
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml" /></Relationships>'
+  );
+  zip.file(
+    'ppt/notesSlides/notesSlide1.xml',
+    '<p:notes xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Coach the outside release.</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:notes>'
+  );
+  zip.file(
+    'ppt/slides/slide2.xml',
+    '<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Third Down Answers</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
+  );
+
+  return zip.generateAsync({ type: 'nodebuffer' });
+}
 
 describe('ParseDocumentTool', () => {
   const context: ToolExecutionContext = {
@@ -111,6 +134,53 @@ describe('ParseDocumentTool', () => {
         timeout: 180000,
       }
     );
+  });
+
+  it('extracts slide text and speaker notes from PPTX uploads', async () => {
+    const tool = new ParseDocumentTool('test-firecrawl-key');
+
+    mockFetch.mockResolvedValue(
+      new Response(await createPptxBuffer(), {
+        status: 200,
+        headers: {
+          'content-length': '512',
+          'content-type':
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        },
+      })
+    );
+
+    const result = await tool.execute(
+      {
+        url: 'https://storage.googleapis.com/test-bucket/documents/scout-deck.pptx?sig=1',
+        storagePath: 'Users/user-123/uploads/scout-deck.pptx',
+        fileName: 'scout-deck.pptx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('## Slide 1');
+    expect(result.markdown).toContain('Trips Right Flood');
+    expect(result.markdown).toContain('Speaker Notes:');
+    expect(result.markdown).toContain('Coach the outside release.');
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        fileName: 'scout-deck.pptx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        source: 'fallback',
+        cacheHit: false,
+        metadata: expect.objectContaining({
+          pageCount: 2,
+          containsImages: true,
+          requiresVisionReview: true,
+          recommendedNextAction: null,
+        }),
+        pptxToolRecommendation: expect.stringContaining('slide text and speaker notes only'),
+      })
+    );
+    expect(mockParse).not.toHaveBeenCalled();
   });
 
   it('returns save-and-enrich recovery guidance when no PDF content is extracted', async () => {

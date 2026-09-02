@@ -6,6 +6,13 @@
  * Values here are consumed by backend queue/routes and frontend recovery UX.
  */
 
+/** Shared user-facing terminology for the Agent X saved-workspace surface. */
+export const AGENT_X_WORKSPACE_TERMS = {
+  workspaceTitle: 'The Lab',
+  filesAlias: 'Files',
+  filesPanelAlias: 'Files panel',
+} as const;
+
 export const AGENT_X_RUNTIME_CONFIG = {
   operationStream: {
     pollBackoffInitialMs: 1_200,

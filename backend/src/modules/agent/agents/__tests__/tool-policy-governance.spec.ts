@@ -7,7 +7,7 @@ import { getToolGovernancePolicy, isToolClassified } from '../tool-policy.js';
 const BOOTSTRAP_PATH = fileURLToPath(new URL('../../queue/bootstrap.ts', import.meta.url));
 const TOOLS_DIR = fileURLToPath(new URL('../../tools/', import.meta.url));
 
-const ALLOWED_UNRESOLVED_TOOL_CLASSES = new Set<string>(['DynamicGoogleWorkspaceTool']);
+const ALLOWED_UNRESOLVED_TOOL_CLASSES = new Set<string>([]);
 const ALLOWED_REGISTERED_BUT_UNEXPOSED_TOOLS = new Set<string>([
   'batch_send_email_via_nxt1',
   'enqueue_heavy_task',

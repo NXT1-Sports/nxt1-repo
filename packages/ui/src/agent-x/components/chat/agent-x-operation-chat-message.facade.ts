@@ -1315,7 +1315,7 @@ export class AgentXOperationChatMessageFacade {
     card: AgentXRichCard,
     fallbackOperationId: string,
     clearText: boolean
-  ): void {
+  ): AgentYieldState | null {
     const yieldPayload = this.extractYieldStateFromCard(card);
     const incomingKey = yieldPayload
       ? this.yieldIdentityKey(yieldPayload)
@@ -1378,7 +1378,7 @@ export class AgentXOperationChatMessageFacade {
         })
       );
 
-      return;
+      return yieldPayload;
     }
 
     if (incomingKey) {
@@ -1439,7 +1439,7 @@ export class AgentXOperationChatMessageFacade {
         });
       });
 
-      return;
+      return null;
     }
 
     // Non-yield cards (charts, media, billing, etc.) attach directly to the
@@ -1456,6 +1456,7 @@ export class AgentXOperationChatMessageFacade {
         };
       })
     );
+    return null;
   }
 
   private extractYieldStateFromCard(
@@ -1497,6 +1498,8 @@ export class AgentXOperationChatMessageFacade {
         toolInput: {
           question,
           ...(context ? { context } : {}),
+          ...(payload.threadId ? { threadId: payload.threadId } : {}),
+          ...(payload.operationId ? { operationId: payload.operationId } : {}),
         },
       },
       yieldedAt: nowIso,

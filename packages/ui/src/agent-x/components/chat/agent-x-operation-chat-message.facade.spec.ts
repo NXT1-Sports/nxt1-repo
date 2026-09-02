@@ -382,6 +382,42 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(yieldMessage?.yieldState).toEqual(yieldState);
   });
 
+  it('preserves ask-user card operation metadata when the card arrives before the operation yield', () => {
+    const askUserCard: AgentXRichCard = {
+      type: 'ask_user',
+      agentId: 'router',
+      title: 'Agent X has a question',
+      payload: {
+        question: 'Which team should I use?',
+        context: 'Pick the roster that owns this workflow.',
+        threadId: 'thread-card-first-1',
+        operationId: 'op-card-first-ask-user-1',
+      },
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I need one detail before I continue.',
+        timestamp: new Date('2026-09-01T14:00:00.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    const yieldState = facade.attachStreamedCard('typing', askUserCard, 'fallback-op-1', true);
+
+    expect(yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      question: 'Which team should I use?',
+      context: 'Pick the roster that owns this workflow.',
+      threadId: 'thread-card-first-1',
+      operationId: 'op-card-first-ask-user-1',
+    });
+    expect(
+      facade.messages().find((message) => message.yieldState?.reason === 'needs_input')?.operationId
+    ).toBe('op-card-first-ask-user-1');
+  });
+
   it('preserves streamed context when converting to an approval yield row', () => {
     const yieldState: AgentYieldState = {
       reason: 'needs_approval',

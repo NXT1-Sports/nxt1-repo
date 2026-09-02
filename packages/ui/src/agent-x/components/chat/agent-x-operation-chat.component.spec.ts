@@ -3,8 +3,11 @@ import type { AgentYieldState } from '@nxt1/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AgentXOperationChatComponent,
+  isAgentOperationWorkInFlight,
+  normalizeExecutionPlanItemsForActiveResume,
   resolveDockedExecutionPlanCard,
   resolveVisibleDockedExecutionPlanCard,
+  shouldShowExecutionPlanDockForActiveWork,
   shouldShowApprovedExecutionPlanDockFromMessages,
 } from './agent-x-operation-chat.component';
 import type { FilmTimestampSeekRequest, OperationMessage } from './agent-x-operation-chat.models';
@@ -68,6 +71,29 @@ type QuickActionDraftHelper = {
   inputValue: ReturnType<typeof signal<string>>;
   _pendingSelectedAction: ReturnType<typeof signal<OperationQuickAction['selectedAction'] | null>>;
   onQuickAction(action: OperationQuickAction): Promise<void>;
+};
+
+type PendingComposerReplyHelper = {
+  messages: () => readonly OperationMessage[];
+  activeYieldState: ReturnType<typeof signal<AgentYieldState | null>>;
+  yieldResolved: ReturnType<typeof signal<boolean>>;
+  resolveExternalCardStateForMessage(
+    msg: OperationMessage,
+    idx: number
+  ): 'idle' | 'submitting' | 'resolved' | null;
+  approvalCardStateForMessage(
+    msg: OperationMessage,
+    idx: number
+  ): 'idle' | 'submitting' | 'resolved' | null;
+  approvalYieldForMessage(msg: OperationMessage): AgentYieldState | null;
+  isAskUserYield(msg: OperationMessage): boolean;
+  resolveYieldOperationId(yieldState?: AgentYieldState | null): string | undefined;
+  pendingComposerReplyTarget(): {
+    kind: 'ask_user' | 'approval';
+    messageId?: string;
+    operationId?: string;
+  } | null;
+  isAwaitingComposerReply(): boolean;
 };
 
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
@@ -418,7 +444,136 @@ describe('AgentXOperationChatComponent quick action drafting', () => {
   });
 });
 
+describe('AgentXOperationChatComponent composer reply routing', () => {
+  it('treats pending approval cards as composer-reply targets', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as PendingComposerReplyHelper;
+
+    const approvalYield: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review and approve this email.',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolInput: {
+          toEmail: 'john@nxt1sports.com',
+          subject: 'Agent X update',
+          bodyHtml: '<p>Hello</p>',
+        },
+      },
+    };
+
+    const approvalMessage: OperationMessage = {
+      id: 'approval-msg-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-01T12:00:00.000Z'),
+      operationId: 'op-email-approval',
+      yieldState: approvalYield,
+    };
+
+    component.messages = () => [approvalMessage];
+    component.activeYieldState = signal(null);
+    component.yieldResolved = signal(false);
+
+    expect(component.pendingComposerReplyTarget()).toEqual({
+      kind: 'approval',
+      messageId: 'approval-msg-1',
+      operationId: 'op-email-approval',
+    });
+    expect(component.isAwaitingComposerReply()).toBe(true);
+  });
+});
+
 describe('resolveDockedExecutionPlanCard', () => {
+  it('treats a remounted processing operation as active work even after loading reset', () => {
+    expect(
+      isAgentOperationWorkInFlight({
+        operationStatus: 'processing',
+        activityPhase: 'idle',
+        loading: false,
+        awaitingComposerReply: false,
+      })
+    ).toBe(true);
+  });
+
+  it('does not treat an unanswered approval prompt as active composer work', () => {
+    expect(
+      isAgentOperationWorkInFlight({
+        operationStatus: 'awaiting_approval',
+        activityPhase: 'awaiting_approval',
+        loading: false,
+        awaitingComposerReply: true,
+      })
+    ).toBe(false);
+  });
+
+  it('keeps an approved-plan dock visible when a remounted operation is still processing', () => {
+    const message: OperationMessage = {
+      id: 'assistant-plan-reload',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-01T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: [
+              {
+                id: 'task-1',
+                label: 'Send approved outreach',
+                done: false,
+                active: false,
+                status: 'awaiting_tool_approval',
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(
+      shouldShowExecutionPlanDockForActiveWork([message], {
+        operationStatus: 'processing',
+        activityPhase: 'idle',
+        loading: false,
+        awaitingComposerReply: false,
+      })
+    ).toBe(true);
+  });
+
+  it('renders an approval-waiting plan item as active once resumed work is loading', () => {
+    const items = normalizeExecutionPlanItemsForActiveResume(
+      [
+        {
+          id: 'task-1',
+          label: 'Send approved outreach',
+          done: false,
+          active: false,
+          status: 'awaiting_tool_approval',
+          note: 'Waiting for user approval to continue this task.',
+        },
+      ],
+      {
+        operationStatus: 'awaiting_approval',
+        activityPhase: 'awaiting_approval',
+        loading: true,
+        awaitingComposerReply: false,
+      }
+    );
+
+    expect(items).toEqual([
+      {
+        id: 'task-1',
+        label: 'Send approved outreach',
+        done: false,
+        active: true,
+        status: 'in_progress',
+      },
+    ]);
+  });
+
   it('returns an active single-step planner card for execute-plan docking', () => {
     const message: OperationMessage = {
       id: 'assistant-1',

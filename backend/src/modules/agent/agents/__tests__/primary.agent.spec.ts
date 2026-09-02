@@ -343,6 +343,18 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('route to `data_coordinator` for connected-source handling');
     expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
     expect(prompt).toContain('at the top next to Action Plan');
+    expect(prompt).toContain('downloaded Hudl export packages, ZIP exports');
+    expect(prompt).toContain(
+      'upload the full-game video, individual clips, breakdown CSV/XLSX, or ZIP export'
+    );
+    expect(prompt).toContain('Do NOT promise automatic unpacking or parsing of a Hudl ZIP/package');
+    expect(prompt).toContain('never present live view browsing as a recommended setup path');
+    expect(prompt).toContain(
+      'Do NOT present Live View as a normal or stable option for getting Hudl film into NXT1'
+    );
+    expect(prompt).toContain('use The Lab on desktop for the main stable workflow');
+    expect(prompt).toContain('paste a Hudl link only as a secondary shortcut');
+    expect(prompt).toContain('not behind a login wall');
     expect(prompt).toContain('This is fallback-only guidance');
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
@@ -378,7 +390,7 @@ describe('PrimaryAgent delegation control flow', () => {
       'ask what they want to do with the file before delegating or mutating anything'
     );
     expect(prompt).toContain(
-      'promote it into Film Review in the Lab/Files for deeper analysis, clip creation, tagging, and saved breakdown work'
+      'promote it into Film Review in The Lab for deeper analysis, clip creation, tagging, and saved breakdown work'
     );
     expect(prompt).toContain('Explicit video save routing (CRITICAL)');
     expect(prompt).toContain('delegate to `performance_coordinator` for Film Review persistence');

@@ -293,6 +293,97 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
   return false;
 }
 
+function isApprovalWaitingNote(note: string | undefined): boolean {
+  if (!note) return false;
+  return /waiting\s+for\s+(?:user\s+)?approval|approval\s+to\s+continue/i.test(note);
+}
+
+export function isAgentOperationWorkInFlight(params: {
+  readonly operationStatus?: string | null;
+  readonly activityPhase?: string | null;
+  readonly loading?: boolean;
+  readonly awaitingComposerReply?: boolean;
+}): boolean {
+  if (params.awaitingComposerReply === true) return false;
+  if (
+    params.operationStatus === 'complete' ||
+    params.operationStatus === 'error' ||
+    params.operationStatus === 'cancelled'
+  ) {
+    return false;
+  }
+
+  if (params.loading === true || params.operationStatus === 'processing') return true;
+
+  return (
+    params.activityPhase === 'sending' ||
+    params.activityPhase === 'connected' ||
+    params.activityPhase === 'streaming' ||
+    params.activityPhase === 'running_tool' ||
+    params.activityPhase === 'waiting_delta' ||
+    params.activityPhase === 'reconnecting'
+  );
+}
+
+export function shouldShowExecutionPlanDockForActiveWork(
+  messages: readonly OperationMessage[],
+  params: {
+    readonly operationStatus?: string | null;
+    readonly activityPhase?: string | null;
+    readonly loading?: boolean;
+    readonly awaitingComposerReply?: boolean;
+  }
+): boolean {
+  if (!isAgentOperationWorkInFlight(params)) return false;
+
+  const card = resolveDockedExecutionPlanCard(messages);
+  if (!card || card.type !== 'planner') return false;
+
+  const payload = card.payload;
+  if (!('items' in payload) || !Array.isArray(payload.items)) return false;
+
+  return payload.items.some((item: unknown) => {
+    if (!item || typeof item !== 'object') return false;
+    const maybeItem = item as Record<string, unknown>;
+    return (
+      maybeItem['done'] !== true &&
+      (maybeItem['active'] === true ||
+        maybeItem['status'] === 'in_progress' ||
+        maybeItem['status'] === 'awaiting_tool_approval')
+    );
+  });
+}
+
+export function normalizeExecutionPlanItemsForActiveResume(
+  items: readonly AgentXPlannerItem[],
+  params: {
+    readonly operationStatus?: string | null;
+    readonly activityPhase?: string | null;
+    readonly loading?: boolean;
+    readonly awaitingComposerReply?: boolean;
+  }
+): readonly AgentXPlannerItem[] {
+  if (!isAgentOperationWorkInFlight(params)) return items;
+
+  const awaitingIndex = items.findIndex(
+    (item) => !item.done && item.status === 'awaiting_tool_approval'
+  );
+  if (awaitingIndex < 0) return items;
+
+  return items.map((item, index) => {
+    if (index !== awaitingIndex) return item;
+
+    return {
+      id: item.id,
+      label: item.label,
+      done: item.done,
+      active: true,
+      status: 'in_progress',
+      ...(item.note && !isApprovalWaitingNote(item.note) ? { note: item.note } : {}),
+    };
+  });
+}
+
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
@@ -712,7 +803,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
 
         <nxt1-agent-x-input-bar
           [userMessage]="inputValue()"
-          [isLoading]="_loading() && !isAwaitingAskUserReply()"
+          [isLoading]="isComposerOperationInFlight()"
           [canSend]="canSend()"
           [pendingFiles]="promptInputPendingFiles()"
           [pendingSources]="pendingConnectedSources()"
@@ -2462,14 +2553,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Live override for execute-mode plan docking; null falls back to persisted message history. */
   private readonly showApprovedExecutionPlanDock = signal<boolean | null>(null);
 
+  protected readonly isComposerOperationInFlight = computed(() =>
+    isAgentOperationWorkInFlight({
+      operationStatus: this.operationStatus,
+      activityPhase: this._activityPhase(),
+      loading: this._loading(),
+      awaitingComposerReply: this.isAwaitingComposerReply(),
+    })
+  );
+
   /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
     const messages = this.messages();
+    const showExecuteModeDock =
+      this.showApprovedExecutionPlanDock() ??
+      (shouldShowApprovedExecutionPlanDockFromMessages(messages) ||
+        shouldShowExecutionPlanDockForActiveWork(messages, {
+          operationStatus: this.operationStatus,
+          activityPhase: this._activityPhase(),
+          loading: this._loading(),
+          awaitingComposerReply: this.isAwaitingComposerReply(),
+        }));
+
     return resolveVisibleDockedExecutionPlanCard(
       messages,
       this.selectedExecutionMode(),
-      this.showApprovedExecutionPlanDock() ??
-        shouldShowApprovedExecutionPlanDockFromMessages(messages)
+      showExecuteModeDock
     );
   });
 
@@ -2481,7 +2590,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (!card || card.type !== 'planner') return [];
     const payload = card.payload;
     if (!('items' in payload) || !Array.isArray(payload.items)) return [];
-    return payload.items as readonly AgentXPlannerItem[];
+    return normalizeExecutionPlanItemsForActiveResume(
+      payload.items as readonly AgentXPlannerItem[],
+      {
+        operationStatus: this.operationStatus,
+        activityPhase: this._activityPhase(),
+        loading: this._loading(),
+        awaitingComposerReply: this.isAwaitingComposerReply(),
+      }
+    );
   });
 
   /** Freeze execution-plan active spinner whenever the operation is paused. */
@@ -2648,7 +2765,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly canSend = computed(
     () =>
       (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) &&
-      (!this._loading() || this.isAwaitingAskUserReply())
+      !this.isComposerOperationInFlight()
   );
 
   private emitOperationsLogRefreshRequest(): void {
@@ -3121,10 +3238,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.resolveYieldOperationId(yieldState, operationId)
     );
 
-    // Drop the input bar's loading state when the agent is awaiting user
-    // input so the user can immediately type their reply. Without this, the
-    // stop/pause button stays in place and the send button is unreachable.
-    if (yieldState.reason === 'needs_input') {
+    // Drop the input bar's loading state when the agent is waiting on the
+    // user's next move so the composer becomes available for follow-up edits
+    // or answers instead of staying stuck behind the pause spinner.
+    if (yieldState.reason === 'needs_input' || yieldState.reason === 'needs_approval') {
       this._loading.set(false);
     }
   }
@@ -3551,18 +3668,30 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this._pendingSelectedAction.set(action.selectedAction ?? null);
   }
 
-  /** Route composer submit through ask_user reply flow when a pending ask-user yield exists. */
+  /** Route composer submit through the active yield reply flow when a pending card exists. */
   protected async onSendRequested(): Promise<void> {
-    const pendingAskUser = this.pendingAskUserReplyTarget();
+    const pendingReplyTarget = this.pendingComposerReplyTarget();
     const reply = this.inputValue().trim();
 
-    if (pendingAskUser && reply.length > 0) {
+    if (pendingReplyTarget && reply.length > 0) {
       this.inputValue.set('');
-      await this.yieldFacade.onAskUserReply({
-        answer: reply,
-        ...(pendingAskUser.messageId ? { messageId: pendingAskUser.messageId } : {}),
-        ...(pendingAskUser.operationId ? { operationId: pendingAskUser.operationId } : {}),
-      });
+      if (pendingReplyTarget.kind === 'approval') {
+        await this.yieldFacade.onReplyAction({
+          response: reply,
+          ...(pendingReplyTarget.messageId ? { messageId: pendingReplyTarget.messageId } : {}),
+          ...(pendingReplyTarget.operationId
+            ? { operationId: pendingReplyTarget.operationId }
+            : {}),
+        });
+      } else {
+        await this.yieldFacade.onAskUserReply({
+          answer: reply,
+          ...(pendingReplyTarget.messageId ? { messageId: pendingReplyTarget.messageId } : {}),
+          ...(pendingReplyTarget.operationId
+            ? { operationId: pendingReplyTarget.operationId }
+            : {}),
+        });
+      }
       return;
     }
 
@@ -4087,40 +4216,65 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     );
   }
 
-  /** Most recent unresolved ask_user yield in the timeline. */
-  private pendingAskUserYieldMessage(): OperationMessage | null {
+  private pendingComposerReplyTarget(): {
+    kind: 'ask_user' | 'approval';
+    messageId?: string;
+    operationId?: string;
+  } | null {
     const allMessages = this.messages();
     for (let index = allMessages.length - 1; index >= 0; index -= 1) {
       const msg = allMessages[index];
-      if (!this.isAskUserYield(msg)) continue;
-      if (this.resolveExternalCardStateForMessage(msg, index) !== null) continue;
-      return msg;
-    }
-    return null;
-  }
 
-  private pendingAskUserReplyTarget(): { messageId?: string; operationId?: string } | null {
-    const pendingMessage = this.pendingAskUserYieldMessage();
-    if (pendingMessage) {
-      return {
-        messageId: pendingMessage.id,
-        ...(pendingMessage.operationId ? { operationId: pendingMessage.operationId } : {}),
-      };
+      if (
+        this.isAskUserYield(msg) &&
+        this.resolveExternalCardStateForMessage(msg, index) === null
+      ) {
+        return {
+          kind: 'ask_user',
+          messageId: msg.id,
+          ...(msg.operationId ? { operationId: msg.operationId } : {}),
+        };
+      }
+
+      if (
+        this.approvalYieldForMessage(msg) &&
+        this.approvalCardStateForMessage(msg, index) === null
+      ) {
+        return {
+          kind: 'approval',
+          messageId: msg.id,
+          ...(msg.operationId ? { operationId: msg.operationId } : {}),
+        };
+      }
     }
 
     const yieldState = this.activeYieldState();
     if (!yieldState || this.yieldResolved()) return null;
-    if (yieldState.reason !== 'needs_input') return null;
-    const toolName = yieldState.pendingToolCall?.toolName;
-    if (toolName === PAUSE_RESUME_TOOL_NAME || toolName === 'execute_saved_plan') return null;
 
-    return {
-      operationId: this.resolveYieldOperationId(yieldState),
-    };
+    if (yieldState.reason === 'needs_input') {
+      const toolName = yieldState.pendingToolCall?.toolName;
+      if (toolName === PAUSE_RESUME_TOOL_NAME || toolName === 'execute_saved_plan') {
+        return null;
+      }
+
+      return {
+        kind: 'ask_user',
+        operationId: this.resolveYieldOperationId(yieldState),
+      };
+    }
+
+    if (yieldState.reason === 'needs_approval' && yieldState.pendingToolCall?.toolName) {
+      return {
+        kind: 'approval',
+        operationId: this.resolveYieldOperationId(yieldState),
+      };
+    }
+
+    return null;
   }
 
-  protected isAwaitingAskUserReply(): boolean {
-    return this.pendingAskUserReplyTarget() !== null;
+  protected isAwaitingComposerReply(): boolean {
+    return this.pendingComposerReplyTarget() !== null;
   }
 
   /**

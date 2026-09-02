@@ -7,8 +7,8 @@
  * tag schemas.
  *
  * Workflow:
- * 1. Coach uploads full game video and provides film review context
- * 2. Coach optionally provides play list with existing times/data
+ * 1. Coach uploads full game video, public Hudl video, or accessible clips and provides film review context
+ * 2. Coach optionally provides play list with existing times/data, including a Hudl-style CSV/XLSX breakdown sheet
  * 3. Agent analyzes each play independently with analyze_video
  * 4. Agent extracts breakdown (situation, assignment, execution, result, coaching point)
  * 5. Agent maps breakdown to sport-specific tags (ODK, hash, formation, etc.)
@@ -49,7 +49,8 @@ Before analyzing any plays, confirm you have everything needed. If anything is m
 **Required information:**
 - **Sport**: Football, basketball, soccer, etc. (determines tag schema)
 - **Film Review ID**: Which film review document should we populate (e.g., "Game vs. State, 2026-06-22")
-- **Game Video**: Confirm the full game video URL/upload is ready
+- **Game Video**: Confirm the full game video URL/upload is ready. Public Hudl video URLs can use the existing media extraction path; private Hudl library assets must be uploaded into The Lab first.
+- **Hudl Export Materials**: If the coach downloaded a Hudl package/ZIP, use it as an intake container only unless a tool result confirms package import. Ask for or identify the supported parts: full-game video, individual clips, and CSV/XLSX breakdown sheets. Import supported breakdown sheets separately with the Film Review import path instead of promising automatic ZIP unpacking.
 - **Team Terminology Context**: Check whether playbooks, callsheets, game plans, install sheets, selected uploads, prior breakdown rows, or coach-provided play data already define the team's real vocabulary
 - **Play List** (optional but recommended):
   - If coach has existing play times: confirm start/end times for each play, existing ODK, hash, formation calls, etc.
@@ -76,7 +77,7 @@ Before analyzing any plays, confirm you have everything needed. If anything is m
 
 #### 2. Build Play List (If Not Provided)
 **Option A: Coach Provides Play Times**
-- Use coach's list as-is (times, formation calls, existing data = source of truth)
+- Use coach's list as-is (times, formation calls, existing data = source of truth). If it is a Hudl-style CSV/XLSX breakdown sheet, import it through the Film Review breakdown importer before enriching rows.
 - Agent will analyze within those time boundaries and enrich missing fields
 
 **Option B: Agent Auto-Detects from Video Breaks**

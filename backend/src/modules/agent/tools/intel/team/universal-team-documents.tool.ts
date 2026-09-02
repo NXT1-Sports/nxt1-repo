@@ -631,8 +631,8 @@ function isPageByPageArtifactNotes(value: unknown): boolean {
 
   return (
     /^# AI Notes:/i.test(notes) &&
-    /## Page-by-page notes/i.test(notes) &&
-    /### Page \d+/i.test(notes)
+    /## (Page-by-page|Slide-by-slide) notes/i.test(notes) &&
+    /### (Page|Slide) \d+/i.test(notes)
   );
 }
 
@@ -641,7 +641,7 @@ function hasEnrichDocumentNotesClassification(value: unknown): boolean {
 
   const record = value as Record<string, unknown>;
   return (
-    normalizeString(record['kind']) === 'ai_page_notes' &&
+    ['ai_page_notes', 'ai_slide_notes'].includes(normalizeString(record['kind']) ?? '') &&
     normalizeString(record['source']) === 'enrich_document_notes'
   );
 }
@@ -2089,7 +2089,7 @@ export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 
     return {
       success: true,
-      markdown: `Archived universal team document **${archived.title}**.`,
+      markdown: `Archived document **${archived.title}**.`,
       data: {
         archived: true,
         document: universalDocument ?? archived,

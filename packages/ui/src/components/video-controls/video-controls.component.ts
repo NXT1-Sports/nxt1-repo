@@ -3,7 +3,9 @@ import {
   Component,
   ElementRef,
   HostListener,
+  OnDestroy,
   ViewChild,
+  afterNextRender,
   computed,
   inject,
   input,
@@ -26,25 +28,78 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
         display: flex;
         align-items: center;
         position: relative;
+        margin-bottom: 4px;
         z-index: 1;
       }
 
       .video-controls__seek-track {
         position: relative;
+        display: flex;
+        align-items: center;
+        min-height: 26px;
         width: 100%;
+      }
+
+      .video-controls__seek-hover-fill {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
+        transform: translateY(-50%);
+        border-radius: 999px;
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-primary) 28%,
+          transparent
+        );
+        pointer-events: none;
+        z-index: 2;
+      }
+
+      .video-controls__seek-hover-bubble {
+        position: absolute;
+        bottom: calc(100% + 8px);
+        transform: translateX(-50%);
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, #000 8%);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 82%, transparent);
+        box-shadow: 0 12px 28px color-mix(in srgb, #000 28%, transparent);
+        color: var(--nxt1-color-text-primary);
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+        pointer-events: none;
+        z-index: 4;
+      }
+
+      .video-controls__seek-hover-bubble--start {
+        transform: translateX(0);
+      }
+
+      .video-controls__seek-hover-bubble--end {
+        transform: translateX(-100%);
       }
 
       .video-controls__seek {
         position: relative;
         z-index: 1;
         width: 100%;
-        height: var(--nxt-video-controls-seek-track-height, 3px);
+        height: var(--nxt-video-controls-seek-hit-height, 26px);
         -webkit-appearance: none;
         appearance: none;
         border-radius: 999px;
         border: none;
         outline: none;
         cursor: pointer;
+        background: transparent;
+      }
+
+      .video-controls__seek::-webkit-slider-runnable-track {
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         background: linear-gradient(
           to right,
           var(--nxt1-color-primary) 0%,
@@ -52,29 +107,24 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
           var(--nxt1-color-border-strong) var(--seek-progress, 0%),
           var(--nxt1-color-border-strong) 100%
         );
-      }
-
-      .video-controls__seek::-webkit-slider-runnable-track {
-        height: var(--nxt-video-controls-seek-track-height, 3px);
-        background: transparent;
         border-radius: 999px;
       }
 
       .video-controls__seek::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        width: var(--nxt-video-controls-seek-thumb-size, 10px);
-        height: var(--nxt-video-controls-seek-thumb-size, 10px);
+        width: var(--nxt-video-controls-seek-thumb-size, 18px);
+        height: var(--nxt-video-controls-seek-thumb-size, 18px);
         margin-top: calc(
           (
               var(--nxt-video-controls-seek-track-height, 3px) -
-                var(--nxt-video-controls-seek-thumb-size, 10px)
+                var(--nxt-video-controls-seek-thumb-size, 18px)
             ) / 2
         );
         border-radius: 50%;
-        background: var(--nxt1-color-primary);
-        border: 1px solid var(--nxt1-color-border-default);
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        background: var(--nxt1-color-bg-primary, #05070a);
+        border: 2px solid var(--nxt1-color-text-primary, #f8fafc);
+        box-shadow: 0 0 0 0 color-mix(in srgb, #000 34%, transparent);
         transition:
           transform 160ms ease,
           box-shadow 160ms ease,
@@ -83,17 +133,23 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
 
       .video-controls__seek::-moz-range-track {
         height: var(--nxt-video-controls-seek-track-height, 3px);
-        background: transparent;
+        background: linear-gradient(
+          to right,
+          var(--nxt1-color-primary) 0%,
+          var(--nxt1-color-primary) var(--seek-progress, 0%),
+          var(--nxt1-color-border-strong) var(--seek-progress, 0%),
+          var(--nxt1-color-border-strong) 100%
+        );
         border-radius: 999px;
       }
 
       .video-controls__seek::-moz-range-thumb {
-        width: var(--nxt-video-controls-seek-thumb-size, 10px);
-        height: var(--nxt-video-controls-seek-thumb-size, 10px);
+        width: var(--nxt-video-controls-seek-thumb-size, 18px);
+        height: var(--nxt-video-controls-seek-thumb-size, 18px);
         border-radius: 50%;
-        background: var(--nxt1-color-primary);
-        border: 1px solid var(--nxt1-color-border-default);
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        background: var(--nxt1-color-bg-primary, #05070a);
+        border: 2px solid var(--nxt1-color-text-primary, #f8fafc);
+        box-shadow: 0 0 0 0 color-mix(in srgb, #000 34%, transparent);
         transition:
           transform 160ms ease,
           box-shadow 160ms ease,
@@ -105,7 +161,7 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
       .video-controls__seek:active::-webkit-slider-thumb {
         transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
         box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
-          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+          color-mix(in srgb, var(--nxt1-color-text-primary, #f8fafc) 20%, transparent);
       }
 
       .video-controls__seek:hover::-moz-range-thumb,
@@ -113,7 +169,7 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
       .video-controls__seek:active::-moz-range-thumb {
         transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
         box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
-          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+          color-mix(in srgb, var(--nxt1-color-text-primary, #f8fafc) 20%, transparent);
       }
 
       .video-controls__dock {
@@ -328,6 +384,10 @@ const VIDEO_CONTROL_TOOLTIP_VIEWPORT_GUTTER_PX = 12;
 const VIDEO_CONTROL_TOOLTIP_MIN_WIDTH_PX = 48;
 const VIDEO_CONTROL_TOOLTIP_ESTIMATED_CHAR_WIDTH_PX = 6.25;
 const VIDEO_CONTROL_TOOLTIP_HORIZONTAL_PADDING_PX = 14;
+const TRANSPORT_AUTO_COLLAPSE_FALLBACK_WIDTH_PX = 720;
+const TRANSPORT_AUTO_COLLAPSE_CLUSTER_GAP_PX = 4;
+const TRANSPORT_AUTO_COLLAPSE_TOUCH_BUFFER_PX = 12;
+const TRANSPORT_AUTO_COLLAPSE_RESTORE_BUFFER_PX = 28;
 
 type DrawSegment = {
   readonly startSec: number;
@@ -348,6 +408,9 @@ type DrawEffectMarker = {
   template: `
     <div
       class="video-controls"
+      [class.video-controls--transport-auto-compact]="
+        allowTransportCollapse() && autoCompactTransport()
+      "
       aria-label="Video controls"
       (mouseover)="onTooltipHostMouseOver($event)"
       (focusin)="onTooltipHostFocusIn($event)"
@@ -358,6 +421,23 @@ type DrawEffectMarker = {
     >
       <div class="video-controls__progress">
         <div class="video-controls__seek-track" #seekTrack>
+          @if (hoveredSeekPositionPct() !== null) {
+            <div
+              class="video-controls__seek-hover-fill"
+              [style.width.%]="hoveredSeekPositionPct()"
+              aria-hidden="true"
+            ></div>
+            <div
+              class="video-controls__seek-hover-bubble"
+              [class.video-controls__seek-hover-bubble--start]="hoveredSeekPositionPct()! <= 8"
+              [class.video-controls__seek-hover-bubble--end]="hoveredSeekPositionPct()! >= 92"
+              [style.left.%]="hoveredSeekPositionPct()"
+              aria-hidden="true"
+            >
+              {{ hoveredSeekTimestampLabel() }}
+            </div>
+          }
+
           @if (resolvedDrawEffectMarkers().length > 0) {
             <div class="video-controls__effect-markers" aria-label="Video effects timeline markers">
               @for (marker of resolvedDrawEffectMarkers(); track marker.id) {
@@ -448,6 +528,9 @@ type DrawEffectMarker = {
             [value]="seekDisplayValue()"
             [style.--seek-progress]="seekProgress()"
             (pointerdown)="onSeekStart()"
+            (pointerenter)="onSeekHoverMove($event)"
+            (pointermove)="onSeekHoverMove($event)"
+            (pointerleave)="onSeekHoverLeave()"
             (pointerup)="onSeekCommit($event)"
             (pointercancel)="onSeekEnd()"
             (input)="onSeekInput($event)"
@@ -496,9 +579,9 @@ type DrawEffectMarker = {
         </div>
       </div>
 
-      <div class="video-controls__dock">
-        <div class="video-controls__cluster video-controls__cluster--transport">
-          @if (allowTransportCollapse() && !compactMode()) {
+      <div class="video-controls__dock" #controlsDock>
+        <div class="video-controls__cluster video-controls__cluster--transport" #transportCluster>
+          @if (allowTransportCollapse() && !compactMode() && !autoCompactTransport()) {
             <button
               type="button"
               class="video-controls__icon-btn video-controls__transport-toggle video-controls__tooltip-host"
@@ -665,6 +748,7 @@ type DrawEffectMarker = {
         @if (showDurationBadge()) {
           <div
             class="video-controls__cluster video-controls__cluster--duration"
+            #durationCluster
             aria-label="Clip duration"
           >
             <span class="video-controls__duration-label">Clip</span>
@@ -674,7 +758,7 @@ type DrawEffectMarker = {
           </div>
         }
 
-        <div class="video-controls__cluster video-controls__cluster--right">
+        <div class="video-controls__cluster video-controls__cluster--right" #rightCluster>
           <ng-content select="[nxtVideoControlsBeforeSpeed]"></ng-content>
 
           @if (showSpeedControls()) {
@@ -730,6 +814,83 @@ type DrawEffectMarker = {
             </button>
           }
 
+          @if (showVolumeControls()) {
+            <div class="video-controls__volume-menu" role="group" aria-label="Volume">
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                [class.video-controls__icon-btn--primary]="volumeMenuOpen()"
+                [attr.aria-expanded]="volumeMenuOpen()"
+                aria-haspopup="dialog"
+                aria-label="Volume"
+                title="Volume"
+                [attr.data-tooltip]="'Volume ' + volumePercentLabel()"
+                (click)="toggleVolumeMenu()"
+              >
+                <nxt1-icon [name]="volumeIconName()" [size]="13"></nxt1-icon>
+              </button>
+
+              @if (volumeMenuOpen()) {
+                <div
+                  class="video-controls__volume-popover"
+                  role="menu"
+                  aria-label="Volume controls"
+                  (pointerdown)="onVolumeControlGesture($event)"
+                  (pointermove)="onVolumeControlGesture($event)"
+                  (pointerup)="onVolumeControlGesture($event)"
+                  (mousedown)="onVolumeControlGesture($event)"
+                  (mousemove)="onVolumeControlGesture($event)"
+                  (mouseup)="onVolumeControlGesture($event)"
+                  (touchstart)="onVolumeControlGesture($event)"
+                  (touchmove)="onVolumeControlGesture($event)"
+                  (touchend)="onVolumeControlGesture($event)"
+                  (click)="onVolumeControlGesture($event)"
+                >
+                  <div class="video-controls__volume-header">
+                    <span class="video-controls__volume-value">{{ volumePercentLabel() }}</span>
+                  </div>
+                  <div class="video-controls__volume-slider-shell">
+                    <div
+                      class="video-controls__volume-slider"
+                      role="slider"
+                      tabindex="0"
+                      aria-label="Adjust volume"
+                      aria-orientation="vertical"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      [attr.aria-valuenow]="volumePercent()"
+                      [attr.aria-valuetext]="volumePercentLabel()"
+                      (pointerdown)="onVolumeSliderPointerDown($event)"
+                      (pointermove)="onVolumeSliderPointerMove($event)"
+                      (pointerup)="onVolumeSliderPointerUp($event)"
+                      (pointercancel)="onVolumeSliderPointerUp($event)"
+                      (mousedown)="onVolumeControlGesture($event)"
+                      (mousemove)="onVolumeControlGesture($event)"
+                      (mouseup)="onVolumeControlGesture($event)"
+                      (touchstart)="onVolumeControlGesture($event)"
+                      (touchmove)="onVolumeControlGesture($event)"
+                      (touchend)="onVolumeControlGesture($event)"
+                      (click)="onVolumeControlGesture($event)"
+                      (keydown)="onVolumeSliderKeydown($event)"
+                    >
+                      <span class="video-controls__volume-slider-track" aria-hidden="true">
+                        <span
+                          class="video-controls__volume-slider-fill"
+                          [style.height.%]="volumePercent()"
+                        ></span>
+                      </span>
+                      <span
+                        class="video-controls__volume-slider-thumb"
+                        [style.bottom.%]="volumePercent()"
+                        aria-hidden="true"
+                      ></span>
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
           @if (showFullscreen()) {
             <button
               type="button"
@@ -765,11 +926,15 @@ type DrawEffectMarker = {
         display: flex;
         align-items: center;
         position: relative;
+        margin-bottom: 4px;
         z-index: 1;
       }
 
       .video-controls__seek-track {
         position: relative;
+        display: flex;
+        align-items: center;
+        min-height: 26px;
         width: 100%;
       }
 
@@ -777,13 +942,18 @@ type DrawEffectMarker = {
         position: relative;
         z-index: 1;
         width: 100%;
-        height: var(--nxt-video-controls-seek-track-height, 3px);
+        height: var(--nxt-video-controls-seek-hit-height, 26px);
         -webkit-appearance: none;
         appearance: none;
         border-radius: 999px;
         border: none;
         outline: none;
         cursor: pointer;
+        background: transparent;
+      }
+
+      .video-controls__seek::-webkit-slider-runnable-track {
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         background: linear-gradient(
           to right,
           var(--nxt1-color-primary) 0%,
@@ -791,32 +961,27 @@ type DrawEffectMarker = {
           var(--nxt1-color-border-strong) var(--seek-progress, 0%),
           var(--nxt1-color-border-strong) 100%
         );
-      }
-
-      .video-controls__seek::-webkit-slider-runnable-track {
-        height: var(--nxt-video-controls-seek-track-height, 3px);
-        background: transparent;
         border-radius: 999px;
       }
 
       .video-controls__seek::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        width: var(--nxt-video-controls-seek-thumb-size, 10px);
-        height: var(--nxt-video-controls-seek-thumb-size, 10px);
+        width: var(--nxt-video-controls-seek-thumb-size, 18px);
+        height: var(--nxt-video-controls-seek-thumb-size, 18px);
         margin-top: calc(
           (
               var(--nxt-video-controls-seek-track-height, 3px) - var(
                   --nxt-video-controls-seek-thumb-size,
-                  10px
+                  18px
                 )
             ) /
             2
         );
         border-radius: 50%;
-        background: var(--nxt1-color-primary);
-        border: 1px solid var(--nxt1-color-border-default);
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        background: var(--nxt1-color-bg-primary, #05070a);
+        border: 2px solid var(--nxt1-color-text-primary, #f8fafc);
+        box-shadow: 0 0 0 0 color-mix(in srgb, #000 34%, transparent);
         transition:
           transform 160ms ease,
           box-shadow 160ms ease,
@@ -825,17 +990,23 @@ type DrawEffectMarker = {
 
       .video-controls__seek::-moz-range-track {
         height: var(--nxt-video-controls-seek-track-height, 3px);
-        background: transparent;
+        background: linear-gradient(
+          to right,
+          var(--nxt1-color-primary) 0%,
+          var(--nxt1-color-primary) var(--seek-progress, 0%),
+          var(--nxt1-color-border-strong) var(--seek-progress, 0%),
+          var(--nxt1-color-border-strong) 100%
+        );
         border-radius: 999px;
       }
 
       .video-controls__seek::-moz-range-thumb {
-        width: var(--nxt-video-controls-seek-thumb-size, 10px);
-        height: var(--nxt-video-controls-seek-thumb-size, 10px);
+        width: var(--nxt-video-controls-seek-thumb-size, 18px);
+        height: var(--nxt-video-controls-seek-thumb-size, 18px);
         border-radius: 50%;
-        background: var(--nxt1-color-primary);
-        border: 1px solid var(--nxt1-color-border-default);
-        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        background: var(--nxt1-color-bg-primary, #05070a);
+        border: 2px solid var(--nxt1-color-text-primary, #f8fafc);
+        box-shadow: 0 0 0 0 color-mix(in srgb, #000 34%, transparent);
         transition:
           transform 160ms ease,
           box-shadow 160ms ease,
@@ -847,7 +1018,7 @@ type DrawEffectMarker = {
       .video-controls__seek:active::-webkit-slider-thumb {
         transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
         box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
-          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+          color-mix(in srgb, var(--nxt1-color-text-primary, #f8fafc) 20%, transparent);
       }
 
       .video-controls__seek:hover::-moz-range-thumb,
@@ -855,7 +1026,7 @@ type DrawEffectMarker = {
       .video-controls__seek:active::-moz-range-thumb {
         transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
         box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
-          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+          color-mix(in srgb, var(--nxt1-color-text-primary, #f8fafc) 20%, transparent);
       }
 
       .video-controls__effect-markers {
@@ -1129,6 +1300,16 @@ type DrawEffectMarker = {
         padding: 3px;
       }
 
+      .video-controls--transport-auto-compact .video-controls__dock {
+        flex-wrap: nowrap;
+      }
+
+      .video-controls--transport-auto-compact .video-controls__cluster--duration,
+      .video-controls--transport-auto-compact .video-controls__cluster--right {
+        flex-wrap: nowrap;
+        white-space: nowrap;
+      }
+
       .video-controls__transport-toggle {
         color: var(--nxt1-color-text-secondary);
       }
@@ -1189,6 +1370,112 @@ type DrawEffectMarker = {
         position: relative;
         display: inline-flex;
         z-index: 4;
+      }
+
+      .video-controls__volume-menu {
+        position: relative;
+        display: inline-flex;
+        z-index: 4;
+      }
+
+      .video-controls__volume-popover {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 8px);
+        z-index: 40;
+        display: grid;
+        justify-items: center;
+        gap: 10px;
+        min-width: 56px;
+        padding: 8px 6px 10px;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, #000 8%);
+        box-shadow: 0 18px 38px color-mix(in srgb, #000 44%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .video-controls__volume-header {
+        display: grid;
+        justify-items: center;
+        gap: 4px;
+        width: 100%;
+      }
+
+      .video-controls__volume-label,
+      .video-controls__volume-value {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .video-controls__volume-label {
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .video-controls__volume-value {
+        color: var(--nxt1-color-text-primary);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .video-controls__volume-slider {
+        position: relative;
+        display: block;
+        width: 20px;
+        height: 108px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        cursor: pointer;
+        touch-action: none;
+      }
+
+      .video-controls__volume-slider-shell {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 112px;
+        touch-action: none;
+      }
+
+      .video-controls__volume-slider-track {
+        position: absolute;
+        top: 2px;
+        bottom: 2px;
+        left: 50%;
+        width: 3px;
+        transform: translateX(-50%);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-border-strong) 76%, transparent);
+        overflow: hidden;
+      }
+
+      .video-controls__volume-slider-fill {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        border-radius: inherit;
+        background: var(--nxt1-color-primary);
+      }
+
+      .video-controls__volume-slider-thumb {
+        position: absolute;
+        left: 50%;
+        width: 10px;
+        height: 10px;
+        transform: translate(-50%, 50%);
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-bg-primary) 82%, transparent);
+        background: var(--nxt1-color-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+      }
+
+      .video-controls__volume-slider:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
       }
 
       .video-controls__speed-trigger {
@@ -1287,7 +1574,7 @@ type DrawEffectMarker = {
     VIDEO_CONTROL_TOOLTIP_STYLES,
   ],
 })
-export class NxtVideoControlsComponent {
+export class NxtVideoControlsComponent implements OnDestroy {
   private readonly host = inject(ElementRef<HTMLElement>);
 
   readonly isPlaying = input(false);
@@ -1300,11 +1587,13 @@ export class NxtVideoControlsComponent {
   readonly showSpeedControls = input(true);
   readonly showFullscreen = input(true);
   readonly showOpenInNewWindow = input(false);
+  readonly showVolumeControls = input(false);
   readonly showPlayNavigation = input(false);
   readonly showAdvancedPlaybackControls = input(false);
   readonly showDurationBadge = input(false);
   readonly allowTransportCollapse = input(false);
   readonly compactMode = input(false);
+  readonly volume = input(1);
   readonly showDrawSegmentEditor = input(false);
   readonly drawSegment = input<DrawSegment | null>(null);
   readonly drawEffectMarkers = input<readonly DrawEffectMarker[]>([]);
@@ -1320,6 +1609,7 @@ export class NxtVideoControlsComponent {
   readonly seekStart = output<void>();
   readonly seekEnd = output<void>();
   readonly playbackRateChange = output<number>();
+  readonly volumeChange = output<number>();
   readonly fullscreenToggle = output<void>();
   readonly openInNewWindow = output<void>();
   readonly previousNav = output<void>();
@@ -1330,13 +1620,24 @@ export class NxtVideoControlsComponent {
 
   private readonly isScrubbing = signal(false);
   private readonly scrubValue = signal(0);
+  private readonly hoveredSeekTime = signal<number | null>(null);
   protected readonly speedMenuOpen = signal(false);
+  protected readonly volumeMenuOpen = signal(false);
+  protected readonly autoCompactTransport = signal(false);
   private readonly transportExpandedState = signal(true);
-  protected readonly transportExpanded = computed(() =>
-    this.compactMode() ? false : this.transportExpandedState()
-  );
+  protected readonly transportExpanded = computed(() => {
+    if (this.compactMode()) return false;
+    if (this.allowTransportCollapse() && this.autoCompactTransport()) return false;
+    return this.transportExpandedState();
+  });
   protected readonly activeDrawEffectMarkerId = signal<string | null>(null);
   @ViewChild('seekTrack') private seekTrack?: ElementRef<HTMLDivElement>;
+  @ViewChild('controlsDock') private controlsDock?: ElementRef<HTMLDivElement>;
+  @ViewChild('transportCluster') private transportCluster?: ElementRef<HTMLDivElement>;
+  @ViewChild('durationCluster') private durationCluster?: ElementRef<HTMLDivElement>;
+  @ViewChild('rightCluster') private rightCluster?: ElementRef<HTMLDivElement>;
+  private resizeObserver: ResizeObserver | null = null;
+  private lastExpandedTransportWidth = 0;
   private activeDrawSegmentDrag: {
     mode: 'start' | 'end' | 'move';
     startSec: number;
@@ -1347,6 +1648,73 @@ export class NxtVideoControlsComponent {
   private holdSeekIntervalId: number | null = null;
   private holdSeekBaseDeltaSec = 0;
   private holdSeekStartMs = 0;
+  private activeVolumePointerId: number | null = null;
+
+  constructor() {
+    afterNextRender(() => {
+      if (typeof ResizeObserver === 'undefined') return;
+
+      this.resizeObserver = new ResizeObserver(() => this.updateAutoCompactTransport());
+      this.resizeObserver.observe(this.host.nativeElement);
+      this.observeAutoCompactElement(this.controlsDock?.nativeElement);
+      this.observeAutoCompactElement(this.transportCluster?.nativeElement);
+      this.observeAutoCompactElement(this.durationCluster?.nativeElement);
+      this.observeAutoCompactElement(this.rightCluster?.nativeElement);
+      this.updateAutoCompactTransport();
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.stopTransportSeekHold();
+  }
+
+  private observeAutoCompactElement(element: HTMLElement | undefined): void {
+    if (!element) return;
+    this.resizeObserver?.observe(element);
+  }
+
+  private updateAutoCompactTransport(): void {
+    if (!this.allowTransportCollapse() || this.compactMode() || !this.transportExpandedState()) {
+      this.autoCompactTransport.set(false);
+      return;
+    }
+
+    const dock = this.controlsDock?.nativeElement;
+    const transport = this.transportCluster?.nativeElement;
+    const right = this.rightCluster?.nativeElement;
+    if (!dock || !transport || !right) return;
+
+    const dockWidth = this.measureElementWidth(dock);
+    if (dockWidth <= 0) return;
+
+    const transportWidth = this.measureElementWidth(transport);
+    if (!this.autoCompactTransport() && this.transportExpanded()) {
+      this.lastExpandedTransportWidth = transportWidth;
+    }
+
+    const durationWidth = this.measureElementWidth(this.durationCluster?.nativeElement);
+    const rightWidth = this.measureElementWidth(right);
+    const expandedTransportWidth = this.lastExpandedTransportWidth || transportWidth;
+    const clusterWidths = [expandedTransportWidth, durationWidth, rightWidth].filter(
+      (width) => width > 0
+    );
+    const measuredRequiredWidth =
+      clusterWidths.reduce((total, width) => total + width, 0) +
+      Math.max(0, clusterWidths.length - 1) * TRANSPORT_AUTO_COLLAPSE_CLUSTER_GAP_PX +
+      TRANSPORT_AUTO_COLLAPSE_TOUCH_BUFFER_PX;
+    const requiredWidth = measuredRequiredWidth || TRANSPORT_AUTO_COLLAPSE_FALLBACK_WIDTH_PX;
+    const nextAutoCompact = this.autoCompactTransport()
+      ? dockWidth < requiredWidth + TRANSPORT_AUTO_COLLAPSE_RESTORE_BUFFER_PX
+      : dockWidth < requiredWidth;
+
+    this.autoCompactTransport.set(nextAutoCompact);
+  }
+
+  private measureElementWidth(element: HTMLElement | undefined): number {
+    return element?.getBoundingClientRect().width ?? 0;
+  }
 
   protected readonly seekMax = computed(() => Math.max(0.1, Number(this.duration()) || 0.1));
   protected readonly safeCurrentTime = computed(() => {
@@ -1362,15 +1730,37 @@ export class NxtVideoControlsComponent {
     const pct = Math.min(100, Math.max(0, (current / max) * 100));
     return `${pct}%`;
   });
+  protected readonly hoveredSeekPositionPct = computed(() => {
+    const hoveredTime = this.hoveredSeekTime();
+    if (hoveredTime === null) return null;
+    const max = this.seekMax();
+    return Math.min(100, Math.max(0, (hoveredTime / max) * 100));
+  });
+  protected readonly hoveredSeekTimestampLabel = computed(() => {
+    const hoveredTime = this.hoveredSeekTime();
+    return hoveredTime === null ? '' : this.formatPlaybackTimestamp(hoveredTime);
+  });
   protected readonly isAtStart = computed(() => this.safeCurrentTime() <= 0.05);
   protected readonly isAtEnd = computed(() => {
     const duration = Number(this.duration()) || 0;
     return duration <= 0 || this.safeCurrentTime() >= duration - 0.05;
   });
   protected readonly formattedCurrentTime = computed(() =>
-    this.formatTime(this.seekDisplayValue())
+    this.formatPlaybackTimestamp(this.seekDisplayValue())
   );
-  protected readonly formattedDuration = computed(() => this.formatTime(this.duration()));
+  protected readonly formattedDuration = computed(() =>
+    this.formatPlaybackTimestamp(this.duration())
+  );
+  protected readonly safeVolume = computed(() => {
+    const nextVolume = Number(this.volume());
+    if (!Number.isFinite(nextVolume)) return 1;
+    return Math.max(0, Math.min(1, nextVolume));
+  });
+  protected readonly volumePercent = computed(() => Math.round(this.safeVolume() * 100));
+  protected readonly volumePercentLabel = computed(() => `${this.volumePercent()}%`);
+  protected readonly volumeIconName = computed(() =>
+    this.safeVolume() <= 0.001 ? 'volumeMute' : 'volume'
+  );
   protected readonly resolvedDrawSegment = computed<DrawSegment | null>(() => {
     const segment = this.drawSegment();
     if (!segment) return null;
@@ -1452,6 +1842,28 @@ export class NxtVideoControlsComponent {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
   }
 
+  private formatPlaybackTimestamp(value: number): string {
+    const timestamp = Number(value);
+    if (!Number.isFinite(timestamp) || timestamp < 0) return '--:--.--';
+
+    const totalCentiseconds = Math.round(timestamp * 100);
+    const totalSeconds = Math.floor(totalCentiseconds / 100);
+    const centiseconds = totalCentiseconds % 100;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const fractional = String(centiseconds).padStart(2, '0');
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(
+        2,
+        '0'
+      )}.${fractional}`;
+    }
+
+    return `${minutes}:${String(seconds).padStart(2, '0')}.${fractional}`;
+  }
+
   protected onSeekStart(): void {
     this.isScrubbing.set(true);
     this.scrubValue.set(this.safeCurrentTime());
@@ -1469,6 +1881,14 @@ export class NxtVideoControlsComponent {
     if (!Number.isFinite(nextTime)) return;
     this.scrubValue.set(Math.max(0, Math.min(nextTime, this.seekMax())));
     this.seekChange.emit(nextTime);
+  }
+
+  protected onSeekHoverMove(event: PointerEvent): void {
+    this.hoveredSeekTime.set(this.resolveTimeFromClientX(event.clientX));
+  }
+
+  protected onSeekHoverLeave(): void {
+    this.hoveredSeekTime.set(null);
   }
 
   protected onSeekCommit(event: Event): void {
@@ -1549,12 +1969,75 @@ export class NxtVideoControlsComponent {
   }
 
   protected toggleSpeedMenu(): void {
+    this.volumeMenuOpen.set(false);
     this.speedMenuOpen.update((open) => !open);
+  }
+
+  protected toggleVolumeMenu(): void {
+    this.speedMenuOpen.set(false);
+    this.volumeMenuOpen.update((open) => !open);
   }
 
   protected selectPlaybackRate(rate: number): void {
     this.playbackRateChange.emit(rate);
     this.speedMenuOpen.set(false);
+  }
+
+  protected onVolumeControlGesture(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  protected onVolumeSliderPointerDown(event: PointerEvent): void {
+    this.onVolumeControlGesture(event);
+    this.activeVolumePointerId = event.pointerId;
+    this.updateVolumeFromPointerEvent(event);
+    (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
+  }
+
+  protected onVolumeSliderPointerMove(event: PointerEvent): void {
+    this.onVolumeControlGesture(event);
+    if (this.activeVolumePointerId !== event.pointerId) return;
+    this.updateVolumeFromPointerEvent(event);
+  }
+
+  protected onVolumeSliderPointerUp(event: PointerEvent): void {
+    this.onVolumeControlGesture(event);
+    if (this.activeVolumePointerId === event.pointerId) {
+      this.updateVolumeFromPointerEvent(event);
+      this.activeVolumePointerId = null;
+    }
+    (event.currentTarget as HTMLElement | null)?.releasePointerCapture?.(event.pointerId);
+  }
+
+  protected onVolumeSliderKeydown(event: KeyboardEvent): void {
+    const key = event.key.toLowerCase();
+    const step = key === 'pageup' || key === 'pagedown' ? 0.1 : 0.05;
+    let nextVolume: number | null = null;
+
+    if (key === 'arrowup' || key === 'arrowright' || key === 'pageup') {
+      nextVolume = this.safeVolume() + step;
+    } else if (key === 'arrowdown' || key === 'arrowleft' || key === 'pagedown') {
+      nextVolume = this.safeVolume() - step;
+    } else if (key === 'home') {
+      nextVolume = 0;
+    } else if (key === 'end') {
+      nextVolume = 1;
+    }
+
+    if (nextVolume === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.volumeChange.emit(Math.max(0, Math.min(1, nextVolume)));
+  }
+
+  private updateVolumeFromPointerEvent(event: PointerEvent): void {
+    const slider = event.currentTarget as HTMLElement | null;
+    const rect = slider?.getBoundingClientRect();
+    if (!rect || rect.height <= 0) return;
+
+    const ratio = 1 - (event.clientY - rect.top) / rect.height;
+    this.volumeChange.emit(Math.max(0, Math.min(1, ratio)));
   }
 
   protected toggleTransportExpanded(): void {
@@ -1687,13 +2170,17 @@ export class NxtVideoControlsComponent {
   }
 
   private timeFromPointerEvent(event: PointerEvent): number {
+    return this.resolveTimeFromClientX(event.clientX);
+  }
+
+  private resolveTimeFromClientX(clientX: number): number {
     const track = this.seekTrack?.nativeElement;
     if (!track) return 0;
 
     const rect = track.getBoundingClientRect();
     if (!rect.width) return 0;
 
-    const ratio = (event.clientX - rect.left) / rect.width;
+    const ratio = (clientX - rect.left) / rect.width;
     const clampedRatio = Math.max(0, Math.min(1, ratio));
     return clampedRatio * this.seekMax();
   }
@@ -1736,14 +2223,16 @@ export class NxtVideoControlsComponent {
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(event: MouseEvent): void {
     const target = event.target;
-    if (!this.speedMenuOpen() || target === null) return;
+    if (target === null) return;
     if (!this.host.nativeElement.contains(target as Node)) {
       this.speedMenuOpen.set(false);
+      this.volumeMenuOpen.set(false);
     }
   }
 
   @HostListener('document:keydown.escape')
   protected onEscapeKey(): void {
     this.speedMenuOpen.set(false);
+    this.volumeMenuOpen.set(false);
   }
 }

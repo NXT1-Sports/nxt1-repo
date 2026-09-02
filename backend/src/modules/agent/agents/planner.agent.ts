@@ -68,6 +68,8 @@ const strictPlannerResponseSchema = z.object({
   tasks: z.array(strictPlannerTaskSchema),
 });
 
+const PLANNER_LLM_TIMEOUT_MS = 300_000;
+
 const coordinatorIdSet = new Set<string>(COORDINATOR_AGENT_IDS);
 const plannerAgentAliases: Readonly<Record<string, (typeof COORDINATOR_AGENT_IDS)[number]>> = {
   admin: 'admin_coordinator',
@@ -353,6 +355,8 @@ description: full execution intent for the coordinator — as detailed as needed
             name: 'planner_execution_plan',
             schema: strictPlannerResponseSchema,
           },
+          timeoutMs: PLANNER_LLM_TIMEOUT_MS,
+          ...(context.signal ? { signal: context.signal } : {}),
           ...(telemetryContext ? { telemetryContext } : {}),
         });
 
@@ -585,6 +589,7 @@ description: full execution intent for the coordinator — as detailed as needed
           enableThinking: true,
           thinkingBudgetTokens: routing.thinkingBudgetTokens,
         }),
+        timeoutMs: PLANNER_LLM_TIMEOUT_MS,
         ...(telemetryContext ? { telemetryContext } : {}),
         ...(signal ? { signal } : {}),
       },

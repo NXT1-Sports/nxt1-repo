@@ -481,6 +481,13 @@ type TimelineColumnFilterChip = {
   readonly value: string;
 };
 
+type InlinePlayOverlayItem = {
+  readonly label: string;
+  readonly value: string;
+  readonly fieldKey: string;
+  readonly tagDefinition?: TeamFilmReviewSportTagDefinition;
+};
+
 type TimelineColumnDropIndicator = {
   readonly columnId: string;
   readonly placement: TimelineColumnDropPlacement;
@@ -696,10 +703,45 @@ type DrawInteractionState =
                           }
 
                           <div class="film-top-meta__scroll">
-                            @for (item of currentInlinePlayOverlayItems(); track item.label) {
-                              <div class="film-top-meta__item">
+                            @for (item of currentInlinePlayOverlayItems(); track item.fieldKey) {
+                              <div
+                                class="film-top-meta__item"
+                                [class.film-top-meta__item--editable]="
+                                  canEditInlinePlayOverlayItem()
+                                "
+                                [class.film-top-meta__item--editing]="
+                                  isEditingCurrentInlinePlayOverlayItem(item)
+                                "
+                                [attr.role]="canEditInlinePlayOverlayItem() ? 'button' : null"
+                                [attr.tabindex]="canEditInlinePlayOverlayItem() ? 0 : null"
+                                [attr.aria-label]="
+                                  canEditInlinePlayOverlayItem()
+                                    ? 'Edit ' + item.label + ' for current play'
+                                    : null
+                                "
+                                (dblclick)="onStartInlinePlayOverlayFieldEdit(item, $event)"
+                                (touchend)="onInlinePlayOverlayFieldTouchEnd(item, $event)"
+                                (keydown.enter)="onStartInlinePlayOverlayFieldEdit(item, $event)"
+                                (keydown.space)="onStartInlinePlayOverlayFieldEdit(item, $event)"
+                              >
                                 <span class="film-top-meta__label">{{ item.label }}</span>
-                                <span class="film-top-meta__value">{{ item.value }}</span>
+                                @if (isEditingCurrentInlinePlayOverlayItem(item)) {
+                                  <input
+                                    class="film-playbook-edit__input film-playbook-edit__input--cell film-top-meta__input"
+                                    type="text"
+                                    autofocus
+                                    [value]="timelinePlayEditDraft()"
+                                    [disabled]="saving() || !canEditInlinePlayOverlayItem()"
+                                    (click)="$event.stopPropagation()"
+                                    (keydown)="$event.stopPropagation()"
+                                    (input)="onTimelinePlayEditInput($any($event.target).value)"
+                                    (blur)="onCancelTimelinePlayEdit($event)"
+                                    (keydown.enter)="onSaveInlinePlayOverlayFieldEdit(item, $event)"
+                                    (keydown.escape)="onCancelTimelinePlayEdit($event)"
+                                  />
+                                } @else {
+                                  <span class="film-top-meta__value">{{ item.value }}</span>
+                                }
                               </div>
                             }
                           </div>
@@ -856,6 +898,8 @@ type DrawInteractionState =
                     [drawEffectMarkers]="drawEffectMarkers()"
                     [playbackRate]="playbackRate()"
                     [playbackRates]="playbackRates"
+                    [showVolumeControls]="true"
+                    [volume]="playerVolume()"
                     [showSpeedControls]="true"
                     [showFullscreen]="true"
                     [showOpenInNewWindow]="showOpenInNewWindow && !platform.isNative()"
@@ -879,6 +923,7 @@ type DrawInteractionState =
                     (drawEffectDurationChange)="onDrawEffectDurationChange($event)"
                     (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
                     (playbackRateChange)="setPlaybackRate($event)"
+                    (volumeChange)="setPlayerVolume($event)"
                     (openInNewWindow)="openVideoInNewWindow()"
                     (fullscreenToggle)="toggleFullscreen()"
                   >
@@ -2781,6 +2826,12 @@ type DrawInteractionState =
         gap: var(--nxt1-spacing-1, 4px);
       }
 
+      .film-top-tools__right {
+        transition:
+          opacity 0.18s ease,
+          transform 0.18s ease;
+      }
+
       .film-top-tools__left {
         min-width: 0;
         flex: 0 1 min(760px, calc(100% - 128px));
@@ -2835,7 +2886,31 @@ type DrawInteractionState =
         flex: 0 0 auto;
         min-width: 0;
         padding: 0 6px;
+        border-radius: 8px;
+        transition:
+          background 0.16s ease,
+          box-shadow 0.16s ease;
         white-space: nowrap;
+      }
+
+      .film-top-meta__item--editable {
+        cursor: pointer;
+      }
+
+      .film-top-meta__item--editable:hover,
+      .film-top-meta__item--editable:focus-visible {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 10%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+        outline: none;
+      }
+
+      .film-top-meta__item--editing {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 6px;
+        padding-block: 6px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 24%, transparent);
       }
 
       .film-top-meta__label {
@@ -2852,6 +2927,14 @@ type DrawInteractionState =
         font-size: 11px;
         font-weight: 700;
         line-height: 1;
+      }
+
+      .film-top-meta__input {
+        min-width: 72px;
+        max-width: 140px;
+        width: 100%;
+        margin-top: 1px;
+        padding-block: 4px;
       }
 
       .film-top-meta__toggle {
@@ -3100,6 +3183,25 @@ type DrawInteractionState =
         gap: var(--nxt1-spacing-1, 4px);
         padding: var(--nxt1-spacing-1, 4px);
         z-index: 20;
+        transition:
+          opacity 0.18s ease,
+          transform 0.18s ease;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .film-player-wrapper:not(:hover):not(:focus-within) .film-top-tools__right,
+        .film-player-wrapper:not(:hover):not(:focus-within) .film-controls-overlay {
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        .film-player-wrapper:not(:hover):not(:focus-within) .film-top-tools__right {
+          transform: translateY(-4px);
+        }
+
+        .film-player-wrapper:not(:hover):not(:focus-within) .film-controls-overlay {
+          transform: translateY(8px);
+        }
       }
 
       .film-hud {
@@ -4819,6 +4921,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   set filmPlayerRef(player: ElementRef<HTMLVideoElement> | undefined) {
     this.filmPlayer = player;
     if (player) {
+      this.applyPlayerVolume(player.nativeElement);
       this.scheduleNativeVideoSourceSync();
     }
   }
@@ -4913,6 +5016,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly playerCurrentTime = signal(0);
   protected readonly playerDuration = signal(0);
   protected readonly playbackRate = signal(1);
+  protected readonly playerVolume = signal(1);
   protected readonly nativePlayerLoading = signal(false);
   protected readonly cloudflareIframeLoading = signal(false);
   protected readonly cloudflareNativePlaybackFailed = signal(false);
@@ -4993,6 +5097,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     },
   ];
   protected readonly editingTimelinePlayKey = signal<string | null>(null);
+  private readonly isEditingInlinePlayOverlay = signal(false);
   protected readonly timelinePlayEditDraft = signal('');
   protected readonly isLibraryDragActive = signal(false);
   protected readonly isUploadingLibraryVideo = signal(false);
@@ -5619,15 +5724,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return `${this.currentPlayIndex() + 1}/${timeline.length}`;
   });
   private pendingTimelinePlayFieldSaveKey: string | null = null;
-  protected readonly currentInlinePlayOverlayItems = computed(() => {
-    const play = this.currentPlay();
-    if (!play) return [] as Array<{ label: string; value: string }>;
+  protected readonly currentInlinePlayOverlayItems = computed<readonly InlinePlayOverlayItem[]>(
+    () => {
+      const play = this.currentPlay();
+      if (!play) return [];
 
-    return this.currentTimelineColumns().map((column) => ({
-      label: column.label,
-      value: this.getTimelineColumnDisplayValue(play, column),
-    }));
-  });
+      return this.currentTimelineColumns().map((column) => ({
+        label: column.label,
+        value: this.getTimelineColumnDisplayValue(play, column),
+        fieldKey: column.fieldKey,
+        tagDefinition: column.tagDefinition,
+      }));
+    }
+  );
   protected readonly drawEffectMarkers = computed<readonly DrawEffectMarker[]>(() => {
     const play = this.currentPlay();
     if (!play) return [];
@@ -7746,6 +7855,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(event: Event): void {
+    const target = event.target;
+
+    if (this.isEditingInlinePlayOverlay()) {
+      if (
+        target instanceof Element &&
+        target.closest('.film-top-meta__item--editing, .film-top-meta__input')
+      ) {
+        return;
+      }
+
+      this.resetTimelinePlayEditing();
+    }
+
     if (
       !this.openAskAgentMenuReviewId() &&
       !this.isLibraryAskAgentMenuVisible() &&
@@ -7758,7 +7880,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     ) {
       return;
     }
-    const target = event.target;
     if (
       target instanceof Element &&
       target.closest(
@@ -8737,12 +8858,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return play.id ?? `${play.number ?? index + 1}:${play.startSec}:${play.endSec}`;
   }
 
+  private resolveCurrentInlinePlayOverlayEditContext(): {
+    review: FilmListReview;
+    play: FilmTimelinePlay;
+    index: number;
+  } | null {
+    const review = this.selectedReview();
+    const play = this.currentPlay();
+    const index = this.currentPlayIndex();
+    if (!review || !play || index < 0) {
+      return null;
+    }
+
+    return { review, play, index };
+  }
+
   private getTimelinePlayFieldKey(play: FilmTimelinePlay, index: number, fieldKey: string): string {
     return `${this.getTimelinePlayKey(play, index)}:${fieldKey}`;
   }
 
   private resetTimelinePlayEditing(): void {
     this.editingTimelinePlayKey.set(null);
+    this.isEditingInlinePlayOverlay.set(false);
     this.timelinePlayEditDraft.set('');
   }
 
@@ -9308,6 +9445,48 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     this.lastTimelineFieldTouch = { key: editKey, atMs: now };
+  }
+
+  protected canEditInlinePlayOverlayItem(): boolean {
+    const review = this.selectedReview();
+    return !!review && !!this.currentPlay() && this.hasReviewWriteAccess(review);
+  }
+
+  protected isEditingCurrentInlinePlayOverlayItem(item: InlinePlayOverlayItem): boolean {
+    const current = this.resolveCurrentInlinePlayOverlayEditContext();
+    if (!current) return false;
+    return this.isEditingTimelinePlayField(current.play, current.index, item.fieldKey);
+  }
+
+  protected onStartInlinePlayOverlayFieldEdit(item: InlinePlayOverlayItem, event: Event): void {
+    const current = this.resolveCurrentInlinePlayOverlayEditContext();
+    if (!current) return;
+    this.onStartTimelinePlayFieldEdit(current.play, current.index, item.fieldKey, event);
+    if (this.isEditingTimelinePlayField(current.play, current.index, item.fieldKey)) {
+      this.isEditingInlinePlayOverlay.set(true);
+    }
+  }
+
+  protected onInlinePlayOverlayFieldTouchEnd(item: InlinePlayOverlayItem, event: Event): void {
+    const current = this.resolveCurrentInlinePlayOverlayEditContext();
+    if (!current) return;
+    this.onTimelinePlayFieldTouchEnd(current.play, current.index, item.fieldKey, event);
+  }
+
+  protected async onSaveInlinePlayOverlayFieldEdit(
+    item: InlinePlayOverlayItem,
+    event: Event
+  ): Promise<void> {
+    const current = this.resolveCurrentInlinePlayOverlayEditContext();
+    if (!current) return;
+    await this.onSaveTimelinePlayFieldEdit(
+      current.review.id,
+      current.play,
+      current.index,
+      item.fieldKey,
+      event,
+      item.tagDefinition
+    );
   }
 
   protected onTimelinePlayEditInput(value: string): void {
@@ -10803,6 +10982,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const fullSource = sourceId
       ? reviewSources.find((source) => source.id.trim() === sourceId)
       : undefined;
+    const currentVisibleSource =
+      this.selectedReview()?.id === review.id ? this.currentPlaybackSource() : null;
+    const thumbnailUrl =
+      playbackSource?.thumbnailUrl?.trim() ||
+      currentVisibleSource?.thumbnailUrl?.trim() ||
+      review.thumbnailUrl?.trim() ||
+      undefined;
     const sourceAngle = fullSource
       ? this.resolveSourceAngleMetadata(reviewSources, fullSource).cameraAngle
       : null;
@@ -10839,7 +11025,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       ],
       media: {
         ...(playbackSource?.videoUrl ? { videoUrl: playbackSource.videoUrl } : {}),
-        ...(playbackSource?.thumbnailUrl ? { thumbnailUrl: playbackSource.thumbnailUrl } : {}),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
         ...(playbackSource?.cloudflareVideoId
           ? { cloudflareVideoId: playbackSource.cloudflareVideoId }
           : {}),
@@ -11361,6 +11547,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
     this.nativePlayerLoading.set(false);
+    this.applyPlayerVolume(player);
     this.playerDuration.set(Number.isFinite(player.duration) ? player.duration : 0);
     this.updatePlayerTimeSignal(player.currentTime || 0, true);
     this.syncSeekUi(player.currentTime || 0);
@@ -13368,6 +13555,23 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     player.playbackRate = rate;
     this.playbackRate.set(rate);
+  }
+
+  protected setPlayerVolume(volume: number): void {
+    const nextVolume = Number(volume);
+    if (!Number.isFinite(nextVolume)) return;
+
+    const clampedVolume = Math.max(0, Math.min(1, nextVolume));
+    this.playerVolume.set(clampedVolume);
+    this.applyPlayerVolume(this.filmPlayer?.nativeElement);
+  }
+
+  private applyPlayerVolume(player: HTMLVideoElement | undefined | null): void {
+    if (!player) return;
+
+    const volume = this.playerVolume();
+    player.volume = volume;
+    player.muted = volume <= 0.001;
   }
 
   protected toggleFullscreen(): void {

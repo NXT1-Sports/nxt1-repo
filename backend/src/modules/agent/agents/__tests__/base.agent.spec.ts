@@ -861,7 +861,7 @@ describe('BaseAgent runtime date guardrail', () => {
     expect(prompt).toContain('Files contract: saved files, folders, film reviews');
     expect(prompt).toContain('Video save routing (CRITICAL)');
     expect(prompt).toContain('use the Film Review path');
-    expect(prompt).toContain('promote it into Film Review in the Lab/Files for deeper analysis');
+    expect(prompt).toContain('promote it into Film Review in The Lab for deeper analysis');
     expect(prompt).toContain('preserve Firebase `storagePath`, `thumbnailUrl`, `downloadUrl`');
     expect(prompt).toContain('editableViaUniversalDocumentTool: false');
     expect(prompt).toContain('SAME selected Files item');
@@ -1360,6 +1360,26 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Update Gameplan: Westfield Warriors (Pregame • 2026-05-28)');
+  });
+
+  it('uses a simpler fallback label for generic universal document tools', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('create_universal_team_document', {
+      title: 'Coach Notes',
+    });
+
+    expect(label).toBe('Save File: Coach Notes');
+  });
+
+  it('uses a personal Files label for universal document search', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('list_universal_team_documents', {
+      query: 'red zone install',
+    });
+
+    expect(label).toBe('Search Files: red zone install');
   });
 
   it('keeps artifact URLs in compacted tool history summaries', () => {

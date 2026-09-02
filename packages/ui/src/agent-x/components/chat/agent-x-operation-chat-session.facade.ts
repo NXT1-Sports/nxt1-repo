@@ -3245,6 +3245,15 @@ export class AgentXOperationChatSessionFacade {
       return;
     }
 
+    const pendingYieldStateForMapping = persistedPendingYieldState ?? timelinePendingYieldState;
+    if (pendingYieldStateForMapping) {
+      this.primePendingYieldStateForMapping(
+        pendingYieldStateForMapping,
+        threadId,
+        persistedPendingYieldState ? 'thread-metadata' : 'timeline-fallback'
+      );
+    }
+
     // Phase K (single-bubble guarantee): resolve the canonical set of rows
     // before mapping. Suppresses assistant_partial rows when assistant_final
     // exists for the same operationId (pause/resume double-bubble fix).
@@ -4834,10 +4843,12 @@ export class AgentXOperationChatSessionFacade {
   ): void {
     const host = this.requireHost();
     const pendingStatus = this.inferOperationStatusFromYield(yieldState);
+    const operationId = this.resolveYieldOperationId(yieldState);
+    host.setCurrentOperationId(operationId);
     host.applyYieldState({
       yieldState,
       source,
-      operationId: this.resolveYieldOperationId(yieldState),
+      operationId,
     });
     host.setOperationStatus(pendingStatus);
 
@@ -4845,6 +4856,30 @@ export class AgentXOperationChatSessionFacade {
       threadId,
       contextId: host.contextId(),
       source,
+      operationId,
+      pendingStatus,
+      reason: yieldState.reason,
+      toolName: yieldState.pendingToolCall?.toolName,
+    });
+  }
+
+  private primePendingYieldStateForMapping(
+    yieldState: AgentYieldState,
+    threadId: string,
+    source: string
+  ): void {
+    const host = this.requireHost();
+    const pendingStatus = this.inferOperationStatusFromYield(yieldState);
+    const operationId = this.resolveYieldOperationId(yieldState);
+
+    host.setCurrentOperationId(operationId);
+    host.setOperationStatus(pendingStatus);
+
+    this.logger.info('Primed pending yield state before thread message mapping', {
+      threadId,
+      contextId: host.contextId(),
+      source,
+      operationId,
       pendingStatus,
       reason: yieldState.reason,
       toolName: yieldState.pendingToolCall?.toolName,

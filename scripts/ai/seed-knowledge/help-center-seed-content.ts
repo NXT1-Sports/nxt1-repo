@@ -266,7 +266,7 @@ export const HELP_CENTER_ACCOUNT_ARTICLES = [
 
 <p><strong>MaxPreps</strong> — The primary stats and standings integration. After connecting, MaxPreps syncs game results, team stats, individual player stats, and standings automatically after each competition is posted. Athletes get accurate, current stats on their profile without manual entry. Coaches see live team record and performance data that Agent X can reference in recruiting communications and program reports.</p>
 
-<p><strong>Hudl</strong> — Film and highlight integration. Connecting Hudl links your video library directly to your NXT1 profile and team. Athletes' highlight reels are accessible from their profile. Coaches can reference specific film clips when Agent X generates performance analyses. New film uploaded to Hudl becomes available on NXT1 automatically.</p>
+<p><strong>Hudl</strong> — Film and highlight source handling. NXT1 can remember Hudl profile, team, and video links as connected sources. Public or already-accessible Hudl video links can be brought into Agent X workflows. Private Hudl library film and downloaded Hudl exports should be uploaded through <strong>The Lab</strong> on desktop so Agent X can create or update a Film Review from the saved files. NXT1 does not currently provide a full native Hudl account sync where new private Hudl film automatically appears without upload.</p>
 
 <p>Additional integrations are available depending on your sport. The full list of currently supported sources appears in <strong>Settings → Tools &amp; Integrations → Connected Accounts</strong> — the options shown are specific to your sport and role.</p>
 
@@ -291,7 +291,7 @@ export const HELP_CENTER_ACCOUNT_ARTICLES = [
   <li><strong>Stats stay current without manual updates</strong> — Every athlete's profile reflects their actual current season stats, not a snapshot from the last time someone remembered to update it.</li>
   <li><strong>Recruiting communications with live context</strong> — When Agent X drafts outreach to college programs on an athlete's behalf, it references their actual current record and real stats — not a generic template with blanks to fill in.</li>
   <li><strong>Staleness alerts surface automatically</strong> — If a connected source has not synced in an unusual amount of time, Agent X flags it in your daily briefing and playbook so you can investigate before stale data causes problems.</li>
-  <li><strong>Film-backed analysis</strong> — With Hudl connected, Agent X can reference specific game tape in performance analyses rather than working from stats alone.</li>
+  <li><strong>Film-backed analysis</strong> — With accessible Hudl links or film uploaded through The Lab, Agent X can reference specific game tape in performance analyses rather than working from stats alone.</li>
 </ul>
 
 <h2 id="without-connected-accounts">What Agent X Cannot Do Without Them</h2>
@@ -314,11 +314,160 @@ export const HELP_CENTER_ACCOUNT_ARTICLES = [
 
 <p>What happens when you disconnect:</p>
 <ul>
-  <li>The live sync stops immediately. No new data pulls from that source.</li>
+  <li>Monitoring or future source updates stop immediately for that saved source.</li>
   <li>Data already imported to your NXT1 profile <strong>stays on your profile</strong> — disconnecting does not delete historical stats or media that have already been imported.</li>
   <li>Agent X stops referencing that source for new operations. It will work from whatever data remains on your profile until you reconnect or update manually.</li>
   <li>You can reconnect at any time and the sync resumes from where it left off.</li>
 </ul>
+    `.trim(),
+  },
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ARTICLE E: Importing Hudl Game Film into The Lab
+  // ─────────────────────────────────────────────────────────────────────────────
+  {
+    slug: 'importing-hudl-game-film-into-the-lab',
+    title: 'Importing Hudl Game Film into The Lab',
+    excerpt:
+      'Learn the best path for Hudl game film in NXT1: The Lab first for full games and private downloads, with public Hudl links only as a secondary shortcut when they are directly accessible.',
+    type: 'guide' as const,
+    category: 'account' as const,
+    tags: [
+      'Hudl',
+      'game film',
+      'The Lab',
+      'Film Review',
+      'ZIP export',
+      'breakdown sheet',
+      'CSV',
+      'XLSX',
+      'coach',
+    ],
+    targetUsers: ['coach', 'director', 'athlete'] as const,
+    readingTimeMinutes: 5,
+    isFeatured: true,
+    isNew: true,
+    isPublished: true,
+    publishedAt: TODAY,
+    updatedAt: TODAY,
+    viewCount: 0,
+    helpfulCount: 0,
+    notHelpfulCount: 0,
+    tableOfContents: [
+      { id: 'choose-the-right-path', title: 'Choose the Right Path', level: 2 },
+      { id: 'private-hudl-film', title: 'Private Hudl Film', level: 2 },
+      { id: 'public-hudl-links', title: 'Public Hudl Links', level: 2 },
+      { id: 'zip-exports', title: 'ZIP Exports and Packages', level: 2 },
+      { id: 'breakdown-sheets', title: 'Breakdown Sheets', level: 2 },
+      { id: 'film-review-workflows', title: 'What Agent X Can Do After Import', level: 2 },
+    ],
+    seo: {
+      metaTitle: 'Import Hudl Game Film into NXT1 The Lab | Film Review Guide',
+      metaDescription:
+        'How to bring Hudl game film into NXT1 using public links, uploads, ZIP exports, and Hudl-style breakdown sheets for Agent X Film Review workflows.',
+      keywords: [
+        'import Hudl film NXT1',
+        'Hudl ZIP export',
+        'NXT1 The Lab',
+        'NXT1 Film Review',
+        'Hudl breakdown sheet',
+        'game film analysis',
+      ],
+    },
+    content: `
+<h2 id="choose-the-right-path">Choose the Right Path</h2>
+
+<p>Hudl film can reach NXT1 in a few different ways. The main stable workflow is The Lab on desktop, especially for full games and anything private or downloaded. Public links are a secondary shortcut only when the Hudl page is directly accessible and not behind login.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Source</th>
+      <th>Best NXT1 path</th>
+      <th>What Agent X can do</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Private Hudl library film</td>
+      <td>Download it from Hudl, then upload it in The Lab on desktop</td>
+      <td>Create or update a Film Review from the uploaded video or clips.</td>
+    </tr>
+    <tr>
+      <td>Full-game video file</td>
+      <td>Upload the video in The Lab and ask Agent X to save it as a Film Review</td>
+      <td>Analyze time ranges, identify play windows, tag rows, create clips, and generate reports.</td>
+    </tr>
+    <tr>
+      <td>Hudl-style breakdown CSV/XLSX</td>
+      <td>Upload the sheet and ask Agent X to import it into the Film Review</td>
+      <td>Use the sheet as the source of truth for timestamps, ODK, down/distance, formations, and other supported tags.</td>
+    </tr>
+    <tr>
+      <td>Hudl ZIP/package export</td>
+      <td>Upload it in The Lab for safekeeping, and include the individual video files or breakdown sheets when available</td>
+      <td>Agent X can work from supported files inside the workflow, but ZIP/package auto-unpacking is not a guaranteed importer unless Agent X confirms it processed the package.</td>
+    </tr>
+    <tr>
+      <td>Public Hudl video link</td>
+      <td>Paste the link into Agent X chat only if it is a directly accessible public video page</td>
+      <td>Bring the accessible video into a film workflow, analyze it, or save it to Film Review when requested.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="private-hudl-film">Private Hudl Film</h2>
+
+<p>If the film is inside a private Hudl library, behind a login, or visible only to your staff account, download the film from Hudl first. Then open NXT1 on desktop, select <strong>The Lab</strong> at the top of Agent X next to Action Plan, and upload the full-game video, individual clips, or related files.</p>
+
+<p>Do not rely on browsing Hudl in Live View as the normal way to get film into NXT1 for this workflow. The Lab is the main stable path. Use a Hudl link only as a secondary shortcut when the video page is directly accessible and not behind login.</p>
+
+<p>After upload, tell Agent X exactly what you want:</p>
+
+<ul>
+  <li><em>"Save this as a Film Review for Friday vs. Central."</em></li>
+  <li><em>"Break this full game into play windows and tag each play."</em></li>
+  <li><em>"Use this uploaded film for a self-scout report."</em></li>
+</ul>
+
+<h2 id="public-hudl-links">Public Hudl Links</h2>
+
+<p>If the Hudl video is on a directly accessible public video page or highlight page, you can paste that link directly into Agent X as a secondary shortcut. This only works when the page is not behind a login wall, team-library access, or other auth gate.</p>
+
+<ul>
+  <li><em>"Save this public Hudl video to The Lab as a Film Review."</em></li>
+  <li><em>"Analyze this public Hudl clip and tell me what our defense should fix."</em></li>
+  <li><em>"Use this public Hudl film to build an opponent tendency report."</em></li>
+</ul>
+
+<p>If the Hudl link sends you to sign in, opens a private library, or otherwise hides the video behind access controls, do not rely on that link path. Download the film and upload it through The Lab instead.</p>
+
+<h2 id="zip-exports">ZIP Exports and Packages</h2>
+
+<p>Some Hudl downloads or team workflows produce ZIP files that contain clips, sheets, or related assets. You can upload the ZIP into The Lab so the package is saved with the rest of your film materials. For best results, also upload or provide the individual files Agent X can use directly: the full-game video, individual clip videos, and any CSV/XLSX breakdown sheets.</p>
+
+<p>Important: a ZIP is an intake package, not a promise that every file inside it will be automatically unpacked and parsed. Agent X should only say a ZIP was unpacked, imported, or parsed after it confirms that with an actual tool result. Until then, the reliable workflow is to use the supported pieces from the package.</p>
+
+<h2 id="breakdown-sheets">Breakdown Sheets</h2>
+
+<p>If you have a Hudl-style breakdown sheet, upload it with the film and ask Agent X to import it into the Film Review. Supported spreadsheet-style inputs are the best way to give Agent X reliable play windows and football tags such as ODK, down, distance, formation, hash, play type, and result.</p>
+
+<p>Coach-provided breakdown data is treated as the source of truth. Agent X can then watch the matching time ranges to enrich rows with coaching notes, confidence, technique observations, and scouting context.</p>
+
+<h2 id="film-review-workflows">What Agent X Can Do After Import</h2>
+
+<p>Once the film is saved as a Film Review, Agent X can help with:</p>
+
+<ul>
+  <li>Full-game analysis in bounded time windows</li>
+  <li>Play-by-play tagging and low-confidence review flags</li>
+  <li>Cutups by formation, coverage, player, result, or situation</li>
+  <li>Opponent scouting reports and tendency charts</li>
+  <li>Self-scout reports by down/distance, field zone, game state, or personnel</li>
+  <li>Practice plans, callsheets, wristbands, and coaching summaries based on verified film data</li>
+</ul>
+
+<p>The cleanest setup for a full game is: upload the video to The Lab, import any Hudl-style breakdown sheet, confirm whether the film is self-scout or opponent scout, then ask Agent X for the exact output you need. Treat public Hudl links as a shortcut, not the primary workflow.</p>
     `.trim(),
   },
 ];
@@ -2293,8 +2442,8 @@ export const HELP_CENTER_POPULAR_FAQS = [
   // ─── 10: How do I connect MaxPreps or Hudl? ──────────────────────────────
   {
     question: 'How do I connect MaxPreps or Hudl to my account?',
-    answer: `<p>Go to <strong>Settings → Tools &amp; Integrations → Connected Accounts</strong>. From there, tap <strong>Connect</strong> next to MaxPreps or Hudl and follow the authorization steps. Once connected, NXT1 syncs your stats, game results, and film automatically.</p>
-<p>Connected sources unlock Agent X's live data capabilities — post-game summaries, current stats in recruiting drafts, film-backed analysis, and staleness alerts when data may be outdated. Without a connection, Agent X can still help but will work with whatever data you have entered manually on your profile.</p>`,
+    answer: `<p>Go to <strong>Settings → Tools &amp; Integrations → Connected Accounts</strong> when that source is available for your role and sport, or ask Agent X to save or monitor a specific MaxPreps or Hudl source link. MaxPreps is the main path for stats and game results. Hudl source links help Agent X remember where film lives, but private Hudl library film still needs to be shared as an accessible link or uploaded through <strong>The Lab</strong> on desktop.</p>
+<p>For Hudl game film, the main stable path is to upload downloaded film, clips, ZIP exports, and Hudl-style CSV/XLSX breakdown sheets in The Lab. A Hudl link is only a secondary shortcut when it is a directly accessible public video page and not behind login. Agent X can create or update a Film Review from supported video files and import supported breakdown sheets, but it should not claim full native Hudl auto-sync or automatic ZIP parsing unless it confirms that with an actual processing result.</p>`,
     category: 'account' as const,
     targetUsers: ['athlete', 'coach'] as const,
     order: 10,
