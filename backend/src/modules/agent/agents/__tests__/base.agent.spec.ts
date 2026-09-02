@@ -1362,6 +1362,26 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Update Gameplan: Westfield Warriors (Pregame • 2026-05-28)');
   });
 
+  it('uses a simpler fallback label for generic universal document tools', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('create_universal_team_document', {
+      title: 'Coach Notes',
+    });
+
+    expect(label).toBe('Save File: Coach Notes');
+  });
+
+  it('uses a personal Files label for universal document search', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('list_universal_team_documents', {
+      query: 'red zone install',
+    });
+
+    expect(label).toBe('Search Files: red zone install');
+  });
+
   it('keeps artifact URLs in compacted tool history summaries', () => {
     const agent = new FakeAgent();
     const toolExchange = (

@@ -2089,7 +2089,7 @@ export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 
     return {
       success: true,
-      markdown: `Archived universal team document **${archived.title}**.`,
+      markdown: `Archived document **${archived.title}**.`,
       data: {
         archived: true,
         document: universalDocument ?? archived,

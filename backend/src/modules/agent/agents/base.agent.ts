@@ -6295,6 +6295,8 @@ export abstract class BaseAgent {
     inputOrArgs?: Record<string, unknown> | string
   ): string | null {
     if (
+      toolName !== 'list_universal_team_documents' &&
+      toolName !== 'get_universal_team_document' &&
       toolName !== 'create_universal_team_document' &&
       toolName !== 'update_universal_team_document' &&
       toolName !== 'delete_universal_team_document'
@@ -6326,17 +6328,23 @@ export abstract class BaseAgent {
           ? 'Callsheet'
           : normalizedFileType === 'practice_script'
             ? 'Practice Script'
-            : 'Universal Team Document';
+            : 'File';
 
-    const verb =
-      toolName === 'create_universal_team_document'
-        ? 'Create'
-        : toolName === 'update_universal_team_document'
-          ? 'Update'
-          : 'Delete';
+    const actionLabel =
+      toolName === 'list_universal_team_documents'
+        ? `Search ${AGENT_X_FILES_ALIAS}`
+        : toolName === 'get_universal_team_document'
+          ? 'Open File'
+          : toolName === 'create_universal_team_document'
+            ? noun === 'File'
+              ? 'Save File'
+              : `Save ${noun}`
+            : toolName === 'update_universal_team_document'
+              ? `Update ${noun}`
+              : `Delete ${noun}`;
 
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
-    return descriptor ? `${verb} ${noun}: ${descriptor}` : `${verb} ${noun}`;
+    return descriptor ? `${actionLabel}: ${descriptor}` : actionLabel;
   }
 
   private resolveDirectDocumentToolRedirect(
