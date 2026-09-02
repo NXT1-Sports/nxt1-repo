@@ -4099,18 +4099,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     );
   }
 
-  /** Most recent unresolved ask_user yield in the timeline. */
-  private pendingAskUserYieldMessage(): OperationMessage | null {
-    const allMessages = this.messages();
-    for (let index = allMessages.length - 1; index >= 0; index -= 1) {
-      const msg = allMessages[index];
-      if (!this.isAskUserYield(msg)) continue;
-      if (this.resolveExternalCardStateForMessage(msg, index) !== null) continue;
-      return msg;
-    }
-    return null;
-  }
-
   private pendingComposerReplyTarget(): {
     kind: 'ask_user' | 'approval';
     messageId?: string;
