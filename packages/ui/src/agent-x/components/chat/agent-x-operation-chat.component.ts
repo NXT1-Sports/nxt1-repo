@@ -293,6 +293,97 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
   return false;
 }
 
+function isApprovalWaitingNote(note: string | undefined): boolean {
+  if (!note) return false;
+  return /waiting\s+for\s+(?:user\s+)?approval|approval\s+to\s+continue/i.test(note);
+}
+
+export function isAgentOperationWorkInFlight(params: {
+  readonly operationStatus?: string | null;
+  readonly activityPhase?: string | null;
+  readonly loading?: boolean;
+  readonly awaitingComposerReply?: boolean;
+}): boolean {
+  if (params.awaitingComposerReply === true) return false;
+  if (
+    params.operationStatus === 'complete' ||
+    params.operationStatus === 'error' ||
+    params.operationStatus === 'cancelled'
+  ) {
+    return false;
+  }
+
+  if (params.loading === true || params.operationStatus === 'processing') return true;
+
+  return (
+    params.activityPhase === 'sending' ||
+    params.activityPhase === 'connected' ||
+    params.activityPhase === 'streaming' ||
+    params.activityPhase === 'running_tool' ||
+    params.activityPhase === 'waiting_delta' ||
+    params.activityPhase === 'reconnecting'
+  );
+}
+
+export function shouldShowExecutionPlanDockForActiveWork(
+  messages: readonly OperationMessage[],
+  params: {
+    readonly operationStatus?: string | null;
+    readonly activityPhase?: string | null;
+    readonly loading?: boolean;
+    readonly awaitingComposerReply?: boolean;
+  }
+): boolean {
+  if (!isAgentOperationWorkInFlight(params)) return false;
+
+  const card = resolveDockedExecutionPlanCard(messages);
+  if (!card || card.type !== 'planner') return false;
+
+  const payload = card.payload;
+  if (!('items' in payload) || !Array.isArray(payload.items)) return false;
+
+  return payload.items.some((item: unknown) => {
+    if (!item || typeof item !== 'object') return false;
+    const maybeItem = item as Record<string, unknown>;
+    return (
+      maybeItem['done'] !== true &&
+      (maybeItem['active'] === true ||
+        maybeItem['status'] === 'in_progress' ||
+        maybeItem['status'] === 'awaiting_tool_approval')
+    );
+  });
+}
+
+export function normalizeExecutionPlanItemsForActiveResume(
+  items: readonly AgentXPlannerItem[],
+  params: {
+    readonly operationStatus?: string | null;
+    readonly activityPhase?: string | null;
+    readonly loading?: boolean;
+    readonly awaitingComposerReply?: boolean;
+  }
+): readonly AgentXPlannerItem[] {
+  if (!isAgentOperationWorkInFlight(params)) return items;
+
+  const awaitingIndex = items.findIndex(
+    (item) => !item.done && item.status === 'awaiting_tool_approval'
+  );
+  if (awaitingIndex < 0) return items;
+
+  return items.map((item, index) => {
+    if (index !== awaitingIndex) return item;
+
+    return {
+      id: item.id,
+      label: item.label,
+      done: item.done,
+      active: true,
+      status: 'in_progress',
+      ...(item.note && !isApprovalWaitingNote(item.note) ? { note: item.note } : {}),
+    };
+  });
+}
+
 @Component({
   selector: 'nxt1-agent-x-operation-chat',
   standalone: true,
@@ -712,7 +803,7 @@ export function shouldShowApprovedExecutionPlanDockFromMessages(
 
         <nxt1-agent-x-input-bar
           [userMessage]="inputValue()"
-          [isLoading]="_loading() && !isAwaitingComposerReply()"
+          [isLoading]="isComposerOperationInFlight()"
           [canSend]="canSend()"
           [pendingFiles]="promptInputPendingFiles()"
           [pendingSources]="pendingConnectedSources()"
@@ -2462,14 +2553,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Live override for execute-mode plan docking; null falls back to persisted message history. */
   private readonly showApprovedExecutionPlanDock = signal<boolean | null>(null);
 
+  protected readonly isComposerOperationInFlight = computed(() =>
+    isAgentOperationWorkInFlight({
+      operationStatus: this.operationStatus,
+      activityPhase: this._activityPhase(),
+      loading: this._loading(),
+      awaitingComposerReply: this.isAwaitingComposerReply(),
+    })
+  );
+
   /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
     const messages = this.messages();
+    const showExecuteModeDock =
+      this.showApprovedExecutionPlanDock() ??
+      (shouldShowApprovedExecutionPlanDockFromMessages(messages) ||
+        shouldShowExecutionPlanDockForActiveWork(messages, {
+          operationStatus: this.operationStatus,
+          activityPhase: this._activityPhase(),
+          loading: this._loading(),
+          awaitingComposerReply: this.isAwaitingComposerReply(),
+        }));
+
     return resolveVisibleDockedExecutionPlanCard(
       messages,
       this.selectedExecutionMode(),
-      this.showApprovedExecutionPlanDock() ??
-        shouldShowApprovedExecutionPlanDockFromMessages(messages)
+      showExecuteModeDock
     );
   });
 
@@ -2481,7 +2590,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (!card || card.type !== 'planner') return [];
     const payload = card.payload;
     if (!('items' in payload) || !Array.isArray(payload.items)) return [];
-    return payload.items as readonly AgentXPlannerItem[];
+    return normalizeExecutionPlanItemsForActiveResume(
+      payload.items as readonly AgentXPlannerItem[],
+      {
+        operationStatus: this.operationStatus,
+        activityPhase: this._activityPhase(),
+        loading: this._loading(),
+        awaitingComposerReply: this.isAwaitingComposerReply(),
+      }
+    );
   });
 
   /** Freeze execution-plan active spinner whenever the operation is paused. */
@@ -2648,7 +2765,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly canSend = computed(
     () =>
       (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) &&
-      (!this._loading() || this.isAwaitingComposerReply())
+      !this.isComposerOperationInFlight()
   );
 
   private emitOperationsLogRefreshRequest(): void {

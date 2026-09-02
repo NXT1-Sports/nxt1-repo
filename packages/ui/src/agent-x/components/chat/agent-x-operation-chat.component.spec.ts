@@ -3,8 +3,11 @@ import type { AgentYieldState } from '@nxt1/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AgentXOperationChatComponent,
+  isAgentOperationWorkInFlight,
+  normalizeExecutionPlanItemsForActiveResume,
   resolveDockedExecutionPlanCard,
   resolveVisibleDockedExecutionPlanCard,
+  shouldShowExecutionPlanDockForActiveWork,
   shouldShowApprovedExecutionPlanDockFromMessages,
 } from './agent-x-operation-chat.component';
 import type { FilmTimestampSeekRequest, OperationMessage } from './agent-x-operation-chat.models';
@@ -483,6 +486,94 @@ describe('AgentXOperationChatComponent composer reply routing', () => {
 });
 
 describe('resolveDockedExecutionPlanCard', () => {
+  it('treats a remounted processing operation as active work even after loading reset', () => {
+    expect(
+      isAgentOperationWorkInFlight({
+        operationStatus: 'processing',
+        activityPhase: 'idle',
+        loading: false,
+        awaitingComposerReply: false,
+      })
+    ).toBe(true);
+  });
+
+  it('does not treat an unanswered approval prompt as active composer work', () => {
+    expect(
+      isAgentOperationWorkInFlight({
+        operationStatus: 'awaiting_approval',
+        activityPhase: 'awaiting_approval',
+        loading: false,
+        awaitingComposerReply: true,
+      })
+    ).toBe(false);
+  });
+
+  it('keeps an approved-plan dock visible when a remounted operation is still processing', () => {
+    const message: OperationMessage = {
+      id: 'assistant-plan-reload',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-01T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: [
+              {
+                id: 'task-1',
+                label: 'Send approved outreach',
+                done: false,
+                active: false,
+                status: 'awaiting_tool_approval',
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    expect(
+      shouldShowExecutionPlanDockForActiveWork([message], {
+        operationStatus: 'processing',
+        activityPhase: 'idle',
+        loading: false,
+        awaitingComposerReply: false,
+      })
+    ).toBe(true);
+  });
+
+  it('renders an approval-waiting plan item as active once resumed work is loading', () => {
+    const items = normalizeExecutionPlanItemsForActiveResume(
+      [
+        {
+          id: 'task-1',
+          label: 'Send approved outreach',
+          done: false,
+          active: false,
+          status: 'awaiting_tool_approval',
+          note: 'Waiting for user approval to continue this task.',
+        },
+      ],
+      {
+        operationStatus: 'awaiting_approval',
+        activityPhase: 'awaiting_approval',
+        loading: true,
+        awaitingComposerReply: false,
+      }
+    );
+
+    expect(items).toEqual([
+      {
+        id: 'task-1',
+        label: 'Send approved outreach',
+        done: false,
+        active: true,
+        status: 'in_progress',
+      },
+    ]);
+  });
+
   it('returns an active single-step planner card for execute-plan docking', () => {
     const message: OperationMessage = {
       id: 'assistant-1',
