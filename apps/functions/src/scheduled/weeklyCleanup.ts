@@ -11,6 +11,25 @@ import { db } from '../firebase-admin';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions/v2';
 
+const BATCH_SIZE = 250;
+
+async function deleteQueryInBatches(query: FirebaseFirestore.Query): Promise<number> {
+  let totalDeleted = 0;
+
+  while (true) {
+    const snapshot = await query.limit(BATCH_SIZE).get();
+    if (snapshot.empty) {
+      return totalDeleted;
+    }
+
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+
+    totalDeleted += snapshot.size;
+  }
+}
+
 /**
  * Weekly cleanup - remove stale data
  */
@@ -28,30 +47,18 @@ export const weeklyCleanup = onSchedule(
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
       // Delete processed notifications older than 90 days
-      const oldNotifications = await db
-        .collection('Notifications')
-        .where('createdAt', '<', ninetyDaysAgo)
-        .limit(500)
-        .get();
+      const deletedNotifications = await deleteQueryInBatches(
+        db.collection('Notifications').where('createdAt', '<', ninetyDaysAgo)
+      );
 
-      const batch = db.batch();
-      oldNotifications.docs.forEach((doc) => batch.delete(doc.ref));
-      await batch.commit();
-
-      logger.info('Deleted processed notifications', { count: oldNotifications.size });
+      logger.info('Deleted processed notifications', { count: deletedNotifications });
 
       // Clean up expired sessions/tokens (90 days)
-      const expiredTokens = await db
-        .collection('FcmTokens')
-        .where('updatedAt', '<', ninetyDaysAgo)
-        .limit(500)
-        .get();
+      const deletedTokens = await deleteQueryInBatches(
+        db.collection('FcmTokens').where('updatedAt', '<', ninetyDaysAgo)
+      );
 
-      const tokenBatch = db.batch();
-      expiredTokens.docs.forEach((doc) => tokenBatch.delete(doc.ref));
-      await tokenBatch.commit();
-
-      logger.info('Deleted expired FCM tokens', { count: expiredTokens.size });
+      logger.info('Deleted expired FCM tokens', { count: deletedTokens });
       logger.info('Weekly cleanup complete');
     } catch (error) {
       logger.error('Weekly cleanup failed', { error });

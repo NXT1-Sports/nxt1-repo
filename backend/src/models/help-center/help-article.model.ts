@@ -52,6 +52,7 @@ const HELP_ARTICLE_MODEL_NAME = 'HelpArticle';
 const HelpArticleSchema = new Schema<HelpArticleDocument>(
   {
     slug: { type: String, required: true, unique: true, index: true },
+    legacySlugs: { type: [String], default: [] },
     title: { type: String, required: true },
     excerpt: { type: String, required: true },
     content: { type: String, required: true },
@@ -103,6 +104,9 @@ HelpArticleSchema.index(
 
 // Compound index for category listing
 HelpArticleSchema.index({ category: 1, isPublished: 1, publishedAt: -1 });
+
+// Resolve historical article URLs after slug dedupes or canonical renames.
+HelpArticleSchema.index({ legacySlugs: 1 }, { sparse: true });
 
 export function getHelpArticleModel(
   connection: Connection = getMongoGlobalConnection()
