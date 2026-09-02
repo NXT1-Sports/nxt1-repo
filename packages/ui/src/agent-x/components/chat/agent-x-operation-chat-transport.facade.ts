@@ -800,14 +800,30 @@ export class AgentXOperationChatTransportFacade {
             };
             const threadId = host.resolvedThreadId();
             if (threadId) this.streamRegistry.appendCard(threadId, card);
-            this.messageFacade.attachStreamedCard(
+            const yieldState = this.messageFacade.attachStreamedCard(
               streamingId,
               card,
               host.getCurrentOperationId() ?? host.contextId(),
               !!event.clearText
             );
+            if (yieldState) {
+              host.applyYieldState({
+                yieldState,
+                source: 'sse-operation',
+                operationId: this.resolveYieldOperationIdFromCardEvent(
+                  event,
+                  host.getCurrentOperationId() ?? host.contextId()
+                ),
+              });
+              if (yieldState.reason === 'needs_input') {
+                host.setOperationStatus('awaiting_input');
+                host.setActivityPhase('awaiting_input');
+              } else if (yieldState.reason === 'needs_approval') {
+                host.setOperationStatus('awaiting_approval');
+                host.setActivityPhase('awaiting_approval');
+              }
+            }
           },
-
           onOperation: (event) => {
             if (event.operationId) {
               host.setCurrentOperationId(event.operationId);
@@ -1277,6 +1293,15 @@ export class AgentXOperationChatTransportFacade {
 
     this.responseCompleteEmitted = true;
     host.emitResponseComplete();
+  }
+
+  private resolveYieldOperationIdFromCardEvent(
+    event: AgentXStreamCardEvent,
+    fallbackOperationId: string
+  ): string {
+    const payload = event.payload as { operationId?: unknown } | undefined;
+    const operationId = typeof payload?.operationId === 'string' ? payload.operationId.trim() : '';
+    return operationId || fallbackOperationId;
   }
 
   private scheduleOperationCompleteDoneFallback(params: {

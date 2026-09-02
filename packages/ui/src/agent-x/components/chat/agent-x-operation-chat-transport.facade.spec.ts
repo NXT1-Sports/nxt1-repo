@@ -115,6 +115,7 @@ describe('AgentXOperationChatTransportFacade', () => {
       activeYieldState: signal<AgentYieldState | null>(null),
       yieldResolved: signal(true),
       setExecutionMode: vi.fn(),
+      setShowApprovedExecutionPlanDock: vi.fn(),
       applyYieldState: vi.fn(),
       clearRealtimePipelines: vi.fn(),
       getActiveStream: vi.fn().mockReturnValue(null),
@@ -165,6 +166,58 @@ describe('AgentXOperationChatTransportFacade', () => {
 
     expect(agentXServiceMock.clearDropRecoveryOp).toHaveBeenCalledTimes(1);
     expect(host.setOperationStatus).toHaveBeenCalledWith('paused');
+
+    callbacks.onError({
+      error: 'Stop test stream',
+      status: 400,
+      code: 'TEST_STOP',
+    });
+
+    await expect(pendingStream).rejects.toThrow('Stop test stream');
+  });
+
+  it('applies an ask-user yield immediately when the card arrives before the operation event', async () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which team should I use?',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: 'ask_user:Which team should I use?',
+        toolInput: {
+          question: 'Which team should I use?',
+          threadId: 'thread-1',
+          operationId: 'op-card-first-ask-user-1',
+        },
+      },
+      messages: [],
+    };
+    messageFacadeMock.attachStreamedCard.mockReturnValueOnce(yieldState);
+
+    const pendingStream = facade.sendViaStream(
+      { message: 'Continue the workflow' } as AgentXChatRequest,
+      'token-123'
+    );
+
+    callbacks.onCard?.({
+      type: 'ask_user',
+      agentId: 'router',
+      title: 'Agent X has a question',
+      payload: {
+        question: 'Which team should I use?',
+        threadId: 'thread-1',
+        operationId: 'op-card-first-ask-user-1',
+      },
+      clearText: true,
+    });
+
+    expect(host.applyYieldState).toHaveBeenCalledWith({
+      yieldState,
+      source: 'sse-operation',
+      operationId: 'op-card-first-ask-user-1',
+    });
+    expect(host.setOperationStatus).toHaveBeenCalledWith('awaiting_input');
+    expect(host.setActivityPhase).toHaveBeenCalledWith('awaiting_input');
 
     callbacks.onError({
       error: 'Stop test stream',
@@ -229,6 +282,7 @@ describe('AgentXOperationChatTransportFacade', () => {
       undefined,
       undefined,
       'execute',
+      undefined,
       undefined,
       [
         {
