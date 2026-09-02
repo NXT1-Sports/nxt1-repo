@@ -166,9 +166,7 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
                     (load)="
                       markAttachmentPreviewSettled(contextPreviewReadyKey(context, previewUrl))
                     "
-                    (error)="
-                      markAttachmentPreviewSettled(contextPreviewReadyKey(context, previewUrl))
-                    "
+                    (error)="onContextPreviewError(context, previewUrl)"
                   />
                   @if (isContextVideo(context)) {
                     <div class="input-attachment-play-icon">
@@ -1125,6 +1123,7 @@ export class AgentXInputBarComponent {
   private swipeCurrentY: number | null = null;
   private menuLayoutFrameId: number | null = null;
   private readonly settledAttachmentPreviewKeys = signal<ReadonlySet<string>>(new Set());
+  private readonly failedContextPreviewUrls = signal<ReadonlySet<string>>(new Set());
 
   // ── Inputs ──
   readonly userMessage = input('');
@@ -1249,6 +1248,28 @@ export class AgentXInputBarComponent {
         }
 
         if (next.size === current.size && [...next].every((key) => current.has(key))) {
+          return current;
+        }
+
+        return next;
+      });
+
+      const activePreviewUrls = new Set<string>();
+      for (const context of this.pendingContexts()) {
+        for (const candidateUrl of this.contextPreviewCandidateUrls(context)) {
+          activePreviewUrls.add(candidateUrl);
+        }
+      }
+
+      this.failedContextPreviewUrls.update((current) => {
+        const next = new Set<string>();
+        for (const url of current) {
+          if (activePreviewUrls.has(url)) {
+            next.add(url);
+          }
+        }
+
+        if (next.size === current.size && [...next].every((url) => current.has(url))) {
           return current;
         }
 
@@ -1532,7 +1553,45 @@ export class AgentXInputBarComponent {
   }
 
   protected contextPreviewUrl(context: AgentXSelectedContext): string | null {
-    return context.media?.thumbnailUrl ?? context.media?.imageUrl ?? null;
+    const failedUrls = this.failedContextPreviewUrls();
+    return this.contextPreviewCandidateUrls(context).find((url) => !failedUrls.has(url)) ?? null;
+  }
+
+  protected onContextPreviewError(context: AgentXSelectedContext, previewUrl: string): void {
+    const normalizedUrl = previewUrl.trim();
+    if (!normalizedUrl) {
+      this.markAttachmentPreviewSettled(this.contextPreviewReadyKey(context, previewUrl));
+      return;
+    }
+
+    this.failedContextPreviewUrls.update((current) => {
+      if (current.has(normalizedUrl)) {
+        return current;
+      }
+
+      return new Set([...current, normalizedUrl]);
+    });
+
+    this.markAttachmentPreviewSettled(this.contextPreviewReadyKey(context, previewUrl));
+  }
+
+  private contextPreviewCandidateUrls(context: AgentXSelectedContext): readonly string[] {
+    const candidates = [
+      context.media?.thumbnailUrl,
+      context.media?.imageUrl,
+      this.cloudflareThumbnailUrl(context),
+    ];
+
+    return [...new Set(candidates.map((value) => value?.trim() ?? '').filter(Boolean))];
+  }
+
+  private cloudflareThumbnailUrl(context: AgentXSelectedContext): string | null {
+    const cloudflareVideoId = context.media?.cloudflareVideoId?.trim();
+    if (!cloudflareVideoId) {
+      return null;
+    }
+
+    return `https://videodelivery.net/${cloudflareVideoId}/thumbnails/thumbnail.jpg`;
   }
 
   protected pendingFileTrackId(file: AgentXPendingFile): string {

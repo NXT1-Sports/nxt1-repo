@@ -10803,6 +10803,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const fullSource = sourceId
       ? reviewSources.find((source) => source.id.trim() === sourceId)
       : undefined;
+    const currentVisibleSource =
+      this.selectedReview()?.id === review.id ? this.currentPlaybackSource() : null;
+    const thumbnailUrl =
+      playbackSource?.thumbnailUrl?.trim() ||
+      currentVisibleSource?.thumbnailUrl?.trim() ||
+      review.thumbnailUrl?.trim() ||
+      undefined;
     const sourceAngle = fullSource
       ? this.resolveSourceAngleMetadata(reviewSources, fullSource).cameraAngle
       : null;
@@ -10839,7 +10846,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       ],
       media: {
         ...(playbackSource?.videoUrl ? { videoUrl: playbackSource.videoUrl } : {}),
-        ...(playbackSource?.thumbnailUrl ? { thumbnailUrl: playbackSource.thumbnailUrl } : {}),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
         ...(playbackSource?.cloudflareVideoId
           ? { cloudflareVideoId: playbackSource.cloudflareVideoId }
           : {}),
