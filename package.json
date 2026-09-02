@@ -193,7 +193,7 @@
     "axios": "1.18.1",
     "follow-redirects": "1.16.0",
     "hono": ">=4.12.18",
-    "@xmldom/xmldom": "0.9.10",
+    "@xmldom/xmldom": "0.9.12",
     "less": "4.8.1",
     "ng-packagr": {
       "esbuild": "0.28.1"
