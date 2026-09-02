@@ -166,6 +166,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
   const deleteReview = vi.fn<AgentXFilmReviewService['deleteReview']>();
   const saveTimelinePlayAnnotations =
     vi.fn<AgentXFilmReviewService['saveTimelinePlayAnnotations']>();
+  const queueSelectedContext = vi.fn();
   const toastInfo = vi.fn();
   const toastError = vi.fn();
 
@@ -215,6 +216,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
     ensureReviewDetails.mockResolvedValue(undefined);
     deleteReview.mockResolvedValue(undefined);
     saveTimelinePlayAnnotations.mockResolvedValue(undefined);
+    queueSelectedContext.mockReset();
 
     TestBed.configureTestingModule({
       providers: [
@@ -245,7 +247,7 @@ describe('AgentXFilmReviewPanelComponent', () => {
           useValue: {
             hasRole: vi.fn().mockReturnValue(false),
             userContext: vi.fn(() => userContextSignal()),
-            queueSelectedContext: vi.fn(),
+            queueSelectedContext,
             queueSelectedContexts: vi.fn(),
           },
         },
@@ -387,6 +389,39 @@ describe('AgentXFilmReviewPanelComponent', () => {
       videoUrl: 'https://cdn.example.com/clip-020-wide.mp4',
       thumbnailUrl: 'https://cdn.example.com/clip-020-tight.jpg',
       cloudflareVideoId: 'wide-20-cf',
+    });
+  });
+
+  it('preserves opponent film metadata when queuing the current play for chat', async () => {
+    reviewSignal.set({
+      ...createReviewDoc(),
+      perspective: 'opponent',
+      opponentName: 'St. Edward',
+      timeline: [
+        {
+          id: 'play-1',
+          number: 1,
+          label: 'Boundary pressure look',
+          startSec: 0,
+          endSec: 6,
+          sourceId: 'source-1',
+        },
+      ],
+    });
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilmReviewPanelComponent());
+    const queued = await component.queueCurrentPlayContextForChat(false);
+
+    expect(queued).toBe(true);
+    expect(queueSelectedContext).toHaveBeenCalledTimes(1);
+    expect(queueSelectedContext.mock.calls[0]?.[0]).toMatchObject({
+      metadata: {
+        teamId: 'team-1',
+        sport: 'football',
+        perspective: 'opponent',
+        opponentName: 'St. Edward',
+        playNumber: 1,
+      },
     });
   });
 
