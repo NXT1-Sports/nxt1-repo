@@ -4796,6 +4796,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private readonly activeThreadRefreshKeys = new Set<string>();
   protected readonly mobileComposerCanSend = computed(() => this.agentX.canSend());
+
   private desktopSessionCounter = 0;
 
   // ============================================
@@ -5156,6 +5157,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return 'Select';
   });
   protected readonly activeContextPanelHint = computed<AgentXPanelHintKind | null>(() => {
+    const session = this.activeDesktopSession();
+    const defaultStartupChat = session?.contextId === 'agent-x-chat' && !this.desktopChatActive();
+    if (!session || defaultStartupChat) return null;
+
     const selection = this.panelMenuSelection();
     return selection === 'gameplans' ||
       selection === 'playbooks' ||

@@ -38,6 +38,10 @@ export class HelpCenterArticleComponent {
   private readonly routeParams = toSignal(this.route.paramMap);
   private readonly routeData = toSignal(this.route.data);
   protected readonly articleSlug = computed(() => this.routeParams()?.get('slug') ?? '');
+  protected readonly requestedArticleSlug = computed(() => {
+    const resolvedArticle = this.currentArticle();
+    return resolvedArticle?.slug ?? this.articleSlug();
+  });
   protected readonly currentArticle = computed(() => {
     const resolvedArticle = this.getResolvedArticle();
     return resolvedArticle !== undefined ? resolvedArticle : this.helpService.selectedArticle();
@@ -48,7 +52,7 @@ export class HelpCenterArticleComponent {
       const slug = this.articleSlug();
       const article = this.getResolvedArticle();
 
-      if (!slug || !article || article.slug !== slug) {
+      if (!slug || !article) {
         return;
       }
 
@@ -66,7 +70,7 @@ export class HelpCenterArticleComponent {
       }
 
       const resolvedArticle = this.getResolvedArticle();
-      if (resolvedArticle && resolvedArticle.slug === slug) {
+      if (resolvedArticle) {
         return;
       }
 
@@ -94,7 +98,7 @@ export class HelpCenterArticleComponent {
     // This ensures SSR captures real article metadata, not slug-derived placeholders.
     effect(() => {
       const article = this.helpService.selectedArticle();
-      if (!article || article.slug !== this.articleSlug()) return;
+      if (!article) return;
       this.applyArticleSeo(article);
     });
   }

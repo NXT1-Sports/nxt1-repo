@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.113.0",
+  "version": "1.114.0",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -41,6 +41,8 @@
     "migrate:weekly-recap-jobs:dry-run": "tsx scripts/data-migrations/migrate-weekly-recap-jobs.ts",
     "cleanup:analytics:lifecycle-noise": "tsx scripts/cleanup-analytics-lifecycle-noise.ts",
     "cleanup:analytics:lifecycle-noise:dry-run": "tsx scripts/cleanup-analytics-lifecycle-noise.ts --dry-run",
+    "cleanup:help-center-and-global-mongo-residue": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/cleanup-help-center-and-global-mongo-residue.ts",
+    "cleanup:help-center-and-global-mongo-residue:commit": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/cleanup-help-center-and-global-mongo-residue.ts --commit",
     "backfill:activity-badges": "tsx scripts/backfill-activity-badges.ts",
     "backfill:activity-badges:commit": "tsx scripts/backfill-activity-badges.ts --commit",
     "backfill:activity-badges:staging": "tsx scripts/backfill-activity-badges.ts --staging",

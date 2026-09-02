@@ -105,6 +105,8 @@ export interface HelpArticle {
   readonly id: string;
   /** URL-friendly slug */
   readonly slug: string;
+  /** Historical slugs that should continue resolving to this canonical article */
+  readonly legacySlugs?: string[];
   /** Article title */
   readonly title: string;
   /** Short description/excerpt */

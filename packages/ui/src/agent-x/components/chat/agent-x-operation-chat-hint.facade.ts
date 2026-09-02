@@ -20,6 +20,7 @@ const PANEL_HINT_AUTO_DISMISS_MS = 25_000;
 const FIRST_USER_RUN_HINT_DELAY_MS = 10_000;
 const FIRST_USER_RUN_HINT_AUTO_DISMISS_MS = 30_000;
 const FIRST_USER_RUN_HINT_KEY = 'FIRST_USER_RUN:leave-thread';
+const REMEMBERED_PANEL_HINTS = new Set<AgentXPanelHintKind>();
 
 const FIRST_USER_RUN_HINT: AgentXHintDockItem = {
   hintKey: FIRST_USER_RUN_HINT_KEY,
@@ -72,7 +73,9 @@ export class AgentXOperationChatHintFacade {
 
   // ─── Signals ────────────────────────────────────────────────────────────────
   private readonly _dismissedHints = signal<Set<string>>(new Set());
-  private readonly _shownPanelHints = signal<Set<AgentXPanelHintKind>>(new Set());
+  private readonly _shownPanelHints = signal<Set<AgentXPanelHintKind>>(
+    new Set(REMEMBERED_PANEL_HINTS)
+  );
   private readonly _activePanelHint = signal<AgentXHintDockItem | null>(null);
   private readonly _activeRuntimeHint = signal<AgentXHintDockItem | null>(null);
   private readonly _firstUserRunHintArmed = signal(false);
@@ -117,6 +120,7 @@ export class AgentXOperationChatHintFacade {
     if (this._shownPanelHints().has(panel)) return;
 
     const hintKey = this.panelHintKey(panel);
+    REMEMBERED_PANEL_HINTS.add(panel);
     this._shownPanelHints.update((shown) => new Set([...shown, panel]));
     this._activePanelHint.set({ hintKey, ...PANEL_HINTS[panel] });
     this.schedulePanelHintAutoDismiss(hintKey);
@@ -169,6 +173,7 @@ export class AgentXOperationChatHintFacade {
    * Reset all hints (for testing or session reset).
    */
   resetHints(): void {
+    REMEMBERED_PANEL_HINTS.clear();
     this._dismissedHints.set(new Set());
     this._shownPanelHints.set(new Set());
     this._activePanelHint.set(null);

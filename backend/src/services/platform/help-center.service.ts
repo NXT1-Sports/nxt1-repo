@@ -96,6 +96,13 @@ function dedupeArticleDocsByTitle(docs: unknown[]): unknown[] {
   return unique;
 }
 
+function buildArticleSlugFilter(slug: string): Record<string, unknown> {
+  return {
+    isPublished: true,
+    $or: [{ slug }, { legacySlugs: slug }],
+  };
+}
+
 /** Build user-type filter for MongoDB queries */
 // Role filtering removed — all content is open and public.
 function userTypeFilter(_userType?: string): Record<string, unknown> {
@@ -288,8 +295,9 @@ export async function getArticle(slug: string): Promise<HelpArticle | null> {
   const cached = await cache.get<HelpArticle>(cacheKey);
   if (cached) {
     // Increment view count in background (don't block response)
-    HelpArticleModel.updateOne({ slug }, { $inc: { viewCount: 1 } }).catch((err) =>
-      logger.error('[HelpCenter] Failed to increment view count', { slug, error: String(err) })
+    HelpArticleModel.updateOne(buildArticleSlugFilter(slug), { $inc: { viewCount: 1 } }).catch(
+      (err) =>
+        logger.error('[HelpCenter] Failed to increment view count', { slug, error: String(err) })
     );
     logger.info('[HelpCenter] ✅ Article cache HIT', { slug });
     return cached;
@@ -298,7 +306,7 @@ export async function getArticle(slug: string): Promise<HelpArticle | null> {
   logger.info('[HelpCenter] ❌ Article cache MISS', { slug });
 
   const doc = await HelpArticleModel.findOneAndUpdate(
-    { slug, isPublished: true },
+    buildArticleSlugFilter(slug),
     { $inc: { viewCount: 1 } },
     { returnDocument: 'after' }
   ).lean();

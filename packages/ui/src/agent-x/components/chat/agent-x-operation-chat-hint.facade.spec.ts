@@ -4,6 +4,11 @@ import { AgentXOperationChatHintFacade } from './agent-x-operation-chat-hint.fac
 
 describe('AgentXOperationChatHintFacade', () => {
   afterEach(() => {
+    try {
+      TestBed.inject(AgentXOperationChatHintFacade).resetHints();
+    } catch {
+      // No injector configured for this test.
+    }
     vi.useRealTimers();
     TestBed.resetTestingModule();
   });
@@ -70,6 +75,21 @@ describe('AgentXOperationChatHintFacade', () => {
         title: 'Practice Scripts',
       }),
     ]);
+  });
+
+  it('does not reshow a panel hint after the chat remounts', () => {
+    const facade = createFacade();
+
+    facade.showPanelHint('files');
+    expect(facade.shouldRenderDock()).toBe(true);
+
+    TestBed.resetTestingModule();
+
+    const remountedFacade = createFacade();
+    remountedFacade.showPanelHint('files');
+
+    expect(remountedFacade.shouldRenderDock()).toBe(false);
+    expect(remountedFacade.hints()).toEqual([]);
   });
 
   it('shows a delayed leave-thread hint for the first active user run', () => {
