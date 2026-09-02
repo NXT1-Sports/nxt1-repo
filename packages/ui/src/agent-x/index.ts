@@ -91,6 +91,7 @@ export {
   type ConnectedAppSource,
   type AttachmentSheetResult,
 } from './components/modals/agent-x-attachments-sheet.component';
+export { AgentXFilesSheetComponent } from './components/modals/agent-x-files-sheet.component';
 export {
   AgentXControlPanelStateService,
   AGENT_X_STATUS_DEFINITIONS,

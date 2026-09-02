@@ -35,6 +35,17 @@
   -webkit-backdrop-filter: blur(var(--nxt1-blur-sm, 4px));
 }
 
+.agent-x-files-sheet::part(content) {
+  height: 100%;
+  background: var(--nxt1-color-bg-primary);
+}
+
+.agent-x-files-sheet nxt1-agent-x-files-sheet {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
 /* ============================================
  * Bottom Sheet Modal - iOS-Specific
  * Apple HIG: 24px corner radius, system blur

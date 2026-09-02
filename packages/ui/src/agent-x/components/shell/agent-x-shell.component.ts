@@ -92,6 +92,7 @@ import {
   type ConnectedAccountsResyncSource,
   FirecrawlSignInService,
 } from '../../../components/connected-sources';
+import { TEST_IDS } from '@nxt1/core/testing';
 import { buildPendingAttachmentViewer } from '../../utils/pending-attachments-viewer.util';
 import {
   bindAgentXKeyboardOffset,
@@ -343,6 +344,16 @@ function sortCoordinatorCategories(
               >
                 <nxt1-icon name="link" [size]="14"></nxt1-icon>
                 <span class="w-[125px]">Connected Accounts</span>
+              </button>
+              <button
+                type="button"
+                class="inline-goals__manage-btn inline-goals__manage-btn--files"
+                aria-label="Open Agent X files"
+                [attr.data-testid]="testIds.BTN_OPEN_FILES"
+                (click)="openFilesSheet()"
+              >
+                <nxt1-icon name="folder" [size]="14"></nxt1-icon>
+                <span>Files</span>
               </button>
             </div>
 
@@ -1354,6 +1365,11 @@ function sortCoordinatorCategories(
         padding-inline: 14px;
       }
 
+      .inline-goals__manage-btn--files {
+        flex: 0.72 1 0;
+        justify-content: center;
+      }
+
       .inline-goals__manage-btn > nxt1-icon,
       .inline-goals__manage-btn > svg {
         flex-shrink: 0;
@@ -1363,6 +1379,8 @@ function sortCoordinatorCategories(
         min-width: 0;
         white-space: nowrap;
         line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       @media (max-width: 360px) {
@@ -1856,6 +1874,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** Agent X SVG logo path data for inline icon rendering. */
   protected readonly agentXLogoPath: string = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon: string = AGENT_X_LOGO_POLYGON;
+  protected readonly testIds = TEST_IDS.AGENT_X_SHELL;
 
   // ============================================
   // INPUTS
@@ -1887,6 +1906,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   protected readonly selectedEffortLevel = signal<AgentXEffortLevel>('medium');
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
+  private readonly filesInlineVideoViewState = signal(false);
 
   // ============================================
   // OUTPUTS
@@ -2149,6 +2169,54 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         resyncSources: result.sources ?? [],
       });
     }
+  }
+
+  protected async openFilesSheet(): Promise<void> {
+    await this.haptics.impact('light');
+
+    const user = this.user();
+    const { AgentXFilesSheetComponent } = await import('../modals/agent-x-files-sheet.component');
+
+    await this.bottomSheet.openSheet({
+      component: AgentXFilesSheetComponent,
+      componentProps: {
+        teamId: user?.activeTeamId ?? null,
+        role: user?.role ?? null,
+        sport: user?.activeSport ?? '',
+        enableDrawTool: true,
+        askAgentPromptHandler: (prompt: string) => {
+          void this.onFilesAskAgentPromptRequested(prompt);
+        },
+        inlineVideoViewChangeHandler: (isInlineVideoView: boolean) => {
+          this.onFilesInlineVideoViewChange(isInlineVideoView);
+        },
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-files-sheet',
+    });
+  }
+
+  protected onFilesInlineVideoViewChange(isInlineVideoView: boolean): void {
+    this.filesInlineVideoViewState.set(isInlineVideoView);
+  }
+
+  protected onFilesAskAgentPromptRequested(prompt: string): void {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) return;
+
+    void this.openOperationChat(
+      'agent-x-files',
+      'Files',
+      'folder',
+      'command',
+      [],
+      '',
+      '',
+      trimmedPrompt
+    );
   }
 
   protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
