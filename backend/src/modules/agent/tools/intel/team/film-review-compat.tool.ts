@@ -1684,14 +1684,31 @@ export class ListFilmReviewSourcesTool extends BaseTool {
       return { success: false, error: permission.error };
     }
 
+    const normalizedReview = normalizeReviewForResponse(review);
+    const ownershipSummary = normalizedReview.ownershipSummary;
+
     return {
       success: true,
       markdown:
         review.sources && review.sources.length > 0
-          ? `Loaded ${review.sources.length} film review source(s).`
-          : 'This film review has no source clips attached.',
+          ? `Loaded ${review.sources.length} film review source(s).${buildOwnershipClarificationMarkdown(
+              ownershipSummary
+            )}`
+          : `This film review has no source clips attached.${buildOwnershipClarificationMarkdown(
+              ownershipSummary
+            )}`,
       data: {
         filmReviewId: review.id,
+        review: {
+          id: normalizedReview.id,
+          title: normalizedReview.title,
+          teamId: normalizedReview.teamId,
+          sport: normalizedReview.sport,
+          perspective: normalizedReview.perspective,
+          opponentName: normalizedReview.opponentName,
+          uploadMode: normalizedReview.uploadMode,
+        },
+        ownershipSummary,
         sources: review.sources ?? [],
       },
     };

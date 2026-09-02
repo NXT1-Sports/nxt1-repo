@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { provideBrowserAuthProviders } from './core/providers/browser-auth.providers';
 import { provideWebShellProviders } from './core/providers/web-shell.providers';
 import { matchAuthenticatedAgentXLayout } from './core/routing/agent-x-layout.matchers';
+import { provideReleaseNotesCheck } from './core/services/state/release-notes.initializer';
 import { authGuard } from './features/auth/guards/auth.guards';
 
 export const APP_SHELL_ROUTES: Routes = [
@@ -14,6 +15,7 @@ export const APP_SHELL_ROUTES: Routes = [
       {
         path: 'agent-x',
         canMatch: [matchAuthenticatedAgentXLayout],
+        providers: [provideReleaseNotesCheck()],
         title: 'NXT1 Agent X | AI Command Center for Sports',
         loadComponent: () =>
           import('./features/agent-x/agent-x.component').then((m) => m.AgentXComponent),

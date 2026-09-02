@@ -39,6 +39,7 @@ type ReleaseThemeDefinition = {
   readonly key: string;
   readonly category: ReleaseThemeCategory;
   readonly summaryTopic: string;
+  readonly headline?: string;
   readonly userVisible: boolean;
   readonly matcher: (entry: CommitEntry) => boolean;
   readonly phrase: (entry: CommitEntry) => string;
@@ -48,6 +49,7 @@ type ReleaseThemeGroup = {
   readonly key: string;
   readonly category: ReleaseThemeCategory;
   readonly summaryTopic: string;
+  readonly headline?: string;
   readonly userVisible: boolean;
   readonly phrase: string;
 };
@@ -98,32 +100,99 @@ const RELEASE_THEME_DEFINITIONS: readonly ReleaseThemeDefinition[] = [
   {
     key: 'gamma-exports',
     category: 'features',
-    summaryTopic: 'smoother exports',
+    summaryTopic: 'smoother staff exports',
+    headline: 'Faster Staff Exports',
     userVisible: true,
     matcher: (entry) =>
       subjectIncludes(entry, /gamma|export/) ||
       filesInclude(entry, 'gamma-client') ||
       filesInclude(entry, 'dynamic-export'),
     phrase: () =>
-      'Exports now move through the new Gamma delivery flow for a cleaner, more reliable handoff.',
+      'Exporting materials like playbooks, call sheets, and staff reports is faster with cleaner document delivery.',
   },
   {
     key: 'agent-refresh',
     category: 'features',
-    summaryTopic: 'fresher Agent X panels',
+    summaryTopic: 'live Agent X panels',
+    headline: 'Agent X Workflow Updates',
     userVisible: true,
     matcher: (entry) => subjectIncludes(entry, /background-refresh|background refresh/),
     phrase: () =>
-      'Agent X panels now refresh in the background so information stays current while you keep working.',
+      'Agent X dashboards and status panels update seamlessly in the background so you can stay focused on your work.',
+  },
+  {
+    key: 'agent-file-action-labels',
+    category: 'enhancements',
+    summaryTopic: 'clearer action buttons',
+    headline: 'Agent X Workflow Updates',
+    userVisible: true,
+    matcher: (entry) => subjectIncludes(entry, /file action labels|action labels/),
+    phrase: () =>
+      'File actions and options in Agent X now have clearer labels so coaches and staff know exactly what each action does before clicking.',
+  },
+  {
+    key: 'film-review-ux',
+    category: 'enhancements',
+    summaryTopic: 'smoother Film Review in The Lab',
+    headline: 'Film Review in The Lab',
+    userVisible: true,
+    matcher: (entry) =>
+      subjectIncludes(
+        entry,
+        /film review video controls|clip context thumbnails|hudl film intake/
+      ) ||
+      filesInclude(entry, 'film-review') ||
+      filesInclude(entry, 'the-lab'),
+    phrase: () =>
+      'Film Review in The Lab is now faster and more responsive — video controls are cleaner, clip scrubbing is smoother, and we’re actively rolling out even more film breakdown tools next.',
+  },
+  {
+    key: 'agent-conversation-flow',
+    category: 'fixes',
+    summaryTopic: 'steadier Agent X workflows',
+    headline: 'Agent X Workflow Updates',
+    userVisible: true,
+    matcher: (entry) =>
+      subjectIncludes(
+        entry,
+        /plan resume flow|ask[_ -]?user yields|unlock agent x composer|ask user tool live|email approvals/
+      ) ||
+      filesInclude(entry, 'ask-user') ||
+      filesInclude(entry, 'agent-x'),
+    phrase: () =>
+      'Agent X won’t stall when asking for your feedback or input — approvals, drafts, and plan resumes keep moving without getting stuck.',
+  },
+  {
+    key: 'pptx-document-support',
+    category: 'features',
+    summaryTopic: 'PowerPoint document intelligence',
+    headline: 'Document Intelligence',
+    userVisible: true,
+    matcher: (entry) => subjectIncludes(entry, /pptx support|powerpoint|document enrichment/),
+    phrase: () =>
+      'Agent X can now read and extract useful context directly from PowerPoint presentations to help build scouting notes and meeting materials.',
+  },
+  {
+    key: 'runway-playback',
+    category: 'fixes',
+    summaryTopic: 'smoother media playback',
+    headline: 'Media & Highlight Playback',
+    userVisible: true,
+    matcher: (entry) =>
+      subjectIncludes(entry, /runway playback|firebase buckets/) ||
+      (subjectIncludes(entry, /runway/) && subjectIncludes(entry, /playback/)),
+    phrase: () =>
+      'Motion graphics and AI-generated video clips now replay smoothly across all devices without broken preview links or buffering.',
   },
   {
     key: 'zip-uploads',
     category: 'features',
     summaryTopic: 'more reliable large uploads',
+    headline: 'Film & Media Uploads',
     userVisible: true,
     matcher: (entry) => subjectIncludes(entry, /zip file uploads|lazy-extraction|lazy extraction/),
     phrase: () =>
-      'Large ZIP uploads now process more smoothly with better handling behind the scenes.',
+      'Uploading large batches of film and team assets in ZIP files is now much smoother and less likely to drop.',
   },
   {
     key: 'foundation-branding',
@@ -136,14 +205,15 @@ const RELEASE_THEME_DEFINITIONS: readonly ReleaseThemeDefinition[] = [
   {
     key: 'agent-job-uploads',
     category: 'fixes',
-    summaryTopic: 'more dependable Agent X work',
+    summaryTopic: 'dependable long-running tasks',
+    headline: 'Agent X Reliability',
     userVisible: true,
     matcher: (entry) =>
       subjectIncludes(entry, /spillover|large uploads|notes preservation/) ||
       filesInclude(entry, 'agent-media-lifecycle') ||
       filesInclude(entry, 'job.repository'),
     phrase: () =>
-      'Large uploads and long-running Agent X tasks are now more reliable, with better preservation of in-progress notes.',
+      'Longer background tasks and heavy media uploads are significantly more reliable, preserving your draft notes and progress.',
   },
   {
     key: 'usage-multiplier',
@@ -175,40 +245,46 @@ const RELEASE_THEME_DEFINITIONS: readonly ReleaseThemeDefinition[] = [
   {
     key: 'settings-access',
     category: 'fixes',
-    summaryTopic: 'more reliable settings access',
+    summaryTopic: 'faster account settings',
+    headline: 'Account Settings',
     userVisible: true,
     matcher: (entry) =>
       subjectIncludes(entry, /protect settings route|email link/) ||
       filesInclude(entry, '/settings/'),
-    phrase: () => 'Settings access and related email links are now more reliable.',
+    phrase: () =>
+      'Account settings and magic link security flows load faster and more consistently.',
   },
   {
     key: 'video-thumbnails',
     category: 'fixes',
-    summaryTopic: 'steadier media handling',
+    summaryTopic: 'faster video thumbnails',
+    headline: 'Media Library',
     userVisible: true,
     matcher: (entry) =>
       subjectIncludes(entry, /video thumbnail|thumbnail generation/) ||
       filesInclude(entry, 'video-thumbnail'),
     phrase: () =>
-      'Video thumbnail generation now fails fast instead of hanging the browser during slow processing.',
+      'Video and clip thumbnails now generate faster across your feed and library without freezing playback.',
   },
   {
     key: 'film-review-panel',
     category: 'fixes',
-    summaryTopic: 'smoother film review',
+    summaryTopic: 'smoother Film Review in The Lab',
+    headline: 'Film Review in The Lab',
     userVisible: true,
     matcher: (entry) => subjectIncludes(entry, /film review panel|chat interactions/),
     phrase: () =>
-      'Film review stays smoother during chat interactions with fewer unnecessary rerenders.',
+      'Film review playback remains smooth and responsive during chat interactions with no unnecessary screen flicker.',
   },
   {
     key: 'thread-history',
     category: 'fixes',
-    summaryTopic: 'more reliable thread history',
+    summaryTopic: 'instant conversation history',
+    headline: 'Agent X Conversations',
     userVisible: true,
     matcher: (entry) => subjectIncludes(entry, /resumed thread history|thread history/),
-    phrase: () => 'Resumed Agent X threads now restore conversation history more reliably.',
+    phrase: () =>
+      'Resuming previous conversations with Agent X instantly restores your full chat history and context.',
   },
 ];
 
@@ -485,6 +561,7 @@ function inferTheme(entry: CommitEntry): ReleaseThemeGroup {
       key: definition.key,
       category: definition.category,
       summaryTopic: definition.summaryTopic,
+      headline: definition.headline,
       userVisible: definition.userVisible,
       phrase: definition.phrase(entry),
     };
@@ -494,6 +571,7 @@ function inferTheme(entry: CommitEntry): ReleaseThemeGroup {
     key: `generic:${normalizeSubject(entry.subject).toLowerCase()}`,
     category: classifySubject(entry.subject),
     summaryTopic: 'platform improvements',
+    headline: 'NXT1 Product Updates',
     userVisible: isUserFacingGenericEntry(entry),
     phrase: buildGenericPhrase(entry),
   };
@@ -543,14 +621,47 @@ function buildCategories(entries: readonly CommitEntry[]): {
   return { categories, themes };
 }
 
+function toHeadlineCase(value: string): string {
+  return value.replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function buildTitle(themes: readonly ReleaseThemeGroup[]): string {
+  const headlines = Array.from(
+    new Set(themes.map((theme) => theme.headline ?? toHeadlineCase(theme.summaryTopic)))
+  )
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (headlines.length === 0) {
+    return 'Coach Notes: Product Updates';
+  }
+
+  if (
+    headlines.some((headline) => headline.includes('Agent X')) &&
+    headlines.some((headline) => headline.includes('Film Review'))
+  ) {
+    return 'Coach Notes: Film Review & Agent X';
+  }
+
+  if (headlines.length === 1) {
+    return `Coach Notes: ${headlines[0] ?? 'Product Updates'}`;
+  }
+
+  return `Coach Notes: ${headlines[0]} & ${headlines[1]}`;
+}
+
 function buildSummary(version: string, themes: readonly ReleaseThemeGroup[]): string {
   const topics = Array.from(new Set(themes.map((theme) => theme.summaryTopic))).slice(0, 3);
 
   if (topics.length === 0) {
-    return `In v${version}, NXT1 delivers a focused set of product improvements.`;
+    return `In v${version}, we focused on making daily workflows faster, cleaner, and more reliable for coaches, staff, and athletes.`;
   }
 
-  return `In v${version}, NXT1 brings ${listToSentence(topics)}.`;
+  if (topics.some((t) => t.includes('Film Review'))) {
+    return `In v${version}, we focused on speeding up daily work for coaches and staff — with cleaner Film Review in The Lab, steadier Agent X workflows, and more film breakdown upgrades actively rolling out.`;
+  }
+
+  return `In v${version}, we focused on helping coaches and athletes move faster with ${listToSentence(topics)}.`;
 }
 
 export async function generateWeeklyReleaseNotes(
@@ -630,7 +741,7 @@ export async function generateWeeklyReleaseNotes(
   const note: StoredReleaseNote = {
     id: noteId,
     version,
-    title: 'NXT1 Platform Updates',
+    title: buildTitle(themes),
     summary: buildSummary(version, themes),
     releaseDate: timestamp,
     categories,

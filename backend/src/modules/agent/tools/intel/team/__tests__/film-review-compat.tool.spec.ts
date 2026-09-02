@@ -345,6 +345,53 @@ describe('film review compatibility tools', () => {
     });
   });
 
+  it('preserves ownership clarification when listing ambiguous review sources', async () => {
+    const db = createDb([
+      makeFilmReviewFile('review-ambiguous', {
+        payload: {
+          filmReview: {
+            uploadMode: 'single_video',
+            videoUrl: 'https://cdn.example.com/video.mp4',
+            source: 'team_files',
+            schemaVersion: 2,
+            sources: [
+              {
+                id: 'source-1',
+                order: 0,
+                title: 'Video 2026',
+                videoUrl: 'https://cdn.example.com/video.mp4',
+              },
+            ],
+            timeline: [
+              {
+                id: 'play-1',
+                number: 1,
+                label: '1st and 10 run right',
+                startSec: 10,
+                endSec: 18,
+                sourceId: 'source-1',
+                tags: { odk: 'O', playType: 'Run' },
+              },
+            ],
+          },
+        },
+      }),
+    ]);
+    const tool = new ListFilmReviewSourcesTool(db as never);
+
+    const result = await tool.execute({ filmReviewId: 'review-ambiguous' }, { userId: 'coach-1' });
+
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('STOP: ownership clarification required');
+    const data = result.data as {
+      review: { perspective?: string | null; opponentName?: string | null };
+      ownershipSummary: { confidenceCounts: { ambiguous: number } };
+    };
+    expect(data.ownershipSummary.confidenceCounts.ambiguous).toBe(1);
+    expect(data.review.perspective).toBeUndefined();
+    expect(data.review.opponentName).toBeUndefined();
+  });
+
   it('lists film reviews across film_review and classified file records', async () => {
     const directFilmReviewDoc: MockDoc = {
       id: 'review-2',

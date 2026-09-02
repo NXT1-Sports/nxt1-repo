@@ -12181,17 +12181,34 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const startSec = currentPlay?.startSec ?? Math.max(0, currentTimeSec - 2);
     const endSec = currentPlay?.endSec ?? Math.max(startSec + 2, currentTimeSec + 2);
+    const reviewTitle = this.getReviewDisplayTitle(review);
+    const playbackSource = this.currentPlaybackSource();
+    const sourceId = playbackSource?.id?.trim() || currentPlay.sourceId?.trim() || null;
+    const sourceTitle = playbackSource?.title?.trim() || null;
+    const perspective = this.normalizeAgentPerspective(review.perspective);
 
     const context: AgentXSelectedContext = {
       id: `film-play:${review.id}:${currentPlay?.id ?? Math.round(startSec)}`,
       kind: 'film_play',
-      title: `${this.getReviewDisplayTitle(review)} @ ${this.formatTime(startSec)}`,
+      title: `${reviewTitle} @ ${this.formatTime(startSec)}`,
       ...(currentPlay?.label ? { summary: currentPlay.label } : {}),
       source: {
         type: 'film_review',
         id: review.id,
-        label: this.getReviewDisplayTitle(review),
+        label: reviewTitle,
       },
+      entityRefs: [
+        { type: 'film_review', id: review.id, label: reviewTitle },
+        ...(sourceId
+          ? [
+              {
+                type: 'film_review_source' as const,
+                id: sourceId,
+                ...(sourceTitle ? { label: sourceTitle } : {}),
+              },
+            ]
+          : []),
+      ],
       timeRange: {
         startSec,
         endSec,
@@ -12201,10 +12218,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         ...(review.thumbnailUrl ? { thumbnailUrl: review.thumbnailUrl } : {}),
         ...(review.cloudflareVideoId ? { cloudflareVideoId: review.cloudflareVideoId } : {}),
       },
-      metadata: {
+      metadata: this.compactContextMetadata({
+        itemType: 'film_timeline_play',
+        teamId: review.teamId,
+        sport: review.sport,
+        perspective,
+        opponentName: review.opponentName,
+        cloudflareVideoId: playbackSource?.cloudflareVideoId ?? review.cloudflareVideoId,
+        sourceId,
+        sourceTitle,
+        sourceStoragePath: playbackSource?.storagePath?.trim() || null,
         currentTimeSec,
         ...(typeof currentPlay?.number === 'number' ? { playNumber: currentPlay.number } : {}),
-      },
+      }),
     };
 
     this.agentXService.queueSelectedContext(context);
