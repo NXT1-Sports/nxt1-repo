@@ -14,6 +14,11 @@ dotenv({ path: path.join(backendRoot, '.env.local'), override: true });
 type TargetEnvironment = 'staging' | 'production';
 
 function getArgValue(flag: string): string | undefined {
+  const inlineArg = process.argv.find((arg) => arg.startsWith(`${flag}=`));
+  if (inlineArg) {
+    return inlineArg.slice(flag.length + 1);
+  }
+
   const index = process.argv.indexOf(flag);
   if (index < 0) return undefined;
   return process.argv[index + 1];

@@ -209,6 +209,8 @@ export class AppComponent {
   private hasPerformedInitialNavigation = false;
   /** Prevent duplicate initial access resolution */
   private hasStartedInitialAccess = false;
+  /** Prevent duplicate release-note checks during a session. */
+  private hasAttemptedReleaseNotesPrompt = false;
 
   protected readonly accessResolved = signal(false);
   protected readonly requiresBiometricUnlock = signal(false);
@@ -238,7 +240,9 @@ export class AppComponent {
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe((event) => {
         this.logger.debug('Navigation completed', { url: event.url });
-        this.analytics?.trackPageView(event.urlAfterRedirects || event.url);
+        const url = event.urlAfterRedirects || event.url;
+        this.analytics?.trackPageView(url);
+        this.maybePromptReleaseNotes(url);
       });
 
     // Handle initial navigation after auth initializes
@@ -258,6 +262,18 @@ export class AppComponent {
 
       this.hasStartedInitialAccess = true;
       void this.resolveInitialAccess(user);
+    });
+
+    effect(() => {
+      const isInitialized = this.authFlow.isInitialized();
+      const isLoading = this.authFlow.isLoading();
+      const user = this.authFlow.user();
+
+      if (!isInitialized || isLoading || !user) {
+        return;
+      }
+
+      this.maybePromptReleaseNotes(this.router.url);
     });
 
     // Use afterNextRender for proper SSR safety (though mobile doesn't have SSR, good practice)
@@ -343,17 +359,6 @@ export class AppComponent {
             this.deepLink.processPendingDeepLink();
           }, 300);
           // ── END TIMING FIX ────────────────────────────────────────────────────
-
-          // Check for new release notes and show What's New modal if needed.
-          const rawPrefs = (user as unknown as Record<string, unknown>)?.['preferences'] as
-            | Record<string, unknown>
-            | undefined;
-          const lastSeenVersion = rawPrefs?.['lastSeenReleaseVersion'] as string | undefined;
-          void this.releaseNotesModal.checkAndPrompt(
-            () => this.releaseNotesApi.getLatest(),
-            lastSeenVersion ?? null,
-            (version) => this.releaseNotesApi.markSeen(version)
-          );
         })
         .catch((err) => {
           this.logger.error('Navigation to home failed', err);
@@ -388,6 +393,36 @@ export class AppComponent {
     }
 
     return this.promptForBiometricUnlock();
+  }
+
+  private maybePromptReleaseNotes(url: string): void {
+    if (this.hasAttemptedReleaseNotesPrompt || !this.isAgentXRoute(url)) {
+      return;
+    }
+
+    const user = this.authFlow.user();
+    if (!user || !user.hasCompletedOnboarding) {
+      return;
+    }
+
+    const rawPrefs = (user as unknown as Record<string, unknown>)['preferences'] as
+      | Record<string, unknown>
+      | undefined;
+    const lastSeenVersion = rawPrefs?.['lastSeenReleaseVersion'] as string | undefined;
+
+    this.hasAttemptedReleaseNotesPrompt = true;
+    void this.releaseNotesModal.checkAndPrompt(
+      () => this.releaseNotesApi.getLatest(),
+      lastSeenVersion ?? null,
+      (version) => this.releaseNotesApi.markSeen(version)
+    );
+  }
+
+  private isAgentXRoute(url: string): boolean {
+    const [pathWithNoHash] = url.split('#');
+    const [pathname] = (pathWithNoHash ?? url).split('?');
+    const normalizedPath = pathname.replace(/\/$/, '');
+    return normalizedPath === '/agent-x';
   }
 
   private async shouldRequireBiometricUnlock(

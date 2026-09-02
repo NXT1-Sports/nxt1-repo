@@ -52,6 +52,9 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
               <span class="rn-version-number">v{{ note.version }}</span>
             </div>
           </div>
+          @if (note.title) {
+            <h2 class="rn-title" [attr.data-testid]="testIds.TITLE">{{ note.title }}</h2>
+          }
           @if (note.summary) {
             <p class="rn-summary" [attr.data-testid]="testIds.SUMMARY">{{ note.summary }}</p>
           }
@@ -187,6 +190,15 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         line-height: 1.5;
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
         max-width: 36rem;
+      }
+      .rn-title {
+        margin: 4px 0 0;
+        font-size: 1.35rem;
+        line-height: 1.15;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        color: var(--nxt1-color-text-primary, #fff);
+        max-width: 28rem;
       }
       .rn-sections {
         display: flex;

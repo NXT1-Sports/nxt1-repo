@@ -28,7 +28,6 @@ import { AuthFlowService } from '../services/auth/auth-flow.service';
 import { FileUploadService } from '../services/web/file-upload.service';
 import { WebEmailConnectionService } from '../services/web/email-connection.service';
 import { provideBadgeBridge } from '../services/state/badge-bridge.initializer';
-import { provideReleaseNotesCheck } from '../services/state/release-notes.initializer';
 import { provideWebPush } from '../services/web/web-push.service';
 import { HelpCenterApiService } from '../services/api/help-center-api.service';
 import { FeedEngagementWebService } from '../services/web/feed-engagement.service';
@@ -254,7 +253,6 @@ export function provideWebShellProviders() {
       deps: [Auth],
     },
     provideBadgeBridge(),
-    provideReleaseNotesCheck(),
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiURL },
     { provide: USAGE_API_BASE_URL, useFactory: () => environment.apiURL },
     { provide: STRIPE_PUBLISHABLE_KEY, useFactory: () => environment.stripePublishableKey },
