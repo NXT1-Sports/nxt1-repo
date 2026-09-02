@@ -160,10 +160,84 @@ type ChatActivityPhase =
   | 'failed'
   | 'cancelled';
 
+interface DesktopComposerQuickPrompt {
+  readonly id: string;
+  readonly label: string;
+}
+
+type DesktopComposerQuickPromptWheelPosition = 'previous' | 'active' | 'next';
+
+interface DesktopComposerQuickPromptWheelItem {
+  readonly prompt: DesktopComposerQuickPrompt;
+  readonly position: DesktopComposerQuickPromptWheelPosition;
+}
+
+type DesktopComposerQuickPromptRole = 'athlete' | 'coach' | 'director' | 'general';
+
 const DEFAULT_SPORTY_ACTIVITY_LABELS = [
   'Agent X is in your corner...',
   'Standing by for the next play...',
 ] as const;
+
+const DESKTOP_COMPOSER_QUICK_PROMPTS_BY_ROLE: Record<
+  DesktopComposerQuickPromptRole,
+  readonly DesktopComposerQuickPrompt[]
+> = {
+  athlete: [
+    { id: 'athlete-capabilities', label: 'What all can you do for me?' },
+    { id: 'athlete-profile', label: 'How do I improve my profile?' },
+    { id: 'athlete-film', label: 'How do I upload film?' },
+    { id: 'athlete-highlights', label: 'Where do I manage highlights?' },
+    { id: 'athlete-recruiting', label: 'How does recruiting work here?' },
+    { id: 'athlete-goals', label: 'Where do I set my goals?' },
+    { id: 'athlete-progress', label: 'How do I track progress?' },
+    { id: 'athlete-accounts', label: 'How do I connect my accounts?' },
+    { id: 'athlete-files', label: 'Where are my files stored?' },
+    { id: 'athlete-help', label: 'What should I try first?' },
+  ],
+  coach: [
+    { id: 'coach-capabilities', label: 'What all can you do for me?' },
+    { id: 'coach-team', label: 'How do I set up my team?' },
+    { id: 'coach-roster', label: 'How do I manage my roster?' },
+    { id: 'coach-film', label: 'How do I review team film?' },
+    { id: 'coach-playbooks', label: 'Where do I manage playbooks?' },
+    { id: 'coach-practice', label: 'How do practice scripts work?' },
+    { id: 'coach-invites', label: 'How do I invite athletes?' },
+    { id: 'coach-files', label: 'Where are team files stored?' },
+    { id: 'coach-accounts', label: 'How do I connect team accounts?' },
+    { id: 'coach-help', label: 'What should coaches try first?' },
+  ],
+  director: [
+    { id: 'director-capabilities', label: 'What all can you do for me?' },
+    { id: 'director-program', label: 'How do I set up my program?' },
+    { id: 'director-teams', label: 'How do I manage teams?' },
+    { id: 'director-staff', label: 'How do I manage staff access?' },
+    { id: 'director-athletes', label: 'How do I oversee athletes?' },
+    { id: 'director-files', label: 'Where are program files stored?' },
+    { id: 'director-analytics', label: 'Where do I view analytics?' },
+    { id: 'director-usage', label: 'How do usage controls work?' },
+    { id: 'director-workflows', label: 'How do workflows work?' },
+    { id: 'director-help', label: 'What should directors try first?' },
+  ],
+  general: [
+    { id: 'general-capabilities', label: 'What all can you do for me?' },
+    { id: 'general-agent-x', label: 'How do I use Agent X?' },
+    { id: 'general-profile', label: 'Where do I update my profile?' },
+    { id: 'general-files', label: 'Where are my files stored?' },
+    { id: 'general-film', label: 'How does film review work?' },
+    { id: 'general-accounts', label: 'How do I connect accounts?' },
+    { id: 'general-teams', label: 'How do teams work?' },
+    { id: 'general-settings', label: 'Where are my settings?' },
+    { id: 'general-usage', label: 'How does usage work?' },
+    { id: 'general-help', label: 'What should I try first?' },
+  ],
+};
+
+const DESKTOP_COMPOSER_QUICK_PROMPT_TEST_IDS = {
+  ROOT: 'agent-op-chat-desktop-quick-prompts',
+} as const;
+
+const DESKTOP_COMPOSER_QUICK_PROMPT_ROTATION_MS = 3_200;
 
 const SPORTY_ACTIVITY_LABELS: Partial<Record<ChatActivityPhase, readonly string[]>> = {
   sending: ['Getting started...', 'Preparing to execute...'],
@@ -801,6 +875,51 @@ export function normalizeExecutionPlanItemsForActiveResume(
           />
         }
 
+        @if (shouldShowDesktopComposerQuickPrompts()) {
+          <div
+            class="desktop-composer-quick-prompts"
+            role="group"
+            aria-label="Quick prompts"
+            [attr.data-testid]="desktopComposerQuickPromptsTestId"
+          >
+            <div class="desktop-composer-quick-prompts__wheel" aria-live="polite">
+              @for (item of visibleDesktopComposerQuickPrompts(); track item.prompt.id) {
+                <button
+                  type="button"
+                  class="desktop-composer-quick-prompt"
+                  [class.desktop-composer-quick-prompt--active]="item.position === 'active'"
+                  [class.desktop-composer-quick-prompt--previous]="item.position === 'previous'"
+                  [class.desktop-composer-quick-prompt--next]="item.position === 'next'"
+                  [attr.aria-current]="item.position === 'active' ? 'true' : null"
+                  [attr.data-testid]="desktopQuickPromptTestId(item.prompt.id)"
+                  (click)="applyDesktopComposerQuickPrompt(item.prompt.label)"
+                >
+                  {{ item.prompt.label }}
+                </button>
+              }
+            </div>
+
+            <div class="desktop-composer-quick-prompts__controls" aria-label="Rotate quick prompts">
+              <button
+                type="button"
+                class="desktop-composer-quick-prompts__control desktop-composer-quick-prompts__control--up"
+                aria-label="Show previous quick prompt"
+                (click)="rotateDesktopComposerQuickPrompts(-1)"
+              >
+                <nxt1-icon name="chevronDown" [size]="14" />
+              </button>
+              <button
+                type="button"
+                class="desktop-composer-quick-prompts__control"
+                aria-label="Show next quick prompt"
+                (click)="rotateDesktopComposerQuickPrompts(1)"
+              >
+                <nxt1-icon name="chevronDown" [size]="14" />
+              </button>
+            </div>
+          </div>
+        }
+
         <nxt1-agent-x-input-bar
           [userMessage]="inputValue()"
           [isLoading]="isComposerOperationInFlight()"
@@ -1276,6 +1395,142 @@ export function normalizeExecutionPlanItemsForActiveResume(
         background: transparent;
         transform: translateY(calc(-1 * var(--agent-keyboard-offset, 0px)));
         transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      }
+
+      .desktop-composer-quick-prompts {
+        display: none;
+      }
+
+      @media (min-width: 769px) {
+        .desktop-composer-quick-prompts {
+          display: flex;
+          align-items: center;
+          justify-content: flex-start;
+          width: min(520px, calc(100% - 36px));
+          margin: 0 18px 10px;
+          gap: 10px;
+        }
+
+        .desktop-composer-quick-prompts__wheel {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
+          perspective: 620px;
+        }
+
+        .desktop-composer-quick-prompt {
+          display: inline-flex;
+          align-items: center;
+          justify-content: flex-start;
+          width: min(430px, 100%);
+          min-height: 40px;
+          padding: 10px 14px;
+          border: 1px solid var(--op-border);
+          border-radius: 14px;
+          background: var(--op-surface);
+          color: var(--op-text);
+          text-align: left;
+          font: inherit;
+          font-size: 12px;
+          font-weight: 600;
+          line-height: 1.35;
+          letter-spacing: 0.01em;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          cursor: pointer;
+          box-shadow:
+            0 8px 24px rgba(0, 0, 0, 0.12),
+            0 0 0 1px var(--op-border);
+          backdrop-filter: saturate(160%) blur(14px);
+          -webkit-backdrop-filter: saturate(160%) blur(14px);
+          transition:
+            transform 0.18s ease,
+            border-color 0.18s ease,
+            background 0.18s ease,
+            box-shadow 0.18s ease,
+            opacity 0.18s ease,
+            color 0.18s ease;
+        }
+
+        .desktop-composer-quick-prompt--previous,
+        .desktop-composer-quick-prompt--next {
+          opacity: 0.5;
+          color: var(--op-text-secondary);
+          box-shadow:
+            0 5px 16px rgba(0, 0, 0, 0.08),
+            0 0 0 1px color-mix(in srgb, var(--op-border) 72%, transparent);
+        }
+
+        .desktop-composer-quick-prompt--previous {
+          transform: translateX(8px) scale(0.94) rotateX(12deg);
+        }
+
+        .desktop-composer-quick-prompt--active {
+          opacity: 1;
+          transform: translateX(0) scale(1);
+        }
+
+        .desktop-composer-quick-prompt--next {
+          transform: translateX(8px) scale(0.94) rotateX(-12deg);
+        }
+
+        .desktop-composer-quick-prompt:active {
+          transform: translateY(1px) scale(0.99);
+        }
+
+        .desktop-composer-quick-prompt:hover,
+        .desktop-composer-quick-prompt:focus-visible {
+          outline: none;
+          color: var(--op-primary);
+          border-color: color-mix(in srgb, var(--op-primary) 42%, var(--op-border));
+          background: color-mix(in srgb, var(--op-primary-glow) 58%, var(--op-surface));
+          transform: translateY(-1px);
+          box-shadow: 0 12px 28px color-mix(in srgb, var(--op-primary) 12%, transparent);
+        }
+
+        .desktop-composer-quick-prompts__controls {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .desktop-composer-quick-prompts__control {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 32px;
+          height: 32px;
+          border: 1px solid var(--op-border);
+          border-radius: 14px;
+          background: var(--op-surface);
+          color: var(--op-text-secondary);
+          cursor: pointer;
+          box-shadow:
+            0 8px 24px rgba(0, 0, 0, 0.12),
+            0 0 0 1px var(--op-border);
+          backdrop-filter: saturate(160%) blur(14px);
+          -webkit-backdrop-filter: saturate(160%) blur(14px);
+          transition:
+            transform 0.18s ease,
+            border-color 0.18s ease,
+            background 0.18s ease,
+            color 0.18s ease;
+        }
+
+        .desktop-composer-quick-prompts__control--up nxt1-icon {
+          transform: rotate(180deg);
+        }
+
+        .desktop-composer-quick-prompts__control:hover,
+        .desktop-composer-quick-prompts__control:focus-visible {
+          outline: none;
+          color: var(--op-primary);
+          border-color: color-mix(in srgb, var(--op-primary) 42%, var(--op-border));
+          background: color-mix(in srgb, var(--op-primary-glow) 58%, var(--op-surface));
+          transform: translateY(-1px);
+        }
       }
 
       .operation-cancel-inline {
@@ -2132,6 +2387,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     readonly scrollHeight: number;
     readonly scrollTop: number;
   } | null = null;
+  private desktopQuickPromptRotationTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Timers used for post-focus scroll corrections while keyboard animates in. */
   private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
@@ -2499,6 +2755,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Test IDs for failure banner elements. */
   protected readonly failureTestIds = AGENT_X_OPERATION_CHAT_TEST_IDS;
+  protected readonly desktopComposerQuickPromptsTestId =
+    DESKTOP_COMPOSER_QUICK_PROMPT_TEST_IDS.ROOT;
 
   /** Shared test IDs for the operation chat surface. */
   protected readonly chatTestIds = {
@@ -2508,6 +2766,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       'history-loading'
     ),
   } as const;
+  private readonly _desktopComposerQuickPromptIndex = signal(0);
+  protected readonly visibleDesktopComposerQuickPrompts = computed<
+    readonly DesktopComposerQuickPromptWheelItem[]
+  >(() => {
+    const prompts = this.desktopComposerQuickPrompts();
+    if (prompts.length === 0) {
+      return [];
+    }
+
+    const activeIndex = this.normalizeDesktopComposerQuickPromptIndex(
+      this._desktopComposerQuickPromptIndex()
+    );
+
+    if (prompts.length === 1) {
+      return [{ prompt: prompts[activeIndex] ?? prompts[0], position: 'active' }];
+    }
+
+    const previousIndex = this.normalizeDesktopComposerQuickPromptIndex(activeIndex - 1);
+    const nextIndex = this.normalizeDesktopComposerQuickPromptIndex(activeIndex + 1);
+
+    return [
+      { prompt: prompts[previousIndex] ?? prompts[0], position: 'previous' },
+      { prompt: prompts[activeIndex] ?? prompts[0], position: 'active' },
+      { prompt: prompts[nextIndex] ?? prompts[0], position: 'next' },
+    ];
+  });
 
   /** Async older-history hydration state for top-of-thread status and scroll stability. */
   protected readonly historyHydrating = this.sessionFacade.historyHydrating;
@@ -3257,6 +3541,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.selectedEffortLevel.set(this.initialEffortLevel);
     this.sessionFacade.initializeAfterView();
     this.syncScrollToBottomVisibility();
+    this.startDesktopQuickPromptRotation();
   }
 
   ngOnDestroy(): void {
@@ -3266,6 +3551,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.attachmentsFacade.clearPendingFiles();
     this.clearActivityGapTimer();
     this.clearFocusScrollTimers();
+    this.stopDesktopQuickPromptRotation();
     this.keyboardOffsetBinding?.teardown();
     if (this.pendingScrollFrame !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(this.pendingScrollFrame);
@@ -3666,6 +3952,104 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.inputValue.set(action.promptText?.trim() || action.label);
     this._pendingSelectedAction.set(action.selectedAction ?? null);
+  }
+
+  protected shouldShowDesktopComposerQuickPrompts(): boolean {
+    return (
+      this.embedded &&
+      this.contextId === 'agent-x-chat' &&
+      !this.hasUserSent() &&
+      this.messages().length === 0 &&
+      !this.isComposerOperationInFlight()
+    );
+  }
+
+  protected advanceDesktopComposerQuickPrompt(): void {
+    this.rotateDesktopComposerQuickPrompts(1);
+  }
+
+  protected rotateDesktopComposerQuickPrompts(direction: -1 | 1): void {
+    if (this.desktopComposerQuickPrompts().length < 2) {
+      return;
+    }
+
+    this._desktopComposerQuickPromptIndex.update((index) =>
+      this.normalizeDesktopComposerQuickPromptIndex(index + direction)
+    );
+  }
+
+  private normalizeDesktopComposerQuickPromptIndex(index: number): number {
+    const count = this.desktopComposerQuickPrompts().length;
+    if (count === 0) {
+      return 0;
+    }
+
+    return ((index % count) + count) % count;
+  }
+
+  protected desktopQuickPromptTestId(promptId: string): string | null {
+    return `agent-op-chat-desktop-quick-prompt-${promptId}`;
+  }
+
+  protected applyDesktopComposerQuickPrompt(prompt: string): void {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    this.inputValue.set(trimmedPrompt);
+    this._pendingSelectedAction.set(null);
+    this.advanceDesktopComposerQuickPrompt();
+  }
+
+  private startDesktopQuickPromptRotation(): void {
+    this.stopDesktopQuickPromptRotation();
+
+    if (!isPlatformBrowser(this.platformId) || !this.shouldShowDesktopComposerQuickPrompts()) {
+      return;
+    }
+
+    if (this.desktopComposerQuickPrompts().length < 2) {
+      return;
+    }
+
+    this.desktopQuickPromptRotationTimer = setInterval(() => {
+      this.advanceDesktopComposerQuickPrompt();
+    }, DESKTOP_COMPOSER_QUICK_PROMPT_ROTATION_MS);
+  }
+
+  private stopDesktopQuickPromptRotation(): void {
+    if (this.desktopQuickPromptRotationTimer === null) {
+      return;
+    }
+
+    clearInterval(this.desktopQuickPromptRotationTimer);
+    this.desktopQuickPromptRotationTimer = null;
+  }
+
+  private desktopComposerQuickPrompts(): readonly DesktopComposerQuickPrompt[] {
+    return DESKTOP_COMPOSER_QUICK_PROMPTS_BY_ROLE[this.resolveDesktopComposerQuickPromptRole()];
+  }
+
+  private resolveDesktopComposerQuickPromptRole(): DesktopComposerQuickPromptRole {
+    const role = this.user?.role?.toLowerCase().trim() ?? '';
+    if (role.includes('athlete') || role.includes('player')) {
+      return 'athlete';
+    }
+    if (role.includes('coach')) {
+      return 'coach';
+    }
+    if (
+      role.includes('director') ||
+      role.includes('admin') ||
+      role.includes('owner') ||
+      role.includes('program') ||
+      role.includes('staff')
+    ) {
+      return 'director';
+    }
+
+    return 'general';
   }
 
   /** Route composer submit through the active yield reply flow when a pending card exists. */
