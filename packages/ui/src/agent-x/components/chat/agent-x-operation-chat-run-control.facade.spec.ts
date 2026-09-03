@@ -69,6 +69,7 @@ describe('AgentXOperationChatRunControlFacade', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
     loggerMock.child.mockReturnValue(loggerMock);
 
     TestBed.configureTestingModule({
@@ -145,8 +146,42 @@ describe('AgentXOperationChatRunControlFacade', () => {
     facade.pauseStream();
 
     expect(agentXServiceMock.clearDropRecoveryOp).toHaveBeenCalledTimes(1);
+    expect(host.setOperationStatus).toHaveBeenCalledWith('paused');
     expect(host.setActivityPhase).toHaveBeenCalledWith('paused', 'Paused');
     expect(host.setCurrentOperationId).toHaveBeenCalledWith('op-123');
+  });
+
+  it('logs when the backend pause request is rejected', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+    vi.stubGlobal('fetch', fetchMock);
+    (
+      facade as unknown as {
+        getAuthToken: () => Promise<string>;
+      }
+    ).getAuthToken = vi.fn().mockResolvedValue('token-123');
+
+    facade.pauseStream();
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/agent-x/agent-x/pause/op-123', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer token-123',
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+        keepalive: true,
+      });
+    });
+    await vi.waitFor(() => {
+      expect(loggerMock.warn).toHaveBeenCalledWith(
+        'Explicit pause request returned non-success status',
+        {
+          operationId: 'op-123',
+          status: 503,
+        }
+      );
+    });
   });
 
   it('passes medium effort to transport when send options omit an effort level', async () => {

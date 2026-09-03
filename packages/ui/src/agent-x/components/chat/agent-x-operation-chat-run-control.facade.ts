@@ -158,6 +158,7 @@ export class AgentXOperationChatRunControlFacade {
     const threadId = host.resolveActiveThreadId();
     const isEnqueueWaitingThread =
       !!threadId && !!this.operationEventService.getEnqueueWaitingEntry(threadId);
+    const stoppedStatus: OperationChatStatus = isEnqueueWaitingThread ? 'cancelled' : 'paused';
 
     if (threadId) {
       this.streamRegistry.abort(threadId);
@@ -173,6 +174,7 @@ export class AgentXOperationChatRunControlFacade {
     // For enqueue jobs, pause acts as a stop/cancel UX state in the thread.
     // The host implementation is guarded to no-op for non-enqueue chat threads.
     host.markEnqueueStopped();
+    host.setOperationStatus(stoppedStatus);
 
     // For /chat turns, currentOperationId is set by the SSE stream transport.
     // For /enqueue threads, no SSE stream runs so currentOperationId is null —
@@ -787,9 +789,12 @@ export class AgentXOperationChatRunControlFacade {
     try {
       const token = await this.getAuthToken?.();
       if (!token) {
+        this.logger.warn('Explicit cancel request skipped because auth token is unavailable', {
+          operationId,
+        });
         return;
       }
-      await fetch(url, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -798,6 +803,12 @@ export class AgentXOperationChatRunControlFacade {
         body: '{}',
         keepalive: true,
       });
+      if (!response.ok) {
+        this.logger.warn('Explicit cancel request returned non-success status', {
+          operationId,
+          status: response.status,
+        });
+      }
     } catch (error) {
       this.logger.debug('Explicit cancel request failed (non-critical)', {
         operationId,
@@ -825,9 +836,12 @@ export class AgentXOperationChatRunControlFacade {
     try {
       const token = await this.getAuthToken?.();
       if (!token) {
+        this.logger.warn('Explicit pause request skipped because auth token is unavailable', {
+          operationId,
+        });
         return;
       }
-      await fetch(url, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -836,6 +850,12 @@ export class AgentXOperationChatRunControlFacade {
         body: '{}',
         keepalive: true,
       });
+      if (!response.ok) {
+        this.logger.warn('Explicit pause request returned non-success status', {
+          operationId,
+          status: response.status,
+        });
+      }
     } catch (error) {
       this.logger.debug('Explicit pause request failed (non-critical)', {
         operationId,
