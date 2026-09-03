@@ -1078,6 +1078,7 @@ export class WebShellComponent {
       sticky: true,
       hideOnScroll: false,
       bordered: false,
+      maxWidth: this.showDesktopSidebar() ? 'full' : 'contained',
     });
   });
 
