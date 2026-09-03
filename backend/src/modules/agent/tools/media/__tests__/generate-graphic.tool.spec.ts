@@ -492,6 +492,38 @@ describe('GenerateGraphicTool', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('saves generated graphics cleanly without watermark compositing', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    const rawImageBytes = Buffer.from('clean-unwatermarked-model-graphic-bytes');
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CHAMPIONS'] } });
+    llm.generateImage.mockResolvedValue({
+      imageBase64: rawImageBytes.toString('base64'),
+      mimeType: 'image/png',
+      model: 'test-image-model',
+      latencyMs: 1200,
+      costUsd: 0.02,
+      textContent: ['CHAMPIONS'],
+    });
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CHAMPIONS'],
+      dimensions: '1080x1080',
+      styleDescription: 'Championship celebration graphic',
+      userId: 'user-1',
+      autoRetrievedSources: ['manual:lookup:team_profile_snapshot'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(firebaseMocks.productionBucket.save).toHaveBeenCalledWith(
+      rawImageBytes,
+      expect.objectContaining({
+        metadata: expect.objectContaining({ contentType: 'image/png' }),
+      })
+    );
+  });
+
   it('resolves Firebase Storage welcome-photo URLs into provider-safe data URLs', async () => {
     const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
 
