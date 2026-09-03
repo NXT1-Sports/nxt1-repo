@@ -17,6 +17,7 @@ import { UsageBottomSheetService } from '@nxt1/ui/usage';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { ReleaseNotesModalService } from '@nxt1/ui/release-notes';
 import type { ILogger } from '@nxt1/core/logging';
+import { RELEASE_NOTES_PROMPT_ENABLED } from '@nxt1/core/release-notes';
 import {
   NativeAppService,
   NetworkService,
@@ -396,7 +397,11 @@ export class AppComponent {
   }
 
   private maybePromptReleaseNotes(url: string): void {
-    if (this.hasAttemptedReleaseNotesPrompt || !this.isAgentXRoute(url)) {
+    if (
+      !RELEASE_NOTES_PROMPT_ENABLED ||
+      this.hasAttemptedReleaseNotesPrompt ||
+      !this.isAgentXRoute(url)
+    ) {
       return;
     }
 
