@@ -16,7 +16,7 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "redis": "^6.1.0"
+    "redis": "^6.2.1"
   },
   "devDependencies": {
     "typescript": "6.0.3"
