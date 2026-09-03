@@ -373,8 +373,6 @@ Optional:
 - **athleteInfo**: For athlete graphics — object with fields: name, sport, position, team
 - **teamInfo**: For team graphics — object with fields: name, sport, subtitle
 
-The NXT1 logo is AUTOMATICALLY placed in the bottom-right corner — you do not need to request it.
-
 ## CRITICAL: textRequirements vs styleDescription — DO NOT CONFUSE THESE
 
 **textRequirements** = ONLY the exact words that should be printed visibly on the graphic as text.
