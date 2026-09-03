@@ -29,6 +29,7 @@ on:
     paths:
       - 'apps/functions/src/**'
       - 'apps/functions/package.json'
+      - 'apps/functions/package-lock.json'
       - 'apps/functions/tsconfig.json'
       - 'packages/core/src/**'
       - '.github/workflows/deploy-functions.yml'
@@ -93,6 +94,7 @@ jobs:
             git diff --name-only "$base_sha" "$head_sha" -- \
               apps/functions/src \
               apps/functions/package.json \
+              apps/functions/package-lock.json \
               apps/functions/tsconfig.json \
               packages/core/src \
               firebase.json
@@ -157,6 +159,10 @@ jobs:
 
       - name: Build @nxt1/core (dependency)
         run: npm run build:core
+
+      - name: Validate standalone functions install
+        working-directory: apps/functions
+        run: npm ci --ignore-scripts --workspaces=false
 
       - name: Typecheck functions
         working-directory: apps/functions

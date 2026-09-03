@@ -3,6 +3,7 @@ node_modules/
 .npm
 yarn.lock
 package-lock.json
+!apps/functions/package-lock.json
 # Build outputs
 dist/
 lib/
