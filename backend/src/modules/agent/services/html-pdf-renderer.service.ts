@@ -53,6 +53,11 @@ export function getLocalChromiumLaunchArgs(
 
 const MAX_HTML_BYTES = 1_500_000;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
+const DEFAULT_E2B_HTML_PDF_TEMPLATE = 'nxt1-html-pdf-renderer:production';
+
+export function resolveHtmlPdfTemplateRef(env: NodeJS.ProcessEnv = process.env): string {
+  return env['E2B_HTML_PDF_TEMPLATE']?.trim() || DEFAULT_E2B_HTML_PDF_TEMPLATE;
+}
 
 export class HtmlPdfRendererService {
   constructor(private readonly runner: HtmlPdfRunner = new E2bHtmlPdfRunner()) {}
@@ -132,7 +137,7 @@ export class HtmlPdfRendererService {
 
 class E2bHtmlPdfRunner implements HtmlPdfRunner {
   async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const template = process.env['E2B_HTML_PDF_TEMPLATE']?.trim() || 'nxt1-html-pdf-renderer';
+    const template = resolveHtmlPdfTemplateRef();
     const moduleLoader = new Function('specifier', 'return import(specifier)') as (
       specifier: string
     ) => Promise<{ Sandbox: { create: (...args: unknown[]) => Promise<E2bSandboxLike> } }>;
@@ -163,7 +168,7 @@ class E2bHtmlPdfRunner implements HtmlPdfRunner {
       if (error instanceof AgentEngineError) throw error;
       throw new AgentEngineError(
         'AGENT_PIPELINE_FAILED',
-        `E2B HTML PDF rendering failed: ${getErrorMessage(error)}. Ensure the e2b package is installed, E2B_API_KEY is configured, and E2B_HTML_PDF_TEMPLATE is built with Playwright/Chromium.`,
+        `E2B HTML PDF rendering failed: ${getErrorMessage(error)}. Ensure the e2b package is installed, E2B_API_KEY is configured, and E2B_HTML_PDF_TEMPLATE points to a built template ref such as ${DEFAULT_E2B_HTML_PDF_TEMPLATE}.`,
         { cause: error }
       );
     } finally {

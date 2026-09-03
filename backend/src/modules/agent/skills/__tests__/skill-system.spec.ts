@@ -27,6 +27,7 @@ import { CoachGamePlanAndAdjustmentsSkill } from '../strategy/coach-game-plan-an
 import { OpponentScoutingPacketSkill } from '../evaluation/opponent-scouting-packet.skill.js';
 import { LineupRotationOptimizerSkill } from '../strategy/lineup-rotation-optimizer.skill.js';
 import { PlayDesignSimulationSkill } from '../strategy/play-design-simulation.skill.js';
+import { FootballMatchupStartersCardDesignSkill } from '../strategy/football-matchup-starters-card-design.skill.js';
 import { QbWristbandInsertDesignSkill } from '../strategy/qb-wristband-insert-design.skill.js';
 import { ScoutTeamCardDesignSkill } from '../strategy/scout-team-card-design.skill.js';
 import { PlayerScoutCardDesignSkill } from '../evaluation/player-scout-card-design.skill.js';
@@ -174,6 +175,7 @@ describe('BaseSkill.matchIntent', () => {
     expect(new OpponentScoutingPacketSkill().category).toBe('evaluation');
     expect(new LineupRotationOptimizerSkill().category).toBe('strategy');
     expect(new PlayDesignSimulationSkill().category).toBe('strategy');
+    expect(new FootballMatchupStartersCardDesignSkill().category).toBe('strategy');
     expect(new QbWristbandInsertDesignSkill().category).toBe('strategy');
     expect(new ScoutTeamCardDesignSkill().category).toBe('strategy');
     expect(new PlayerScoutCardDesignSkill().category).toBe('evaluation');
@@ -198,6 +200,18 @@ describe('BaseSkill.matchIntent', () => {
       'Rotation Design Principles'
     );
     expect(new PlayDesignSimulationSkill().getPromptContext()).toContain('Simulation Checklist');
+    expect(new FootballMatchupStartersCardDesignSkill().getPromptContext()).toContain(
+      'Matchup Starters Card'
+    );
+    expect(new FootballMatchupStartersCardDesignSkill().getPromptContext()).toContain(
+      'layoutIntent: "exact_match"'
+    );
+    expect(new FootballMatchupStartersCardDesignSkill().getPromptContext()).toContain(
+      'Page 1 is the front-side matchup starters board'
+    );
+    expect(new FootballMatchupStartersCardDesignSkill().getPromptContext()).toContain(
+      'This is NOT a generic depth chart'
+    );
     expect(new QbWristbandInsertDesignSkill().getPromptContext()).toContain('4.75" x 2.5"');
     expect(new QbWristbandInsertDesignSkill().getPromptContext()).toContain('4.0" x 3.0"');
     expect(new ScoutTeamCardDesignSkill().getPromptContext()).toContain('render_html_pdf');

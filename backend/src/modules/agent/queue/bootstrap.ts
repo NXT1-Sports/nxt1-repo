@@ -288,6 +288,7 @@ import {
   PlayDiagramVerificationWorkflowSkill,
   PracticeScriptAndProgressionSkill,
   FootballCallsheetDesignSkill,
+  FootballMatchupStartersCardDesignSkill,
   PracticeScriptDesignSkill,
   QbWristbandInsertDesignSkill,
   RosterAndDepthChartDesignSkill,
@@ -861,6 +862,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new PlayDiagramVerificationWorkflowSkill());
   skillRegistry.register(new PracticeScriptAndProgressionSkill());
   skillRegistry.register(new FootballCallsheetDesignSkill());
+  skillRegistry.register(new FootballMatchupStartersCardDesignSkill());
   skillRegistry.register(new PracticeScriptDesignSkill());
   skillRegistry.register(new QbWristbandInsertDesignSkill());
   skillRegistry.register(new RosterAndDepthChartDesignSkill());

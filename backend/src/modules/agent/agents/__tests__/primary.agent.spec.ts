@@ -371,6 +371,8 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'do NOT ask diagram-generation-specific intake like how many diagrams'
     );
+    expect(prompt).toContain('Exact-match coach artifact requests with attached reference images');
+    expect(prompt).toContain('Do NOT call `analyze_image` in the router first');
     expect(prompt).not.toContain('clear user-requested play/drill diagram generation');
     expect(prompt).not.toContain(
       'delegate to `strategy_coordinator` immediately and do not ask permission first'

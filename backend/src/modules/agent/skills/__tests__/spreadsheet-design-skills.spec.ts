@@ -8,6 +8,7 @@ import { OpenpyxlSpreadsheetDesignSkill } from '../data/openpyxl-spreadsheet-des
 import { TeamBudgetAndFinancialsSkill } from '../data/team-budget-and-financials.skill.js';
 import { AthleticPerformanceAndCombineTrackerSkill } from '../evaluation/athletic-performance-and-combine-tracker.skill.js';
 import { FootballCallsheetDesignSkill } from '../strategy/football-callsheet-design.skill.js';
+import { FootballMatchupStartersCardDesignSkill } from '../strategy/football-matchup-starters-card-design.skill.js';
 import { PracticeScriptDesignSkill } from '../strategy/practice-script-design.skill.js';
 import { QbWristbandInsertDesignSkill } from '../strategy/qb-wristband-insert-design.skill.js';
 import { RecruitingBoardAndVisitTrackerSkill } from '../strategy/recruiting-board-and-visit-tracker.skill.js';
@@ -29,6 +30,7 @@ describe('modular spreadsheet design skills', () => {
 
   it('keeps callsheets and wristbands as separate physical-format skills', () => {
     const callsheetPrompt = new FootballCallsheetDesignSkill().getPromptContext();
+    const matchupCardPrompt = new FootballMatchupStartersCardDesignSkill().getPromptContext();
     const wristbandPrompt = new QbWristbandInsertDesignSkill().getPromptContext();
 
     expect(callsheetPrompt).toContain('one unified landscape board');
@@ -57,6 +59,19 @@ describe('modular spreadsheet design skills', () => {
         mimeType: 'image/png',
       }),
     ]);
+    expect(matchupCardPrompt).toContain('This is NOT a generic depth chart');
+    expect(matchupCardPrompt).toContain('Page 2 is the back-side companion board');
+    expect(matchupCardPrompt).toContain('Player tiles should read quickly');
+    expect(
+      new FootballMatchupStartersCardDesignSkill().getReferenceImages({
+        agentRouteBase: 'https://api.example.com/api/v1/agent-x',
+      })
+    ).toEqual([
+      expect.objectContaining({
+        url: 'https://api.example.com/api/v1/agent-x/reference-assets/football/matchup-starters-reference.png',
+        mimeType: 'image/png',
+      }),
+    ]);
     expect(wristbandPrompt).toContain('one tab');
     expect(wristbandPrompt).toContain('3 columns x 10 rows');
     expect(wristbandPrompt).toContain('functional color blocks');
@@ -81,6 +96,7 @@ describe('modular spreadsheet design skills', () => {
       expect.arrayContaining([
         'openpyxl_spreadsheet_design',
         'football_callsheet_design',
+        'football_matchup_starters_card_design',
         'qb_wristband_insert_design',
         'practice_script_design',
         'roster_and_depth_chart_design',

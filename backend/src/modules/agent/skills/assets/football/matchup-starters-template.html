@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page {
+    size: Letter landscape;
+    margin: 0;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  html, body {
+    width: 11in;
+    height: 8.5in;
+    margin: 0;
+    padding: 0;
+    background: #fdfdfd;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #111;
+  }
+  .sheet {
+    position: relative;
+    width: 11in;
+    height: 8.5in;
+    padding: 0.18in 0.22in;
+    overflow: hidden;
+    background: #fff;
+  }
+
+  /* ── Position Boxes ── */
+  .pos-box {
+    position: absolute;
+    border: 1.5px solid #222;
+    background: #fff;
+    padding: 2px 3px;
+    font-size: 6pt;
+    line-height: 1.15;
+    z-index: 10;
+  }
+  .pos-header {
+    font-size: 5.5pt;
+    font-weight: 800;
+    color: #444;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    border-bottom: 1px dotted #ccc;
+    padding-bottom: 1px;
+  }
+  .player-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+    margin-bottom: 2px;
+  }
+  .player-row:last-child {
+    margin-bottom: 0;
+  }
+  .jersey-badge {
+    background: #c92a2a;
+    color: #fff;
+    font-weight: 900;
+    font-size: 7.5pt;
+    min-width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .jersey-badge.backup {
+    background: #e03131;
+  }
+  .player-details {
+    flex: 1;
+    min-width: 0;
+  }
+  .player-name {
+    font-size: 6.5pt;
+    font-weight: 800;
+    color: #000;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .player-meta {
+    font-size: 5pt;
+    color: #555;
+  }
+  .player-stat {
+    font-size: 5pt;
+    color: #111;
+  }
+  .player-note {
+    font-size: 5pt;
+    color: #c92a2a;
+    font-weight: 700;
+  }
+
+  /* ── Metadata Panels ── */
+  .panel-box {
+    position: absolute;
+    border: 1.5px solid #222;
+    background: #fff;
+    padding: 3px 4px;
+    font-size: 5.5pt;
+    line-height: 1.2;
+    z-index: 5;
+  }
+  .panel-title {
+    background: #c92a2a;
+    color: #fff;
+    font-weight: 800;
+    font-size: 6.5pt;
+    padding: 2px 4px;
+    text-align: center;
+    margin: -3px -4px 3px -4px;
+    text-transform: uppercase;
+  }
+  .panel-subtitle {
+    font-weight: 700;
+    color: #c92a2a;
+    margin-bottom: 2px;
+  }
+
+  /* ── Top-Left: Stats Box ── */
+  .box-stats {
+    top: 0.18in;
+    left: 0.22in;
+    width: 1.65in;
+    height: 1.85in;
+  }
+  .stats-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 5.5pt;
+  }
+  .stats-table td {
+    padding: 1px 2px;
+    border-bottom: 1px solid #eee;
+  }
+  .stats-table .stat-label {
+    font-weight: 700;
+  }
+
+  /* ── Mid-Left: Defensive Staff ── */
+  .box-dc {
+    top: 2.1in;
+    left: 0.22in;
+    width: 1.65in;
+    height: 1.05in;
+  }
+
+  /* ── Defense Level (Top Half) Coordinates ── */
+  .box-cb-left    { top: 0.18in; left: 2.0in; width: 1.35in; min-height: 1.0in; }
+  .box-fs         { top: 0.18in; left: 3.5in; width: 1.35in; min-height: 1.0in; }
+  .box-other-db   { top: 0.18in; left: 5.0in; width: 1.35in; min-height: 0.85in; }
+  .box-cb-right   { top: 0.18in; left: 6.5in; width: 1.35in; min-height: 0.95in; }
+  .box-returners  { top: 0.18in; left: 8.0in; width: 2.75in; min-height: 0.95in; }
+
+  .box-lb-will    { top: 1.3in; left: 2.0in; width: 1.35in; min-height: 0.85in; }
+  .box-lb-mike    { top: 1.3in; left: 3.5in; width: 1.35in; min-height: 0.85in; }
+  .box-lb-sam     { top: 1.3in; left: 5.0in; width: 1.35in; min-height: 0.85in; }
+
+  .box-de-left    { top: 2.3in; left: 2.0in; width: 1.35in; min-height: 0.85in; }
+  .box-dt-left    { top: 2.3in; left: 3.5in; width: 1.35in; min-height: 0.85in; }
+  .box-dt-right   { top: 2.3in; left: 5.0in; width: 1.35in; min-height: 0.85in; }
+  .box-de-right   { top: 2.3in; left: 6.5in; width: 1.35in; min-height: 0.85in; }
+
+  /* ── Midfield Dividing Line ── */
+  .midfield-line {
+    position: absolute;
+    top: 3.32in;
+    left: 0.22in;
+    right: 0.22in;
+    height: 1.5px;
+    background: #111;
+    z-index: 1;
+  }
+  .midfield-label-left {
+    position: absolute;
+    top: 3.18in;
+    left: 0.3in;
+    font-size: 5.5pt;
+    font-weight: 800;
+    color: #c92a2a;
+    background: #fff;
+    padding: 0 4px;
+    z-index: 2;
+  }
+  .midfield-label-right {
+    position: absolute;
+    top: 3.18in;
+    right: 0.3in;
+    font-size: 5.5pt;
+    font-weight: 800;
+    color: #111;
+    background: #fff;
+    padding: 0 4px;
+    z-index: 2;
+  }
+
+  /* ── Offense Level (Bottom Half) Coordinates ── */
+  .box-wr-left    { top: 3.48in; left: 0.22in; width: 1.65in; min-height: 0.95in; }
+  .box-te         { top: 4.55in; left: 0.22in; width: 1.65in; min-height: 1.05in; }
+
+  .box-lt         { top: 3.48in; left: 2.0in; width: 1.15in; min-height: 0.8in; }
+  .box-lg         { top: 3.48in; left: 3.25in; width: 1.15in; min-height: 0.8in; }
+  .box-c          { top: 3.48in; left: 4.5in; width: 1.15in; min-height: 0.8in; }
+  .box-rg         { top: 3.48in; left: 5.75in; width: 1.15in; min-height: 0.8in; }
+  .box-rt         { top: 3.48in; left: 7.0in; width: 1.15in; min-height: 0.8in; }
+
+  .box-qb         { top: 4.45in; left: 4.5in; width: 1.35in; min-height: 0.95in; }
+  .box-tb         { top: 5.55in; left: 4.5in; width: 1.55in; min-height: 1.25in; }
+  .box-fb         { top: 4.45in; left: 6.0in; width: 1.15in; min-height: 0.8in; }
+
+  .box-wr-slot    { top: 3.48in; left: 8.3in; width: 1.15in; min-height: 0.95in; }
+  .box-wr-right   { top: 3.48in; left: 9.6in; width: 1.15in; min-height: 0.95in; }
+
+  .box-kicker     { top: 4.55in; left: 9.6in; width: 1.15in; min-height: 0.95in; }
+  .box-punter     { top: 4.55in; left: 8.3in; width: 1.15in; min-height: 0.95in; }
+
+  /* ── Bottom Schedule & Staff Panels ── */
+  .box-schedule   { top: 5.75in; left: 7.2in; width: 1.65in; height: 1.45in; }
+  .box-staff-hc   { top: 5.75in; left: 9.0in; width: 1.75in; height: 1.45in; }
+
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <!-- TOP-LEFT: Cleveland Glenville Stats -->
+  <div class="panel-box box-stats">
+    <div class="panel-title">Cleveland Glenville</div>
+    <table class="stats-table">
+      <tr><td class="stat-label">MASS OFF</td><td class="stat-label">2025 STATS</td><td class="stat-label">GLEN DEF</td></tr>
+      <tr><td>33.15</td><td>SCORING</td><td>10.1</td></tr>
+      <tr><td>186.2</td><td>RUSHING</td><td>-</td></tr>
+      <tr><td>123.7</td><td>PASSING</td><td>-</td></tr>
+      <tr><td>309.9</td><td>TOTAL YARDS</td><td>-</td></tr>
+      <tr><td>19-133</td><td>Penalties / Yards</td><td>-</td></tr>
+      <tr><td>22 Lost</td><td>Turnovers</td><td>-</td></tr>
+      <tr><td>37-44 (88)</td><td>Red Zone %</td><td>-</td></tr>
+    </table>
+  </div>
+
+  <!-- MID-LEFT: DC Staff -->
+  <div class="panel-box box-dc">
+    <div class="panel-subtitle">DC: James Gordon</div>
+    <div>Morray Norris: Linebackers</div>
+    <div>Mike Edwards Jr.: DBs</div>
+    <div>Bruce Coffey: D-Line</div>
+  </div>
+
+  <!-- ── DEFENSE (Top Half Formation) ── -->
+  <!-- CB Left -->
+  <div class="pos-box box-cb-left">
+    <div class="pos-header">CB</div>
+    <div class="player-row">
+      <div class="jersey-badge">9</div>
+      <div class="player-details">
+        <div class="player-name">Darnell SCOTT</div>
+        <div class="player-meta">6-1, 175, SR | 3 offers</div>
+        <div class="player-stat">S: 40 TK 1.5 TFL 8 INT</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">14</div>
+      <div class="player-details">
+        <div class="player-name">Montez SHEPHARD</div>
+        <div class="player-meta">6-1, 165, SO | 3 offers</div>
+        <div class="player-note">Brother of Damir Shephard</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FS -->
+  <div class="pos-box box-fs">
+    <div class="pos-header">FS</div>
+    <div class="player-row">
+      <div class="jersey-badge">16</div>
+      <div class="player-details">
+        <div class="player-name">Da'Von MILLS</div>
+        <div class="player-meta">6-1, 175, SR | 3 offers</div>
+        <div class="player-stat">S: 57 TK 4 TFL 8 INT</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">25</div>
+      <div class="player-details">
+        <div class="player-name">Ja'kobi LACEY</div>
+        <div class="player-meta">5-11, 160, JR</div>
+        <div class="player-stat">S: 7 TK 1 TFL 2 BRUP</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nickel / Other DB -->
+  <div class="pos-box box-other-db">
+    <div class="pos-header">Nickel / Other DB</div>
+    <div class="player-row">
+      <div class="jersey-badge">11</div>
+      <div class="player-details">
+        <div class="player-name">Chase YOUNGBLOOD</div>
+        <div class="player-meta">6-0, 160, SO | Former QB</div>
+        <div class="player-note">3 offers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CB Right -->
+  <div class="pos-box box-cb-right">
+    <div class="pos-header">CB</div>
+    <div class="player-row">
+      <div class="jersey-badge">2</div>
+      <div class="player-details">
+        <div class="player-name">Jaylen EDWARDS</div>
+        <div class="player-meta">6-2, 175, JR | 11 offers</div>
+        <div class="player-stat">S: 37 TK 3 INT 8 BRUP</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">20</div>
+      <div class="player-details">
+        <div class="player-name">Khyler ROBINSON</div>
+        <div class="player-meta">6-0, 165, SO | 7 offers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Returners Box -->
+  <div class="pos-box box-returners">
+    <div class="pos-header">Returners</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+      <div class="player-row">
+        <div class="jersey-badge">6</div>
+        <div class="player-details">
+          <div class="player-name">J. CRITTENDEN</div>
+          <div class="player-note">2 KR TD in 2025</div>
+        </div>
+      </div>
+      <div class="player-row">
+        <div class="jersey-badge">2</div>
+        <div class="player-details">
+          <div class="player-name">J. EDWARDS</div>
+          <div class="player-meta">11 offers</div>
+        </div>
+      </div>
+      <div class="player-row">
+        <div class="jersey-badge">17</div>
+        <div class="player-details">
+          <div class="player-name">L. HEARN</div>
+          <div class="player-meta">5-9, 155, JR</div>
+        </div>
+      </div>
+      <div class="player-row">
+        <div class="jersey-badge">5</div>
+        <div class="player-details">
+          <div class="player-name">J. GIBSON</div>
+          <div class="player-note">PR TD in State Title</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Linebackers -->
+  <div class="pos-box box-lb-will">
+    <div class="pos-header">LB (Will)</div>
+    <div class="player-row">
+      <div class="jersey-badge">8</div>
+      <div class="player-details">
+        <div class="player-name">Dawaun WHITNER</div>
+        <div class="player-meta">6-1, 200, SR | 6 offers</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">21</div>
+      <div class="player-details">
+        <div class="player-name">John MORRIS</div>
+        <div class="player-meta">5-10, 190, JR</div>
+        <div class="player-stat">S: 17 TK 2 TFL 1 SK</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-lb-mike">
+    <div class="pos-header">LB (Mike)</div>
+    <div class="player-row">
+      <div class="jersey-badge">31</div>
+      <div class="player-details">
+        <div class="player-name">Da'Von McDOUGLE</div>
+        <div class="player-meta">6-0, 205, SR</div>
+        <div class="player-note">Committed to James Madison</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">33</div>
+      <div class="player-details">
+        <div class="player-name">Salem SIMON</div>
+        <div class="player-meta">5-10, 185, FR</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-lb-sam">
+    <div class="pos-header">LB (Sam)</div>
+    <div class="player-row">
+      <div class="jersey-badge">37</div>
+      <div class="player-details">
+        <div class="player-name">Devon RAGLAND</div>
+        <div class="player-meta">6-0, 210, JR</div>
+        <div class="player-note">Transfer from VASJ</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">7</div>
+      <div class="player-details">
+        <div class="player-name">Kaylon BAILEY</div>
+        <div class="player-meta">6-0, 205, SR</div>
+        <div class="player-stat">3 SK in State Final</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Defensive Line -->
+  <div class="pos-box box-de-left">
+    <div class="pos-header">DE</div>
+    <div class="player-row">
+      <div class="jersey-badge">4</div>
+      <div class="player-details">
+        <div class="player-name">Elijah HARDEN</div>
+        <div class="player-meta">6-3, 235, JR</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">90</div>
+      <div class="player-details">
+        <div class="player-name">Ashtyn ANDERSON</div>
+        <div class="player-meta">6-1, 215, JR</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-dt-left">
+    <div class="pos-header">DT</div>
+    <div class="player-row">
+      <div class="jersey-badge">50</div>
+      <div class="player-details">
+        <div class="player-name">Kobe HUNTER</div>
+        <div class="player-meta">5-11, 260, JR</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">95</div>
+      <div class="player-details">
+        <div class="player-name">Leighton CARSON</div>
+        <div class="player-meta">6-1, 280, JR</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-dt-right">
+    <div class="pos-header">DT</div>
+    <div class="player-row">
+      <div class="jersey-badge">53</div>
+      <div class="player-details">
+        <div class="player-name">Khaylen SPATES</div>
+        <div class="player-meta">6-2, 290, SR</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">94</div>
+      <div class="player-details">
+        <div class="player-name">King JOHNSON</div>
+        <div class="player-meta">6-1, 290, JR</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-de-right">
+    <div class="pos-header">DE</div>
+    <div class="player-row">
+      <div class="jersey-badge">7</div>
+      <div class="player-details">
+        <div class="player-name">Kaylon BAILEY</div>
+        <div class="player-meta">6-0, 205, SR | Committed to Colorado</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">18</div>
+      <div class="player-details">
+        <div class="player-name">Lorenzo SMITH</div>
+        <div class="player-meta">6-1, 220, SO | 3 offers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MIDFIELD LINE -->
+  <div class="midfield-line"></div>
+  <div class="midfield-label-left">GLENVILLE DEFENSE</div>
+  <div class="midfield-label-right">MASSILLON OFFENSE</div>
+
+  <!-- ── OFFENSE (Bottom Half Formation) ── -->
+  <!-- WR Left -->
+  <div class="pos-box box-wr-left">
+    <div class="pos-header">WR (X)</div>
+    <div class="player-row">
+      <div class="jersey-badge">6</div>
+      <div class="player-details">
+        <div class="player-name">Deontay MALONE</div>
+        <div class="player-meta">6-1, 160, SR | S: 34 rec 455 yds 7 TD</div>
+        <div class="player-note">Committed to Ohio State</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">12</div>
+      <div class="player-details">
+        <div class="player-name">George RIVERA</div>
+        <div class="player-meta">5-8, 170, JR | S: 8 rec 73 yds</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TE -->
+  <div class="pos-box box-te">
+    <div class="pos-header">TE / H-Back</div>
+    <div class="player-row">
+      <div class="jersey-badge">84</div>
+      <div class="player-details">
+        <div class="player-name">Da'Shun WILLIAMS</div>
+        <div class="player-meta">6-5, 240, JR | S: 3 TD</div>
+        <div class="player-note">Euclid Transfer</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">22</div>
+      <div class="player-details">
+        <div class="player-name">Landon HOSE</div>
+        <div class="player-meta">6-1, 215, JR</div>
+        <div class="player-stat">Special teams starter</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Offensive Line (LT, LG, C, RG, RT) -->
+  <div class="pos-box box-lt">
+    <div class="pos-header">LT</div>
+    <div class="player-row">
+      <div class="jersey-badge">60</div>
+      <div class="player-details">
+        <div class="player-name">M. GARNER JR.</div>
+        <div class="player-meta">6-5, 290, SR</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">75</div>
+      <div class="player-details">
+        <div class="player-name">B. HILL</div>
+        <div class="player-meta">6-5, 340, SO</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-lg">
+    <div class="pos-header">LG</div>
+    <div class="player-row">
+      <div class="jersey-badge">61</div>
+      <div class="player-details">
+        <div class="player-name">J. GATSIOS</div>
+        <div class="player-meta">6-1, 280, JR</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">62</div>
+      <div class="player-details">
+        <div class="player-name">W. HIRNING</div>
+        <div class="player-meta">6-3, 245, JR</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-c">
+    <div class="pos-header">C</div>
+    <div class="player-row">
+      <div class="jersey-badge">52</div>
+      <div class="player-details">
+        <div class="player-name">D. FLOYD</div>
+        <div class="player-meta">6-2, 275, SR</div>
+        <div class="player-note">3 offers</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">50</div>
+      <div class="player-details">
+        <div class="player-name">B. HAWK</div>
+        <div class="player-meta">6-0, 260, SO</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-rg">
+    <div class="pos-header">RG</div>
+    <div class="player-row">
+      <div class="jersey-badge">72</div>
+      <div class="player-details">
+        <div class="player-name">L. BARNHART</div>
+        <div class="player-meta">6-3, 290, SR</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">75</div>
+      <div class="player-details">
+        <div class="player-name">B. HILL</div>
+        <div class="player-meta">6-5, 340, SO</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-rt">
+    <div class="pos-header">RT</div>
+    <div class="player-row">
+      <div class="jersey-badge">78</div>
+      <div class="player-details">
+        <div class="player-name">M. WALKER</div>
+        <div class="player-meta">6-5, 305, SR</div>
+        <div class="player-note">Nordonia / 5 offers</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">75</div>
+      <div class="player-details">
+        <div class="player-name">B. HILL</div>
+        <div class="player-meta">6-5, 340, SO</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QB -->
+  <div class="pos-box box-qb">
+    <div class="pos-header">QB</div>
+    <div class="player-row">
+      <div class="jersey-badge">13</div>
+      <div class="player-details">
+        <div class="player-name">Rasmus HAINES</div>
+        <div class="player-meta">6-4, 195, SR | 5-7 66 yds 1 TD</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">10</div>
+      <div class="player-details">
+        <div class="player-name">Manny PATTERSON</div>
+        <div class="player-meta">5-11, 175, SR | 1415 yds 19 TD</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tailback / RB -->
+  <div class="pos-box box-tb">
+    <div class="pos-header">TB / Running Backs</div>
+    <div class="player-row">
+      <div class="jersey-badge">1</div>
+      <div class="player-details">
+        <div class="player-name">Savior OWENS</div>
+        <div class="player-meta">5-11, 205, SR | S: 222-1572 yds 21 TD</div>
+        <div class="player-note">Committed to Michigan State, HOLDER</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">18</div>
+      <div class="player-details">
+        <div class="player-name">Braylon FEISTER</div>
+        <div class="player-meta">6-1, 240, SR | S: 115-1098 yds 17 TD</div>
+        <div class="player-note">Oregon commit (40 offers), Mr. Football</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">2</div>
+      <div class="player-details">
+        <div class="player-name">Christian CULLER</div>
+        <div class="player-meta">6-10, 190, SR | S: 18-155 yds 4 TD | 2 offers</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FB -->
+  <div class="pos-box box-fb">
+    <div class="pos-header">FB</div>
+    <div class="player-row">
+      <div class="jersey-badge">34</div>
+      <div class="player-details">
+        <div class="player-name">William HYMES</div>
+        <div class="player-meta">5-10, 220, SR</div>
+        <div class="player-stat">S: 4 rec 17 yds</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WR Slot -->
+  <div class="pos-box box-wr-slot">
+    <div class="pos-header">WR (Slot)</div>
+    <div class="player-row">
+      <div class="jersey-badge">21</div>
+      <div class="player-details">
+        <div class="player-name">S. JACKSON JR.</div>
+        <div class="player-meta">6-0, 185, SR | 5 TD</div>
+        <div class="player-note">Miami (OH) commit</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">19</div>
+      <div class="player-details">
+        <div class="player-name">J. PIERCE</div>
+        <div class="player-meta">5-9, 160, JR</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WR Right (Z) -->
+  <div class="pos-box box-wr-right">
+    <div class="pos-header">WR (Z)</div>
+    <div class="player-row">
+      <div class="jersey-badge">5</div>
+      <div class="player-details">
+        <div class="player-name">B. GAMBLE</div>
+        <div class="player-meta">6-2, 205, SR</div>
+        <div class="player-note">Plays CB</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">4</div>
+      <div class="player-details">
+        <div class="player-name">V. HAWKINS</div>
+        <div class="player-meta">5-9, 150, JR</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Specialists (Punter & Kicker) -->
+  <div class="pos-box box-punter">
+    <div class="pos-header">Punter</div>
+    <div class="player-row">
+      <div class="jersey-badge">13</div>
+      <div class="player-details">
+        <div class="player-name">R. HAINES</div>
+        <div class="player-stat">Avg: 34.2 yds (L55)</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">5</div>
+      <div class="player-details">
+        <div class="player-name">B. GAMBLE</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pos-box box-kicker">
+    <div class="pos-header">Kicker</div>
+    <div class="player-row">
+      <div class="jersey-badge">7</div>
+      <div class="player-details">
+        <div class="player-name">M. HERRERA</div>
+        <div class="player-meta">3-yr starter</div>
+        <div class="player-stat">PAT 55-57, FG 1-3</div>
+      </div>
+    </div>
+    <div class="player-row">
+      <div class="jersey-badge backup">16</div>
+      <div class="player-details">
+        <div class="player-name">G. CORSALE</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM-RIGHT: Schedule Box -->
+  <div class="panel-box box-schedule">
+    <div class="panel-subtitle">Massillon Schedule</div>
+    <div>8/28 7:00 @ GlenOak</div>
+    <div>9/4 7:00 vs. NFL Academy</div>
+    <div>9/11 7:00 vs. Canisius</div>
+    <div>9/18 7:00 @ St. Edwards</div>
+    <div>9/25 7:00 vs. Football North</div>
+  </div>
+
+  <!-- BOTTOM-RIGHT: Head Coach & Staff Box -->
+  <div class="panel-box box-staff-hc">
+    <div class="panel-subtitle">OC/QBs: Evan Berbari</div>
+    <div>Nate Moore: Tight Ends</div>
+    <div>Ty Keirns: Offensive Line</div>
+    <div>Travis McGuire: Running Backs</div>
+    <div>Austin Kutscher: Wide Receivers</div>
+    <div style="margin-top: 4px; border-top: 1px solid #111; padding-top: 2px; font-weight: 800;">
+      <div>HC: Nate Moore</div>
+      <div>2025 Record: 9-4</div>
+      <div>Total Record: 119-29</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

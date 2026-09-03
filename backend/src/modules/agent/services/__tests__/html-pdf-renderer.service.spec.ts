@@ -4,6 +4,7 @@ import {
   buildPlaywrightPdfOptions,
   getLocalChromiumLaunchArgs,
   HtmlPdfRendererService,
+  resolveHtmlPdfTemplateRef,
   type HtmlPdfRunner,
 } from '../html-pdf-renderer.service.js';
 
@@ -42,6 +43,20 @@ describe('HtmlPdfRendererService', () => {
       ])
     );
     expect(getLocalChromiumLaunchArgs('darwin')).toEqual([]);
+  });
+
+  it('defaults the E2B template ref to the production tag', () => {
+    expect(resolveHtmlPdfTemplateRef({} as NodeJS.ProcessEnv)).toBe(
+      'nxt1-html-pdf-renderer:production'
+    );
+  });
+
+  it('uses the configured E2B template ref when provided', () => {
+    expect(
+      resolveHtmlPdfTemplateRef({
+        E2B_HTML_PDF_TEMPLATE: 'johns-project-8567/nxt1-html-pdf-renderer:latest',
+      } as NodeJS.ProcessEnv)
+    ).toBe('johns-project-8567/nxt1-html-pdf-renderer:latest');
   });
 
   it('renders a valid complete HTML document and returns metadata', async () => {

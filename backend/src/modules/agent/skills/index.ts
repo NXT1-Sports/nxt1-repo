@@ -54,6 +54,7 @@ export { PlayDesignSimulationSkill } from './strategy/play-design-simulation.ski
 export { PlayDiagramVerificationWorkflowSkill } from './strategy/play-diagram-verification-workflow.skill.js';
 export { PracticeScriptAndProgressionSkill } from './strategy/practice-script-and-progression.skill.js';
 export { FootballCallsheetDesignSkill } from './strategy/football-callsheet-design.skill.js';
+export { FootballMatchupStartersCardDesignSkill } from './strategy/football-matchup-starters-card-design.skill.js';
 export { QbWristbandInsertDesignSkill } from './strategy/qb-wristband-insert-design.skill.js';
 export { ScoutTeamCardDesignSkill } from './strategy/scout-team-card-design.skill.js';
 export { PracticeScriptDesignSkill } from './strategy/practice-script-design.skill.js';
