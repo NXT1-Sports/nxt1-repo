@@ -62,6 +62,50 @@ describe('PlayDiagramService', () => {
     expect(result.xmlContent).toContain('Web Search Results for Play Diagram Generation');
   });
 
+  it('requests image descriptions from Tavily so candidates carry enough signal to match', async () => {
+    await service.createDiagram({
+      description: 'Cover 3 beater flood concept versus single-high zone',
+      sport: 'football',
+      title: 'Flood Right',
+    });
+
+    const [, requestInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const requestBody = JSON.parse(requestInit.body as string) as {
+      include_image_descriptions?: boolean;
+    };
+    expect(requestBody.include_image_descriptions).toBe(true);
+  });
+
+  it('accepts a candidate with a single strong relevance signal instead of requiring two', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        query: 'smash concept football playbook diagram',
+        images: [
+          {
+            url: 'https://images.example.com/random-asset.png',
+            description: 'Smash concept route diagram versus cover 2',
+          },
+        ],
+        results: [
+          {
+            title: 'Unrelated host result',
+            url: 'https://other-host.example.com/smash',
+            content: 'Article content unrelated to the image host.',
+          },
+        ],
+      })
+    );
+
+    const result = await service.createDiagram({
+      description: 'Smash concept',
+      sport: 'football',
+      title: 'Smash',
+    });
+
+    expect(result.imageUrl).toBe('https://images.example.com/random-asset.png');
+    expect(result.resultStatus).toBe('candidate_found');
+  });
+
   it('retries once with the fallback query when the primary search finds no usable candidate', async () => {
     fetchMock
       .mockResolvedValueOnce(
