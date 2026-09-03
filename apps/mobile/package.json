@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/mobile",
-  "version": "1.114.2",
+  "version": "1.115.0",
   "description": "NXT1 Mobile Application - Ionic + Capacitor",
   "private": true,
   "scripts": {
