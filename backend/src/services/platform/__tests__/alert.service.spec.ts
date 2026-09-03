@@ -283,6 +283,25 @@ describe('sendSlackAlert', () => {
     );
   });
 
+  it('does not fall back sales alerts to the default or agent webhook', async () => {
+    process.env['SLACK_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/default';
+    process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/agent';
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'sales',
+      environment: 'production',
+      severity: 'info',
+      title: 'Payment Received',
+      summary: 'A customer payment completed.',
+    });
+
+    expect(delivered).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('uses the agent webhook as a last resort when signup and default webhooks are missing', async () => {
     process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/agent';
 

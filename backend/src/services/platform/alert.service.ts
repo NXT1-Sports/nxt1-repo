@@ -105,6 +105,14 @@ function resolveTargetWebhook(
     };
   }
 
+  if (target === 'sales') {
+    return {
+      url: '',
+      envVar: null,
+      source: 'target-specific',
+    };
+  }
+
   const fallback = resolveWebhookFromEnvKeys(targetEnvKeys.default);
   return {
     url: fallback.url,
@@ -253,14 +261,14 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
     readonly deliveryAttempt: 'default-fallback' | 'agent-fallback';
   }> = [];
 
-  if (target !== 'default' && resolvedWebhook.source === 'target-specific') {
+  if (target !== 'default' && target !== 'sales' && resolvedWebhook.source === 'target-specific') {
     fallbackCandidates.push({
       resolvedWebhook: resolveDefaultFallbackWebhook(environment),
       deliveryAttempt: 'default-fallback',
     });
   }
 
-  if (target !== 'agent') {
+  if (target !== 'agent' && target !== 'sales') {
     fallbackCandidates.push({
       resolvedWebhook: resolveAgentFallbackWebhook(environment),
       deliveryAttempt: 'agent-fallback',

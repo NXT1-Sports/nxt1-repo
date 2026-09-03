@@ -193,6 +193,92 @@ describe('Agent X Routes', () => {
     expect(chatService.queueAttachmentSync).not.toHaveBeenCalled();
   });
 
+  it('should submit an Agent X desktop review to the sales Slack alert channel', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      location: { city: 'Alcoa', state: 'TN' },
+      organizationId: 'org-123',
+      teamId: 'team-123',
+      primarySport: 'Football',
+      teamHistory: [{ teamName: 'Alcoa Football', organizationId: 'org-123', sport: 'Football' }],
+    });
+    __seedMockFirestoreDocument('Organizations/org-123', {
+      name: 'Alcoa High School',
+      location: { city: 'Alcoa', state: 'TN' },
+    });
+    __seedMockFirestoreDocument('Teams/team-123', {
+      teamName: 'Alcoa Football',
+      organizationId: 'org-123',
+      sport: 'Football',
+      city: 'Alcoa',
+      state: 'TN',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/reviews')
+      .set('Authorization', 'Bearer test-token')
+      .set('User-Agent', 'Mozilla/5.0 Test Browser')
+      .send({
+        rating: 4,
+        reviewText: 'Agent X is strong on desktop. I want faster context carryover between tasks.',
+        promptVersion: 'agent-x-desktop-review-v1',
+        surface: 'desktop_web',
+        pageUrl: 'https://nxt1sports.com/agent-x',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, data: { delivered: true } });
+    expect(sendSlackAlertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'sales',
+        title: 'Agent X Desktop Review Received',
+        severity: 'info',
+        fields: expect.arrayContaining([
+          expect.objectContaining({ label: 'Rating', value: '4/5' }),
+          expect.objectContaining({ label: 'Organization', value: 'Alcoa High School' }),
+          expect.objectContaining({ label: 'Team', value: 'Alcoa Football' }),
+          expect.objectContaining({ label: 'Sport', value: 'Football' }),
+          expect.objectContaining({ label: 'Location', value: 'Alcoa, TN' }),
+        ]),
+      })
+    );
+  });
+
+  it('should accept Agent X desktop reviews with only a rating', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        rating: 5,
+        promptVersion: 'agent-x-desktop-review-v1',
+        surface: 'desktop_web',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true, data: { delivered: true } });
+    expect(sendSlackAlertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fields: expect.arrayContaining([
+          expect.objectContaining({ label: 'Review', value: 'No written feedback provided.' }),
+        ]),
+      })
+    );
+  });
+
+  it('should reject Agent X desktop reviews with an out-of-range rating', async () => {
+    const response = await request(app)
+      .post('/api/v1/agent-x/reviews')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        rating: 6,
+        reviewText: 'Agent X is useful, but I need better continuity between tasks on desktop.',
+        promptVersion: 'agent-x-desktop-review-v1',
+        surface: 'desktop_web',
+      });
+
+    expect(response.status).toBe(400);
+    expect(sendSlackAlertMock).not.toHaveBeenCalled();
+  });
+
   it('should reject oversized non-video uploads with a structured file-too-large error', async () => {
     const oversizedBuffer = Buffer.alloc(AGENT_X_MAX_NON_VIDEO_FILE_SIZE + 1, 0);
 

@@ -788,6 +788,18 @@ export const AGENT_X_FEEDBACK_MODAL_TEST_IDS = {
   BTN_SUBMIT: 'agent-feedback-modal-btn-submit',
 } as const;
 
+export const AGENT_X_DESKTOP_REVIEW_PROMPT_TEST_IDS = {
+  CONTAINER: 'agent-x-desktop-review-prompt-container',
+  RATING_GROUP: 'agent-x-desktop-review-prompt-rating-group',
+  RATING_OPTION_PREFIX: 'agent-x-desktop-review-prompt-rating-option',
+  TEXTAREA: 'agent-x-desktop-review-prompt-textarea',
+  CTA_SUBMIT: 'agent-x-desktop-review-prompt-submit',
+  CTA_DISMISS: 'agent-x-desktop-review-prompt-dismiss',
+  PROMPT_CHIP: 'agent-x-desktop-review-prompt-chip',
+  ERROR: 'agent-x-desktop-review-prompt-error',
+  COUNTER: 'agent-x-desktop-review-prompt-counter',
+} as const;
+
 export const AGENT_X_MESSAGE_UNDO_TEST_IDS = {
   BANNER: 'agent-message-undo-banner',
   BTN_UNDO: 'agent-message-undo-btn',
@@ -1545,6 +1557,7 @@ export const TEST_IDS = {
   AGENT_X_CHAT_BUBBLE_ACTIONS: AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS,
   AGENT_X_MESSAGE_EDIT: AGENT_X_MESSAGE_EDIT_TEST_IDS,
   AGENT_X_FEEDBACK_MODAL: AGENT_X_FEEDBACK_MODAL_TEST_IDS,
+  AGENT_X_DESKTOP_REVIEW_PROMPT: AGENT_X_DESKTOP_REVIEW_PROMPT_TEST_IDS,
   AGENT_X_MESSAGE_UNDO: AGENT_X_MESSAGE_UNDO_TEST_IDS,
   AGENT_X_INPUT: AGENT_X_INPUT_TEST_IDS,
   AGENT_X_ATTACHMENTS_SHEET: AGENT_X_ATTACHMENTS_SHEET_TEST_IDS,
