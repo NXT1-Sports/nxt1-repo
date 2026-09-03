@@ -787,6 +787,12 @@ export const APP_EVENTS = {
   AGENT_X_MESSAGE_FEEDBACK_OPENED: 'agent_x_message_feedback_opened',
   /** User submitted feedback for an assistant message */
   AGENT_X_MESSAGE_FEEDBACK_SUBMITTED: 'agent_x_message_feedback_submitted',
+  /** User saw the desktop Agent X quick-review prompt */
+  AGENT_X_DESKTOP_REVIEW_PROMPT_VIEWED: 'agent_x_desktop_review_prompt_viewed',
+  /** User dismissed the desktop Agent X quick-review prompt */
+  AGENT_X_DESKTOP_REVIEW_PROMPT_DISMISSED: 'agent_x_desktop_review_prompt_dismissed',
+  /** User submitted the desktop Agent X quick-review prompt */
+  AGENT_X_DESKTOP_REVIEW_PROMPT_SUBMITTED: 'agent_x_desktop_review_prompt_submitted',
   /** User started editing a user-authored persisted message */
   AGENT_X_MESSAGE_EDIT_STARTED: 'agent_x_message_edit_started',
   /** User saved an edited message */

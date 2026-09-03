@@ -3,6 +3,7 @@ import { provideBrowserAuthProviders } from './core/providers/browser-auth.provi
 import { provideWebShellProviders } from './core/providers/web-shell.providers';
 import { matchAuthenticatedAgentXLayout } from './core/routing/agent-x-layout.matchers';
 import { provideReleaseNotesCheck } from './core/services/state/release-notes.initializer';
+import { provideAgentXDesktopReviewPrompt } from './features/agent-x/services/agent-x-desktop-review-prompt.initializer';
 import { authGuard } from './features/auth/guards/auth.guards';
 
 export const APP_SHELL_ROUTES: Routes = [
@@ -15,7 +16,7 @@ export const APP_SHELL_ROUTES: Routes = [
       {
         path: 'agent-x',
         canMatch: [matchAuthenticatedAgentXLayout],
-        providers: [provideReleaseNotesCheck()],
+        providers: [provideReleaseNotesCheck(), provideAgentXDesktopReviewPrompt()],
         title: 'NXT1 Agent X | AI Command Center for Sports',
         loadComponent: () =>
           import('./features/agent-x/agent-x.component').then((m) => m.AgentXComponent),

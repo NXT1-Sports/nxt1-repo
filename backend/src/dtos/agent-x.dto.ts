@@ -688,6 +688,34 @@ export class AgentMessageFeedbackDto {
   threadId!: string;
 }
 
+export class AgentXQuickReviewDto {
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  rating!: number;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 1500)
+  reviewText?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(3, 80)
+  promptVersion!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(['desktop_web'])
+  surface!: 'desktop_web';
+
+  @IsString()
+  @IsOptional()
+  @Length(1, 500)
+  pageUrl?: string;
+}
+
 export class AgentMessageAnnotationDto {
   @IsString()
   @IsNotEmpty()

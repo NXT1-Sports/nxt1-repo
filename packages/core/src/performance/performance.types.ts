@@ -409,6 +409,7 @@ export const TRACE_NAMES = {
   AGENT_X_OPERATION_APPROVE: 'agent_x_operation_approve',
   AGENT_X_OPERATION_REPLY: 'agent_x_operation_reply',
   AGENT_X_OPERATION_RETRY: 'agent_x_operation_retry',
+  AGENT_X_DESKTOP_REVIEW_SUBMIT: 'agent_x_desktop_review_submit',
   AGENT_X_GOAL_COMPLETE: 'agent_x_goal_complete',
   AGENT_X_GOAL_HISTORY_LOAD: 'agent_x_goal_history_load',
 

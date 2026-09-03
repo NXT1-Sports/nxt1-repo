@@ -29,6 +29,7 @@ import messagesRoutes from './messages.routes.js';
 import mediaProxyRoutes from './media-proxy.routes.js';
 import referenceAssetsRoutes from './reference-assets.routes.js';
 import tasksRoutes from './tasks.routes.js';
+import reviewsRoutes from './reviews.routes.js';
 
 const router = Router();
 
@@ -43,6 +44,7 @@ router.use(filesRoutes);
 router.use(liveViewRoutes);
 router.use(knowledgeAdminRoutes);
 router.use(messagesRoutes);
+router.use(reviewsRoutes);
 router.use(mediaProxyRoutes);
 router.use(tasksRoutes);
 router.use(referenceAssetsRoutes);
