@@ -24,6 +24,7 @@ import {
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
   type AgentXStreamMediaEvent,
+  type AgentXOperationLifecycleStatus,
   type AgentXStreamStepEvent,
   type AgentXToolStep,
   type AgentXStreamWaitingForAttachmentsEvent,
@@ -58,6 +59,7 @@ type OperationStatus =
   | 'paused'
   | 'awaiting_input'
   | 'awaiting_approval'
+  | 'cancelled'
   | null;
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
@@ -82,6 +84,23 @@ function truncateSelectedContextSummary(summary: string): string {
 
 function isRecurringToolName(toolName: string): boolean {
   return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
+}
+
+function isStoppedLocalStatus(status: OperationStatus): boolean {
+  return status === 'paused' || status === 'cancelled';
+}
+
+function isNonTerminalLifecycleStatus(status: AgentXOperationLifecycleStatus): boolean {
+  return (
+    status === 'queued' ||
+    status === 'running' ||
+    status === 'awaiting_input' ||
+    status === 'awaiting_approval'
+  );
+}
+
+function isYieldLifecycleCardType(type: AgentXRichCard['type']): boolean {
+  return type === 'ask_user' || type === 'confirmation';
 }
 
 function storageObjectPathFromUrl(value: string): string | null {
@@ -170,6 +189,7 @@ export interface AgentXOperationChatTransportFacadeHost {
   getStreamTurnWatermark(): StreamTurnWatermark | null;
   setStreamTurnWatermark(watermark: StreamTurnWatermark | null): void;
   resolveActiveThreadId(): string | null;
+  getOperationStatus(): OperationStatus;
   setOperationStatus(status: OperationStatus): void;
   setActivityPhase(
     phase:
@@ -791,6 +811,23 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onCard: (event: AgentXStreamCardEvent) => {
+            const currentStatus = host.getOperationStatus();
+            if (isStoppedLocalStatus(currentStatus) && isYieldLifecycleCardType(event.type)) {
+              this.logger.debug('Ignoring stale yield card after local stop', {
+                contextId: host.contextId(),
+                operationId:
+                  this.resolveYieldOperationIdFromCardEvent(
+                    event,
+                    host.getCurrentOperationId() ?? host.contextId()
+                  ) ??
+                  host.getCurrentOperationId() ??
+                  pendingOperationId,
+                localStatus: currentStatus,
+                cardType: event.type,
+              });
+              return;
+            }
+
             this.messageFacade.flushPendingTypingDelta();
             const card: AgentXRichCard = {
               type: event.type,
@@ -807,6 +844,22 @@ export class AgentXOperationChatTransportFacade {
               !!event.clearText
             );
             if (yieldState) {
+              if (isStoppedLocalStatus(currentStatus)) {
+                this.logger.debug('Ignoring stale yield card after local stop', {
+                  contextId: host.contextId(),
+                  operationId:
+                    this.resolveYieldOperationIdFromCardEvent(
+                      event,
+                      host.getCurrentOperationId() ?? host.contextId()
+                    ) ??
+                    host.getCurrentOperationId() ??
+                    pendingOperationId,
+                  localStatus: currentStatus,
+                  yieldReason: yieldState.reason,
+                });
+                return;
+              }
+
               host.applyYieldState({
                 yieldState,
                 source: 'sse-operation',
@@ -825,6 +878,18 @@ export class AgentXOperationChatTransportFacade {
             }
           },
           onOperation: (event) => {
+            const currentStatus = host.getOperationStatus();
+            if (isStoppedLocalStatus(currentStatus) && isNonTerminalLifecycleStatus(event.status)) {
+              this.logger.debug('Ignoring stale non-terminal lifecycle after local stop', {
+                contextId: host.contextId(),
+                operationId:
+                  event.operationId ?? host.getCurrentOperationId() ?? pendingOperationId,
+                status: event.status,
+                localStatus: currentStatus,
+              });
+              return;
+            }
+
             if (event.operationId) {
               host.setCurrentOperationId(event.operationId);
               this.messageFacade.stampLatestUserMessageOperationId({

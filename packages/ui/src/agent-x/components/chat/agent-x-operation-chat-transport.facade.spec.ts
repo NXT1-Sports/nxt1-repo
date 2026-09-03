@@ -22,6 +22,7 @@ describe('AgentXOperationChatTransportFacade', () => {
   let facade: AgentXOperationChatTransportFacade;
   let host: AgentXOperationChatTransportFacadeHost;
   let callbacks: AgentXStreamCallbacks;
+  let operationStatus: ReturnType<AgentXOperationChatTransportFacadeHost['getOperationStatus']>;
 
   const loggerMock = {
     child: vi.fn(),
@@ -103,6 +104,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     });
 
     facade = TestBed.inject(AgentXOperationChatTransportFacade);
+    operationStatus = 'processing';
     host = {
       contextId: () => 'op-123',
       contextType: () => 'operation',
@@ -128,7 +130,10 @@ describe('AgentXOperationChatTransportFacade', () => {
       getStreamTurnWatermark: vi.fn().mockReturnValue(null),
       setStreamTurnWatermark: vi.fn(),
       resolveActiveThreadId: vi.fn().mockReturnValue('thread-1'),
-      setOperationStatus: vi.fn(),
+      getOperationStatus: () => operationStatus,
+      setOperationStatus: vi.fn((next) => {
+        operationStatus = next;
+      }),
       setActivityPhase: vi.fn(),
       markActivityPulse: vi.fn(),
       emitResponseComplete: vi.fn(),
@@ -174,6 +179,95 @@ describe('AgentXOperationChatTransportFacade', () => {
     });
 
     await expect(pendingStream).rejects.toThrow('Stop test stream');
+  });
+
+  it('ignores stale running lifecycle events after the user has paused locally', async () => {
+    facade.sendViaStream({ message: 'Pause this chat' } as AgentXChatRequest, 'token-123');
+    operationStatus = 'paused';
+
+    callbacks.onOperation?.({
+      operationId: 'op-123',
+      threadId: 'thread-1',
+      status: 'running',
+      timestamp: new Date().toISOString(),
+      message: 'Still running',
+    } as never);
+
+    expect(host.setOperationStatus).not.toHaveBeenCalledWith('processing');
+    expect(host.setActivityPhase).not.toHaveBeenCalledWith('connected', 'Still running');
+  });
+
+  it('ignores stale ask-user lifecycle events after the user has paused locally', async () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which team should I use?',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: 'ask_user:Which team should I use?',
+        toolInput: {
+          question: 'Which team should I use?',
+          threadId: 'thread-1',
+          operationId: 'op-123',
+        },
+      },
+      messages: [],
+    };
+
+    facade.sendViaStream({ message: 'Pause this chat' } as AgentXChatRequest, 'token-123');
+    operationStatus = 'paused';
+
+    callbacks.onOperation?.({
+      operationId: 'op-123',
+      threadId: 'thread-1',
+      status: 'awaiting_input',
+      timestamp: new Date().toISOString(),
+      message: 'Need more info',
+      yieldState,
+    } as never);
+
+    expect(host.applyYieldState).not.toHaveBeenCalled();
+    expect(host.setOperationStatus).not.toHaveBeenCalledWith('awaiting_input');
+    expect(host.setActivityPhase).not.toHaveBeenCalledWith('awaiting_input', 'Need more info');
+  });
+
+  it('ignores stale ask-user cards after the user has paused locally', async () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which team should I use?',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: 'ask_user:Which team should I use?',
+        toolInput: {
+          question: 'Which team should I use?',
+          threadId: 'thread-1',
+          operationId: 'op-card-first-ask-user-1',
+        },
+      },
+      messages: [],
+    };
+    messageFacadeMock.attachStreamedCard.mockReturnValueOnce(yieldState);
+
+    facade.sendViaStream({ message: 'Pause this chat' } as AgentXChatRequest, 'token-123');
+    operationStatus = 'paused';
+
+    callbacks.onCard?.({
+      type: 'ask_user',
+      agentId: 'router',
+      title: 'Agent X has a question',
+      payload: {
+        question: 'Which team should I use?',
+        threadId: 'thread-1',
+        operationId: 'op-card-first-ask-user-1',
+      },
+      clearText: true,
+    });
+
+    expect(messageFacadeMock.attachStreamedCard).not.toHaveBeenCalled();
+    expect(host.applyYieldState).not.toHaveBeenCalled();
+    expect(host.setOperationStatus).not.toHaveBeenCalledWith('awaiting_input');
+    expect(host.setActivityPhase).not.toHaveBeenCalledWith('awaiting_input');
   });
 
   it('applies an ask-user yield immediately when the card arrives before the operation event', async () => {

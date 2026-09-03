@@ -2283,7 +2283,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         '',
         '',
         null,
-        'processing',
+        null,
         null,
         scheduledActions,
         suggestedActions,
@@ -2327,7 +2327,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       | 'error'
       | 'paused'
       | 'awaiting_input'
-      | 'awaiting_approval' = 'processing',
+      | 'awaiting_approval'
+      | null = contextType === 'operation' ? 'processing' : null,
     errorMessage: string | null = null,
     scheduledActions: OperationQuickAction[] = [],
     suggestedActions: OperationQuickAction[] = [],

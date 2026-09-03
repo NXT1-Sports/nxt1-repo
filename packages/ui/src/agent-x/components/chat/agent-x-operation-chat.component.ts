@@ -3224,6 +3224,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this._streamTurnWatermark = watermark;
       },
       resolveActiveThreadId: () => this.sessionFacade.resolveActiveThreadId(),
+      getOperationStatus: () => this.operationStatus,
       setOperationStatus: (status) => {
         this.operationStatus = status;
       },
