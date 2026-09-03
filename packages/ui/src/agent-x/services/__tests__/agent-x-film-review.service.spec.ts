@@ -744,6 +744,86 @@ describe('AgentXFilmReviewService', () => {
     });
   });
 
+  describe('film tracking', () => {
+    it('requests tracking and updates local review tracking state', async () => {
+      const review = createReviewDoc({
+        sources: [
+          {
+            id: 'wide-1',
+            order: 0,
+            title: 'Wide Angle',
+            videoUrl: 'https://cdn.example.com/review.mp4',
+          },
+        ],
+      });
+      (service as unknown as { upsertReview(review: TeamFilmReviewDoc): void }).upsertReview(
+        review
+      );
+      httpMock.post.mockReturnValue(
+        of({
+          success: true,
+          data: {
+            jobId: 'film_tracking_123',
+            status: 'ready',
+            capability: 'tracked_image_space',
+            manifest: { manifestStoragePath: 'film-tracking/review-123/wide-1/manifest.json' },
+            progress: {
+              status: 'ready',
+              processedWindowCount: 1,
+              totalWindowCount: 1,
+              percentComplete: 100,
+              updatedAt: '2026-09-02T00:00:00.000Z',
+            },
+          },
+        })
+      );
+
+      const result = await service.requestTracking(review.id, {
+        teamId: review.teamId,
+        sourceId: 'wide-1',
+        scope: 'play',
+        mode: 'draft',
+        playIds: ['play-1'],
+      });
+
+      expect(httpMock.post).toHaveBeenCalledWith(
+        '/api/v1/staging/agent-x/files/review-123/film-review/tracking',
+        expect.objectContaining({ sourceId: 'wide-1', scope: 'play', mode: 'draft' })
+      );
+      expect(result.status).toBe('ready');
+      expect(service.reviews()[0]).toMatchObject({
+        trackingStatus: 'ready',
+        trackingCapability: 'tracked_image_space',
+        trackingManifest: { manifestStoragePath: 'film-tracking/review-123/wide-1/manifest.json' },
+      });
+    });
+
+    it('loads a tracking window from the file-backed route', async () => {
+      httpMock.get.mockReturnValue(
+        of({
+          success: true,
+          data: {
+            manifest: { surfaceType: 'field' },
+            timeRange: { startSec: 10, endSec: 18 },
+            frames: [{ frameIndex: 0, timestampSec: 10, entities: [{ trackId: 'track-home-1' }] }],
+          },
+        })
+      );
+
+      const result = await service.loadTrackingWindow('review-123', {
+        teamId: 'team-123',
+        sourceId: 'wide-1',
+        startSec: 10,
+        endSec: 18,
+      });
+
+      expect(httpMock.get).toHaveBeenCalledWith(
+        '/api/v1/staging/agent-x/files/review-123/film-review/tracking/window?teamId=team-123&sourceId=wide-1&startSec=10&endSec=18'
+      );
+      expect(result.frames).toHaveLength(1);
+    });
+  });
+
   describe('toFilmReviewDocFromUniversalFile', () => {
     it('preserves access keys for owner-scoped review write checks', () => {
       const file = {

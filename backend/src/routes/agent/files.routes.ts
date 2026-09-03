@@ -1,8 +1,9 @@
 import { Router, type Request, type Response } from 'express';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { gunzipSync } from 'node:zlib';
 import { FieldValue } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import type {
@@ -91,6 +92,14 @@ import {
   listFilmReviewDrawings,
   updateFilmReviewDrawing,
 } from '../../services/team/film-review-annotation-sidecar.service.js';
+import {
+  FilmTrackingWorkerClient,
+  FilmTrackingWorkerClientError,
+  FilmTrackingWorkerClientUnavailableError,
+  type FilmTrackingWorkerRequest,
+  type FilmTrackingWorkerResponse,
+  type FilmTrackingWorkerTimeRange,
+} from '../../services/team/film-tracking-worker-client.service.js';
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -358,6 +367,127 @@ const TeamFileFilmReviewDrawingUpdateBodySchema = z.discriminatedUnion('kind', [
     text: z.string().trim().min(1),
   }),
 ]);
+
+const TeamFileFilmReviewTrackingRequestBodySchema = z.object({
+  teamId: z.string().trim().min(1).optional(),
+  sourceId: z.string().trim().min(1).optional(),
+  playIds: z.array(z.string().trim().min(1)).max(200).optional(),
+  scope: z.enum(['play', 'selected_plays', 'timeline', 'full_video']),
+  mode: z.enum(['draft', 'metric']),
+  sport: z.string().trim().min(1).optional(),
+  force: z.boolean().optional(),
+});
+
+const TeamFileFilmReviewTrackingStatusQuerySchema = z.object({
+  teamId: z.string().trim().min(1).optional(),
+  sourceId: z.string().trim().min(1).optional(),
+});
+
+const TeamFileFilmReviewTrackingWindowQuerySchema =
+  TeamFileFilmReviewTrackingStatusQuerySchema.extend({
+    startSec: z.coerce.number().finite().nonnegative(),
+    endSec: z.coerce.number().finite().positive(),
+  }).refine((value) => value.endSec > value.startSec, {
+    message: 'endSec must be greater than startSec',
+    path: ['endSec'],
+  });
+
+const TeamFileFilmReviewTrackingCorrectionBodySchema = z.object({
+  teamId: z.string().trim().min(1).optional(),
+  sourceId: z.string().trim().min(1).optional(),
+  trackId: z.string().trim().min(1),
+  field: z.enum(['team', 'jersey', 'position', 'role', 'roster', 'track_merge', 'track_split']),
+  value: z.string().trim().min(1).nullable().optional(),
+  expectedRevision: z.number().int().nonnegative(),
+});
+
+type FilmReviewTrackingStatusSnapshot =
+  | 'not_tracked'
+  | 'queued'
+  | 'processing'
+  | 'ready'
+  | 'limited'
+  | 'failed'
+  | 'cancelled';
+type FilmReviewTrackingCapabilitySnapshot =
+  | 'none'
+  | 'detection_only'
+  | 'tracked_image_space'
+  | 'calibrated_surface'
+  | 'identified_roster'
+  | 'metric_ready';
+
+interface FilmReviewTrackingProgressSnapshot {
+  readonly status: FilmReviewTrackingStatusSnapshot;
+  readonly processedWindowCount: number;
+  readonly totalWindowCount: number;
+  readonly processedFrameCount?: number;
+  readonly totalFrameCount?: number;
+  readonly percentComplete?: number;
+  readonly statusMessage?: string;
+  readonly updatedAt: string;
+}
+
+interface FilmReviewTrackingManifestPointerSnapshot {
+  readonly manifestStoragePath: string;
+  readonly manifestSha256?: string;
+  readonly generatedAt?: string;
+  readonly expiresAt?: string;
+}
+
+type FilmReviewSourceWithTrackingFields = TeamFilmReviewSourceVideo & {
+  readonly trackingStatus?: FilmReviewTrackingStatusSnapshot;
+  readonly trackingCapability?: FilmReviewTrackingCapabilitySnapshot;
+  readonly trackingManifest?: FilmReviewTrackingManifestPointerSnapshot;
+  readonly trackingProgress?: FilmReviewTrackingProgressSnapshot | null;
+};
+
+type FilmReviewWithTrackingFields = TeamFilmReviewDoc & {
+  readonly trackingStatus?: FilmReviewTrackingStatusSnapshot;
+  readonly trackingCapability?: FilmReviewTrackingCapabilitySnapshot;
+  readonly trackingManifest?: FilmReviewTrackingManifestPointerSnapshot;
+  readonly trackingProgress?: FilmReviewTrackingProgressSnapshot | null;
+  readonly trackingModelBundleVersion?: string;
+  readonly trackingSourceContentHash?: string;
+  readonly trackingCorrectionRevision?: number;
+  readonly trackingCorrections?: readonly Record<string, unknown>[];
+  readonly trackingError?: string | null;
+  readonly sources?: readonly FilmReviewSourceWithTrackingFields[];
+};
+
+interface FilmTrackingStorageBucket {
+  readonly file: (path: string) => {
+    readonly download?: () => Promise<[Buffer]>;
+    readonly save?: (
+      data: Buffer,
+      options: {
+        resumable: boolean;
+        validation?: boolean | 'md5' | 'crc32c';
+        metadata: {
+          contentType: string;
+          cacheControl: string;
+          metadata: Record<string, string>;
+        };
+      }
+    ) => Promise<void>;
+  };
+}
+
+interface FilmTrackingChunkDescriptorSnapshot {
+  readonly storagePath: string;
+  readonly timeRange?: { readonly startSec?: number; readonly endSec?: number };
+}
+
+interface FilmTrackingManifestSnapshot {
+  readonly chunks?: readonly FilmTrackingChunkDescriptorSnapshot[];
+  readonly timeRange?: { readonly startSec?: number; readonly endSec?: number };
+  readonly [key: string]: unknown;
+}
+
+interface FilmTrackingFrameSnapshot {
+  readonly timestampSec?: number;
+  readonly [key: string]: unknown;
+}
 
 const TeamFileSemanticSearchQuerySchema = z.object({
   teamId: z.string().trim().min(1).optional(),
@@ -1556,7 +1686,7 @@ function createNativeFilmReviewPayload(review: TeamFilmReviewDoc): UniversalFilm
     };
   });
 
-  return {
+  const payloadWithTracking = {
     uploadMode: review.uploadMode,
     perspective: review.perspective,
     gameDate: review.gameDate,
@@ -1586,9 +1716,20 @@ function createNativeFilmReviewPayload(review: TeamFilmReviewDoc): UniversalFilm
     timelineGeneratedAt: review.timelineGeneratedAt,
     timelineError: review.timelineError,
     timelineProgress: review.timelineProgress,
+    trackingStatus: (review as FilmReviewWithTrackingFields).trackingStatus,
+    trackingCapability: (review as FilmReviewWithTrackingFields).trackingCapability,
+    trackingManifest: (review as FilmReviewWithTrackingFields).trackingManifest,
+    trackingProgress: (review as FilmReviewWithTrackingFields).trackingProgress,
+    trackingModelBundleVersion: (review as FilmReviewWithTrackingFields).trackingModelBundleVersion,
+    trackingSourceContentHash: (review as FilmReviewWithTrackingFields).trackingSourceContentHash,
+    trackingCorrectionRevision: (review as FilmReviewWithTrackingFields).trackingCorrectionRevision,
+    trackingCorrections: (review as FilmReviewWithTrackingFields).trackingCorrections,
+    trackingError: (review as FilmReviewWithTrackingFields).trackingError,
     downloadPrewarm: review.downloadPrewarm,
     downloadExport: review.downloadExport,
   };
+
+  return payloadWithTracking as UniversalFilmReviewPayload;
 }
 
 function normalizePersistableThumbnailUrl(value: string | null | undefined): string | undefined {
@@ -1609,7 +1750,9 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
     return null;
   }
 
-  const payload = getUniversalFilmReviewPayload(file.payload);
+  const payload = getUniversalFilmReviewPayload(file.payload) as
+    | (NonNullable<ReturnType<typeof getUniversalFilmReviewPayload>> & FilmReviewWithTrackingFields)
+    | null;
   if (!payload) {
     return null;
   }
@@ -1622,7 +1765,7 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
     return null;
   }
 
-  return {
+  const reviewWithTracking = {
     id: file.id,
     teamId: file.teamId,
     organizationId: file.organizationId ?? undefined,
@@ -1666,9 +1809,20 @@ function toTeamFilmReviewDocFromUniversalFile(file: UniversalFileDoc): TeamFilmR
     timelineGeneratedAt: payload.timelineGeneratedAt,
     timelineError: payload.timelineError,
     timelineProgress: payload.timelineProgress,
+    trackingStatus: payload.trackingStatus,
+    trackingCapability: payload.trackingCapability,
+    trackingManifest: payload.trackingManifest,
+    trackingProgress: payload.trackingProgress,
+    trackingModelBundleVersion: payload.trackingModelBundleVersion,
+    trackingSourceContentHash: payload.trackingSourceContentHash,
+    trackingCorrectionRevision: payload.trackingCorrectionRevision,
+    trackingCorrections: payload.trackingCorrections,
+    trackingError: payload.trackingError,
     downloadPrewarm: payload.downloadPrewarm,
     downloadExport: payload.downloadExport,
   };
+
+  return reviewWithTracking as TeamFilmReviewDoc;
 }
 
 function attachNativeFilmReviewToBaseFile(
@@ -2111,6 +2265,254 @@ async function authorizeFilmReviewDrawingAccess(params: {
         grantedAccessKeys,
       });
   return canAccess ? { ok: true } : { ok: false, status: 403, error: 'Forbidden' };
+}
+
+async function authorizeNativeFilmReviewAccess(params: {
+  readonly db: NonNullable<Request['firebase']>['db'];
+  readonly fileId: string;
+  readonly teamId?: string;
+  readonly userId: string;
+  readonly write: boolean;
+}): Promise<
+  | {
+      readonly ok: true;
+      readonly file: UniversalNativeFileDoc<'file'>;
+      readonly review: TeamFilmReviewDoc;
+    }
+  | { readonly ok: false; readonly status: number; readonly error: string }
+> {
+  const nativeReview = await resolveNativeFilmReviewForFileMutation({
+    db: params.db,
+    fileId: params.fileId,
+    teamId: params.teamId,
+  });
+  if (!nativeReview.ok) return nativeReview;
+
+  const grantedAccessKeys = await resolveGrantedFileAccessKeys(params.db, params.userId);
+  const canAccess = params.write
+    ? await canWriteAccessControlledRecord({
+        db: params.db,
+        authUid: params.userId,
+        teamId: params.teamId,
+        data: nativeReview.file as unknown as Record<string, unknown>,
+        acl: nativeReview.file.acl,
+        grantedAccessKeys,
+      })
+    : canReadAccessControlledRecord(nativeReview.file as unknown as Record<string, unknown>, {
+        acl: nativeReview.file.acl,
+        grantedAccessKeys,
+      });
+
+  return canAccess
+    ? { ok: true, file: nativeReview.file, review: nativeReview.review }
+    : { ok: false, status: 403, error: 'Forbidden' };
+}
+
+function updateFilmReviewSourceTrackingState(params: {
+  readonly sources: readonly TeamFilmReviewSourceVideo[] | undefined;
+  readonly sourceId: string | undefined;
+  readonly status: FilmReviewTrackingStatusSnapshot;
+  readonly progress: FilmReviewTrackingProgressSnapshot;
+  readonly capability: FilmReviewTrackingCapabilitySnapshot;
+}): readonly TeamFilmReviewSourceVideo[] | undefined {
+  if (!params.sources?.length || !params.sourceId) return params.sources;
+
+  return params.sources.map((source) =>
+    source.id === params.sourceId
+      ? {
+          ...source,
+          trackingStatus: params.status,
+          trackingCapability: params.capability,
+          trackingProgress: params.progress,
+        }
+      : source
+  );
+}
+
+function getFilmTrackingStorageBucket(req: Request): FilmTrackingStorageBucket | null {
+  const storage = req.firebase?.storage as { bucket?: () => FilmTrackingStorageBucket } | undefined;
+  return typeof storage?.bucket === 'function' ? storage.bucket() : null;
+}
+
+async function downloadFilmTrackingStorageText(
+  bucket: FilmTrackingStorageBucket,
+  storagePath: string
+): Promise<string> {
+  const file = bucket.file(storagePath);
+  if (typeof file.download !== 'function') {
+    throw new Error('Storage download unavailable');
+  }
+
+  const [buffer] = await file.download();
+  const content = storagePath.endsWith('.gz') ? gunzipSync(buffer) : buffer;
+  return content.toString('utf8');
+}
+
+async function loadFilmTrackingManifestFromStorage(
+  bucket: FilmTrackingStorageBucket,
+  storagePath: string
+): Promise<FilmTrackingManifestSnapshot> {
+  const text = await downloadFilmTrackingStorageText(bucket, storagePath);
+  const parsed = JSON.parse(text) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Invalid tracking manifest');
+  }
+  return parsed as FilmTrackingManifestSnapshot;
+}
+
+async function loadFilmTrackingFramesFromStorage(
+  bucket: FilmTrackingStorageBucket,
+  storagePath: string
+): Promise<readonly FilmTrackingFrameSnapshot[]> {
+  const text = await downloadFilmTrackingStorageText(bucket, storagePath);
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return Array.isArray(parsed) ? (parsed as FilmTrackingFrameSnapshot[]) : [];
+  }
+
+  return trimmed
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as FilmTrackingFrameSnapshot);
+}
+
+function isFilmTrackingChunkInWindow(
+  chunk: FilmTrackingChunkDescriptorSnapshot,
+  startSec: number,
+  endSec: number
+): boolean {
+  const chunkStartSec = chunk.timeRange?.startSec;
+  const chunkEndSec = chunk.timeRange?.endSec;
+  if (typeof chunkStartSec !== 'number' || typeof chunkEndSec !== 'number') return true;
+  return chunkEndSec >= startSec && chunkStartSec <= endSec;
+}
+
+function isFilmTrackingFrameInWindow(
+  frame: FilmTrackingFrameSnapshot,
+  startSec: number,
+  endSec: number
+): boolean {
+  return (
+    typeof frame.timestampSec === 'number' &&
+    Number.isFinite(frame.timestampSec) &&
+    frame.timestampSec >= startSec &&
+    frame.timestampSec <= endSec
+  );
+}
+
+function resolveFilmTrackingSource(
+  review: TeamFilmReviewDoc,
+  sourceId: string | undefined
+): FilmReviewSourceWithTrackingFields | undefined {
+  if (!sourceId) return undefined;
+  return (review.sources as readonly FilmReviewSourceWithTrackingFields[] | undefined)?.find(
+    (source) => source.id === sourceId
+  );
+}
+
+function resolveFilmTrackingTimeRange(
+  review: TeamFilmReviewDoc,
+  body: z.infer<typeof TeamFileFilmReviewTrackingRequestBodySchema>
+): FilmTrackingWorkerTimeRange | undefined {
+  if (body.playIds?.length) {
+    const selectedPlays = (review.timeline ?? []).filter(
+      (play) =>
+        body.playIds?.includes(play.id) && (!body.sourceId || play.sourceId === body.sourceId)
+    );
+    const starts = selectedPlays
+      .map((play) => play.startSec)
+      .filter((value): value is number => typeof value === 'number');
+    const ends = selectedPlays
+      .map((play) => play.endSec)
+      .filter((value): value is number => typeof value === 'number');
+    if (starts.length > 0 && ends.length > 0) {
+      return { startSec: Math.min(...starts), endSec: Math.max(...ends) };
+    }
+  }
+
+  if (
+    body.scope === 'full_video' &&
+    typeof review.durationSec === 'number' &&
+    review.durationSec > 0
+  ) {
+    return { startSec: 0, endSec: review.durationSec };
+  }
+
+  return undefined;
+}
+
+async function persistFilmTrackingWorkerSidecars(params: {
+  readonly bucket: FilmTrackingStorageBucket;
+  readonly response: FilmTrackingWorkerResponse;
+  readonly fileId: string;
+  readonly teamId?: string;
+}): Promise<FilmReviewTrackingManifestPointerSnapshot | undefined> {
+  const manifestStoragePath = params.response.manifestStoragePath?.trim();
+  if (!manifestStoragePath || !params.response.manifest) return undefined;
+  const manifestText = JSON.stringify(params.response.manifest);
+  await saveFilmTrackingStorageText({
+    bucket: params.bucket,
+    storagePath: manifestStoragePath,
+    text: manifestText,
+    contentType: 'application/json',
+    fileId: params.fileId,
+    teamId: params.teamId,
+  });
+
+  for (const chunk of params.response.chunks ?? []) {
+    if (!chunk || typeof chunk !== 'object') continue;
+    const storagePath = (chunk as { storagePath?: unknown }).storagePath;
+    const frames = (chunk as { frames?: unknown }).frames;
+    if (typeof storagePath !== 'string' || !Array.isArray(frames)) continue;
+    await saveFilmTrackingStorageText({
+      bucket: params.bucket,
+      storagePath,
+      text: frames.map((frame) => JSON.stringify(frame)).join('\n'),
+      contentType: 'application/x-ndjson',
+      fileId: params.fileId,
+      teamId: params.teamId,
+    });
+  }
+
+  return {
+    manifestStoragePath,
+    manifestSha256: createHash('sha256').update(manifestText).digest('hex'),
+    generatedAt:
+      typeof (params.response.manifest as { generatedAt?: unknown }).generatedAt === 'string'
+        ? (params.response.manifest as { generatedAt: string }).generatedAt
+        : new Date().toISOString(),
+  };
+}
+
+async function saveFilmTrackingStorageText(params: {
+  readonly bucket: FilmTrackingStorageBucket;
+  readonly storagePath: string;
+  readonly text: string;
+  readonly contentType: string;
+  readonly fileId: string;
+  readonly teamId?: string;
+}): Promise<void> {
+  const file = params.bucket.file(params.storagePath);
+  if (typeof file.save !== 'function') {
+    throw new Error('Storage upload unavailable');
+  }
+  await file.save(Buffer.from(params.text, 'utf8'), {
+    resumable: false,
+    validation: false,
+    metadata: {
+      contentType: params.contentType,
+      cacheControl: 'private, max-age=31536000, immutable',
+      metadata: {
+        artifactKind: 'film_tracking_sidecar',
+        fileId: params.fileId,
+        teamId: params.teamId ?? '',
+      },
+    },
+  });
 }
 
 function buildFilmReviewDownloadExportFileStem(
@@ -6230,6 +6632,425 @@ router.get('/files/:fileId/film-review/drawings', appGuard, async (req: Request,
     res.status(500).json({ success: false, error: 'Failed to load film review drawings' });
   }
 });
+
+router.post(
+  '/files/:fileId/film-review/tracking',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      const parsedBody = TeamFileFilmReviewTrackingRequestBodySchema.safeParse(req.body ?? {});
+      const db = req.firebase?.db;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!fileId || !parsedBody.success) {
+        res.status(400).json({ success: false, error: 'Invalid tracking request' });
+        return;
+      }
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      const body = parsedBody.data;
+      const access = await authorizeNativeFilmReviewAccess({
+        db,
+        fileId,
+        teamId: body.teamId,
+        userId: user.uid,
+        write: true,
+      });
+      if (!access.ok) {
+        res.status(access.status).json({ success: false, error: access.error });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const progress = {
+        status: 'queued' as const,
+        processedWindowCount: 0,
+        totalWindowCount: Math.max(1, body.playIds?.length ?? 1),
+        percentComplete: 0,
+        statusMessage: 'Tracking queued',
+        updatedAt: now,
+      };
+      let trackingStatus: FilmReviewTrackingStatusSnapshot = 'queued';
+      let capability: FilmReviewTrackingCapabilitySnapshot = 'none';
+      let trackingManifest: FilmReviewTrackingManifestPointerSnapshot | undefined;
+      let trackingError: string | null = null;
+      let trackingProgress: FilmReviewTrackingProgressSnapshot = progress;
+      const jobId = `film_tracking_${randomUUID()}`;
+
+      const workerClient = new FilmTrackingWorkerClient();
+      if (workerClient.configured) {
+        const source = resolveFilmTrackingSource(access.review, body.sourceId);
+        const timeRange = resolveFilmTrackingTimeRange(access.review, body);
+        const workerRequest: FilmTrackingWorkerRequest = {
+          fileId,
+          ...(body.sourceId ? { sourceId: body.sourceId } : {}),
+          sport: body.sport?.trim().toLowerCase() || access.review.sport || 'unknown',
+          scope: body.scope,
+          mode: body.mode,
+          ...(body.playIds?.length ? { playIds: body.playIds } : {}),
+          ...((source?.storagePath ?? access.review.storagePath)
+            ? { videoStoragePath: source?.storagePath ?? access.review.storagePath }
+            : {}),
+          ...(timeRange ? { timeRange } : {}),
+        };
+
+        try {
+          const workerResponse = await workerClient.track(workerRequest);
+          const bucket = getFilmTrackingStorageBucket(req);
+          if (bucket) {
+            trackingManifest = await persistFilmTrackingWorkerSidecars({
+              bucket,
+              response: workerResponse,
+              fileId,
+              teamId: body.teamId,
+            });
+          }
+          trackingStatus = workerResponse.status;
+          capability = workerResponse.capability;
+          trackingError = workerResponse.error ?? null;
+          trackingProgress = {
+            ...progress,
+            status: workerResponse.status,
+            processedWindowCount: workerResponse.status === 'failed' ? 0 : 1,
+            percentComplete:
+              workerResponse.status === 'ready'
+                ? 100
+                : workerResponse.status === 'limited'
+                  ? 75
+                  : 0,
+            statusMessage:
+              workerResponse.status === 'ready'
+                ? 'Tracking sidecar ready'
+                : workerResponse.status === 'limited'
+                  ? 'Tracking sidecar ready with limited confidence'
+                  : (workerResponse.error ?? 'Tracking failed'),
+            updatedAt: new Date().toISOString(),
+          };
+        } catch (workerError) {
+          if (workerError instanceof FilmTrackingWorkerClientUnavailableError) {
+            logger.info('Film tracking worker not configured; queued for async processing', {
+              fileId,
+            });
+          } else if (workerError instanceof FilmTrackingWorkerClientError) {
+            trackingStatus = 'failed';
+            trackingError = workerError.message;
+            trackingProgress = {
+              ...progress,
+              status: 'failed',
+              statusMessage: workerError.message,
+              updatedAt: new Date().toISOString(),
+            };
+          } else {
+            throw workerError;
+          }
+        }
+      }
+
+      const updated = (await mutateNativeFilmReviewAtomically({
+        db,
+        fileId,
+        teamId: body.teamId,
+        userId: user.uid,
+        expectedRevision: getTeamFilmReviewRevision(access.review),
+        mutate: (current) => ({
+          ...current,
+          sport: body.sport?.trim().toLowerCase() || current.sport,
+          trackingStatus,
+          trackingCapability: capability,
+          trackingManifest,
+          trackingProgress,
+          trackingModelBundleVersion: `${body.sport?.trim().toLowerCase() || current.sport}:${body.mode}`,
+          trackingError,
+          sources: updateFilmReviewSourceTrackingState({
+            sources: current.sources,
+            sourceId: body.sourceId,
+            status: trackingStatus,
+            capability,
+            progress: trackingProgress,
+          }),
+          updatedBy: user.uid,
+          updatedAt: now,
+        }),
+      })) as FilmReviewWithTrackingFields;
+
+      res.status(202).json({
+        success: true,
+        data: {
+          jobId,
+          status: updated.trackingStatus ?? trackingStatus,
+          capability: updated.trackingCapability ?? capability,
+          progress: updated.trackingProgress ?? trackingProgress,
+          manifest: updated.trackingManifest ?? trackingManifest ?? null,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to request film tracking', {
+        error: error.message,
+        stack: error.stack,
+      });
+      sendFilmReviewMutationError(res, error, 'Failed to request film tracking', {
+        req,
+        stage: 'update_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      });
+    }
+  }
+);
+
+router.get('/files/:fileId/film-review/tracking', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+    const parsedQuery = TeamFileFilmReviewTrackingStatusQuerySchema.safeParse(req.query ?? {});
+    const db = req.firebase?.db;
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+    if (!fileId || !parsedQuery.success) {
+      res.status(400).json({ success: false, error: 'Invalid tracking status request' });
+      return;
+    }
+    if (!db) {
+      res.status(500).json({ success: false, error: 'Firestore unavailable' });
+      return;
+    }
+
+    const query = parsedQuery.data;
+    const access = await authorizeNativeFilmReviewAccess({
+      db,
+      fileId,
+      teamId: query.teamId,
+      userId: user.uid,
+      write: false,
+    });
+    if (!access.ok) {
+      res.status(access.status).json({ success: false, error: access.error });
+      return;
+    }
+
+    const review = access.review as FilmReviewWithTrackingFields;
+    const sources = review.sources as readonly FilmReviewSourceWithTrackingFields[] | undefined;
+    const source = query.sourceId
+      ? sources?.find((candidate) => candidate.id === query.sourceId)
+      : undefined;
+    const status = source?.trackingStatus ?? review.trackingStatus ?? 'not_tracked';
+    res.json({
+      success: true,
+      data: {
+        status,
+        capability: source?.trackingCapability ?? review.trackingCapability ?? 'none',
+        progress: source?.trackingProgress ?? review.trackingProgress ?? null,
+        manifest: source?.trackingManifest ?? review.trackingManifest ?? null,
+        error: review.trackingError ?? null,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to load film tracking status', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to load film tracking status' });
+  }
+});
+
+router.get(
+  '/files/:fileId/film-review/tracking/window',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      const parsedQuery = TeamFileFilmReviewTrackingWindowQuerySchema.safeParse(req.query ?? {});
+      const db = req.firebase?.db;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!fileId || !parsedQuery.success) {
+        res.status(400).json({ success: false, error: 'Invalid tracking window request' });
+        return;
+      }
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      const query = parsedQuery.data;
+      const access = await authorizeNativeFilmReviewAccess({
+        db,
+        fileId,
+        teamId: query.teamId,
+        userId: user.uid,
+        write: false,
+      });
+      if (!access.ok) {
+        res.status(access.status).json({ success: false, error: access.error });
+        return;
+      }
+
+      const review = access.review as FilmReviewWithTrackingFields;
+      const sources = review.sources as readonly FilmReviewSourceWithTrackingFields[] | undefined;
+      const source = query.sourceId
+        ? sources?.find((candidate) => candidate.id === query.sourceId)
+        : undefined;
+      const manifest = source?.trackingManifest ?? review.trackingManifest;
+      if (!manifest?.manifestStoragePath) {
+        res.status(404).json({ success: false, error: 'Tracking manifest is not ready' });
+        return;
+      }
+
+      const bucket = getFilmTrackingStorageBucket(req);
+      if (!bucket) {
+        res.status(500).json({ success: false, error: 'Storage unavailable' });
+        return;
+      }
+
+      const trackingManifest = await loadFilmTrackingManifestFromStorage(
+        bucket,
+        manifest.manifestStoragePath
+      );
+      const chunks = (trackingManifest.chunks ?? []).filter((chunk) =>
+        isFilmTrackingChunkInWindow(chunk, query.startSec, query.endSec)
+      );
+      const frames = (
+        await Promise.all(
+          chunks.map((chunk) => loadFilmTrackingFramesFromStorage(bucket, chunk.storagePath))
+        )
+      )
+        .flat()
+        .filter((frame) => isFilmTrackingFrameInWindow(frame, query.startSec, query.endSec));
+
+      res.json({
+        success: true,
+        data: {
+          manifest: trackingManifest,
+          timeRange: { startSec: query.startSec, endSec: query.endSec },
+          frames,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to load film tracking window', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to load film tracking window' });
+    }
+  }
+);
+
+router.post(
+  '/files/:fileId/film-review/tracking/corrections',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      const parsedBody = TeamFileFilmReviewTrackingCorrectionBodySchema.safeParse(req.body ?? {});
+      const db = req.firebase?.db;
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!fileId || !parsedBody.success) {
+        res.status(400).json({ success: false, error: 'Invalid tracking correction request' });
+        return;
+      }
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      const body = parsedBody.data;
+      const access = await authorizeNativeFilmReviewAccess({
+        db,
+        fileId,
+        teamId: body.teamId,
+        userId: user.uid,
+        write: true,
+      });
+      if (!access.ok) {
+        res.status(access.status).json({ success: false, error: access.error });
+        return;
+      }
+
+      const trackingReview = access.review as FilmReviewWithTrackingFields;
+      const currentTrackingRevision = trackingReview.trackingCorrectionRevision ?? 0;
+      if (currentTrackingRevision !== body.expectedRevision) {
+        res.status(409).json({
+          success: false,
+          error: `Tracking correction revision conflict: expected ${body.expectedRevision}, found ${currentTrackingRevision}.`,
+          code: 'REVISION_CONFLICT',
+          currentRevision: currentTrackingRevision,
+        });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const nextRevision = currentTrackingRevision + 1;
+      const correction = {
+        id: `track_corr_${randomUUID()}`,
+        trackId: body.trackId,
+        field: body.field,
+        ...(Object.prototype.hasOwnProperty.call(body, 'value') ? { value: body.value } : {}),
+        source: 'coach_confirmed',
+        createdBy: user.uid,
+        createdAt: now,
+        revision: nextRevision,
+      };
+      const updated = (await mutateNativeFilmReviewAtomically({
+        db,
+        fileId,
+        teamId: body.teamId,
+        userId: user.uid,
+        expectedRevision: getTeamFilmReviewRevision(access.review),
+        mutate: (current) => {
+          const currentWithTracking = current as FilmReviewWithTrackingFields;
+          return {
+            ...current,
+            trackingCorrectionRevision: nextRevision,
+            trackingCorrections: [...(currentWithTracking.trackingCorrections ?? []), correction],
+            updatedBy: user.uid,
+            updatedAt: now,
+          };
+        },
+      })) as FilmReviewWithTrackingFields;
+
+      res.json({
+        success: true,
+        data: {
+          correction,
+          revision: updated.trackingCorrectionRevision ?? nextRevision,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to save film tracking correction', {
+        error: error.message,
+        stack: error.stack,
+      });
+      sendFilmReviewMutationError(res, error, 'Failed to save film tracking correction', {
+        req,
+        stage: 'update_failed',
+        userId: req.user?.uid ?? null,
+        teamId: typeof req.body?.['teamId'] === 'string' ? req.body['teamId'] : null,
+        fileId: typeof req.params['fileId'] === 'string' ? req.params['fileId'] : null,
+      });
+    }
+  }
+);
 
 router.patch(
   '/files/:fileId/film-review/drawings/:drawingId',

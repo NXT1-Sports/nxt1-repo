@@ -67,6 +67,12 @@ export { AgentXDashboardSkeletonComponent } from './components/shared/agent-x-da
 export { AgentXDiagramsPanelComponent } from './components/shared/agent-x-diagrams-panel.component';
 export { AgentXFilesPanelComponent } from './components/shared/agent-x-files-panel-shell.component';
 export { AgentXFilmReviewPanelComponent } from './components/shared/agent-x-film-review-panel.component';
+export {
+  AgentXFilmTrackingInternalPanelComponent,
+  type FilmTrackingPanelMetric,
+  type FilmTrackingPanelPoint,
+  type FilmTrackingPanelTrack,
+} from './components/shared/agent-x-film-tracking-internal-panel.component';
 export { AgentXShareMemberPickerComponent } from './components/shared/agent-x-share-member-picker.component';
 export { AgentXControlPanelComponent } from './components/shell/agent-x-control-panel.component';
 export { AgentXWelcomeComponent } from './components/shell/agent-x-welcome.component';

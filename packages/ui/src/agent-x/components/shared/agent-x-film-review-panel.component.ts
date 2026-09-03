@@ -62,10 +62,23 @@ import { NxtPlatformService } from '../../../services/platform';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
+import {
+  AgentXFilmTrackingInternalPanelComponent,
+  type FilmTrackingCapability,
+  type FilmTrackingPanelMetric,
+  type FilmTrackingPanelTrack,
+  type FilmTrackingStatus,
+  type FilmTrackingSurfaceType,
+} from './agent-x-film-tracking-internal-panel.component';
 import { AgentXLibraryLoadingStateComponent } from './agent-x-library-loading-state.component';
 import { AgentXViewerSurfaceComponent } from './agent-x-viewer-surface.component';
 import { AGENT_X_AUTH_TOKEN_FACTORY } from '../../services/agent-x-job.service';
-import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
+import {
+  AgentXFilmReviewService,
+  type FilmReviewTrackingFrame,
+  type FilmReviewTrackingFrameEntity,
+  type FilmReviewTrackingWindowResult,
+} from '../../services/agent-x-film-review.service';
 import {
   AgentXVideoUploadService,
   VIDEO_UPLOAD_CANCELLED_MESSAGE,
@@ -101,9 +114,31 @@ type FilmListReview = {
     readonly mp4Url?: string;
   };
   downloadExport?: TeamFilmReviewDownloadExport;
+  trackingStatus?: FilmTrackingStatus;
+  trackingCapability?: FilmTrackingCapability;
+  trackingError?: string | null;
   readAccessKeys?: readonly string[];
   writeAccessKeys?: readonly string[];
 };
+
+const FILM_TRACKING_STATUSES: readonly FilmTrackingStatus[] = [
+  'not_tracked',
+  'queued',
+  'processing',
+  'ready',
+  'limited',
+  'failed',
+  'cancelled',
+];
+
+const FILM_TRACKING_CAPABILITIES: readonly FilmTrackingCapability[] = [
+  'none',
+  'detection_only',
+  'tracked_image_space',
+  'calibrated_surface',
+  'identified_roster',
+  'metric_ready',
+];
 
 const FILM_REVIEW_DOWNLOAD_EXPORT_POLL_INTERVAL_MS = 4000;
 const FILM_REVIEW_DOWNLOAD_EXPORT_MAX_POLLS = 30;
@@ -577,6 +612,7 @@ type DrawInteractionState =
     NxtStateViewComponent,
     NxtVideoControlsComponent,
     AgentXContextDragDirective,
+    AgentXFilmTrackingInternalPanelComponent,
     AgentXLibraryLoadingStateComponent,
     AgentXViewerSurfaceComponent,
   ],
@@ -634,133 +670,164 @@ type DrawInteractionState =
           <nxt1-agent-x-viewer-surface class="film-detail">
             <div
               viewer-stage
-              class="film-player-wrapper"
-              #playerContainer
-              [nxtAgentXContextDrag]="buildFilmReviewDragContextsForLibrary(review)"
-              [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
-              tabindex="0"
-              role="group"
-              aria-label="Film review video player"
-              aria-keyshortcuts="Space K ArrowLeft ArrowRight Home End F"
-              (keydown)="onPlayerWrapperKeydown($event)"
+              class="film-player-stage-with-panel"
+              [class.film-player-stage-with-panel--tracking-open]="trackingPanelOpen()"
             >
-              @if (isCloudflareReviewProcessing(review)) {
-                <div class="film-player film-player--processing" aria-live="polite">
-                  <div class="film-player-processing-card">
-                    <span class="film-player-processing-card__eyebrow">Processing film</span>
-                    <h3>Cloudflare is preparing playback</h3>
-                    <p>{{ getCloudflareProcessingMessage(review) }}</p>
+              <div
+                class="film-player-wrapper"
+                #playerContainer
+                [nxtAgentXContextDrag]="buildFilmReviewDragContextsForLibrary(review)"
+                [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
+                tabindex="0"
+                role="group"
+                aria-label="Film review video player"
+                aria-keyshortcuts="Space K ArrowLeft ArrowRight Home End F"
+                (keydown)="onPlayerWrapperKeydown($event)"
+              >
+                @if (isCloudflareReviewProcessing(review)) {
+                  <div class="film-player film-player--processing" aria-live="polite">
+                    <div class="film-player-processing-card">
+                      <span class="film-player-processing-card__eyebrow">Processing film</span>
+                      <h3>Cloudflare is preparing playback</h3>
+                      <p>{{ getCloudflareProcessingMessage(review) }}</p>
+                    </div>
                   </div>
-                </div>
-              } @else if (resolveNativeVideoUrl(review); as nativeVideoUrl) {
-                <video
-                  #filmPlayer
-                  class="film-player"
-                  [attr.data-testid]="testIds.VIDEO_PLAYER"
-                  [attr.data-video-src]="nativeVideoUrl"
-                  crossorigin="anonymous"
-                  playsinline
-                  preload="auto"
-                  (loadedmetadata)="onPlayerLoadedMetadata()"
-                  (timeupdate)="onPlayerTimeUpdate()"
-                  (play)="onPlayerPlay()"
-                  (pause)="onPlayerPause()"
-                  (ended)="onPlayerEnded()"
-                  (seeking)="onPlayerSeeking()"
-                  (seeked)="onPlayerSeeked()"
-                  (error)="onPlayerError()"
-                ></video>
+                } @else if (resolveNativeVideoUrl(review); as nativeVideoUrl) {
+                  <video
+                    #filmPlayer
+                    class="film-player"
+                    [attr.data-testid]="testIds.VIDEO_PLAYER"
+                    [attr.data-video-src]="nativeVideoUrl"
+                    crossorigin="anonymous"
+                    playsinline
+                    preload="auto"
+                    (loadedmetadata)="onPlayerLoadedMetadata()"
+                    (timeupdate)="onPlayerTimeUpdate()"
+                    (play)="onPlayerPlay()"
+                    (pause)="onPlayerPause()"
+                    (ended)="onPlayerEnded()"
+                    (seeking)="onPlayerSeeking()"
+                    (seeked)="onPlayerSeeked()"
+                    (error)="onPlayerError()"
+                  ></video>
 
-                @if (nativePlayerLoading()) {
-                  <div class="film-player-native-loading" aria-live="polite">
-                    <span class="film-player-native-loading__label">Loading video...</span>
-                  </div>
-                }
+                  @if (nativePlayerLoading()) {
+                    <div class="film-player-native-loading" aria-live="polite">
+                      <span class="film-player-native-loading__label">Loading video...</span>
+                    </div>
+                  }
 
-                <canvas
-                  #drawCanvas
-                  class="film-draw-canvas"
-                  [class.film-draw-canvas--active]="drawModeEnabled()"
-                  (pointerdown)="onDrawPointerDown($event)"
-                  (pointermove)="onDrawPointerMove($event)"
-                  (pointerup)="onDrawPointerUp($event)"
-                  (pointercancel)="onDrawPointerUp($event)"
-                  aria-label="Coach drawing overlay"
-                ></canvas>
+                  <canvas
+                    #drawCanvas
+                    class="film-draw-canvas"
+                    [class.film-draw-canvas--active]="drawModeEnabled()"
+                    (pointerdown)="onDrawPointerDown($event)"
+                    (pointermove)="onDrawPointerMove($event)"
+                    (pointerup)="onDrawPointerUp($event)"
+                    (pointercancel)="onDrawPointerUp($event)"
+                    aria-label="Coach drawing overlay"
+                  ></canvas>
 
-                <div class="film-top-tools">
-                  <div
-                    class="film-top-tools__left"
-                    [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
-                    [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
-                    aria-label="Selected play details"
-                  >
-                    @if (currentInlinePlayOverlayItems().length) {
-                      @if (isInlinePlayOverlayExpanded()) {
-                        <div class="film-top-meta">
-                          @if (currentInlinePlayOverlayCounter(); as counter) {
-                            <div class="film-top-meta__counter">{{ counter }}</div>
-                          }
-
-                          <div class="film-top-meta__scroll">
-                            @for (item of currentInlinePlayOverlayItems(); track item.fieldKey) {
-                              <div
-                                class="film-top-meta__item"
-                                [class.film-top-meta__item--editable]="
-                                  canEditInlinePlayOverlayItem()
-                                "
-                                [class.film-top-meta__item--editing]="
-                                  isEditingCurrentInlinePlayOverlayItem(item)
-                                "
-                                [attr.role]="canEditInlinePlayOverlayItem() ? 'button' : null"
-                                [attr.tabindex]="canEditInlinePlayOverlayItem() ? 0 : null"
-                                [attr.aria-label]="
-                                  canEditInlinePlayOverlayItem()
-                                    ? 'Edit ' + item.label + ' for current play'
-                                    : null
-                                "
-                                (dblclick)="onStartInlinePlayOverlayFieldEdit(item, $event)"
-                                (touchend)="onInlinePlayOverlayFieldTouchEnd(item, $event)"
-                                (keydown.enter)="onStartInlinePlayOverlayFieldEdit(item, $event)"
-                                (keydown.space)="onStartInlinePlayOverlayFieldEdit(item, $event)"
-                              >
-                                <span class="film-top-meta__label">{{ item.label }}</span>
-                                @if (isEditingCurrentInlinePlayOverlayItem(item)) {
-                                  <input
-                                    class="film-playbook-edit__input film-playbook-edit__input--cell film-top-meta__input"
-                                    type="text"
-                                    autofocus
-                                    [value]="timelinePlayEditDraft()"
-                                    [disabled]="saving() || !canEditInlinePlayOverlayItem()"
-                                    (click)="$event.stopPropagation()"
-                                    (keydown)="$event.stopPropagation()"
-                                    (input)="onTimelinePlayEditInput($any($event.target).value)"
-                                    (blur)="onCancelTimelinePlayEdit($event)"
-                                    (keydown.enter)="onSaveInlinePlayOverlayFieldEdit(item, $event)"
-                                    (keydown.escape)="onCancelTimelinePlayEdit($event)"
-                                  />
-                                } @else {
-                                  <span class="film-top-meta__value">{{ item.value }}</span>
-                                }
-                              </div>
+                  <div class="film-top-tools">
+                    <div
+                      class="film-top-tools__left"
+                      [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
+                      [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
+                      aria-label="Selected play details"
+                    >
+                      @if (currentInlinePlayOverlayItems().length) {
+                        @if (isInlinePlayOverlayExpanded()) {
+                          <div class="film-top-meta">
+                            @if (currentInlinePlayOverlayCounter(); as counter) {
+                              <div class="film-top-meta__counter">{{ counter }}</div>
                             }
-                          </div>
 
+                            <div class="film-top-meta__scroll">
+                              @for (item of currentInlinePlayOverlayItems(); track item.fieldKey) {
+                                <div
+                                  class="film-top-meta__item"
+                                  [class.film-top-meta__item--editable]="
+                                    canEditInlinePlayOverlayItem()
+                                  "
+                                  [class.film-top-meta__item--editing]="
+                                    isEditingCurrentInlinePlayOverlayItem(item)
+                                  "
+                                  [attr.role]="canEditInlinePlayOverlayItem() ? 'button' : null"
+                                  [attr.tabindex]="canEditInlinePlayOverlayItem() ? 0 : null"
+                                  [attr.aria-label]="
+                                    canEditInlinePlayOverlayItem()
+                                      ? 'Edit ' + item.label + ' for current play'
+                                      : null
+                                  "
+                                  (dblclick)="onStartInlinePlayOverlayFieldEdit(item, $event)"
+                                  (touchend)="onInlinePlayOverlayFieldTouchEnd(item, $event)"
+                                  (keydown.enter)="onStartInlinePlayOverlayFieldEdit(item, $event)"
+                                  (keydown.space)="onStartInlinePlayOverlayFieldEdit(item, $event)"
+                                >
+                                  <span class="film-top-meta__label">{{ item.label }}</span>
+                                  @if (isEditingCurrentInlinePlayOverlayItem(item)) {
+                                    <input
+                                      class="film-playbook-edit__input film-playbook-edit__input--cell film-top-meta__input"
+                                      type="text"
+                                      autofocus
+                                      [value]="timelinePlayEditDraft()"
+                                      [disabled]="saving() || !canEditInlinePlayOverlayItem()"
+                                      (click)="$event.stopPropagation()"
+                                      (keydown)="$event.stopPropagation()"
+                                      (input)="onTimelinePlayEditInput($any($event.target).value)"
+                                      (blur)="onCancelTimelinePlayEdit($event)"
+                                      (keydown.enter)="
+                                        onSaveInlinePlayOverlayFieldEdit(item, $event)
+                                      "
+                                      (keydown.escape)="onCancelTimelinePlayEdit($event)"
+                                    />
+                                  } @else {
+                                    <span class="film-top-meta__value">{{ item.value }}</span>
+                                  }
+                                </div>
+                              }
+                            </div>
+
+                            <button
+                              type="button"
+                              class="film-top-meta__toggle"
+                              (click)="toggleInlinePlayOverlay()"
+                              [attr.aria-label]="
+                                isInlinePlayOverlayExpanded()
+                                  ? 'Collapse selected play details'
+                                  : 'Expand selected play details'
+                              "
+                              [attr.aria-expanded]="isInlinePlayOverlayExpanded()"
+                              [attr.title]="
+                                isInlinePlayOverlayExpanded()
+                                  ? 'Collapse selected play details'
+                                  : 'Expand selected play details'
+                              "
+                            >
+                              <svg
+                                class="film-top-meta__toggle-icon"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  [attr.d]="
+                                    isInlinePlayOverlayExpanded()
+                                      ? inlinePlayOverlayCollapseIconPath
+                                      : inlinePlayOverlayExpandIconPath
+                                  "
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        } @else {
                           <button
                             type="button"
-                            class="film-top-meta__toggle"
+                            class="film-top-meta__toggle film-top-meta__toggle--collapsed"
                             (click)="toggleInlinePlayOverlay()"
-                            [attr.aria-label]="
-                              isInlinePlayOverlayExpanded()
-                                ? 'Collapse selected play details'
-                                : 'Expand selected play details'
-                            "
-                            [attr.aria-expanded]="isInlinePlayOverlayExpanded()"
-                            [attr.title]="
-                              isInlinePlayOverlayExpanded()
-                                ? 'Collapse selected play details'
-                                : 'Expand selected play details'
-                            "
+                            aria-label="Expand selected play details"
+                            aria-expanded="false"
+                            title="Expand selected play details"
                           >
                             <svg
                               class="film-top-meta__toggle-icon"
@@ -768,240 +835,255 @@ type DrawInteractionState =
                               fill="none"
                               aria-hidden="true"
                             >
-                              <path
-                                [attr.d]="
-                                  isInlinePlayOverlayExpanded()
-                                    ? inlinePlayOverlayCollapseIconPath
-                                    : inlinePlayOverlayExpandIconPath
-                                "
-                              />
+                              <path [attr.d]="inlinePlayOverlayExpandIconPath" />
                             </svg>
                           </button>
-                        </div>
-                      } @else {
-                        <button
-                          type="button"
-                          class="film-top-meta__toggle film-top-meta__toggle--collapsed"
-                          (click)="toggleInlinePlayOverlay()"
-                          aria-label="Expand selected play details"
-                          aria-expanded="false"
-                          title="Expand selected play details"
-                        >
-                          <svg
-                            class="film-top-meta__toggle-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <path [attr.d]="inlinePlayOverlayExpandIconPath" />
-                          </svg>
-                        </button>
-                      }
-                    }
-                  </div>
-
-                  @if (enableDrawTool) {
-                    <div class="film-top-tools__right">
-                      <div
-                        class="film-draw-tools film-controls__cluster"
-                        role="group"
-                        aria-label="Video overlay tools"
-                      >
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
-                          (click)="onDrawToolToggle('freehand')"
-                          [attr.title]="
-                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
-                          "
-                          [attr.data-tooltip]="
-                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
-                          "
-                          [attr.aria-label]="
-                            isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
-                          "
-                        >
-                          <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="isDrawToolActive('circle')"
-                          (click)="onDrawToolToggle('circle')"
-                          [attr.title]="
-                            isDrawToolActive('circle')
-                              ? 'Turn off circle tool'
-                              : 'Enable circle tool'
-                          "
-                          [attr.data-tooltip]="
-                            isDrawToolActive('circle')
-                              ? 'Turn off circle tool'
-                              : 'Enable circle tool'
-                          "
-                          [attr.aria-label]="
-                            isDrawToolActive('circle')
-                              ? 'Disable circle tool'
-                              : 'Enable circle tool'
-                          "
-                        >
-                          <svg
-                            class="film-draw-tool-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <circle cx="12" cy="12" r="7" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="isDrawToolActive('text')"
-                          (click)="onDrawToolToggle('text')"
-                          [attr.title]="
-                            isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
-                          "
-                          [attr.data-tooltip]="
-                            isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
-                          "
-                          [attr.aria-label]="
-                            isDrawToolActive('text') ? 'Disable text tool' : 'Enable text tool'
-                          "
-                        >
-                          <span class="film-draw-tool-label" aria-hidden="true">T</span>
-                        </button>
-                        @if (drawModeEnabled()) {
-                          <button
-                            type="button"
-                            class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
-                            [disabled]="!hasClearableDrawOverlay()"
-                            (click)="clearDrawOverlay()"
-                            title="Clear overlay effect"
-                            data-tooltip="Clear overlay effect"
-                            aria-label="Clear overlay effect"
-                          >
-                            <nxt1-icon name="trash" [size]="11" />
-                          </button>
                         }
-                      </div>
+                      }
                     </div>
-                  }
-                  <!-- end @if (enableDrawTool) -->
-                </div>
 
-                <div class="film-controls-overlay" aria-label="Coach video controls">
-                  <nxt1-video-controls
-                    [isPlaying]="isPlaying()"
-                    [currentTime]="playerCurrentTime()"
-                    [duration]="playerDuration()"
-                    [drawEffectMarkers]="drawEffectMarkers()"
-                    [playbackRate]="playbackRate()"
-                    [playbackRates]="playbackRates"
-                    [showVolumeControls]="true"
-                    [volume]="playerVolume()"
-                    [showSpeedControls]="true"
-                    [showFullscreen]="true"
-                    [showOpenInNewWindow]="showOpenInNewWindow && !platform.isNative()"
-                    [showPlayNavigation]="true"
-                    [showAdvancedPlaybackControls]="true"
-                    [showDurationBadge]="true"
-                    [allowTransportCollapse]="true"
-                    [frameStepSeconds]="filmFrameStepSeconds"
-                    [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
-                    [disableNextNav]="
-                      filteredTimelineCount() <= 1 ||
-                      currentFilteredPlayPosition() >= filteredTimelineCount()
-                    "
-                    (previousNav)="goToPreviousPlay()"
-                    (seekRelative)="seekRelative($event)"
-                    (playPause)="togglePlayPause()"
-                    (nextNav)="goToNextPlay()"
-                    (seekStart)="onSeekPointerDown()"
-                    (seekEnd)="onSeekPointerUp()"
-                    (seekChange)="onSeekTime($event)"
-                    (drawEffectDurationChange)="onDrawEffectDurationChange($event)"
-                    (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
-                    (playbackRateChange)="setPlaybackRate($event)"
-                    (volumeChange)="setPlayerVolume($event)"
-                    (openInNewWindow)="openVideoInNewWindow()"
-                    (fullscreenToggle)="toggleFullscreen()"
-                  >
-                    <div
-                      nxtVideoControlsBeforeSpeed
-                      class="film-angle-menu"
-                      role="group"
-                      aria-label="Camera angle"
-                    >
+                    <div class="film-top-tools__right">
                       <button
                         type="button"
-                        class="film-angle-trigger video-controls__tooltip-host"
-                        [class.film-angle-trigger--open]="cameraAngleMenuOpen()"
-                        [attr.aria-expanded]="cameraAngleMenuOpen()"
-                        aria-haspopup="menu"
-                        aria-label="Camera angle"
-                        title="Camera angle"
-                        data-tooltip="Camera angle"
-                        (click)="toggleCameraAngleMenu($event)"
+                        class="film-icon-btn video-controls__tooltip-host"
+                        [class.film-icon-btn--primary]="trackingPanelOpen()"
+                        (click)="onTrackingPanelToggle($event)"
+                        [attr.title]="
+                          trackingPanelOpen() ? 'Hide tracking panel' : 'Show tracking panel'
+                        "
+                        [attr.data-tooltip]="
+                          trackingPanelOpen() ? 'Hide tracking panel' : 'Show tracking panel'
+                        "
+                        [attr.aria-label]="
+                          trackingPanelOpen() ? 'Hide tracking panel' : 'Show tracking panel'
+                        "
+                        [attr.aria-expanded]="trackingPanelOpen()"
                       >
-                        <span class="film-angle-trigger__label">{{
-                          selectedCameraAngleLabel()
-                        }}</span>
-                        <nxt1-icon name="chevronDown" [size]="10"></nxt1-icon>
+                        <span class="film-tracking-tool-label" aria-hidden="true">2D</span>
                       </button>
 
-                      @if (cameraAngleMenuOpen()) {
+                      @if (enableDrawTool) {
                         <div
-                          class="film-angle-popover"
-                          role="menu"
-                          aria-label="Camera angle options"
+                          class="film-draw-tools film-controls__cluster"
+                          role="group"
+                          aria-label="Video overlay tools"
                         >
-                          @for (option of availableCameraAngleOptions(); track option.value) {
+                          <button
+                            type="button"
+                            class="film-icon-btn video-controls__tooltip-host"
+                            [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
+                            (click)="onDrawToolToggle('freehand')"
+                            [attr.title]="
+                              isDrawToolActive('freehand')
+                                ? 'Turn off free draw'
+                                : 'Enable free draw'
+                            "
+                            [attr.data-tooltip]="
+                              isDrawToolActive('freehand')
+                                ? 'Turn off free draw'
+                                : 'Enable free draw'
+                            "
+                            [attr.aria-label]="
+                              isDrawToolActive('freehand')
+                                ? 'Disable free draw'
+                                : 'Enable free draw'
+                            "
+                          >
+                            <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
+                          </button>
+                          <button
+                            type="button"
+                            class="film-icon-btn video-controls__tooltip-host"
+                            [class.film-icon-btn--primary]="isDrawToolActive('circle')"
+                            (click)="onDrawToolToggle('circle')"
+                            [attr.title]="
+                              isDrawToolActive('circle')
+                                ? 'Turn off circle tool'
+                                : 'Enable circle tool'
+                            "
+                            [attr.data-tooltip]="
+                              isDrawToolActive('circle')
+                                ? 'Turn off circle tool'
+                                : 'Enable circle tool'
+                            "
+                            [attr.aria-label]="
+                              isDrawToolActive('circle')
+                                ? 'Disable circle tool'
+                                : 'Enable circle tool'
+                            "
+                          >
+                            <svg
+                              class="film-draw-tool-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <circle cx="12" cy="12" r="7" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="film-icon-btn video-controls__tooltip-host"
+                            [class.film-icon-btn--primary]="isDrawToolActive('text')"
+                            (click)="onDrawToolToggle('text')"
+                            [attr.title]="
+                              isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
+                            "
+                            [attr.data-tooltip]="
+                              isDrawToolActive('text') ? 'Turn off text tool' : 'Enable text tool'
+                            "
+                            [attr.aria-label]="
+                              isDrawToolActive('text') ? 'Disable text tool' : 'Enable text tool'
+                            "
+                          >
+                            <span class="film-draw-tool-label" aria-hidden="true">T</span>
+                          </button>
+                          @if (drawModeEnabled()) {
                             <button
                               type="button"
-                              class="film-angle-option"
-                              [class.film-angle-option--active]="
-                                isCameraAngleOptionActive(option.value)
-                              "
-                              role="menuitemradio"
-                              [attr.aria-checked]="isCameraAngleOptionActive(option.value)"
-                              (click)="onSelectCameraAngle(option.value)"
+                              class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
+                              [disabled]="!hasClearableDrawOverlay()"
+                              (click)="clearDrawOverlay()"
+                              title="Clear overlay effect"
+                              data-tooltip="Clear overlay effect"
+                              aria-label="Clear overlay effect"
                             >
-                              <span>{{ option.label }}</span>
+                              <nxt1-icon name="trash" [size]="11" />
                             </button>
                           }
                         </div>
                       }
                     </div>
-                  </nxt1-video-controls>
-                </div>
-              } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
-                <div
-                  class="film-player film-player--cloudflare-shell"
-                  [class.film-player--cloudflare-loading]="cloudflareIframeLoading()"
-                >
-                  <iframe
-                    class="film-player__iframe"
-                    [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
-                    title="Film review video playback"
-                    loading="lazy"
-                    frameborder="0"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                    allowfullscreen
-                    (load)="onCloudflareIframeLoaded()"
-                  ></iframe>
-                  @if (cloudflareIframeLoading()) {
-                    <div class="film-player-iframe-loading" aria-hidden="true"></div>
-                  }
-                </div>
-              } @else {
-                <div class="film-player film-player--processing" aria-live="polite">
-                  <div class="film-player-processing-card">
-                    <span class="film-player-processing-card__eyebrow">Video unavailable</span>
-                    <h3>This film source cannot be played yet</h3>
-                    <p>Try again once the upload finishes processing.</p>
+                    <!-- end @if (enableDrawTool) -->
                   </div>
-                </div>
+
+                  <div class="film-controls-overlay" aria-label="Coach video controls">
+                    <nxt1-video-controls
+                      [isPlaying]="isPlaying()"
+                      [currentTime]="playerCurrentTime()"
+                      [duration]="playerDuration()"
+                      [drawEffectMarkers]="drawEffectMarkers()"
+                      [playbackRate]="playbackRate()"
+                      [playbackRates]="playbackRates"
+                      [showVolumeControls]="true"
+                      [volume]="playerVolume()"
+                      [showSpeedControls]="true"
+                      [showFullscreen]="true"
+                      [showOpenInNewWindow]="showOpenInNewWindow && !platform.isNative()"
+                      [showPlayNavigation]="true"
+                      [showAdvancedPlaybackControls]="true"
+                      [showDurationBadge]="true"
+                      [allowTransportCollapse]="true"
+                      [frameStepSeconds]="filmFrameStepSeconds"
+                      [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
+                      [disableNextNav]="
+                        filteredTimelineCount() <= 1 ||
+                        currentFilteredPlayPosition() >= filteredTimelineCount()
+                      "
+                      (previousNav)="goToPreviousPlay()"
+                      (seekRelative)="seekRelative($event)"
+                      (playPause)="togglePlayPause()"
+                      (nextNav)="goToNextPlay()"
+                      (seekStart)="onSeekPointerDown()"
+                      (seekEnd)="onSeekPointerUp()"
+                      (seekChange)="onSeekTime($event)"
+                      (drawEffectDurationChange)="onDrawEffectDurationChange($event)"
+                      (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
+                      (playbackRateChange)="setPlaybackRate($event)"
+                      (volumeChange)="setPlayerVolume($event)"
+                      (openInNewWindow)="openVideoInNewWindow()"
+                      (fullscreenToggle)="toggleFullscreen()"
+                    >
+                      <div
+                        nxtVideoControlsBeforeSpeed
+                        class="film-angle-menu"
+                        role="group"
+                        aria-label="Camera angle"
+                      >
+                        <button
+                          type="button"
+                          class="film-angle-trigger video-controls__tooltip-host"
+                          [class.film-angle-trigger--open]="cameraAngleMenuOpen()"
+                          [attr.aria-expanded]="cameraAngleMenuOpen()"
+                          aria-haspopup="menu"
+                          aria-label="Camera angle"
+                          title="Camera angle"
+                          data-tooltip="Camera angle"
+                          (click)="toggleCameraAngleMenu($event)"
+                        >
+                          <span class="film-angle-trigger__label">{{
+                            selectedCameraAngleLabel()
+                          }}</span>
+                          <nxt1-icon name="chevronDown" [size]="10"></nxt1-icon>
+                        </button>
+
+                        @if (cameraAngleMenuOpen()) {
+                          <div
+                            class="film-angle-popover"
+                            role="menu"
+                            aria-label="Camera angle options"
+                          >
+                            @for (option of availableCameraAngleOptions(); track option.value) {
+                              <button
+                                type="button"
+                                class="film-angle-option"
+                                [class.film-angle-option--active]="
+                                  isCameraAngleOptionActive(option.value)
+                                "
+                                role="menuitemradio"
+                                [attr.aria-checked]="isCameraAngleOptionActive(option.value)"
+                                (click)="onSelectCameraAngle(option.value)"
+                              >
+                                <span>{{ option.label }}</span>
+                              </button>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </nxt1-video-controls>
+                  </div>
+                } @else if (resolveCloudflareEmbedUrl(review); as cloudflareEmbedUrl) {
+                  <div
+                    class="film-player film-player--cloudflare-shell"
+                    [class.film-player--cloudflare-loading]="cloudflareIframeLoading()"
+                  >
+                    <iframe
+                      class="film-player__iframe"
+                      [src]="getSafeIframeUrl(cloudflareEmbedUrl)"
+                      title="Film review video playback"
+                      loading="lazy"
+                      frameborder="0"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                      allowfullscreen
+                      (load)="onCloudflareIframeLoaded()"
+                    ></iframe>
+                    @if (cloudflareIframeLoading()) {
+                      <div class="film-player-iframe-loading" aria-hidden="true"></div>
+                    }
+                  </div>
+                } @else {
+                  <div class="film-player film-player--processing" aria-live="polite">
+                    <div class="film-player-processing-card">
+                      <span class="film-player-processing-card__eyebrow">Video unavailable</span>
+                      <h3>This film source cannot be played yet</h3>
+                      <p>Try again once the upload finishes processing.</p>
+                    </div>
+                  </div>
+                }
+              </div>
+
+              @if (trackingPanelOpen()) {
+                <nxt1-agent-x-film-tracking-internal-panel
+                  class="film-tracking-side-panel"
+                  [status]="trackingPanelStatus(review)"
+                  [capability]="trackingPanelCapability(review)"
+                  [surfaceType]="trackingPanelSurfaceType(review)"
+                  [selectedTrackId]="selectedTrackingTrackId()"
+                  [tracks]="trackingPanelTracks()"
+                  [metrics]="trackingPanelMetrics(review)"
+                  (trackSelected)="onTrackingTrackSelected($event)"
+                  (askAgent)="onTrackingAskAgent($event)"
+                />
               }
             </div>
 
@@ -2615,6 +2697,30 @@ type DrawInteractionState =
         max-width: 100%;
       }
 
+      .film-player-stage-with-panel {
+        display: flex;
+        align-items: stretch;
+        justify-content: center;
+        gap: 12px;
+        min-width: 0;
+        width: 100%;
+      }
+
+      .film-player-stage-with-panel--tracking-open {
+        justify-content: stretch;
+      }
+
+      .film-player-stage-with-panel--tracking-open .film-player-wrapper {
+        flex: 1 1 auto;
+        width: 100%;
+        margin: 0;
+      }
+
+      .film-tracking-side-panel {
+        flex: 0 0 min(32%, 380px);
+        min-width: 300px;
+      }
+
       .film-player {
         width: 100%;
         max-width: 100%;
@@ -2774,6 +2880,12 @@ type DrawInteractionState =
         height: auto;
         margin: 0 auto;
         aspect-ratio: 16 / 9;
+      }
+
+      .film-tracking-tool-label {
+        font-size: 10px;
+        font-weight: 900;
+        line-height: 1;
       }
 
       .film-player-wrapper:focus-visible {
@@ -3201,6 +3313,18 @@ type DrawInteractionState =
 
         .film-player-wrapper:not(:hover):not(:focus-within) .film-controls-overlay {
           transform: translateY(8px);
+        }
+      }
+
+      @media (max-width: 1100px) {
+        .film-player-stage-with-panel {
+          flex-direction: column;
+        }
+
+        .film-tracking-side-panel {
+          flex: 0 0 auto;
+          width: 100%;
+          min-width: 0;
         }
       }
 
@@ -4858,6 +4982,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private lastDrawOverlayVisible = false;
   private readonly drawOverlayPlaybackRenderIntervalMs = 100;
   private isScrubbing = false;
+  private lastTrackingWindowKey: string | null = null;
 
   private activeStroke: Array<DrawAnnotationPoint> = [];
   private drawAnnotation: EditableDrawAnnotation | null = null;
@@ -5027,6 +5152,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly drawModeEnabled = signal(false);
   protected readonly selectedDrawTool = signal<DrawAnnotationKind>('freehand');
   protected readonly hasDrawing = signal(false);
+  protected readonly trackingPanelOpen = signal(false);
+  protected readonly selectedTrackingTrackId = signal<string | null>(null);
+  private readonly trackingWindowResult = signal<FilmReviewTrackingWindowResult | null>(null);
+  protected readonly trackingPanelTracks = computed<readonly FilmTrackingPanelTrack[]>(() => {
+    const windowResult = this.trackingWindowResult();
+    this.playerCurrentTime();
+    return windowResult ? this.toTrackingPanelTracks(windowResult) : [];
+  });
+  protected readonly trackingWindowLoading = signal(false);
   protected readonly isRootPlaylistFolderDropActive = signal(false);
   protected readonly openMenuReviewId = signal<string | null>(null);
   protected readonly openPlaylistFolderMenuId = signal<string | null>(null);
@@ -5527,6 +5661,297 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event?.preventDefault();
     event?.stopPropagation();
     this.librarySearchQuery.set('');
+  }
+
+  protected onTrackingPanelToggle(event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    const nextOpen = !this.trackingPanelOpen();
+    this.trackingPanelOpen.set(nextOpen);
+    if (!nextOpen) {
+      this.selectedTrackingTrackId.set(null);
+      this.trackingWindowResult.set(null);
+      this.lastTrackingWindowKey = null;
+    } else {
+      void this.ensureTrackingWindowForCurrentPlay({ force: false });
+    }
+  }
+
+  protected onTrackingTrackSelected(trackId: string): void {
+    this.selectedTrackingTrackId.set(trackId);
+  }
+
+  protected onTrackingAskAgent(trackId: string | null): void {
+    const review = this.selectedReview();
+    if (!review) return;
+
+    const context =
+      this.getActivePlaybackSelectedContext() ?? this.buildFilmReviewDragContext(review);
+    this.agentXService.queueSelectedContexts([context]);
+    const play = this.currentPlay();
+    const subject = trackId
+      ? `tracked player ${trackId}`
+      : play
+        ? `the current play (${play.label || `play ${this.currentPlayIndex() + 1}`})`
+        : 'this film review';
+    this.askAgentPromptRequested.emit(
+      `Use the available film tracking telemetry and video context to break down ${subject}. Call out what is confirmed, what is estimated, and what is unavailable.`
+    );
+  }
+
+  protected trackingPanelStatus(review: FilmListReview): FilmTrackingStatus {
+    return this.normalizeTrackingStatus(review.trackingStatus);
+  }
+
+  protected trackingPanelCapability(review: FilmListReview): FilmTrackingCapability {
+    return this.normalizeTrackingCapability(review.trackingCapability);
+  }
+
+  protected trackingPanelSurfaceType(review: FilmListReview): FilmTrackingSurfaceType {
+    const sport = this.normalizeSport(review.sport || this.sport);
+    if (sport === 'football') return 'field';
+    if (sport === 'basketball') return 'court';
+    if (sport === 'ice_hockey' || sport === 'hockey') return 'rink';
+    if (sport === 'baseball' || sport === 'softball') return 'diamond';
+    return 'unknown';
+  }
+
+  protected trackingPanelMetrics(review: FilmListReview): readonly FilmTrackingPanelMetric[] {
+    const play = this.currentPlay();
+    return [
+      { label: 'Status', value: this.formatTrackingLabel(this.trackingPanelStatus(review)) },
+      {
+        label: 'Capability',
+        value: this.formatTrackingLabel(this.trackingPanelCapability(review)),
+      },
+      ...(this.trackingWindowLoading()
+        ? [
+            {
+              label: 'Window',
+              value: 'Loading',
+            },
+          ]
+        : []),
+      ...(play
+        ? [
+            {
+              label: 'Current Play',
+              value: play.label || `Play ${this.currentPlayIndex() + 1}`,
+            },
+          ]
+        : []),
+    ];
+  }
+
+  private normalizeTrackingStatus(value: unknown): FilmTrackingStatus {
+    return FILM_TRACKING_STATUSES.includes(value as FilmTrackingStatus)
+      ? (value as FilmTrackingStatus)
+      : 'not_tracked';
+  }
+
+  private normalizeTrackingCapability(value: unknown): FilmTrackingCapability {
+    return FILM_TRACKING_CAPABILITIES.includes(value as FilmTrackingCapability)
+      ? (value as FilmTrackingCapability)
+      : 'none';
+  }
+
+  private formatTrackingLabel(value: string): string {
+    return value
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }
+
+  private async ensureTrackingWindowForCurrentPlay(options?: {
+    readonly force?: boolean;
+  }): Promise<void> {
+    const review = this.selectedReview() as FilmListReview | null;
+    if (!review) return;
+
+    const windowRequest = this.resolveTrackingWindowRequest(review);
+    if (!windowRequest) return;
+
+    const sourceId = this.resolveTrackingSourceId(review);
+    const windowKey = [
+      review.id,
+      sourceId ?? '',
+      windowRequest.startSec.toFixed(2),
+      windowRequest.endSec.toFixed(2),
+      this.currentPlay()?.id ?? '',
+      this.trackingPanelStatus(review),
+      this.trackingPanelCapability(review),
+    ].join(':');
+    if (!options?.force && this.lastTrackingWindowKey === windowKey) return;
+
+    this.lastTrackingWindowKey = windowKey;
+    this.trackingWindowLoading.set(true);
+    try {
+      let status = this.trackingPanelStatus(review);
+      if (status !== 'ready' && status !== 'limited') {
+        const play = this.currentPlay();
+        const result = await this.service.requestTracking(review.id, {
+          ...((review.teamId ?? this.teamId)
+            ? { teamId: review.teamId ?? this.teamId ?? undefined }
+            : {}),
+          ...(sourceId ? { sourceId } : {}),
+          scope: play ? 'play' : 'timeline',
+          mode: 'draft',
+          sport: this.normalizeSport(review.sport || this.sport) || undefined,
+          ...(play ? { playIds: [play.id] } : {}),
+        });
+        status = result.status;
+      }
+
+      if (status !== 'ready' && status !== 'limited') {
+        this.trackingWindowResult.set(null);
+        return;
+      }
+
+      const windowResult = await this.service.loadTrackingWindow(review.id, {
+        ...((review.teamId ?? this.teamId)
+          ? { teamId: review.teamId ?? this.teamId ?? undefined }
+          : {}),
+        ...(sourceId ? { sourceId } : {}),
+        ...windowRequest,
+      });
+      this.trackingWindowResult.set(windowResult);
+    } catch (error) {
+      this.trackingWindowResult.set(null);
+      this.logger.warn('Film tracking telemetry is not ready for the current window', {
+        reviewId: review.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.trackingWindowLoading.set(false);
+    }
+  }
+
+  private resolveTrackingWindowRequest(
+    review: FilmListReview
+  ): { readonly startSec: number; readonly endSec: number } | null {
+    const play = this.currentPlay();
+    if (play) {
+      return { startSec: play.startSec, endSec: play.endSec };
+    }
+
+    const current = Math.max(0, this.playerCurrentTime());
+    const duration = review.durationSec ?? this.playerDuration();
+    const endSec =
+      Number.isFinite(duration) && duration > current
+        ? Math.min(duration, current + 10)
+        : current + 10;
+    if (endSec <= current) return null;
+    return { startSec: current, endSec };
+  }
+
+  private resolveTrackingSourceId(review: FilmListReview): string | undefined {
+    const playSourceId = this.currentPlay()?.sourceId?.trim();
+    if (playSourceId) return playSourceId;
+    const playbackSourceId = this.currentPlaybackSource()?.id?.trim();
+    if (playbackSourceId) return playbackSourceId;
+    return review.sources?.[0]?.id?.trim() || undefined;
+  }
+
+  private toTrackingPanelTracks(
+    windowResult: FilmReviewTrackingWindowResult
+  ): readonly FilmTrackingPanelTrack[] {
+    const frame = this.resolveNearestTrackingFrame(windowResult.frames);
+    if (!frame?.entities?.length) return [];
+
+    const manifestTracks = new Map(
+      ((windowResult.manifest.tracks ?? []) as readonly FilmReviewTrackingFrameEntity[]).map(
+        (track) => [track.trackId, track] as const
+      )
+    );
+
+    return frame.entities.map((entity) => {
+      const manifestTrack = manifestTracks.get(entity.trackId);
+      const jerseyNumber = this.resolveBestTrackingCandidate(
+        entity.jerseyCandidates ?? manifestTrack?.jerseyCandidates
+      );
+      const positionLabel = this.resolveBestTrackingCandidate(
+        entity.positionCandidates ?? manifestTrack?.positionCandidates
+      );
+      const roleLabel = this.resolveBestTrackingCandidate(
+        entity.roleCandidates ?? manifestTrack?.roleCandidates
+      );
+      const point = this.toTrackingPanelPoint(entity.surfacePoint ?? entity.center);
+      return {
+        trackId: entity.trackId,
+        kind: this.toTrackingPanelKind(entity.kind ?? manifestTrack?.kind),
+        teamSide: this.toTrackingPanelTeamSide(entity.teamSide ?? manifestTrack?.teamSide),
+        label:
+          entity.label ??
+          manifestTrack?.label ??
+          [jerseyNumber ? `#${jerseyNumber}` : null, positionLabel].filter(Boolean).join(' ') ??
+          entity.trackId,
+        jerseyNumber,
+        positionLabel,
+        roleLabel,
+        confidence: this.clampTrackingConfidence(
+          entity.confidence ?? manifestTrack?.confidence ?? 0
+        ),
+        ...(point ? { surfacePoint: point } : {}),
+      };
+    });
+  }
+
+  private resolveNearestTrackingFrame(
+    frames: readonly FilmReviewTrackingFrame[]
+  ): FilmReviewTrackingFrame | null {
+    if (frames.length === 0) return null;
+    const current = this.playerCurrentTime();
+    return frames.reduce((nearest, frame) => {
+      if (typeof frame.timestampSec !== 'number') return nearest;
+      if (typeof nearest.timestampSec !== 'number') return frame;
+      return Math.abs(frame.timestampSec - current) < Math.abs(nearest.timestampSec - current)
+        ? frame
+        : nearest;
+    }, frames[0]!);
+  }
+
+  private resolveBestTrackingCandidate(
+    candidates: readonly { readonly value: string; readonly confidence: number }[] | undefined
+  ): string | null {
+    if (!candidates?.length) return null;
+    return (
+      [...candidates].sort((left, right) => right.confidence - left.confidence)[0]?.value ?? null
+    );
+  }
+
+  private toTrackingPanelPoint(
+    value: { readonly x?: number; readonly y?: number; readonly unit?: string } | undefined
+  ): FilmTrackingPanelTrack['surfacePoint'] | undefined {
+    if (typeof value?.x !== 'number' || typeof value.y !== 'number') return undefined;
+    const unit =
+      value.unit === 'yard' || value.unit === 'meter' || value.unit === 'foot'
+        ? value.unit
+        : 'normalized';
+    return {
+      x: this.clampNormalizedTrackingCoordinate(value.x),
+      y: this.clampNormalizedTrackingCoordinate(value.y),
+      unit,
+    };
+  }
+
+  private toTrackingPanelKind(value: unknown): FilmTrackingPanelTrack['kind'] {
+    return value === 'official' || value === 'ball' || value === 'coach' || value === 'other'
+      ? value
+      : 'player';
+  }
+
+  private toTrackingPanelTeamSide(value: unknown): FilmTrackingPanelTrack['teamSide'] {
+    return value === 'home' || value === 'away' || value === 'official' || value === 'unknown'
+      ? value
+      : undefined;
+  }
+
+  private clampTrackingConfidence(value: number): number {
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+  }
+
+  private clampNormalizedTrackingCoordinate(value: number): number {
+    return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
   }
 
   public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
@@ -8978,6 +9403,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.currentPlayIndex.set(nextRow.originalIndex);
     this.jumpToPlay(nextRow.play);
+    if (this.trackingPanelOpen()) {
+      void this.ensureTrackingWindowForCurrentPlay({ force: true });
+    }
   }
 
   /**
@@ -8999,6 +9427,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.currentPlayIndex.set(nextRow.originalIndex);
     this.jumpToPlay(nextRow.play);
+    if (this.trackingPanelOpen()) {
+      void this.ensureTrackingWindowForCurrentPlay({ force: true });
+    }
   }
 
   protected async onSelectTimelinePlay(play: FilmTimelinePlay, index: number): Promise<void> {
@@ -9011,6 +9442,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.currentPlayIndex.set(index);
     this.jumpToPlay(play);
+    if (this.trackingPanelOpen()) {
+      void this.ensureTrackingWindowForCurrentPlay({ force: true });
+    }
   }
 
   protected onTimelinePlayRowClick(event: Event, play: FilmTimelinePlay, index: number): void {

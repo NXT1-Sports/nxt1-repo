@@ -18,6 +18,7 @@ import {
   type TeamFilmReviewPlaylistDoc,
   type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewPlaySegment,
+  type TeamFilmReviewSourceVideo,
   type UniversalFileDoc,
   type UpdateFilmReviewPlaylistRequest,
   type UpdateFilmReviewDrawingRequest,
@@ -61,6 +62,128 @@ interface FileBackedFilmReviewBreakdownImportResponse {
 interface FileBackedFilmReviewAiRefreshResponse {
   readonly success: boolean;
   readonly data?: RefreshFilmReviewAiResponse;
+  readonly error?: string;
+}
+
+export type FilmReviewTrackingStatus =
+  | 'not_tracked'
+  | 'queued'
+  | 'processing'
+  | 'ready'
+  | 'limited'
+  | 'failed'
+  | 'cancelled';
+
+export type FilmReviewTrackingCapability =
+  | 'none'
+  | 'detection_only'
+  | 'tracked_image_space'
+  | 'calibrated_surface'
+  | 'identified_roster'
+  | 'metric_ready';
+
+export interface FilmReviewTrackingProgress {
+  readonly status: FilmReviewTrackingStatus;
+  readonly processedWindowCount: number;
+  readonly totalWindowCount: number;
+  readonly processedFrameCount?: number;
+  readonly totalFrameCount?: number;
+  readonly percentComplete?: number;
+  readonly statusMessage?: string;
+  readonly updatedAt: string;
+}
+
+export interface FilmReviewTrackingManifestPointer {
+  readonly manifestStoragePath: string;
+  readonly manifestSha256?: string;
+  readonly generatedAt?: string;
+  readonly expiresAt?: string;
+}
+
+export interface RequestFilmReviewTrackingPayload {
+  readonly teamId?: string;
+  readonly sourceId?: string;
+  readonly playIds?: readonly string[];
+  readonly scope: 'play' | 'selected_plays' | 'timeline' | 'full_video';
+  readonly mode: 'draft' | 'metric';
+  readonly sport?: string;
+  readonly force?: boolean;
+}
+
+export interface FilmReviewTrackingRequestResult {
+  readonly jobId: string;
+  readonly status: FilmReviewTrackingStatus;
+  readonly capability?: FilmReviewTrackingCapability;
+  readonly progress?: FilmReviewTrackingProgress;
+  readonly manifest?: FilmReviewTrackingManifestPointer | null;
+  readonly error?: string | null;
+}
+
+export interface FilmReviewTrackingWindowRequest {
+  readonly teamId?: string;
+  readonly sourceId?: string;
+  readonly startSec: number;
+  readonly endSec: number;
+}
+
+export interface FilmReviewTrackingCandidate {
+  readonly value: string;
+  readonly confidence: number;
+  readonly source?: string;
+}
+
+export interface FilmReviewTrackingFrameEntity {
+  readonly trackId: string;
+  readonly kind?: 'player' | 'official' | 'ball' | 'coach' | 'other';
+  readonly teamSide?: 'home' | 'away' | 'official' | 'unknown';
+  readonly label?: string;
+  readonly confidence?: number;
+  readonly center?: { readonly x: number; readonly y: number };
+  readonly surfacePoint?: { readonly x: number; readonly y: number; readonly unit?: string };
+  readonly positionCandidates?: readonly FilmReviewTrackingCandidate[];
+  readonly jerseyCandidates?: readonly FilmReviewTrackingCandidate[];
+  readonly roleCandidates?: readonly FilmReviewTrackingCandidate[];
+}
+
+export interface FilmReviewTrackingFrame {
+  readonly frameIndex?: number;
+  readonly timestampSec?: number;
+  readonly entities?: readonly FilmReviewTrackingFrameEntity[];
+}
+
+export interface FilmReviewTrackingWindowResult {
+  readonly manifest: {
+    readonly surfaceType?: string;
+    readonly tracks?: readonly FilmReviewTrackingFrameEntity[];
+    readonly [key: string]: unknown;
+  };
+  readonly timeRange: { readonly startSec: number; readonly endSec: number };
+  readonly frames: readonly FilmReviewTrackingFrame[];
+}
+
+type FilmReviewTrackingState = {
+  readonly trackingStatus?: FilmReviewTrackingStatus;
+  readonly trackingCapability?: FilmReviewTrackingCapability;
+  readonly trackingManifest?: FilmReviewTrackingManifestPointer | null;
+  readonly trackingProgress?: FilmReviewTrackingProgress | null;
+  readonly trackingModelBundleVersion?: string;
+  readonly trackingSourceContentHash?: string;
+  readonly trackingCorrectionRevision?: number;
+  readonly trackingCorrections?: readonly Record<string, unknown>[];
+  readonly trackingError?: string | null;
+};
+
+type FilmReviewWithTrackingState = TeamFilmReviewDoc & FilmReviewTrackingState;
+
+interface FileBackedFilmReviewTrackingRequestResponse {
+  readonly success: boolean;
+  readonly data?: FilmReviewTrackingRequestResult;
+  readonly error?: string;
+}
+
+interface FileBackedFilmReviewTrackingWindowResponse {
+  readonly success: boolean;
+  readonly data?: FilmReviewTrackingWindowResult;
   readonly error?: string;
 }
 
@@ -418,6 +541,8 @@ export class AgentXFilmReviewService {
       return null;
     }
 
+    const trackingPayload = payload as typeof payload & FilmReviewTrackingState;
+
     const asset = getUniversalBinaryFilePayload(file.payload);
     const primarySource = payload.sources?.[0];
     const videoUrl =
@@ -470,9 +595,160 @@ export class AgentXFilmReviewService {
       timelineGeneratedAt: payload.timelineGeneratedAt,
       timelineError: payload.timelineError,
       timelineProgress: payload.timelineProgress,
+      trackingStatus: trackingPayload.trackingStatus,
+      trackingCapability: trackingPayload.trackingCapability,
+      trackingManifest: trackingPayload.trackingManifest,
+      trackingProgress: trackingPayload.trackingProgress,
+      trackingModelBundleVersion: trackingPayload.trackingModelBundleVersion,
+      trackingSourceContentHash: trackingPayload.trackingSourceContentHash,
+      trackingCorrectionRevision: trackingPayload.trackingCorrectionRevision,
+      trackingCorrections: trackingPayload.trackingCorrections,
+      trackingError: trackingPayload.trackingError,
       downloadPrewarm: payload.downloadPrewarm,
       downloadExport: payload.downloadExport,
+    } as FilmReviewWithTrackingState);
+  }
+
+  private buildTrackingQuery(params: FilmReviewTrackingWindowRequest): string {
+    const query = new URLSearchParams();
+    if (params.teamId?.trim()) query.set('teamId', params.teamId.trim());
+    if (params.sourceId?.trim()) query.set('sourceId', params.sourceId.trim());
+    query.set('startSec', String(params.startSec));
+    query.set('endSec', String(params.endSec));
+    return query.toString();
+  }
+
+  private updateReviewTrackingState(
+    reviewId: string,
+    state: Partial<FilmReviewTrackingState> & { readonly sourceId?: string }
+  ): void {
+    this._reviews.update((reviews) =>
+      reviews.map((review) => {
+        if (review.id !== reviewId) return review;
+        const sources = state.sourceId
+          ? review.sources?.map((source) =>
+              source.id === state.sourceId
+                ? ({
+                    ...source,
+                    trackingStatus: state.trackingStatus,
+                    trackingCapability: state.trackingCapability,
+                    trackingManifest: state.trackingManifest,
+                    trackingProgress: state.trackingProgress,
+                  } as TeamFilmReviewSourceVideo)
+                : source
+            )
+          : review.sources;
+        return this.normalizeReviewTimelineError({
+          ...(review as FilmReviewWithTrackingState),
+          ...state,
+          sources,
+        } as FilmReviewWithTrackingState);
+      })
+    );
+  }
+
+  async requestTracking(
+    reviewId: string,
+    request: RequestFilmReviewTrackingPayload
+  ): Promise<FilmReviewTrackingRequestResult> {
+    this._saving.set(true);
+    this._error.set(null);
+    this.logger.info('Requesting film tracking', {
+      reviewId,
+      scope: request.scope,
+      mode: request.mode,
+      sourceId: request.sourceId ?? null,
     });
+
+    try {
+      const runRequest = () =>
+        firstValueFrom(
+          this.http.post<FileBackedFilmReviewTrackingRequestResponse>(
+            `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review/tracking`,
+            request
+          )
+        );
+      const response =
+        (await this.performance?.trace(TRACE_NAMES.FILM_REVIEW_UPDATE, runRequest, {
+          attributes: {
+            review_id: reviewId,
+            operation: 'request_tracking',
+            scope: request.scope,
+            mode: request.mode,
+          },
+        })) ?? (await runRequest());
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to request film tracking');
+      }
+
+      this.updateReviewTrackingState(reviewId, {
+        sourceId: request.sourceId,
+        trackingStatus: response.data.status,
+        trackingCapability: response.data.capability,
+        trackingManifest: response.data.manifest ?? null,
+        trackingProgress: response.data.progress ?? null,
+        trackingError: response.data.error ?? null,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_UPDATED, {
+        review_id: reviewId,
+        fields_updated: 'tracking',
+      });
+      this.breadcrumb.trackStateChange('film_review_tracking_requested', {
+        reviewId,
+        scope: request.scope,
+        mode: request.mode,
+      });
+
+      return response.data;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to request film tracking';
+      this._error.set(message);
+      this.logger.error('Failed to request film tracking', err, { reviewId });
+      throw err;
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
+  async loadTrackingWindow(
+    reviewId: string,
+    request: FilmReviewTrackingWindowRequest
+  ): Promise<FilmReviewTrackingWindowResult> {
+    this.logger.info('Loading film tracking window', {
+      reviewId,
+      startSec: request.startSec,
+      endSec: request.endSec,
+      sourceId: request.sourceId ?? null,
+    });
+
+    try {
+      const query = this.buildTrackingQuery(request);
+      const runRequest = () =>
+        firstValueFrom(
+          this.http.get<FileBackedFilmReviewTrackingWindowResponse>(
+            `${this.baseUrl}/files/${encodeURIComponent(reviewId)}/film-review/tracking/window?${query}`
+          )
+        );
+      const response =
+        (await this.performance?.trace(TRACE_NAMES.FILM_REVIEW_DETAIL, runRequest, {
+          attributes: {
+            review_id: reviewId,
+            operation: 'load_tracking_window',
+          },
+        })) ?? (await runRequest());
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to load film tracking window');
+      }
+      return response.data;
+    } catch (err) {
+      this.logger.warn('Failed to load film tracking window', {
+        reviewId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
   }
 
   private async createLinkedFileReview(

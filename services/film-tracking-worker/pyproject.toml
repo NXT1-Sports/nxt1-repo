@@ -1,0 +1,12 @@
+[project]
+name = "nxt1-film-tracking-worker"
+version = "0.1.0"
+description = "NXT1 film tracking worker contract validation"
+requires-python = ">=3.11"
+dependencies = [
+	"fastapi>=0.115.0",
+	"uvicorn[standard]>=0.30.0",
+]
+
+[tool.ruff]
+line-length = 100

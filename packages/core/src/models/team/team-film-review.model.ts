@@ -10,6 +10,13 @@ import type {
   AgentXSelectedContextAnnotationPoint,
 } from '../../ai/agent-x-context.types';
 import type { PortableTimestamp } from '../portable-timestamp.model';
+import type {
+  TeamFilmTrackingCapability,
+  TeamFilmTrackingCorrection,
+  TeamFilmTrackingManifestPointer,
+  TeamFilmTrackingProgress,
+  TeamFilmTrackingStatus,
+} from './team-film-tracking.model';
 
 export type TeamFilmReviewStatus = 'draft' | 'processing' | 'ready' | 'archived';
 
@@ -86,6 +93,10 @@ export interface TeamFilmReviewSourceVideo extends TeamFilmReviewSourceAngleMeta
   readonly readyToStream?: boolean;
   readonly thumbnailUrl?: string;
   readonly durationSec?: number;
+  readonly trackingStatus?: TeamFilmTrackingStatus;
+  readonly trackingCapability?: TeamFilmTrackingCapability;
+  readonly trackingManifest?: TeamFilmTrackingManifestPointer;
+  readonly trackingProgress?: TeamFilmTrackingProgress | null;
 }
 
 const TEAM_FILM_REVIEW_WIDE_ANGLE_TOKENS = new Set(['wide', 'w', 'endzone', 'end', 'ez', 'all22']);
@@ -1374,6 +1385,16 @@ export interface TeamFilmReviewDoc {
   readonly timelineError?: string | null;
   /** Windowed AI generation progress for long full-game timeline jobs */
   readonly timelineProgress?: TeamFilmReviewTimelineProgress | null;
+  /** Player/environment tracking state for the primary film source. */
+  readonly trackingStatus?: TeamFilmTrackingStatus;
+  readonly trackingCapability?: TeamFilmTrackingCapability;
+  readonly trackingManifest?: TeamFilmTrackingManifestPointer;
+  readonly trackingProgress?: TeamFilmTrackingProgress | null;
+  readonly trackingModelBundleVersion?: string;
+  readonly trackingSourceContentHash?: string;
+  readonly trackingCorrectionRevision?: number;
+  readonly trackingCorrections?: readonly TeamFilmTrackingCorrection[];
+  readonly trackingError?: string | null;
   /** Upload-time Cloudflare MP4 prewarm state for low-latency analysis */
   readonly downloadPrewarm?: TeamFilmReviewDownloadPrewarm;
   /** Server-side staged export state for large full-game downloads */

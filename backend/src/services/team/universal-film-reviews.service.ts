@@ -48,6 +48,20 @@ function compareByUpdatedAtDesc(left: TeamFilmReviewDoc, right: TeamFilmReviewDo
   );
 }
 
+type UniversalFilmReviewPayloadWithTracking = NonNullable<
+  ReturnType<typeof getUniversalFilmReviewPayload>
+> & {
+  readonly trackingStatus?: unknown;
+  readonly trackingCapability?: unknown;
+  readonly trackingManifest?: unknown;
+  readonly trackingProgress?: unknown;
+  readonly trackingModelBundleVersion?: unknown;
+  readonly trackingSourceContentHash?: unknown;
+  readonly trackingCorrectionRevision?: unknown;
+  readonly trackingCorrections?: unknown;
+  readonly trackingError?: unknown;
+};
+
 export function toTeamFilmReviewDocFromUniversalFile(
   file: UniversalFileDoc
 ): TeamFilmReviewDoc | null {
@@ -55,7 +69,9 @@ export function toTeamFilmReviewDocFromUniversalFile(
     return null;
   }
 
-  const payload = getUniversalFilmReviewPayload(file.payload);
+  const payload = getUniversalFilmReviewPayload(
+    file.payload
+  ) as UniversalFilmReviewPayloadWithTracking | null;
   if (!payload) {
     return null;
   }
@@ -112,6 +128,33 @@ export function toTeamFilmReviewDocFromUniversalFile(
     timelineGeneratedAt: payload.timelineGeneratedAt,
     timelineError: payload.timelineError,
     timelineProgress: payload.timelineProgress,
+    ...(typeof payload.trackingStatus === 'string'
+      ? { trackingStatus: payload.trackingStatus as TeamFilmReviewDoc['status'] }
+      : {}),
+    ...(typeof payload.trackingCapability === 'string'
+      ? { trackingCapability: payload.trackingCapability }
+      : {}),
+    ...(payload.trackingManifest && typeof payload.trackingManifest === 'object'
+      ? { trackingManifest: payload.trackingManifest }
+      : {}),
+    ...(payload.trackingProgress && typeof payload.trackingProgress === 'object'
+      ? { trackingProgress: payload.trackingProgress }
+      : {}),
+    ...(typeof payload.trackingModelBundleVersion === 'string'
+      ? { trackingModelBundleVersion: payload.trackingModelBundleVersion }
+      : {}),
+    ...(typeof payload.trackingSourceContentHash === 'string'
+      ? { trackingSourceContentHash: payload.trackingSourceContentHash }
+      : {}),
+    ...(typeof payload.trackingCorrectionRevision === 'number'
+      ? { trackingCorrectionRevision: payload.trackingCorrectionRevision }
+      : {}),
+    ...(Array.isArray(payload.trackingCorrections)
+      ? { trackingCorrections: payload.trackingCorrections }
+      : {}),
+    ...(typeof payload.trackingError === 'string' || payload.trackingError === null
+      ? { trackingError: payload.trackingError }
+      : {}),
     downloadPrewarm: payload.downloadPrewarm,
     downloadExport: payload.downloadExport,
   };

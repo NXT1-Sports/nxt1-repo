@@ -10,6 +10,10 @@ const notifyDirectFileShareMock = vi.fn().mockResolvedValue({
   dispatched: true,
   notificationId: 'notif-1',
 });
+const filmTrackingWorkerMocks = vi.hoisted(() => ({
+  configured: false,
+  track: vi.fn(),
+}));
 
 vi.mock('../../middleware/auth/auth.middleware.js', () => ({
   appGuard: (_req: unknown, _res: unknown, next: () => void) => next(),
@@ -89,6 +93,34 @@ vi.mock('../../services/communications/file-share-notifications.js', () => ({
   notifyDirectFileShare: notifyDirectFileShareMock,
 }));
 
+vi.mock('../../services/team/film-tracking-worker-client.service.js', () => {
+  class FilmTrackingWorkerClient {
+    get configured() {
+      return filmTrackingWorkerMocks.configured;
+    }
+
+    track(requestPayload: unknown) {
+      return filmTrackingWorkerMocks.track(requestPayload);
+    }
+  }
+
+  class FilmTrackingWorkerClientUnavailableError extends Error {}
+  class FilmTrackingWorkerClientError extends Error {
+    constructor(
+      message: string,
+      readonly status?: number
+    ) {
+      super(message);
+    }
+  }
+
+  return {
+    FilmTrackingWorkerClient,
+    FilmTrackingWorkerClientError,
+    FilmTrackingWorkerClientUnavailableError,
+  };
+});
+
 const { default: filesRoutes } = await import('./files.routes.js');
 const { getSignedUrlWithTimeout } = await import('../../utils/gcs-signed-url.js');
 const { logger } = await import('../../utils/logger.js');
@@ -106,6 +138,8 @@ type MockSignedUrlBucket = {
       responseDisposition?: string;
       responseType?: string;
     }) => Promise<[string]>;
+    download?: () => Promise<[Buffer]>;
+    save?: (data: Buffer) => Promise<void>;
   };
 };
 
@@ -236,7 +270,8 @@ function createMockFirestore(seed: Record<string, Record<string, SeedRecord>>) {
 }
 
 function createSignedUrlBucket(
-  signedUrls: Record<string, MockSignedUrlResponse>
+  signedUrls: Record<string, MockSignedUrlResponse>,
+  downloads: Record<string, string | Buffer> = {}
 ): MockSignedUrlBucket {
   return {
     file(path: string) {
@@ -251,6 +286,16 @@ function createSignedUrlBucket(
             signedUrl ??
               `https://storage.googleapis.com/mock-bucket/${encodeURIComponent(path)}?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=test`,
           ];
+        }),
+        download: vi.fn(async () => {
+          const value = downloads[path];
+          if (value === undefined) {
+            throw new Error(`No mock download for ${path}`);
+          }
+          return [Buffer.isBuffer(value) ? value : Buffer.from(value, 'utf8')];
+        }),
+        save: vi.fn(async (data: Buffer) => {
+          downloads[path] = Buffer.from(data);
         }),
       };
     },
@@ -1191,6 +1236,374 @@ describe('PATCH /api/v1/agent/files/:fileId/film-review', () => {
           timeline: [expect.objectContaining({ tags: { defFront: 'Odd' } })],
         },
       },
+    });
+  });
+
+  describe('film review tracking routes', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      filmTrackingWorkerMocks.configured = false;
+      filmTrackingWorkerMocks.track.mockReset();
+    });
+
+    function createTrackingReviewDb() {
+      return createMockFirestore({
+        UniversalFiles: {
+          trackingReview: {
+            teamId: 'team-1',
+            ownerUserId: 'owner-1',
+            createdByUserId: 'owner-1',
+            updatedByUserId: 'owner-1',
+            title: 'Tracking Review',
+            normalizedTitle: 'tracking review',
+            type: 'file',
+            payloadKind: 'native',
+            payload: {
+              asset: {
+                mimeType: 'video/mp4',
+                kind: 'video',
+                origin: 'files_upload',
+                sizeBytes: 4096,
+                url: 'https://cdn.example.com/tracking-review.mp4',
+                storagePath: 'Teams/team-1/uploads/video/tracking-review.mp4',
+              },
+              filmReview: {
+                uploadMode: 'single_video',
+                videoUrl: 'https://cdn.example.com/tracking-review.mp4',
+                source: 'team_files',
+                schemaVersion: 2,
+                reviewRevision: 0,
+                sources: [
+                  {
+                    id: 'wide-1',
+                    order: 0,
+                    title: 'Wide Angle',
+                    videoUrl: 'https://cdn.example.com/tracking-review.mp4',
+                    storagePath: 'Teams/team-1/uploads/video/tracking-review.mp4',
+                    cameraAngle: 'wide',
+                  },
+                ],
+                timeline: [
+                  {
+                    id: 'play-1',
+                    sourceId: 'wide-1',
+                    number: 1,
+                    label: '3rd & 4',
+                    startSec: 10,
+                    endSec: 18,
+                  },
+                ],
+              },
+            },
+            status: 'ready',
+            sport: 'football',
+            readAccessKeys: ['user:owner-1'],
+            writeAccessKeys: ['user:owner-1'],
+            createdAt: '2026-06-24T00:00:00.000Z',
+            updatedAt: '2026-06-24T00:00:00.000Z',
+          },
+        },
+      });
+    }
+
+    it('queues tracking for a selected source and play window', async () => {
+      const db = createTrackingReviewDb();
+
+      const response = await request(createApp(db))
+        .post('/api/v1/agent/files/trackingReview/film-review/tracking')
+        .send({
+          teamId: 'team-1',
+          sourceId: 'wide-1',
+          scope: 'play',
+          mode: 'draft',
+          playIds: ['play-1'],
+        });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(202);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toEqual(
+        expect.objectContaining({
+          jobId: expect.stringMatching(/^film_tracking_/),
+          status: 'queued',
+          capability: 'none',
+        })
+      );
+      expect(db.getRecord('UniversalFiles/trackingReview')).toMatchObject({
+        payload: {
+          filmReview: expect.objectContaining({
+            trackingStatus: 'queued',
+            trackingCapability: 'none',
+            trackingError: null,
+            reviewRevision: 1,
+            sources: [expect.objectContaining({ trackingStatus: 'queued' })],
+          }),
+        },
+      });
+    });
+
+    it('calls a configured tracking worker and persists returned sidecars', async () => {
+      const db = createTrackingReviewDb();
+      const bucket = createSignedUrlBucket({}, {});
+      filmTrackingWorkerMocks.configured = true;
+      filmTrackingWorkerMocks.track.mockResolvedValue({
+        status: 'ready',
+        capability: 'tracked_image_space',
+        manifestStoragePath: 'film-tracking/trackingReview/wide-1/manifest.json',
+        manifest: {
+          schemaVersion: 1,
+          id: 'manifest-1',
+          sport: 'football',
+          status: 'ready',
+          capability: 'tracked_image_space',
+          surfaceType: 'field',
+          generatedAt: '2026-09-02T00:00:00.000Z',
+          chunks: [
+            {
+              id: 'chunk-1',
+              storagePath: 'film-tracking/trackingReview/wide-1/chunk-1.jsonl',
+              timeRange: { startSec: 10, endSec: 18 },
+            },
+          ],
+        },
+        chunks: [
+          {
+            storagePath: 'film-tracking/trackingReview/wide-1/chunk-1.jsonl',
+            frames: [
+              { frameIndex: 0, timestampSec: 10, entities: [{ trackId: 'track-home-1' }] },
+              { frameIndex: 1, timestampSec: 12, entities: [{ trackId: 'track-away-1' }] },
+            ],
+          },
+        ],
+      });
+
+      const response = await request(createApp(db, bucket))
+        .post('/api/v1/agent/files/trackingReview/film-review/tracking')
+        .send({
+          teamId: 'team-1',
+          sourceId: 'wide-1',
+          scope: 'play',
+          mode: 'draft',
+          playIds: ['play-1'],
+        });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(202);
+      expect(filmTrackingWorkerMocks.track).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileId: 'trackingReview',
+          sourceId: 'wide-1',
+          sport: 'football',
+          scope: 'play',
+          mode: 'draft',
+          playIds: ['play-1'],
+          videoStoragePath: 'Teams/team-1/uploads/video/tracking-review.mp4',
+          timeRange: { startSec: 10, endSec: 18 },
+        })
+      );
+      expect(response.body.data).toEqual(
+        expect.objectContaining({
+          status: 'ready',
+          capability: 'tracked_image_space',
+          manifest: expect.objectContaining({
+            manifestStoragePath: 'film-tracking/trackingReview/wide-1/manifest.json',
+            manifestSha256: expect.any(String),
+          }),
+        })
+      );
+
+      const windowResponse = await request(createApp(db, bucket)).get(
+        '/api/v1/agent/files/trackingReview/film-review/tracking/window?teamId=team-1&startSec=10&endSec=13'
+      );
+
+      expect(windowResponse.status, JSON.stringify(windowResponse.body)).toBe(200);
+      expect(windowResponse.body.data.frames).toHaveLength(2);
+    });
+
+    it('reads queued tracking status for a selected source', async () => {
+      const db = createTrackingReviewDb();
+      await request(createApp(db))
+        .post('/api/v1/agent/files/trackingReview/film-review/tracking')
+        .send({
+          teamId: 'team-1',
+          sourceId: 'wide-1',
+          scope: 'play',
+          mode: 'draft',
+          playIds: ['play-1'],
+        });
+
+      const response = await request(createApp(db)).get(
+        '/api/v1/agent/files/trackingReview/film-review/tracking?teamId=team-1&sourceId=wide-1'
+      );
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toEqual(
+        expect.objectContaining({
+          status: 'queued',
+          capability: 'none',
+          manifest: null,
+          error: null,
+        })
+      );
+    });
+
+    it('does not load tracking chunks before a manifest is ready', async () => {
+      const db = createTrackingReviewDb();
+
+      const response = await request(createApp(db)).get(
+        '/api/v1/agent/files/trackingReview/film-review/tracking/window?teamId=team-1&sourceId=wide-1&startSec=10&endSec=11'
+      );
+
+      expect(response.status).toBe(404);
+      expect(response.body).toEqual({ success: false, error: 'Tracking manifest is not ready' });
+    });
+
+    it('loads tracking window frames from storage sidecar chunks', async () => {
+      const db = createTrackingReviewDb();
+      db.mutateRecord('UniversalFiles/trackingReview', (current) => {
+        const payload = current['payload'] as Record<string, unknown>;
+        const filmReview = payload['filmReview'] as Record<string, unknown>;
+        return {
+          ...current,
+          payload: {
+            ...payload,
+            filmReview: {
+              ...filmReview,
+              trackingStatus: 'ready',
+              trackingCapability: 'tracked_image_space',
+              trackingManifest: {
+                manifestStoragePath: 'tracking/review-1/manifest.json',
+              },
+            },
+          },
+        };
+      });
+      const manifest = {
+        schemaVersion: 1,
+        id: 'manifest-1',
+        filmReviewId: 'trackingReview',
+        sport: 'football',
+        surfaceType: 'field',
+        status: 'ready',
+        capability: 'tracked_image_space',
+        mode: 'draft',
+        timeRange: { startSec: 10, endSec: 18 },
+        modelBundle: { id: 'football-alpha', version: '2026.1.0' },
+        chunks: [
+          {
+            id: 'chunk-10-12',
+            storagePath: 'tracking/review-1/chunk-10-12.jsonl',
+            timeRange: { startSec: 10, endSec: 12 },
+            frameCount: 3,
+          },
+        ],
+        tracks: [],
+      };
+      const chunk = [
+        JSON.stringify({ frameIndex: 299, timestampSec: 9.99, entities: [] }),
+        JSON.stringify({
+          frameIndex: 300,
+          timestampSec: 10,
+          entities: [{ trackId: 'track-7', kind: 'player', confidence: 0.9 }],
+        }),
+        JSON.stringify({ frameIndex: 360, timestampSec: 12, entities: [] }),
+      ].join('\n');
+      const bucket = createSignedUrlBucket(
+        {},
+        {
+          'tracking/review-1/manifest.json': JSON.stringify(manifest),
+          'tracking/review-1/chunk-10-12.jsonl': chunk,
+        }
+      );
+
+      const response = await request(
+        createApp(db, {
+          storage: { bucket: () => bucket },
+        })
+      ).get(
+        '/api/v1/agent/files/trackingReview/film-review/tracking/window?teamId=team-1&startSec=10&endSec=11'
+      );
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.manifest.id).toBe('manifest-1');
+      expect(response.body.data.frames).toEqual([
+        expect.objectContaining({
+          frameIndex: 300,
+          timestampSec: 10,
+          entities: [expect.objectContaining({ trackId: 'track-7' })],
+        }),
+      ]);
+    });
+
+    it('persists coach-confirmed tracking corrections', async () => {
+      const db = createTrackingReviewDb();
+
+      const response = await request(createApp(db))
+        .post('/api/v1/agent/files/trackingReview/film-review/tracking/corrections')
+        .send({
+          teamId: 'team-1',
+          sourceId: 'wide-1',
+          trackId: 'track-7',
+          field: 'position',
+          value: 'Wide Receiver',
+          expectedRevision: 0,
+        });
+
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.revision).toBe(1);
+      expect(response.body.data.correction).toEqual(
+        expect.objectContaining({
+          trackId: 'track-7',
+          field: 'position',
+          value: 'Wide Receiver',
+          source: 'coach_confirmed',
+          revision: 1,
+        })
+      );
+      expect(db.getRecord('UniversalFiles/trackingReview')).toMatchObject({
+        payload: {
+          filmReview: expect.objectContaining({
+            trackingCorrectionRevision: 1,
+            trackingCorrections: [expect.objectContaining({ trackId: 'track-7' })],
+          }),
+        },
+      });
+    });
+
+    it('rejects stale tracking correction revisions', async () => {
+      const db = createTrackingReviewDb();
+      db.mutateRecord('UniversalFiles/trackingReview', (current) => {
+        const payload = current['payload'] as Record<string, unknown>;
+        const filmReview = payload['filmReview'] as Record<string, unknown>;
+        return {
+          ...current,
+          payload: {
+            ...payload,
+            filmReview: {
+              ...filmReview,
+              trackingCorrectionRevision: 2,
+            },
+          },
+        };
+      });
+
+      const response = await request(createApp(db))
+        .post('/api/v1/agent/files/trackingReview/film-review/tracking/corrections')
+        .send({
+          teamId: 'team-1',
+          trackId: 'track-7',
+          field: 'jersey',
+          value: '7',
+          expectedRevision: 1,
+        });
+
+      expect(response.status).toBe(409);
+      expect(response.body).toMatchObject({
+        success: false,
+        code: 'REVISION_CONFLICT',
+        currentRevision: 2,
+      });
     });
   });
 

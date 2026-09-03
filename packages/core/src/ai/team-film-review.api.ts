@@ -18,6 +18,17 @@ import type {
   TeamFilmReviewTimelineTag,
   TeamFilmReviewUploadMode,
 } from '../models/team/team-film-review.model';
+import type {
+  TeamFilmTrackingCapability,
+  TeamFilmTrackingCorrection,
+  TeamFilmTrackingFrame,
+  TeamFilmTrackingManifest,
+  TeamFilmTrackingMode,
+  TeamFilmTrackingProgress,
+  TeamFilmTrackingScope,
+  TeamFilmTrackingStatus,
+  TeamFilmTrackingTimeRange,
+} from '../models/team/team-film-tracking.model';
 
 interface ApiResponse<T> {
   readonly success: boolean;
@@ -174,6 +185,63 @@ export interface UpdateFilmReviewDrawingRequest extends CreateFilmReviewDrawingR
   readonly expectedRevision: number;
 }
 
+export interface RequestFilmReviewTrackingRequest {
+  readonly teamId?: string;
+  readonly sourceId?: string;
+  readonly playIds?: readonly string[];
+  readonly scope: TeamFilmTrackingScope;
+  readonly mode: TeamFilmTrackingMode;
+  readonly sport?: string;
+  readonly force?: boolean;
+}
+
+export interface RequestFilmReviewTrackingResponse {
+  readonly jobId: string;
+  readonly status: TeamFilmTrackingStatus;
+  readonly capability?: TeamFilmTrackingCapability;
+  readonly progress?: TeamFilmTrackingProgress;
+}
+
+export interface GetFilmReviewTrackingStatusRequest {
+  readonly teamId?: string;
+  readonly sourceId?: string;
+}
+
+export interface GetFilmReviewTrackingStatusResponse {
+  readonly status: TeamFilmTrackingStatus;
+  readonly capability?: TeamFilmTrackingCapability;
+  readonly progress?: TeamFilmTrackingProgress | null;
+  readonly manifest?: TeamFilmTrackingManifest | null;
+  readonly error?: string | null;
+}
+
+export interface GetFilmReviewTrackingWindowRequest {
+  readonly teamId?: string;
+  readonly sourceId?: string;
+  readonly startSec: number;
+  readonly endSec: number;
+}
+
+export interface FilmReviewTrackingWindowResponse {
+  readonly manifest: TeamFilmTrackingManifest;
+  readonly timeRange: TeamFilmTrackingTimeRange;
+  readonly frames: readonly TeamFilmTrackingFrame[];
+}
+
+export interface CreateFilmReviewTrackingCorrectionRequest {
+  readonly teamId?: string;
+  readonly sourceId?: string;
+  readonly trackId: string;
+  readonly field: TeamFilmTrackingCorrection['field'];
+  readonly value?: string | null;
+  readonly expectedRevision: number;
+}
+
+export interface CreateFilmReviewTrackingCorrectionResponse {
+  readonly correction: TeamFilmTrackingCorrection;
+  readonly revision: number;
+}
+
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -196,6 +264,8 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
   const playlistsEndpoint = `${baseUrl}/film-review-playlists`;
   const drawingsEndpoint = (fileId: string) =>
     `${baseUrl}/files/${encodeURIComponent(fileId)}/film-review/drawings`;
+  const trackingEndpoint = (fileId: string) =>
+    `${baseUrl}/files/${encodeURIComponent(fileId)}/film-review/tracking`;
 
   return {
     async listPlaylistsPage(
@@ -293,6 +363,55 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
         `${drawingsEndpoint(fileId)}/${encodeURIComponent(drawingId)}${query}`
       );
       ensureSuccess(response, 'Failed to delete film review drawing');
+    },
+
+    async requestTracking(
+      fileId: string,
+      request: RequestFilmReviewTrackingRequest
+    ): Promise<RequestFilmReviewTrackingResponse> {
+      const response = await http.post<ApiResponse<RequestFilmReviewTrackingResponse>>(
+        trackingEndpoint(fileId),
+        request
+      );
+      return ensureSuccess(response, 'Failed to request film tracking');
+    },
+
+    async getTrackingStatus(
+      fileId: string,
+      request: GetFilmReviewTrackingStatusRequest = {}
+    ): Promise<GetFilmReviewTrackingStatusResponse> {
+      const query = buildQuery({ teamId: request.teamId, sourceId: request.sourceId });
+      const response = await http.get<ApiResponse<GetFilmReviewTrackingStatusResponse>>(
+        `${trackingEndpoint(fileId)}${query}`
+      );
+      return ensureSuccess(response, 'Failed to load film tracking status');
+    },
+
+    async getTrackingWindow(
+      fileId: string,
+      request: GetFilmReviewTrackingWindowRequest
+    ): Promise<FilmReviewTrackingWindowResponse> {
+      const query = buildQuery({
+        teamId: request.teamId,
+        sourceId: request.sourceId,
+        startSec: request.startSec,
+        endSec: request.endSec,
+      });
+      const response = await http.get<ApiResponse<FilmReviewTrackingWindowResponse>>(
+        `${trackingEndpoint(fileId)}/window${query}`
+      );
+      return ensureSuccess(response, 'Failed to load film tracking window');
+    },
+
+    async createTrackingCorrection(
+      fileId: string,
+      request: CreateFilmReviewTrackingCorrectionRequest
+    ): Promise<CreateFilmReviewTrackingCorrectionResponse> {
+      const response = await http.post<ApiResponse<CreateFilmReviewTrackingCorrectionResponse>>(
+        `${trackingEndpoint(fileId)}/corrections`,
+        request
+      );
+      return ensureSuccess(response, 'Failed to save film tracking correction');
     },
   } as const;
 }

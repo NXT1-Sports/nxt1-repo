@@ -177,4 +177,147 @@ describe('createTeamFilmReviewApi', () => {
 
     await expect(api.listPlaylists({ teamId: 'bad-team' })).rejects.toThrow('Forbidden');
   });
+
+  it('requests tracking through the file film review endpoint', async () => {
+    vi.mocked(http.post).mockResolvedValue({
+      success: true,
+      data: {
+        jobId: 'tracking-job-1',
+        status: 'queued',
+        capability: 'detection_only',
+      },
+    });
+
+    const result = await api.requestTracking('review-1', {
+      teamId: 'team-1',
+      sourceId: 'wide-1',
+      scope: 'play',
+      mode: 'draft',
+      playIds: ['play-1'],
+    });
+
+    expect(http.post).toHaveBeenCalledWith('/agent-x/files/review-1/film-review/tracking', {
+      teamId: 'team-1',
+      sourceId: 'wide-1',
+      scope: 'play',
+      mode: 'draft',
+      playIds: ['play-1'],
+    });
+    expect(result.status).toBe('queued');
+  });
+
+  it('loads tracking status with optional source filtering', async () => {
+    vi.mocked(http.get).mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        capability: 'metric_ready',
+        manifest: null,
+      },
+    });
+
+    const result = await api.getTrackingStatus('review-1', {
+      teamId: 'team-1',
+      sourceId: 'wide-1',
+    });
+
+    expect(http.get).toHaveBeenCalledWith(
+      '/agent-x/files/review-1/film-review/tracking?teamId=team-1&sourceId=wide-1'
+    );
+    expect(result.capability).toBe('metric_ready');
+  });
+
+  it('loads a typed tracking window for synchronized overlays', async () => {
+    vi.mocked(http.get).mockResolvedValue({
+      success: true,
+      data: {
+        manifest: {
+          schemaVersion: 1,
+          id: 'manifest-1',
+          filmReviewId: 'review-1',
+          sourceId: 'wide-1',
+          sport: 'football',
+          surfaceType: 'field',
+          status: 'ready',
+          capability: 'tracked_image_space',
+          mode: 'draft',
+          modelBundle: { id: 'football-alpha', version: '2026.1.0' },
+          generatedAt: '2026-09-02T00:00:00.000Z',
+          timeRange: { startSec: 0, endSec: 10 },
+          chunks: [],
+          tracks: [],
+        },
+        timeRange: { startSec: 4, endSec: 5 },
+        frames: [
+          {
+            frameIndex: 120,
+            timestampSec: 4,
+            entities: [
+              {
+                trackId: 'track-7',
+                kind: 'player',
+                teamSide: 'home',
+                bounds: { minX: 0.1, minY: 0.2, maxX: 0.2, maxY: 0.5 },
+                confidence: 0.92,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const result = await api.getTrackingWindow('review-1', {
+      teamId: 'team-1',
+      sourceId: 'wide-1',
+      startSec: 4,
+      endSec: 5,
+    });
+
+    expect(http.get).toHaveBeenCalledWith(
+      '/agent-x/files/review-1/film-review/tracking/window?teamId=team-1&sourceId=wide-1&startSec=4&endSec=5'
+    );
+    expect(result.frames[0]?.entities[0]?.trackId).toBe('track-7');
+  });
+
+  it('creates tracking corrections with optimistic revisions', async () => {
+    vi.mocked(http.post).mockResolvedValue({
+      success: true,
+      data: {
+        correction: {
+          id: 'correction-1',
+          trackId: 'track-7',
+          field: 'position',
+          value: 'WR',
+          previousValue: 'TE',
+          source: 'coach_confirmed',
+          createdBy: 'u1',
+          createdAt: '2026-09-02T00:00:00.000Z',
+          revision: 2,
+        },
+        revision: 2,
+      },
+    });
+
+    const result = await api.createTrackingCorrection('review-1', {
+      teamId: 'team-1',
+      sourceId: 'wide-1',
+      trackId: 'track-7',
+      field: 'position',
+      value: 'WR',
+      expectedRevision: 1,
+    });
+
+    expect(http.post).toHaveBeenCalledWith(
+      '/agent-x/files/review-1/film-review/tracking/corrections',
+      {
+        teamId: 'team-1',
+        sourceId: 'wide-1',
+        trackId: 'track-7',
+        field: 'position',
+        value: 'WR',
+        expectedRevision: 1,
+      }
+    );
+    expect(result.revision).toBe(2);
+  });
 });
