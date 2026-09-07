@@ -119,7 +119,14 @@ export class AgentRouterPlanningService {
               agentId,
               toolAccessContext
             );
-            matchedToolNames = matchedTools.map((tool) => tool.name).sort();
+            matchedToolNames = matchedTools
+              .filter(
+                (tool) =>
+                  tool.category === 'system' ||
+                  isToolAllowedByPatterns(tool.name, policyAllowedToolNames)
+              )
+              .map((tool) => tool.name)
+              .sort();
           } catch {
             matchedToolNames = [];
           }

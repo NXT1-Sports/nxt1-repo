@@ -45,7 +45,16 @@ const getCache = () => getCacheService();
 
 const CACHE_KEYS = {
   ENTRY_BY_ID: (entryId: string) => `roster:id:${entryId}`,
-  USER_TEAMS: (userId: string) => `roster:user:${userId}:teams`,
+  USER_TEAMS_PREFIX: (userId: string) => `roster:user:${userId}:teams`,
+  USER_TEAMS: (query: Pick<GetUserTeamsQuery, 'userId' | 'status' | 'includeInactive'>) => {
+    const prefix = CACHE_KEYS.USER_TEAMS_PREFIX(query.userId);
+    if (query.status && query.status.length > 0) {
+      const statuses = Array.from(new Set(query.status)).sort().join(',');
+      return `${prefix}:status:${statuses}`;
+    }
+
+    return query.includeInactive ? `${prefix}:includeInactive` : `${prefix}:status:active`;
+  },
   TEAM_ROSTER: (teamId: string) => `roster:team:${teamId}:members`,
   ORG_MEMBERS: (orgId: string) => `roster:org:${orgId}:members`,
 } as const;
@@ -511,7 +520,7 @@ export class RosterEntryService {
    * This is the NEW way to query "Get my teams"
    */
   async getUserTeams(query: GetUserTeamsQuery): Promise<RosterEntry[]> {
-    const cacheKey = CACHE_KEYS.USER_TEAMS(query.userId);
+    const cacheKey = CACHE_KEYS.USER_TEAMS(query);
 
     // Try cache first
     const cached = await getCache()?.get<RosterEntry[]>(cacheKey);
@@ -1169,7 +1178,8 @@ export class RosterEntryService {
 
     await Promise.all([
       ...(entryId ? [cache.del(CACHE_KEYS.ENTRY_BY_ID(entryId))] : []),
-      cache.del(CACHE_KEYS.USER_TEAMS(userId)),
+      cache.del(CACHE_KEYS.USER_TEAMS_PREFIX(userId)),
+      cache.delByPrefix(`${CACHE_KEYS.USER_TEAMS_PREFIX(userId)}:`),
       cache.del(CACHE_KEYS.TEAM_ROSTER(teamId)),
       cache.del(CACHE_KEYS.ORG_MEMBERS(orgId)),
     ]);

@@ -1850,7 +1850,8 @@ export class AgentXOperationEventService {
     return step;
   }
 
-  private resolveBackendStepLabel(event: Pick<JobEvent, 'message'>): string | null {
+  private resolveBackendStepLabel(event: Pick<JobEvent, 'message' | 'toolName'>): string | null {
+    if (event.toolName === 'ask_user') return 'Requesting your input';
     const label = typeof event.message === 'string' ? event.message.trim() : '';
     return label.length > 0 ? label : null;
   }

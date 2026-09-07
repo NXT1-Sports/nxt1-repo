@@ -31,6 +31,7 @@ import type {
   AgentSessionMessage,
   AgentRetrievedMemories,
   AgentToolAccessContext,
+  AgentToolDefinition,
   AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
@@ -58,6 +59,53 @@ import { resolveThreadReplayMaxTokens } from './memory/replay-budget.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
+type CoordinatorAgentId = Exclude<AgentIdentifier, 'router'>;
+
+const COORDINATOR_AGENT_ID_SET = new Set<AgentIdentifier>([
+  'admin_coordinator',
+  'brand_coordinator',
+  'data_coordinator',
+  'strategy_coordinator',
+  'recruiting_coordinator',
+  'performance_coordinator',
+]);
+
+const COORDINATOR_ALIAS_TO_ID: Readonly<Record<string, CoordinatorAgentId>> = {
+  admin: 'admin_coordinator',
+  admin_coordinator: 'admin_coordinator',
+  admincoordinator: 'admin_coordinator',
+  brand: 'brand_coordinator',
+  brand_coordinator: 'brand_coordinator',
+  brandcoordinator: 'brand_coordinator',
+  creative: 'brand_coordinator',
+  data: 'data_coordinator',
+  data_coordinator: 'data_coordinator',
+  datacoordinator: 'data_coordinator',
+  performance: 'performance_coordinator',
+  performance_coordinator: 'performance_coordinator',
+  performancecoordinator: 'performance_coordinator',
+  film: 'performance_coordinator',
+  recruiting: 'recruiting_coordinator',
+  recruiting_coordinator: 'recruiting_coordinator',
+  recruitingcoordinator: 'recruiting_coordinator',
+  strategy: 'strategy_coordinator',
+  strategy_coordinator: 'strategy_coordinator',
+  strategycoordinator: 'strategy_coordinator',
+};
+
+const COORDINATOR_PREFIX_PATTERN = /^\s*@([a-z][a-z0-9_-]*)\b\s*[:\-–—]?\s*/i;
+const COORDINATOR_LABEL_PREFIX_PATTERN =
+  /^\s*(admin|brand|creative|data|film|performance|recruiting|strategy)\s+(?:coordinator|agent)\s*[:\-–—]\s*/i;
+const PRIMARY_DYNAMIC_TOOL_MATCH_THRESHOLD = 0.35;
+const PRIMARY_DYNAMIC_TOOL_LIMIT = 15;
+const PURE_BROWSER_OPEN_PATTERN =
+  /\b(go\s+to|open|show|view|launch|pull\s+up|bring\s+up)\b[\s\S]{0,80}\b(hudl|live\s*view|browser|web\s*page|page|profile|team\s+page)\b/i;
+const MEDIA_PROCESSING_PATTERN =
+  /\b(extract|download|analy[sz]e|clip|trim|cut|import|save\s+film|film\s+review|create\s+(?:a\s+)?reel|make\s+(?:a\s+)?reel|highlight|process\s+media|watch\s+(?:the\s+)?(?:clip|clips|film|video))\b/i;
+const FILES_BACKED_ARTIFACT_PATTERN =
+  /\b(files?|team files?|playbook|our plays?|install sheet|callsheet|call sheet|game plan|scout report|opponent report|practice script|template|sample layout|saved strategy|document|pdf)\b/i;
+const FILES_RETRIEVAL_VERB_PATTERN =
+  /\b(reduce|trim|condense|review|open|show|pull|find|load|read|inspect|summarize|analy[sz]e|use|revise|update|edit|refine|prioritize)\b/i;
 
 const EMAIL_ADDRESS_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const EMAIL_SEND_VERB_PATTERN = /\b(send|sending|sent|deliver|delivering)\b/i;
@@ -658,6 +706,73 @@ export class AgentRouter {
       };
     }
 
+    const directCoordinatorTarget =
+      executionMode === 'plan'
+        ? null
+        : this.resolveExplicitCoordinatorTarget(payload.agent, contextObj, intent);
+    if (directCoordinatorTarget && this.primaryService) {
+      const directIntent = directCoordinatorTarget.intent || intent;
+      const directEnrichedIntent = this.enrichIntentWithContext(
+        directIntent,
+        userContext,
+        {
+          ...payload.context,
+          directCoordinatorBypass: true,
+          coordinatorId: directCoordinatorTarget.agentId,
+        },
+        undefined,
+        undefined,
+        undefined,
+        activeThreadsSummary
+      );
+
+      logger.info('[AgentRouter] Explicit coordinator bypass selected', {
+        operationId,
+        userId,
+        coordinatorId: directCoordinatorTarget.agentId,
+        source: directCoordinatorTarget.source,
+      });
+
+      const dispatchResult = await this.primaryService.runCoordinator(
+        directCoordinatorTarget.agentId,
+        directIntent,
+        {
+          operationId,
+          userId,
+          enrichedIntent: directEnrichedIntent,
+          sessionContext: contextWithDefaults,
+          ...(approvalGate ? { approvalGate } : {}),
+          ...(onStreamEvent ? { onStreamEvent } : {}),
+          ...(signal ? { signal } : {}),
+        },
+        {
+          directCoordinatorBypass: true,
+          explicitCoordinatorSource: directCoordinatorTarget.source,
+          ...(directCoordinatorTarget.selectedAction
+            ? { selectedAction: directCoordinatorTarget.selectedAction }
+            : {}),
+        }
+      );
+
+      return {
+        summary: dispatchResult.observation,
+        success: dispatchResult.success,
+        data: {
+          directCoordinatorBypass: true,
+          coordinatorId: directCoordinatorTarget.agentId,
+          streamedDeltaCount: dispatchResult.streamedDeltaCount ?? 0,
+          streamedCharCount: dispatchResult.streamedCharCount ?? 0,
+          ...(dispatchResult.success ? {} : { operationStatus: 'failed' as const }),
+          ...(dispatchResult.coordinatorArtifacts
+            ? { coordinatorArtifacts: dispatchResult.coordinatorArtifacts }
+            : {}),
+          ...(dispatchResult.coordinatorToolCallRecords
+            ? { toolCallRecords: dispatchResult.coordinatorToolCallRecords }
+            : {}),
+        },
+      };
+    }
+
     // ── PRIMARY AGENT (sole entry point since 2026 enterprise migration) ──
     // All conversational requests flow through Primary's streaming ReAct
     // loop. runPrimary() throws immediately if Primary is not wired so
@@ -675,6 +790,78 @@ export class AgentRouter {
       onStreamEvent,
       signal,
     });
+  }
+
+  private resolveExplicitCoordinatorTarget(
+    preselectedAgent: AgentIdentifier | undefined,
+    contextObj: Record<string, unknown>,
+    intent: string
+  ):
+    | {
+        readonly agentId: CoordinatorAgentId;
+        readonly intent: string;
+        readonly source: 'payload_agent' | 'context' | 'prompt_prefix';
+        readonly selectedAction?: Record<string, unknown>;
+      }
+    | null {
+    if (this.isCoordinatorAgentId(preselectedAgent)) {
+      return { agentId: preselectedAgent, intent, source: 'payload_agent' };
+    }
+
+    for (const key of ['coordinatorId', 'targetAgent', 'targetAgentId', 'agentId']) {
+      const candidate = this.normalizeCoordinatorId(contextObj[key]);
+      if (candidate) {
+        return { agentId: candidate, intent, source: 'context' };
+      }
+    }
+
+    const selectedAction = contextObj['selectedAction'];
+    if (selectedAction && typeof selectedAction === 'object') {
+      const normalizedSelectedAction = selectedAction as Record<string, unknown>;
+      const candidate = this.normalizeCoordinatorId(
+        normalizedSelectedAction['coordinatorId']
+      );
+      if (candidate) {
+        return {
+          agentId: candidate,
+          intent,
+          source: 'context',
+          selectedAction: normalizedSelectedAction,
+        };
+      }
+    }
+
+    const mentionMatch = intent.match(COORDINATOR_PREFIX_PATTERN);
+    if (mentionMatch?.[1]) {
+      const candidate = this.normalizeCoordinatorId(mentionMatch[1]);
+      if (candidate) {
+        const strippedIntent = intent.slice(mentionMatch[0].length).trim();
+        return { agentId: candidate, intent: strippedIntent || intent, source: 'prompt_prefix' };
+      }
+    }
+
+    const labelMatch = intent.match(COORDINATOR_LABEL_PREFIX_PATTERN);
+    if (labelMatch?.[1]) {
+      const candidate = this.normalizeCoordinatorId(labelMatch[1]);
+      if (candidate) {
+        const strippedIntent = intent.slice(labelMatch[0].length).trim();
+        return { agentId: candidate, intent: strippedIntent || intent, source: 'prompt_prefix' };
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeCoordinatorId(value: unknown): CoordinatorAgentId | null {
+    if (typeof value !== 'string') return null;
+    const normalized = value.trim().toLowerCase().replace(/^@/, '').replace(/[\s-]+/g, '_');
+    const compact = normalized.replace(/_/g, '');
+    const candidate = COORDINATOR_ALIAS_TO_ID[normalized] ?? COORDINATOR_ALIAS_TO_ID[compact];
+    return candidate ?? null;
+  }
+
+  private isCoordinatorAgentId(value: AgentIdentifier | undefined): value is CoordinatorAgentId {
+    return Boolean(value && value !== 'router' && COORDINATOR_AGENT_ID_SET.has(value));
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
@@ -778,13 +965,30 @@ export class AgentRouter {
       // declared on PrimaryAgent. Passing an empty array here would cause
       // BaseAgent.execute to expose ZERO tools to the LLM (it filters the
       // passed array; it does not fetch from the registry).
-      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry, {
+      const primaryAccessContext = {
         ...opts.toolAccessContext,
         executionMode: opts.context.executionMode,
-      });
+      };
+      const matchedToolDefinitions = await this.matchPrimaryToolDefinitions(
+        opts.intent,
+        opts.enrichedIntent,
+        primaryAccessContext,
+        opts.operationId
+      );
+      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+        this.toolRegistry,
+        primaryAccessContext,
+        matchedToolDefinitions
+          ? {
+              matchedToolDefinitions,
+              maxDynamicToolDefinitions: PRIMARY_DYNAMIC_TOOL_LIMIT,
+            }
+          : undefined
+      );
       logger.info('[AgentRouter] Primary tool surface', {
         operationId: opts.operationId,
         toolCount: toolDefinitions.length,
+        dynamicToolCount: matchedToolDefinitions?.length ?? 0,
         toolNames: toolDefinitions.map((d) => d.name),
       });
 
@@ -803,6 +1007,129 @@ export class AgentRouter {
     } finally {
       primary.endRun(opts.operationId);
     }
+  }
+
+  private async matchPrimaryToolDefinitions(
+    rawIntent: string,
+    enrichedIntent: string,
+    accessContext: AgentToolAccessContext,
+    operationId: string
+  ): Promise<readonly AgentToolDefinition[] | undefined> {
+    const forcedToolDefinitions = this.resolvePrimaryForcedToolDefinitions(
+      `${rawIntent}
+${enrichedIntent}`,
+      accessContext
+    );
+
+    try {
+      const intentEmbedding = await this.llm.embed(enrichedIntent);
+      const discoverableMatcher = (
+        this.toolRegistry as ToolRegistry & {
+          matchDiscoverableWithScores?: (
+            intentVector: readonly number[],
+            embedFn: (text: string) => Promise<readonly number[]>,
+            accessContext?: AgentToolAccessContext,
+            threshold?: number
+          ) => Promise<readonly AgentToolDefinition[]>;
+        }
+      ).matchDiscoverableWithScores;
+      const matchedToolDefinitions = discoverableMatcher
+        ? await discoverableMatcher.call(
+            this.toolRegistry,
+            intentEmbedding,
+            (text: string) => this.llm.embed(text),
+            accessContext,
+            PRIMARY_DYNAMIC_TOOL_MATCH_THRESHOLD
+          )
+        : await this.toolRegistry.matchWithScores(
+            intentEmbedding,
+            (text) => this.llm.embed(text),
+            'router',
+            accessContext,
+            PRIMARY_DYNAMIC_TOOL_MATCH_THRESHOLD
+          );
+
+      return this.mergePrimaryMatchedToolDefinitions(
+        forcedToolDefinitions,
+        matchedToolDefinitions,
+        PRIMARY_DYNAMIC_TOOL_LIMIT
+      );
+    } catch (err) {
+      logger.warn('[AgentRouter] Primary dynamic tool retrieval failed; using static surface', {
+        operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return forcedToolDefinitions.length > 0 ? forcedToolDefinitions : undefined;
+    }
+  }
+
+  private resolvePrimaryForcedToolDefinitions(
+    rawIntent: string,
+    accessContext: AgentToolAccessContext
+  ): readonly AgentToolDefinition[] {
+    const forcedToolNames = this.resolvePrimaryForcedToolNames(rawIntent);
+    if (forcedToolNames.length === 0) return [];
+
+    const allDefinitions = this.toolRegistry.getDefinitions(undefined, accessContext);
+    return forcedToolNames
+      .map((toolName) => allDefinitions.find((definition) => definition.name === toolName))
+      .filter((definition): definition is AgentToolDefinition => Boolean(definition));
+  }
+
+  private resolvePrimaryForcedToolNames(rawIntent: string): readonly string[] {
+    if (this.isFilesArtifactIntent(rawIntent)) {
+      return [
+        'list_universal_team_documents',
+        'get_universal_team_document',
+        'parse_document',
+        'render_pdf_pages',
+        'enrich_document_notes',
+      ];
+    }
+
+    if (this.isPureBrowserOpenIntent(rawIntent)) {
+      return ['open_live_view'];
+    }
+
+    if (this.isFilmReviewReadIntent(rawIntent)) {
+      return [
+        'get_film_review',
+        'list_film_review_sources',
+        'get_film_review_source_breakdown',
+        'search_film_review_breakdown_rows',
+        'execute_sandbox_script',
+      ];
+    }
+
+    return [];
+  }
+
+  private isPureBrowserOpenIntent(rawIntent: string): boolean {
+    return PURE_BROWSER_OPEN_PATTERN.test(rawIntent) && !MEDIA_PROCESSING_PATTERN.test(rawIntent);
+  }
+
+  private isFilesArtifactIntent(rawIntent: string): boolean {
+    return FILES_BACKED_ARTIFACT_PATTERN.test(rawIntent) && FILES_RETRIEVAL_VERB_PATTERN.test(rawIntent);
+  }
+
+  private isFilmReviewReadIntent(rawIntent: string): boolean {
+    return /(film review|selected film|that film|this film|current film|selected clips?|selected plays?|source breakdown|breakdown rows|wide clip|odk|down\/?distance|50 selected film plays)\b/i.test(
+      rawIntent
+    );
+  }
+
+  private mergePrimaryMatchedToolDefinitions(
+    forcedToolDefinitions: readonly AgentToolDefinition[],
+    matchedToolDefinitions: readonly AgentToolDefinition[],
+    limit: number
+  ): readonly AgentToolDefinition[] {
+    const merged = new Map<string, AgentToolDefinition>();
+    for (const definition of forcedToolDefinitions) merged.set(definition.name, definition);
+    for (const definition of matchedToolDefinitions) {
+      if (merged.size >= limit) break;
+      merged.set(definition.name, definition);
+    }
+    return [...merged.values()];
   }
 
   /** Build a minimal session context. */

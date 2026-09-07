@@ -153,6 +153,7 @@ import {
   ExecuteSavedPlanTool,
   ExecuteSandboxScriptTool,
   PlanAndExecuteTool,
+  RenderEditablePptxTool,
   RenderHtmlPdfTool,
   WhoamiCapabilitiesTool,
 } from '../tools/system/index.js';
@@ -568,6 +569,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ExtractHudlVideoTool());
   toolRegistry.register(new DynamicExportTool());
   toolRegistry.register(new RenderHtmlPdfTool());
+  toolRegistry.register(new RenderEditablePptxTool());
 
   let apifyMcpBridge: ApifyMcpBridgeService | undefined;
   let cfBridge: CloudflareMcpBridgeService | undefined;

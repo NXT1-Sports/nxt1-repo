@@ -34,6 +34,8 @@ export interface PrimaryDispatchResult {
   readonly streamedCharCount?: number;
   /** Artifacts produced by the coordinator(s) — forwarded back to Primary for chained reasoning (Tier 4). */
   readonly coordinatorArtifacts?: Record<string, unknown>;
+  /** Compact read/analysis results produced inside delegated execution for parent reuse. */
+  readonly coordinatorReadResults?: readonly Record<string, unknown>[];
   /** Tool records produced inside delegated coordinator execution. */
   readonly coordinatorToolCallRecords?: readonly AgentToolCallRecord[];
 }

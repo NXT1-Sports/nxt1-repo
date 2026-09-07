@@ -814,6 +814,10 @@ export const APP_EVENTS = {
   AGENT_X_OPERATION_APPROVED: 'agent_x_operation_approved',
   /** User replied with text to a yielded operation (HITL) */
   AGENT_X_OPERATION_REPLIED: 'agent_x_operation_replied',
+  /** Agent X displayed an output format selection card */
+  AGENT_X_OUTPUT_SELECTION_DISPLAYED: 'agent_x_output_selection_displayed',
+  /** User chose one or more output formats from Agent X */
+  AGENT_X_OUTPUT_SELECTION_CHOSEN: 'agent_x_output_selection_chosen',
   /** User retried a failed operation */
   AGENT_X_OPERATION_RETRIED: 'agent_x_operation_retried',
   /** User approved and sent an email draft via HITL flow */

@@ -18,10 +18,17 @@ import {
   ElementRef,
   effect,
   signal,
+  computed,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
-import type { AgentXEffortLevel, AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
+import type {
+  AgentXEffortLevel,
+  AgentXExecutionMode,
+  AgentXSelectedAction,
+  AgentXSelectedContext,
+} from '@nxt1/core/ai';
+import { COORDINATOR_DESCRIPTORS } from '@nxt1/core/ai';
 import { AGENT_X_INPUT_TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
@@ -41,11 +48,51 @@ interface InputMenuLayout {
   readonly maxHeight: number | null;
 }
 
+type CoordinatorMentionId = keyof typeof COORDINATOR_DESCRIPTORS;
+
+interface CoordinatorMentionOption {
+  readonly id: CoordinatorMentionId;
+  readonly alias: string;
+  readonly name: string;
+  readonly description: string;
+  readonly icon: string;
+}
+
 const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
   placement: 'above',
   offsetX: 0,
   maxHeight: null,
 };
+
+const COORDINATOR_MENTION_IDS = [
+  'brand_coordinator',
+  'performance_coordinator',
+  'strategy_coordinator',
+  'recruiting_coordinator',
+  'data_coordinator',
+  'admin_coordinator',
+] as const satisfies readonly CoordinatorMentionId[];
+
+const COORDINATOR_MENTION_OPTIONS: readonly CoordinatorMentionOption[] = COORDINATOR_MENTION_IDS.map(
+  (id) => {
+    const descriptor = COORDINATOR_DESCRIPTORS[id];
+    return {
+      id,
+      alias: id.replace('_coordinator', ''),
+      name: descriptor.name,
+      description: descriptor.description,
+      icon: descriptor.icon ?? 'sparkles',
+    };
+  }
+);
+
+const AGENT_X_INPUT_BAR_TEST_IDS = {
+  ...AGENT_X_INPUT_TEST_IDS,
+  COORDINATOR_MENTION_MENU: 'agent-input-coordinator-mention-menu',
+  COORDINATOR_MENTION_OPTION: 'agent-input-coordinator-mention-option',
+  COORDINATOR_MENTION_PILL: 'agent-input-coordinator-mention-pill',
+  COORDINATOR_MENTION_REMOVE: 'agent-input-coordinator-mention-remove',
+} as const;
 
 @Component({
   selector: 'nxt1-agent-x-input-bar',
@@ -226,6 +273,32 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
         (touchend)="onSwipeEnd()"
         (touchcancel)="onSwipeCancel()"
       >
+        @if (selectedCoordinatorMention(); as selectedCoordinator) {
+          <div class="input-coordinator-pill-row">
+            <div
+              class="input-coordinator-pill"
+              [attr.data-testid]="inputTestIds.COORDINATOR_MENTION_PILL"
+            >
+              <span class="input-coordinator-pill__icon">
+                <nxt1-icon [name]="selectedCoordinator.icon" [size]="14" />
+              </span>
+              <span class="input-coordinator-pill__copy">
+                <span class="input-coordinator-pill__label">{{ selectedCoordinator.name }}</span>
+                <span class="input-coordinator-pill__alias">@{{ selectedCoordinator.alias }}</span>
+              </span>
+              <button
+                type="button"
+                class="input-coordinator-pill__remove"
+                [attr.data-testid]="inputTestIds.COORDINATOR_MENTION_REMOVE"
+                [attr.aria-label]="'Remove ' + selectedCoordinator.name"
+                (click)="removeCoordinatorMention()"
+              >
+                <nxt1-icon name="close" [size]="12" />
+              </button>
+            </div>
+          </div>
+        }
+
         <textarea
           #messageInput
           class="input-textarea"
@@ -235,8 +308,49 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
           (focus)="onInputFocus()"
           [placeholder]="placeholder()"
           (keydown.enter)="onEnterKey($event)"
+          (keydown.arrowDown)="onCoordinatorMentionArrowKey($event, 1)"
+          (keydown.arrowUp)="onCoordinatorMentionArrowKey($event, -1)"
+          (keydown.escape)="onCoordinatorMentionEscapeKey($event)"
+          (keydown.tab)="onCoordinatorMentionCommitKey($event)"
           (paste)="onPaste($event)"
         ></textarea>
+
+        @if (coordinatorMentionMenuOpen() && filteredCoordinatorMentionOptions().length > 0) {
+          <button
+            type="button"
+            class="input-mention-backdrop"
+            aria-label="Close coordinator mention menu"
+            (click)="closeCoordinatorMentionMenu()"
+          ></button>
+
+          <div
+            class="input-mention-menu"
+            role="listbox"
+            aria-label="Coordinator shortcuts"
+            [attr.data-testid]="inputTestIds.COORDINATOR_MENTION_MENU"
+          >
+            @for (option of filteredCoordinatorMentionOptions(); track option.id) {
+              <button
+                type="button"
+                class="input-mention-option"
+                [class.input-mention-option--active]="$index === activeCoordinatorMentionIndex()"
+                [attr.data-testid]="inputTestIds.COORDINATOR_MENTION_OPTION"
+                role="option"
+                [attr.aria-selected]="$index === activeCoordinatorMentionIndex()"
+                (mousedown)="$event.preventDefault()"
+                (click)="selectCoordinatorMention(option)"
+              >
+                <span class="input-mention-option__icon">
+                  <nxt1-icon [name]="option.icon" [size]="16" />
+                </span>
+                <span class="input-mention-option__copy">
+                  <span class="input-mention-option__title">{{ option.name }}</span>
+                  <span class="input-mention-option__alias">@{{ option.alias }}</span>
+                </span>
+              </button>
+            }
+          </div>
+        }
 
         <div class="input-actions">
           <div class="input-actions-left">
@@ -751,6 +865,184 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
         color: var(--input-muted);
       }
 
+      .input-coordinator-pill-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+        padding: 0 8px 4px 0;
+      }
+
+      .input-coordinator-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+        max-width: 100%;
+        min-height: 34px;
+        padding: 4px 5px 4px 10px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--input-primary) 34%, var(--input-border));
+        background: color-mix(in srgb, var(--input-primary-glow) 74%, var(--input-surface));
+        color: var(--input-text);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      }
+
+      .input-coordinator-pill__icon {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        color: var(--input-primary);
+      }
+
+      .input-coordinator-pill__copy {
+        min-width: 0;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+
+      .input-coordinator-pill__label {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.82rem;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+
+      .input-coordinator-pill__alias {
+        flex: 0 0 auto;
+        color: var(--input-muted);
+        font-size: 0.72rem;
+        font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .input-coordinator-pill__remove {
+        flex: 0 0 auto;
+        width: 24px;
+        height: 24px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        padding: 0;
+        border-radius: 999px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface-hover);
+        color: var(--input-attach-fg);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease;
+      }
+
+      .input-coordinator-pill__remove:hover,
+      .input-coordinator-pill__remove:focus-visible {
+        background: var(--input-primary-glow);
+        color: var(--input-primary);
+        border-color: color-mix(in srgb, var(--input-primary) 48%, var(--input-border));
+        outline: none;
+      }
+
+      .input-mention-backdrop {
+        position: fixed;
+        inset: 0;
+        border: none;
+        background: transparent;
+        margin: 0;
+        padding: 0;
+        z-index: 1;
+      }
+
+      .input-mention-menu {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 10px);
+        display: grid;
+        gap: 4px;
+        width: min(300px, max(220px, calc(100% - 20px)));
+        max-width: min(calc(100% - 20px), calc(100vw - 24px));
+        max-height: min(300px, 48vh);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        padding: 8px;
+        border-radius: 18px;
+        border: 1px solid var(--input-border);
+        background: var(--input-surface);
+        box-shadow:
+          0 8px 24px rgba(0, 0, 0, 0.12),
+          0 0 0 1px var(--input-border);
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+        z-index: 2;
+      }
+
+      .input-mention-menu::-webkit-scrollbar {
+        display: none;
+      }
+
+      .input-mention-option {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 12px;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--input-text);
+        border-radius: 14px;
+        padding: 10px 12px;
+        text-align: left;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          color 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .input-mention-option:hover,
+      .input-mention-option--active {
+        background: var(--input-surface-hover);
+      }
+
+      .input-mention-option--active {
+        border-color: color-mix(in srgb, var(--input-primary) 34%, var(--input-border));
+      }
+
+      .input-mention-option__icon {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        color: var(--input-attach-fg);
+      }
+
+      .input-mention-option--active .input-mention-option__icon {
+        color: var(--input-primary);
+      }
+
+      .input-mention-option__copy {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        flex: 1 1 auto;
+      }
+
+      .input-mention-option__title {
+        font-size: 0.83rem;
+        font-weight: 600;
+      }
+
+      .input-mention-option__alias {
+        color: var(--input-muted);
+        font-size: 0.72rem;
+      }
+
       /* ── Action row ── */
       .input-actions {
         display: flex;
@@ -1136,6 +1428,7 @@ export class AgentXInputBarComponent {
   readonly pendingFiles = input<readonly AgentXPendingFile[]>([]);
   readonly pendingSources = input<readonly PendingConnectedSource[]>([]);
   readonly pendingContexts = input<readonly AgentXSelectedContext[]>([]);
+  readonly selectedCoordinatorAction = input<AgentXSelectedAction | null>(null);
   /** String label of the currently selected task (null = none). */
   readonly selectedTask = input<string | null>(null);
 
@@ -1153,6 +1446,8 @@ export class AgentXInputBarComponent {
   readonly removeContext = output<number>();
   readonly removeTask = output<void>();
   readonly focusInput = output<void>();
+  readonly coordinatorMentionSelected = output<AgentXSelectedAction>();
+  readonly coordinatorMentionRemoved = output<void>();
   protected readonly executionModeOptions: ReadonlyArray<{
     readonly value: AgentXExecutionMode;
     readonly label: string;
@@ -1193,11 +1488,30 @@ export class AgentXInputBarComponent {
       description: 'Fastest. Lowest cost.',
     },
   ];
-  protected readonly inputTestIds = AGENT_X_INPUT_TEST_IDS;
+  protected readonly inputTestIds = AGENT_X_INPUT_BAR_TEST_IDS;
   protected readonly modeMenuOpen = signal(false);
   protected readonly effortMenuOpen = signal(false);
+  protected readonly coordinatorMentionMenuOpen = signal(false);
+  protected readonly coordinatorMentionQuery = signal('');
+  protected readonly activeCoordinatorMentionIndex = signal(0);
   protected readonly modeMenuLayout = signal<InputMenuLayout>(DEFAULT_INPUT_MENU_LAYOUT);
   protected readonly effortMenuLayout = signal<InputMenuLayout>(DEFAULT_INPUT_MENU_LAYOUT);
+  protected readonly filteredCoordinatorMentionOptions = computed(() => {
+    const query = this.coordinatorMentionQuery().trim().toLowerCase();
+    if (!query) return COORDINATOR_MENTION_OPTIONS;
+
+    return COORDINATOR_MENTION_OPTIONS.filter(
+      (option) =>
+        option.alias.includes(query) ||
+        option.name.toLowerCase().includes(query) ||
+        option.id.includes(query)
+    );
+  });
+  protected readonly selectedCoordinatorMention = computed(() => {
+    const coordinatorId = this.selectedCoordinatorAction()?.coordinatorId;
+    if (!coordinatorId) return null;
+    return COORDINATOR_MENTION_OPTIONS.find((option) => option.id === coordinatorId) ?? null;
+  });
 
   constructor() {
     // Auto-resize textarea when message changes
@@ -1317,6 +1631,11 @@ export class AgentXInputBarComponent {
 
   protected onEnterKey(event: Event): void {
     const kb = event as KeyboardEvent;
+    if (this.coordinatorMentionMenuOpen()) {
+      this.commitActiveCoordinatorMention(kb);
+      return;
+    }
+
     if (!kb.shiftKey) {
       kb.preventDefault();
       if (this.canSend()) this.send.emit();
@@ -1325,6 +1644,7 @@ export class AgentXInputBarComponent {
 
   protected onMessageInputChange(value: string): void {
     this.messageChange.emit(value);
+    this.syncCoordinatorMentionMenu(value);
 
     const textarea = this.textareaRef()?.nativeElement;
     if (!textarea) {
@@ -1335,8 +1655,46 @@ export class AgentXInputBarComponent {
   }
 
   protected onInputFocus(): void {
-    this.closeMenus();
+    this.closePickerMenus();
+    this.syncCoordinatorMentionMenu(this.userMessage());
     this.focusInput.emit();
+  }
+
+  protected closeCoordinatorMentionMenu(): void {
+    this.coordinatorMentionMenuOpen.set(false);
+    this.coordinatorMentionQuery.set('');
+    this.activeCoordinatorMentionIndex.set(0);
+  }
+
+  protected onCoordinatorMentionArrowKey(event: Event, direction: -1 | 1): void {
+    if (!this.coordinatorMentionMenuOpen()) return;
+    const options = this.filteredCoordinatorMentionOptions();
+    if (options.length === 0) return;
+
+    event.preventDefault();
+    this.activeCoordinatorMentionIndex.update((index) => {
+      const nextIndex = index + direction;
+      return ((nextIndex % options.length) + options.length) % options.length;
+    });
+  }
+
+  protected onCoordinatorMentionEscapeKey(event: Event): void {
+    if (!this.coordinatorMentionMenuOpen()) return;
+    event.preventDefault();
+    this.closeCoordinatorMentionMenu();
+  }
+
+  protected onCoordinatorMentionCommitKey(event: Event): void {
+    if (!this.coordinatorMentionMenuOpen()) return;
+    this.commitActiveCoordinatorMention(event as KeyboardEvent);
+  }
+
+  protected selectCoordinatorMention(option: CoordinatorMentionOption): void {
+    this.insertCoordinatorMention(option);
+  }
+
+  protected removeCoordinatorMention(): void {
+    this.coordinatorMentionRemoved.emit();
   }
 
   protected executionModeLabel(): string {
@@ -1429,8 +1787,78 @@ export class AgentXInputBarComponent {
   }
 
   private closeMenus(): void {
+    this.closePickerMenus();
+    this.closeCoordinatorMentionMenu();
+  }
+
+  private closePickerMenus(): void {
     this.closeModeMenu();
     this.closeEffortMenu();
+  }
+
+  private syncCoordinatorMentionMenu(value: string): void {
+    const match = this.resolveActiveCoordinatorMention(value);
+    if (!match) {
+      this.closeCoordinatorMentionMenu();
+      return;
+    }
+
+    this.closePickerMenus();
+    this.coordinatorMentionQuery.set(match.query);
+    this.coordinatorMentionMenuOpen.set(true);
+    const optionCount = this.filteredCoordinatorMentionOptions().length;
+    this.activeCoordinatorMentionIndex.update((index) =>
+      optionCount === 0 ? 0 : Math.min(index, optionCount - 1)
+    );
+  }
+
+  private resolveActiveCoordinatorMention(value: string): { query: string; start: number } | null {
+    const textarea = this.textareaRef()?.nativeElement;
+    const cursorIndex = textarea?.selectionStart ?? value.length;
+    const beforeCursor = value.slice(0, cursorIndex);
+    const tokenMatch = beforeCursor.match(/(?:^|\s)@([a-z0-9_-]*)$/i);
+    if (!tokenMatch || tokenMatch.index === undefined) return null;
+
+    const atOffset = tokenMatch[0].lastIndexOf('@');
+    return {
+      query: tokenMatch[1] ?? '',
+      start: tokenMatch.index + atOffset,
+    };
+  }
+
+  private commitActiveCoordinatorMention(event: KeyboardEvent): void {
+    event.preventDefault();
+    const option = this.filteredCoordinatorMentionOptions()[this.activeCoordinatorMentionIndex()];
+    if (!option) return;
+    this.insertCoordinatorMention(option);
+  }
+
+  private insertCoordinatorMention(option: CoordinatorMentionOption): void {
+    const current = this.userMessage();
+    const match = this.resolveActiveCoordinatorMention(current);
+    const textarea = this.textareaRef()?.nativeElement;
+    const cursorIndex = textarea?.selectionStart ?? current.length;
+    const start = match?.start ?? cursorIndex;
+    const leading = current.slice(0, start).replace(/[ \t]+$/g, '');
+    const trailing = current.slice(cursorIndex).replace(/^[ \t]+/g, '');
+    const nextValue = [leading, trailing].filter(Boolean).join(' ');
+    const nextCursorIndex = leading.length + (leading && trailing ? 1 : 0);
+
+    this.messageChange.emit(nextValue);
+    this.coordinatorMentionSelected.emit({
+      coordinatorId: option.id,
+      actionId: `mention-${option.alias}`,
+      surface: 'command',
+      label: option.name,
+    });
+    this.closeCoordinatorMentionMenu();
+
+    if (!textarea || typeof requestAnimationFrame !== 'function') return;
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursorIndex, nextCursorIndex);
+      this.resizeTextarea(textarea);
+    });
   }
 
   private scheduleMenuLayoutUpdate(): void {

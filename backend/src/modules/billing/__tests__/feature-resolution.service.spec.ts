@@ -94,6 +94,14 @@ describe('resolveBillableFeature', () => {
     ).toEqual(['dynamic-export']);
   });
 
+  it('preserves runtime-derived dynamic export billing variants as the resolved feature', () => {
+    expect(
+      resolveBillableFeature({
+        successfulTools: ['dynamic-export-gamma-document'],
+      })
+    ).toBe('dynamic-export-gamma-document');
+  });
+
   it('ignores routing tools from attempted agentTools too', () => {
     expect(
       resolveBillableFeature({

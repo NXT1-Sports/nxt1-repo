@@ -89,7 +89,7 @@ export class DynamicExportTool extends BaseTool {
     '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/PPTX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
     '- For Practice Scripts/Schedules: Prefer render_html_pdf for printable/share-ready one-pagers and use execute_python_code only when the user explicitly asks for editable sheets. Use this tool only when the user wants a report/deck or the dedicated routes are not the chosen artifact path.\n' +
     '- For Callsheets / Rosters / Multi-Panel Boards: these are usually NOT this tool first. Prefer `render_html_pdf` for printable/fixed-layout delivery and execute_python_code only for explicitly requested editable matrices. Use this tool only as a fallback export path or when the user wants a Gamma-style report/deck/packet.\n' +
-    '- HARD FORMAT RULE: If the user explicitly asks for PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, or a file to open in PowerPoint, call this tool with `format: "pptx"` unless you are using a connected native Microsoft PowerPoint tool. Exception: scout team play/look cards are printable practice PDFs and should use render_html_pdf unless the user explicitly asks for slides/deck/PPTX. Do not substitute PDF or XLSX for an explicit PowerPoint/PPTX/card-deck request.\n' +
+    '- HARD FORMAT RULE: If the user explicitly asks for PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, or a file to open in PowerPoint, use `render_editable_pptx` for custom/manual/editable decks where objects must remain native, or call this tool with `format: "pptx"` for quick Gamma-styled draft decks unless you are using a connected native Microsoft PowerPoint tool. Exception: scout team play/look cards are printable practice PDFs and should use render_html_pdf unless the user explicitly asks for slides/deck/PPTX. Do not substitute PDF or XLSX for an explicit PowerPoint/PPTX/card-deck request.\n' +
     '- For Presentation Decks / Player Scout Cards / Flash Cards: Use PPTX when the output is meant to be presented slide-by-slide, used in a staff meeting, shared as flash cards, player cards, recruiting pitch deck, opponent briefing deck, parent meeting deck, or visual packet. This is the Gamma-style export lane. Scout team play/look cards are not this lane unless explicitly requested as slides/PPTX. Build one logical card/section per slide with `sections[]`; use `imageUrls` for charts, diagrams, logos, or player visuals.\n' +
     '- For multi-page narrative reports that benefit from Gamma styling rather than fixed-layout print composition, use PDF or PPTX through this tool with structured sections and presentation-aware instructions.\n\n' +
     'Works for: recruiting lists, scout reports, workout plans, compliance checklists, ' +
@@ -315,6 +315,8 @@ export class DynamicExportTool extends BaseTool {
       let buffer: Buffer;
       let mimeType: string;
       let extension: string;
+      let billableFeature = 'dynamic-export';
+      let exportRenderer: 'local' | 'gamma-document' | 'gamma-presentation' = 'local';
 
       if (format === 'csv') {
         const exportRows = rows ?? this.firstSectionRows(sections) ?? [];
@@ -367,7 +369,7 @@ export class DynamicExportTool extends BaseTool {
           format: 'pptx',
           phase: 'build_presentation_deck',
         });
-        buffer = await this.exportService.generatePptx({
+        const exportArtifact = await this.exportService.generatePptxArtifact({
           title,
           description,
           columns: columns ?? undefined,
@@ -388,6 +390,9 @@ export class DynamicExportTool extends BaseTool {
           additionalInstructions,
           logoUrl,
         });
+        buffer = exportArtifact.buffer;
+        billableFeature = exportArtifact.billableFeature;
+        exportRenderer = exportArtifact.renderer;
         mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
         extension = 'pptx';
       } else {
@@ -398,7 +403,7 @@ export class DynamicExportTool extends BaseTool {
           format: 'pdf',
           phase: rowCount > 0 ? 'build_pdf_table' : 'build_pdf_document',
         });
-        buffer = await this.exportService.generatePdf({
+        const exportArtifact = await this.exportService.generatePdfArtifact({
           title,
           description,
           includeTable: !!(columns?.length && rows?.length),
@@ -422,6 +427,9 @@ export class DynamicExportTool extends BaseTool {
           watermarkText,
           logoUrl,
         });
+        buffer = exportArtifact.buffer;
+        billableFeature = exportArtifact.billableFeature;
+        exportRenderer = exportArtifact.renderer;
         mimeType = 'application/pdf';
         extension = 'pdf';
       }
@@ -496,6 +504,8 @@ export class DynamicExportTool extends BaseTool {
           fileName: `${outputBaseName}.${extension}`,
           mimeType,
           format: extension,
+          billableFeature,
+          exportRenderer,
           sizeBytes: buffer.length,
           rowCount: this.resolveRowCount(rows, sections),
           columnCount: this.resolveColumnCount(columns, sections),

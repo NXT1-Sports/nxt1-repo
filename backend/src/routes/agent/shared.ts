@@ -450,7 +450,7 @@ export function buildInlineAskUserCard(params: {
   return {
     agentId: params.agentId,
     type: 'ask_user',
-    title: 'Agent X has a question',
+    title: 'Requesting your input',
     payload: {
       question: params.question,
       context: params.context ?? '',

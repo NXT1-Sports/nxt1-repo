@@ -560,6 +560,7 @@ export type AgentXRichCardType =
   | 'profile'
   | 'film-timeline'
   | 'billing-action'
+  | 'output-selection'
   | 'document';
 
 /** A single item in a planner checklist card. */
@@ -602,6 +603,7 @@ export interface AgentXRichCard {
     | AgentXProfilePayload
     | AgentXFilmTimelinePayload
     | AgentXBillingActionPayload
+    | AgentXOutputSelectionPayload
     | AgentXDocumentPayload
     | Record<string, unknown>;
 }
@@ -867,6 +869,129 @@ export interface AgentXAskUserPayload {
   readonly threadId?: string;
   /** Operation ID that is currently yielded and must be resumed. */
   readonly operationId?: string;
+}
+
+// ── Output Selection ──
+
+/** Delivery/output category used to tune Agent X format recommendations. */
+export type AgentXOutputSelectionCategory =
+  | 'film_review'
+  | 'playbook'
+  | 'stats_report'
+  | 'scout_card'
+  | 'roster'
+  | 'general';
+
+/** User-visible format badge for an output option tile. */
+export type AgentXOutputFormatTag =
+  | 'PDF'
+  | 'GAMMA'
+  | 'XLSX'
+  | 'PPTX'
+  | 'CSV'
+  | 'WEB'
+  | 'CHOICE'
+  | 'CUSTOM';
+
+/** Semantic icon key for output-selection option rendering. */
+export type AgentXOutputOptionIcon =
+  | 'pdf'
+  | 'presentation'
+  | 'spreadsheet'
+  | 'slides'
+  | 'web'
+  | 'sparkles'
+  | 'choice'
+  | 'edit';
+
+/** A selectable format tile in the output-selection card. */
+export interface AgentXOutputOption {
+  /** Stable machine id submitted back to the backend. */
+  readonly id: string;
+  /** User-visible option title. */
+  readonly title: string;
+  /** Short explanation of what this output is best for. */
+  readonly description: string;
+  /** Compact format label shown on the tile. */
+  readonly formatTag: AgentXOutputFormatTag;
+  /** Semantic icon key for the tile. */
+  readonly icon: AgentXOutputOptionIcon;
+  /** Optional badge such as "Recommended" or "Print-ready". */
+  readonly badge?: string;
+  /** True when this tile reveals a custom instruction input. */
+  readonly isCustomInput?: boolean;
+  /** Disabled options are shown but cannot be selected. */
+  readonly disabled?: boolean;
+  /** User-facing explanation for a disabled option. */
+  readonly disabledReason?: string;
+}
+
+/** Input mode for one structured ask-user step. */
+export type AgentXStructuredInputMode = 'text' | 'single_select' | 'multi_select';
+
+/** One step inside a structured selection / ask-user flow. */
+export interface AgentXOutputSelectionStep {
+  /** Stable machine id for the step. */
+  readonly id: string;
+  /** The prompt shown for this step. */
+  readonly prompt: string;
+  /** Optional helper/context copy for this step. */
+  readonly context?: string;
+  /** How the user answers this step. */
+  readonly inputMode: AgentXStructuredInputMode;
+  /** Selectable options for choice-based steps. */
+  readonly options?: readonly AgentXOutputOption[];
+  /** Whether the custom textarea is allowed for this step. */
+  readonly allowCustomOption?: boolean;
+  /** Preselected ids for this step. */
+  readonly defaultSelectedIds?: readonly string[];
+  /** Optional custom placeholder text for this step. */
+  readonly customPlaceholder?: string;
+}
+
+/** User answer for one step inside a structured input flow. */
+export interface AgentXOutputSelectionStepResponse {
+  readonly stepId: string;
+  readonly prompt: string;
+  readonly selectedOptionIds?: readonly string[];
+  readonly selectedOptionTitles?: readonly string[];
+  readonly customText?: string;
+  readonly skipped?: boolean;
+}
+
+/** Persisted choice summary for a resolved output-selection card. */
+export interface AgentXOutputSelectionResolvedSelection {
+  readonly selectedOptionIds: readonly string[];
+  readonly customText?: string;
+  readonly stepResponses?: readonly AgentXOutputSelectionStepResponse[];
+}
+
+/** Payload for the `output-selection` card type. */
+export interface AgentXOutputSelectionPayload {
+  /** The question shown above the option tiles. */
+  readonly prompt: string;
+  /** Optional context line describing the artifact being generated. */
+  readonly context?: string;
+  /** Domain category used for copy and recommendation display. */
+  readonly category?: AgentXOutputSelectionCategory;
+  /** True for checkbox multi-select; false/absent for radio-style single select. */
+  readonly multiSelect?: boolean;
+  /** True when the frontend should include or enable a custom instruction option. */
+  readonly allowCustomOption?: boolean;
+  /** Ordered option tiles. */
+  readonly options: readonly AgentXOutputOption[];
+  /** Optional multi-step flow. When present, the card pages through steps. */
+  readonly steps?: readonly AgentXOutputSelectionStep[];
+  /** Option ids selected by default. */
+  readonly defaultSelectedIds?: readonly string[];
+  /** Submit button label. */
+  readonly submitLabel?: string;
+  /** The thread ID — used when posting the user's selection. */
+  readonly threadId?: string;
+  /** Operation ID that is currently yielded and must be resumed. */
+  readonly operationId?: string;
+  /** Present after the selection has been submitted/resolved. */
+  readonly resolvedSelection?: AgentXOutputSelectionResolvedSelection;
 }
 
 /** Payload for the `connect-account` card type — prompts user to connect an email provider. */

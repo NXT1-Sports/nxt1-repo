@@ -1498,6 +1498,51 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).toContain('user-reply-academics');
   });
 
+  it('keeps pre-yield assistant_partial prose when ask_user is answered before resumed final lands', () => {
+    const items: readonly AgentMessage[] = [
+      {
+        id: 'user-export-request',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Can I get an export?',
+        origin: 'user',
+        createdAt: '2026-09-06T20:40:00.000Z',
+      },
+      assistantMessage('pre-yield-partial', 'assistant_partial', {
+        operationId: 'chat-export-op',
+        content: 'I can export this a few ways. Which export format do you want?',
+      }),
+      assistantMessage('yield-export-format', 'assistant_yield', {
+        operationId: 'chat-export-op',
+        content: 'Which export format do you want?',
+        resultData: { yieldState: { reason: 'needs_input' } },
+      }),
+      {
+        id: 'user-export-answer',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: '1. Which export format do you want?: Printable PDF',
+        origin: 'user',
+        operationId: 'chat-export-op',
+        createdAt: '2026-09-06T20:40:20.000Z',
+      },
+      assistantMessage('resumed-progress', 'assistant_partial', {
+        operationId: 'resumed-export-op',
+        content: 'Setting up the next rep...',
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((m) => m.id);
+
+    expect(ids).toContain('pre-yield-partial');
+    expect(ids).not.toContain('yield-export-format');
+    expect(ids).toContain('user-export-answer');
+    expect(ids).toContain('resumed-progress');
+  });
+
   // ── Regression: Bug C (multiple tool_call rows) ────────────────────────────
   // When multiple assistant_tool_call rows exist for an answered ask_user op,
   // only the LAST one should render (deduplication, same as other ops).
@@ -1716,7 +1761,7 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         },
         replay
       )
-    ).toBe(true);
+    ).toBe(false);
 
     expect(
       facade.shouldDropLiveReplayAssistantRow(
@@ -1822,6 +1867,25 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
             'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links.',
           timestamp: new Date('2026-06-08T12:25:58.000Z'),
           semanticPhase: 'assistant_tool_call',
+        },
+        {
+          liveOperationId: 'firestore-live-op',
+          existingTyping,
+          replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(false);
+
+    expect(
+      facade.shouldDropPersistedRowForActiveTyping(
+        {
+          id: 'persisted-distinct-partial-context',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content:
+            'I need to confirm opponent, week, and report focus before building the game plan.',
+          timestamp: new Date('2026-06-08T12:25:58.500Z'),
+          semanticPhase: 'assistant_partial',
         },
         {
           liveOperationId: 'firestore-live-op',
@@ -2511,7 +2575,10 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       operationEventService: {
         getEnqueueWaitingEntry: vi.fn().mockReturnValue(null),
         emitOperationStatusUpdated: vi.fn(),
-        getStoredEventState: vi.fn(),
+        getStoredEventState: vi.fn().mockResolvedValue({
+          latestYieldState: null,
+          latestLifecycleStatus: null,
+        }),
       },
       streamRegistry: { hasActiveStream: vi.fn().mockReturnValue(false) },
       messageFacade: {
@@ -2554,6 +2621,116 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(setOperationStatus).toHaveBeenCalledWith('awaiting_input');
     expect(renderedToolCall?.steps?.[0]?.status).toBe('active');
     expect(renderedStepPart?.steps[0]?.status).toBe('active');
+  });
+
+  it('does not reapply a pending ask_user yield when a later reply already answered it', async () => {
+    const reloadFacade = Object.create(
+      AgentXOperationChatSessionFacade.prototype
+    ) as ThreadReloadHelper;
+    const operationId = '9bbbd07d-7928-4c5d-b126-1e1a546a301a';
+    const userPrompt: AgentMessage = {
+      id: 'user-ask-answered',
+      threadId: 'thread-ask-answered',
+      userId: 'user-1',
+      role: 'user',
+      content: 'Can I get an export?',
+      origin: 'user',
+      operationId,
+      createdAt: '2026-09-06T19:35:00.000Z',
+    };
+    const yieldRow = assistantMessage('yield-ask-answered', 'assistant_yield', {
+      threadId: 'thread-ask-answered',
+      operationId,
+      content: 'Which export format do you want?',
+      resultData: { yieldState: { reason: 'needs_input', pendingToolCall: { toolName: 'ask_user' } } },
+    });
+    const userReply: AgentMessage = {
+      id: 'user-ask-answered-reply',
+      threadId: 'thread-ask-answered',
+      userId: 'user-1',
+      role: 'user',
+      content: '1. Which export format do you want?: Printable PDF',
+      origin: 'user',
+      operationId,
+      createdAt: '2026-09-06T19:35:10.000Z',
+    };
+    const resumedPartial = assistantMessage('partial-after-answer', 'assistant_partial', {
+      threadId: 'thread-ask-answered',
+      operationId: 'resumed-op-1',
+      content: 'Setting up the next rep...',
+      createdAt: '2026-09-06T19:35:12.000Z',
+    });
+    let renderedMessages: OperationMessage[] = [];
+    const messagesSignal = Object.assign(
+      vi.fn(() => renderedMessages),
+      {
+        set: vi.fn((next: OperationMessage[]) => {
+          renderedMessages = next;
+        }),
+        update: vi.fn((updater: (items: OperationMessage[]) => OperationMessage[]) => {
+          renderedMessages = updater(renderedMessages);
+          return renderedMessages;
+        }),
+      }
+    );
+    let currentOperationId: string | null = null;
+    let operationStatus: ReturnType<AgentXOperationChatSessionFacadeHost['getOperationStatus']> =
+      'processing';
+    const setCurrentOperationId = vi.fn((next: string | null) => {
+      currentOperationId = next;
+    });
+    const setOperationStatus = vi.fn((next: typeof operationStatus) => {
+      operationStatus = next;
+    });
+    const applyYieldState = vi.fn();
+
+    Object.assign(reloadFacade as unknown as Record<string, unknown>, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      operationEventService: {
+        getEnqueueWaitingEntry: vi.fn().mockReturnValue(null),
+        emitOperationStatusUpdated: vi.fn(),
+        getStoredEventState: vi.fn().mockResolvedValue({
+          latestYieldState: null,
+          latestLifecycleStatus: null,
+        }),
+      },
+      streamRegistry: { hasActiveStream: vi.fn().mockReturnValue(false) },
+      messageFacade: {
+        messages: messagesSignal,
+        upsertInlineYieldMessage: vi.fn(),
+        settleActiveToolSteps: vi.fn(),
+        pushMessage: vi.fn(),
+      },
+      generateThumbnailsForHistoryVideos: vi.fn(),
+    });
+    reloadFacade.configure({
+      contextId: () => operationId,
+      contextType: () => 'operation',
+      getOperationStatus: () => operationStatus,
+      setOperationStatus,
+      getCurrentOperationId: () => currentOperationId,
+      setCurrentOperationId,
+      resumeOperationId: () => '',
+      activeYieldState: (() => null) as never,
+      yieldResolved: (() => false) as never,
+      applyYieldState,
+      hasUserSent: () => true,
+      markUserMessageSent: vi.fn(),
+      uid: () => 'uid-1',
+    } as unknown as AgentXOperationChatSessionFacadeHost);
+
+    await reloadFacade.applyLoadedThreadMessages('thread-ask-answered', [
+      userPrompt,
+      yieldRow,
+      userReply,
+      resumedPartial,
+    ]);
+
+    expect(applyYieldState).not.toHaveBeenCalled();
+    expect(setOperationStatus).not.toHaveBeenCalledWith('awaiting_input');
+    expect(renderedMessages.some((message) => message.yieldState?.reason === 'needs_input')).toBe(
+      false
+    );
   });
 
   // ── Regression: Bug A ─────────────────────────────────────────────────────

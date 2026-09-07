@@ -72,8 +72,9 @@ import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getCachedAgentAppConfig, isToolDisabled } from '../config/agent-app-config.js';
-import { getRouterToolPolicy, isToolAllowedByPatterns } from './tool-policy.js';
+import { getRouterToolPolicy } from './tool-policy.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
+import { canExposeToolSchemaForActiveAgent } from '../services/tool-execution-resolver.service.js';
 
 /**
  * System-only tools the Primary has in addition to the shared router policy.
@@ -89,7 +90,36 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
   'plan_and_execute',
 ];
 
+const PRIMARY_ALWAYS_AVAILABLE_TOOLS = new Set([
+  ...PRIMARY_SYSTEM_TOOLS,
+  // Conversation control: never let semantic narrowing drop this, or Primary is
+  // forced to delegate to a coordinator just to ask the user a question.
+  'ask_user',
+  'get_user_profile',
+  'get_active_threads',
+  'get_other_thread_history',
+  'get_recent_sync_summaries',
+  'search_memory',
+  'search_memories',
+  'save_memory',
+  // Deterministic film review analysis depends on these read/query tools.
+  'get_film_review',
+  'get_film_review_source_breakdown',
+  'search_film_review_breakdown_rows',
+  'execute_sandbox_script',
+  'search_nxt1_platform',
+  'query_nxt1_platform_data',
+  'list_nxt1_data_views',
+  'query_nxt1_data',
+]);
+
+interface PrimaryToolDefinitionOptions {
+  readonly matchedToolDefinitions?: readonly AgentToolDefinition[];
+  readonly maxDynamicToolDefinitions?: number;
+}
+
 const PLAN_MODE_BLOCKED_PRIMARY_TOOLS = new Set(['delegate_to_coordinator', 'plan_and_execute']);
+const PLAN_MODE_ALLOWED_MUTATION_TOOLS = new Set(['create_plan', 'execute_saved_plan']);
 
 const PRIMARY_PLAN_OPERATING_CONTRACT = [
   '## Primary Plan Mode Contract (2026)',
@@ -109,14 +139,9 @@ const PRIMARY_PLAN_OPERATING_CONTRACT = [
 const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
   'create_play_diagram',
   'create_board_diagram',
-  'list_film_reviews',
-  'list_film_review_sources',
-  'get_film_review_source_breakdown',
-  'search_film_review_breakdown_rows',
   'patch_film_review_source_breakdowns',
   'update_film_review_source_breakdown',
   'delete_film_review_source_breakdown',
-  'get_film_review',
   'save_film_review',
   'update_film_review',
   'delete_film_review',
@@ -130,7 +155,6 @@ const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
 ]);
 
 const BRAND_MEDIA_ROUTER_FALLBACK_TOOLS = new Set([
-  'generate_graphic',
   'runway_generate_video',
   'runway_upscale_video',
   'runway_check_task',
@@ -193,6 +217,9 @@ const PRIMARY_OPERATING_CONTRACT = [
   '  EXAMPLE (team): "delete last 2 schedule items" → query team_timeline_feed → choose first 2 with feedType `SCHEDULE` → pass `referenceId` values for `delete_schedule_event`. EXAMPLE (profile): "delete my last 2 posts" → query user_timeline_feed → items[0].id/userId + items[1].id/userId → delegate. NEVER ask for IDs.',
   '',
   '1) Decide request class first: simple_routing | ambiguous | numeric_or_aggregation | safety_or_mutation.',
+  '1a) Executor-first default: if the request can be completed with your currently exposed tools, deterministic platform data, or direct text reasoning in 1-2 steps, do the work directly in this turn. Do not delegate just because the topic belongs to a coordinator domain.',
+  '1b) Delegate only when the necessary work requires coordinator-exclusive heavy pipelines, deep domain tooling, long-running background operations, or a multi-agent workflow. Examples: FFmpeg/Runway media processing, saved film-review clip extraction or bulk breakdown mutation, deep Firecrawl/Apify crawling, complex play/board diagram generation, and multi-phase execution plans.',
+  '1c) If a needed tool is not exposed in this turn, use the available direct toolset first when it can still satisfy the user. Only delegate when a coordinator-owned tool is actually necessary for the requested outcome.',
   '',
   '   CRITICAL — Destructive or externally visible mutations are always safety_or_mutation, never simple_routing:',
   '   Any request where a coordinator will overwrite, delete, publish, send, archive, or revise an existing saved artifact MUST be classified as safety_or_mutation.',
@@ -202,7 +229,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   PRIMARY_DIAGRAM_MUTATION_EXCEPTION_ENABLED,
   '',
   '2) Before choosing the first tool, sketch the likely steps to finish the request and check whether any required step depends on coordinator-owned tools.',
-  '3) For simple_routing: route immediately when the answer can be completed from router-owned tools without clarification overhead.',
+  '3) For simple_routing: answer or execute immediately when the request can be completed from your exposed tools or direct reasoning without clarification overhead.',
   '4) For ambiguous or safety_or_mutation:',
   '   a) Identify the minimum required intake fields for the specific request type.',
   '      Game plan: opponent (confirmed name/ID) + date/week + focus scope + diagram scope when visuals are requested or strategically required.',
@@ -211,6 +238,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '      Email/outreach: confirmed recipient(s) + goal/tone.',
   '      Export/PDF/CSV/XLSX/PPTX: audience + branding preference, plus preferred file format when the user already implies one. Use PPTX for slide decks, flash cards, card decks, scout-card packets, briefing decks, pitch decks, and meeting-ready presentations.',
   '      HARD FORMAT RULE: If the user explicitly says PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, cards, or asks for a file to open in PowerPoint, the downstream artifact format is PPTX unless a connected native Microsoft PowerPoint tool is actually used. Exception: scout team play cards, scout-team look cards, and scout-period cards are printable practice PDFs and route to render_html_pdf unless the user explicitly asks for slides/deck/PPTX. Never route that request to PDF as a fallback.',
+  '      OUTPUT SELECTION RULE: If the user asks to export/generate a deliverable but does NOT name a clear format and does not explicitly say to choose for them, call `ask_user` once with `inputMode: "single_select"` or `"multi_select"`, `options`, and `allowCustomText: true` before delegating or calling export tools. Treat "clearest deliverable", "best deliverable", "full deliverable", and "downloadable" as no explicit format. Use concrete options such as Printable PDF, Gamma PDF, Gamma Deck/PPTX, XLSX workbook, CSV, Chat summary only, and Custom; keep Gamma PDF and Gamma Deck separate when both are viable. If the user explicitly asks for one format, do NOT ask; delegate directly with that format.',
   PRIMARY_DIAGRAM_INTAKE_ENABLED,
   '   a1) If the request appears to depend on team files, saved strategy artifacts, playbook terminology, prior installs, callsheets, uploaded documents, or video analysis that should use team vocabulary, assume a document/context pre-flight is required before execution.',
   '       Include that expectation in the handoff so the coordinator checks Team Files and selected uploads before producing tactical recommendations or naming concepts.',
@@ -233,7 +261,9 @@ const PRIMARY_OPERATING_CONTRACT = [
   '   - Call `ask_user` when required fields are missing and cannot be resolved from context or one deterministic lookup.',
   '   - Call `ask_user` before destructive or externally visible actions when intent is ambiguous (delete, publish, send, overwrite, compliance-sensitive action).',
   '   - Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.',
+  '   - `ask_user` is always available to you. NEVER delegate to a coordinator just to ask the user a question, and never announce a coordinator handoff for a clarification turn — ask directly and wait.',
   '   - For low-risk read/processing steps, proceed without asking and keep workflow moving.',
+  '   - Prefer structured `ask_user.steps` for any clarification with 2+ missing fields. Use one step per field. When answers are discrete, use `single_select` or `multi_select` with options; use `inputMode: "text"` only for truly freeform values like names, dates, URLs, or notes.',
   '   - Ask one concise question only, then continue immediately after the user answer.',
   '6c) Ask User 2-Step Pattern (MANDATORY when calling `ask_user`):',
   '   - STEP 1: First, write the full question to the user as ordinary conversational prose in your assistant message. Include any context, options, or examples the user needs. This is what the user reads in chat.',
@@ -249,8 +279,8 @@ const PRIMARY_OPERATING_CONTRACT = [
   '7) Tool path decision for recruiting and college lookup:',
   "   - Simple factual lookup (find programs by division/state, look up a coach's contact): use `search_colleges` or `search_college_coaches` directly — no delegation needed.",
   '   - Full recruiting workflow (outreach drafting, email sequences, presentation generation, multi-step strategy): use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`.',
-  '8) Prefer `create_plan` whenever the request is goal-oriented and naturally breaks into multiple phases or reviewable steps, especially for plans, roadmaps, audits, playbooks, campaign sequencing, prioritization, comparisons with recommendations, or next-step workflows. This includes requests phrased as questions such as "what should I do", "how should we approach this", or "can you map out a plan".',
-  '8b) Default to `create_plan` instead of a conversational answer or a single coordinator handoff when the work likely spans discovery -> analysis -> recommendation, analysis -> asset creation -> outreach, audit -> prioritization -> execution drafting, or any two-or-more phase workflow. `create_plan` drafts a saved plan first; execution starts only after the user explicitly approves it.',
+  '8) Prefer `create_plan` when the request is explicitly asking for a reviewable plan or naturally breaks into multiple dependent phases that should be approved before execution, especially roadmaps, audits, campaign sequencing, prioritization programs, and multi-agent workflows. Do not create a plan for routine advice, one-off drafts, simple lookups, quick documents, or single-tool actions.',
+  '8b) Default to direct execution instead of `create_plan` when the work is a one-turn answer, a 1-2 step tool action, or a coordinator-independent draft. Use `create_plan` when the workflow likely spans discovery -> analysis -> recommendation, analysis -> asset creation -> outreach, audit -> prioritization -> execution drafting, or any multi-phase workflow whose steps should be reviewed first. `create_plan` drafts a saved plan first; execution starts only after the user explicitly approves it.',
   '8c) When `create_plan` returns `plan_created: true`, explain the plan conversationally in your own words using the returned summary + steps. Do NOT dump raw payload JSON to the user and do NOT call `execute_saved_plan` in that same turn.',
   '8d) For plan follow-ups in the same thread: if the user asks for revisions, call `create_plan` again with the requested changes. The backend will revise the existing draft in-place (same `plan_id`, incremented version). Explain what changed. If the user explicitly approves ("approve", "go", "run it"), call `execute_saved_plan` with that same current `plan_id`.',
   '8e) Recurring scheduling rule (CRITICAL): scheduling and automation requests are tool-backed only. For create/check/update/cancel schedule requests, use the recurring task tools rather than answering from memory or implication.',
@@ -268,13 +298,14 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
   '    - `brand_coordinator` for ALL creative/brand video work: analyzing highlight or promo video for best moments, visual style, energy, and brand consistency; social edits, thumbnails, branded reels, and storytelling assets. When a user says "analyze my highlight video", "which clips should I use", "review my promo", "check the style of this video", or provides video with intent to create social/brand content → always route to brand_coordinator.',
   '10-live) Live-view film requests are coordinator-owned. If the user asks to watch, analyze, grade, report on, or summarize clips/plays/video from an already-open live-view page, delegate to `performance_coordinator` immediately. Do NOT call `interact_with_live_view` to scroll through clips or simulate watching. You may call `read_live_view` or `capture_live_view_screenshot` once for current page grounding, then delegate with that context. For "last N clips/plays" or bulk extraction: extract_live_view_playlist is currently DISABLED; coordinator will use interact_with_live_view + extract_live_view_media per clip.',
-  '10-film-context) Selected film breakdown context override: if the user message already contains `[Expanded Breakdown Data for Selected Film Contexts]`, that table is a preview of row-level film review database context for the selected clips. For small questions fully answerable from the preview, answer directly. For aggregate questions over more selected rows than shown (for example "how did our offense do on these plays"), delegate to `performance_coordinator` with the selected source manifest so it can fetch authoritative film-review data and run `execute_sandbox_script` over the full selected dataset. Do NOT use visual clip analysis for saved-row math unless the user explicitly asks to watch clips or the rows are missing/insufficient.',
-  '10-film-ownership) Exception to the selected film context override: for scouting reports, opponent reports, self-scouts, tendency reports, game plans, or any our-team-vs-opponent separation, do not answer from hydrated rows unless they include normalized `rowOwnership` / `ownershipSummary`. Delegate to the owning coordinator to fetch normalized film-review ownership before report aggregation/export.',
+  '10-film-context) Selected film breakdown context override: if the user message already contains `[Expanded Breakdown Data for Selected Film Contexts]`, that table is a preview of row-level film review database context for the selected clips. For small questions fully answerable from the preview, answer directly. For aggregate questions over more selected rows than shown (for example "how did our offense do on these plays"), do NOT delegate just to read data: the read-only film-review tools (`get_film_review`, `list_film_reviews`, `list_film_review_sources`, `get_film_review_source_breakdown`, `search_film_review_breakdown_rows`) are directly callable. Fetch the authoritative rows yourself and run `execute_sandbox_script` over the full selected dataset. Do NOT use visual clip analysis for saved-row math unless the user explicitly asks to watch clips or the rows are missing/insufficient.',
+  '10-film-ownership) Ownership rule for film reports: for scouting reports, opponent reports, self-scouts, tendency reports, game plans, or any our-team-vs-opponent separation, do not answer from hydrated rows unless they include normalized `rowOwnership` / `ownershipSummary`. Call `get_film_review` or `get_film_review_source_breakdown` yourself to obtain normalized ownership before aggregating or exporting. If the returned ownership is ambiguous or requests clarification, write the question in prose and call `ask_user` — do not delegate and do not guess.',
   '10-film-review-mutation) Film-review cutups, source extraction, source/breakdown CRUD, annotations, and review metadata updates are coordinator-owned film-review workflows. If the request contains filmReviewId/sourceId, selected film-review clips, "cutup", "clip folder", "breakdown rows", "save back to film review", or "make a new review from these clips", delegate to `performance_coordinator` for performance/evaluation outcomes or `strategy_coordinator` for game-planning/strategy outcomes. Do NOT satisfy those requests by creating a universal document unless the user explicitly asks for a separate written report/notes document in addition to the film-review mutation.',
-  '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
+  '10i) Graphic generation capability rule: for a single clear graphic/poster/thumbnail/social visual request with required subject and brand assets available, call `generate_graphic` directly from the active agent when it is exposed. Delegate to `brand_coordinator` only for multi-asset creative campaigns, video/motion work, ambiguous creative direction, missing/uncertain identity references, or workflows requiring several creative tools.',
   '10i-social) External social publishing boundary: direct publishing to Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or other outside networks is not wired yet. Do NOT promise external publishing and do NOT substitute `write_timeline_post` or `write_team_post` for those destinations. For requests like "make a better one and post it on Instagram", delegate the creative work to `brand_coordinator`; the final response must deliver the asset URL/caption and state that direct external publishing is not connected yet. Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed, profile feed, or team feed.',
   '10i-hudl) Hudl access and fallback boundary: preserve the direct path when the user provides a public Hudl video/page URL or already-accessible Hudl media. Do NOT force a The Lab upload when the source is already accessible through the current Hudl/media extraction workflow.',
   '10i-hudl-a) If the user says "connect my Hudl", "add my Hudl", "save this Hudl source", or otherwise wants NXT1 to remember or monitor a Hudl account or page, route to `data_coordinator` for connected-source handling rather than pretending full native Hudl linking already exists.',
+  '10i-hudl-a1) Pure browser-open exception: if the user asks to "go to", "open", "show", or "view" their connected Hudl page/profile/team page in Live View and does NOT ask to extract, download, analyze, clip, import, save film, create a reel, or process media, call `open_live_view` directly from the active agent. This is a low-risk interactive browser-open action and should not route to a coordinator.',
   `10i-hudl-b) If the user wants Agent X to work on Hudl film, clips, downloaded Hudl export packages, ZIP exports, breakdown sheets, or playbook material but the source is private, auth-gated, inside a Hudl library, or otherwise not directly accessible in the current workflow, explicitly tell them the fallback is to use NXT1 desktop, select the "${AGENT_X_LAB_LABEL}" button at the top next to Action Plan, and upload the full-game video, individual clips, breakdown CSV/XLSX, or ZIP export there. State that once those files are uploaded into ${AGENT_X_LAB_LABEL}, Agent X can create or update a Film Review, analyze accessible video, import supported Hudl-style breakdown sheets separately, and work from the saved artifacts. Do NOT promise automatic unpacking or parsing of a Hudl ZIP/package unless a tool result explicitly confirms that package import happened. This is fallback-only guidance, not the default for public Hudl URLs.`,
   '10i-hudl-b1) When you mention the public-link shortcut, explicitly say it must be a directly accessible public Hudl video page or highlight page. If the link lands behind login, team-library access, or any auth wall, do not present it as a working path; route the user to The Lab upload flow instead.',
   '10i-hudl-c) Do NOT present Live View as a normal or stable option for getting Hudl film into NXT1. Live View may exist as an internal last-resort coordinator fallback for an already-open clip, but it is not approved user-facing intake guidance for this workflow.',
@@ -324,16 +355,16 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Requests for charts, graphs, dashboards, funnels, pipeline maps, process visuals, or spreadsheet-style data views are NOT brand requests by default.',
   '    - Use `delegate_to_coordinator` with `strategy_coordinator` for strategic or conceptual visuals such as recruiting pipelines, stage funnels, operating models, and planning dashboards.',
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
-  '    - Use `delegate_to_coordinator` with `performance_coordinator` when a coach/director or coach-facing task asks for film breakdowns, game reports, player/team evaluations, roster analytics, tendency analysis, performance comparisons, or progression reports. In the handoff, instruct Performance to compute verified metrics and generate chart visualizations when structured chart-worthy metrics are present, even if the user did not explicitly ask for a chart.',
+  '    - When a coach/director or coach-facing task asks for film breakdown summaries, tendency reports, or performance charts from saved/selected review rows, use direct tools (`get_film_review`, `execute_sandbox_script`, `generate_chart_visualization`, `dynamic_export`) directly. Delegate to `performance_coordinator` only when deep video vision analysis (watching clips, extracting physical cutups, or mutating film review tables) is required.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
   '10d-ii) Play Diagram & Game Plan Routing Rule (CRITICAL — NO EXCEPTIONS):',
-  '    - NEVER call `create_play_diagram` or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh) directly from the router — these tools are coordinator-owned and are NOT in the router tool policy. This restriction does NOT apply to Files document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and Files folder organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly only when the user is asking for Files document/folder work rather than film-review mutation work.',
+  '    - NEVER call `create_play_diagram` or film-review MUTATION tools (`save_film_review`, `update_film_review`, `delete_film_review`, source CRUD, breakdown CRUD, `extract_film_review_clips`, annotations, AI refresh) directly from the router — those write tools are coordinator-owned. Read-only film-review tools (`list_film_reviews`, `get_film_review`, `list_film_review_sources`, `get_film_review_source_breakdown`, `search_film_review_breakdown_rows`) ARE directly callable for lookup, aggregation, and reporting; do not delegate merely to read them. This restriction does NOT apply to Files document tools (`create_universal_team_document`, `list_universal_team_documents`, `get_universal_team_document`, `update_universal_team_document`, `delete_universal_team_document`) and Files folder organization tools (`list_team_file_folders`, `create_team_file_folder`, `update_team_file_folder`, `delete_team_file_folder`, `move_universal_file_to_folder`), which the router may use directly only when the user is asking for Files document/folder work rather than film-review mutation work.',
   '    - Play diagrams, matchup-specific game plans, organized strategy libraries, and requests to fetch or review existing saved strategy files are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees, coaching diagrams, tactical strategy artifacts, and game-planning context, not creative/marketing assets.',
   PRIMARY_DIAGRAM_ROUTING_RULE_ENABLED,
   '    - When a user asks to "show my game plans", "pull the game plan", "find the Duke game plan", "open the last game plan", or otherwise retrieve a saved game plan → delegate to `strategy_coordinator` via `delegate_to_coordinator`, not direct router tools.',
   '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
   '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
-  '    - This rule applies even when a play diagram URL or film review identifier already exists in context — film review tools still run inside a coordinator, not from the router. Universal document tools may be used directly when they are the right persistence surface.',
+  '    - This rule applies even when a play diagram URL or film review identifier already exists in context — play diagrams and film-review mutation/deep workflow tools still run inside a coordinator. Read-only film-review lookup and aggregation tools may run directly from the router when they are exposed. Universal document tools may be used directly when they are the right persistence surface.',
   '    - For requests to locate or verify a specific play or concept inside saved strategy materials (for example "do you have Guns Double Smash Fade?"), prefer `delegate_to_coordinator` with `strategy_coordinator` unless the relevant Team Files artifact is already explicit. Strategy_coordinator should inspect saved workspace artifacts or selected uploads rather than rely on a parallel playbook database.',
   '10d-iii) Training Framework & Program Routing Rule (CRITICAL):',
   '    - Requests to "build a training framework", "create a training program", "develop a standard training plan", "design an off-season program", "create a development program", or any multi-sport / all-teams training structure → ALWAYS delegate to `performance_coordinator` via `delegate_to_coordinator`. This is a safety_or_mutation task — never answer inline.',
@@ -543,6 +574,14 @@ export class PrimaryAgent extends BaseAgent {
     const trace = this.toolExposureTraceByOperation.get(operationId);
     if (!trace) return result;
 
+    if (toolDefinitions.length > 0) {
+      this.toolExposureTraceByOperation.set(operationId, {
+        ...trace,
+        exposedTools: toolDefinitions.map((definition) => definition.name),
+      });
+    }
+    const updatedTrace = this.toolExposureTraceByOperation.get(operationId) ?? trace;
+
     const currentData = result.data ?? {};
     const currentDebug =
       currentData['debug'] && typeof currentData['debug'] === 'object'
@@ -556,8 +595,8 @@ export class PrimaryAgent extends BaseAgent {
         debug: {
           ...currentDebug,
           toolExposureTrace: {
-            exposedTools: trace.exposedTools,
-            selectedTools: trace.selectedTools,
+            exposedTools: updatedTrace.exposedTools,
+            selectedTools: updatedTrace.selectedTools,
           },
         },
       },
@@ -891,6 +930,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorReadResults?.length
+          ? { coordinator_read_results: result.coordinatorReadResults }
+          : {}),
         ...(result.coordinatorToolCallRecords?.length
           ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
@@ -1033,6 +1075,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorReadResults?.length
+          ? { coordinator_read_results: result.coordinatorReadResults }
+          : {}),
         ...(result.coordinatorToolCallRecords?.length
           ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
@@ -1119,6 +1164,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorReadResults?.length
+          ? { coordinator_read_results: result.coordinatorReadResults }
           : {}),
         ...(result.coordinatorToolCallRecords?.length
           ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
@@ -1216,6 +1264,9 @@ export class PrimaryAgent extends BaseAgent {
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        ...(result.coordinatorReadResults?.length
+          ? { coordinator_read_results: result.coordinatorReadResults }
           : {}),
         ...(result.coordinatorToolCallRecords?.length
           ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
@@ -1506,6 +1557,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorReadResults?.length
+          ? { coordinator_read_results: result.coordinatorReadResults }
+          : {}),
         ...(result.coordinatorToolCallRecords?.length
           ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
@@ -1665,6 +1719,9 @@ export class PrimaryAgent extends BaseAgent {
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
           ? { coordinator_artifacts: result.coordinatorArtifacts }
           : {}),
+        ...(result.coordinatorReadResults?.length
+          ? { coordinator_read_results: result.coordinatorReadResults }
+          : {}),
         ...(result.coordinatorToolCallRecords?.length
           ? { coordinator_tool_call_records: result.coordinatorToolCallRecords }
           : {}),
@@ -1759,27 +1816,54 @@ export class PrimaryAgent extends BaseAgent {
    */
   static buildPrimaryToolDefinitions(
     registry: ToolRegistry,
-    accessContext?: AgentToolAccessContext
+    accessContext?: AgentToolAccessContext,
+    options?: PrimaryToolDefinitionOptions
   ): readonly AgentToolDefinition[] {
     const routerPolicy = getRouterToolPolicy();
     const isPlanMode = accessContext?.executionMode === 'plan';
+    const matchedToolDefinitions = options?.matchedToolDefinitions;
+    const hasDynamicMatches = Boolean(matchedToolDefinitions && matchedToolDefinitions.length > 0);
 
-    return registry.getDefinitions('router', accessContext).filter((def) => {
-      if (isPlanMode) {
-        if (PLAN_MODE_BLOCKED_PRIMARY_TOOLS.has(def.name)) {
-          return false;
+    const definitions = registry
+      .getDefinitions(hasDynamicMatches ? undefined : 'router', accessContext)
+      .filter((def) => {
+        if (isPlanMode) {
+          if (PLAN_MODE_BLOCKED_PRIMARY_TOOLS.has(def.name)) {
+            return false;
+          }
+
+          if (def.isMutation && !PLAN_MODE_ALLOWED_MUTATION_TOOLS.has(def.name)) {
+            return false;
+          }
         }
 
-        if (def.category !== 'system' && def.isMutation) {
-          return false;
-        }
-      }
+        return (
+          def.category === 'system' ||
+          PRIMARY_SYSTEM_TOOLS.includes(def.name) ||
+          canExposeToolSchemaForActiveAgent({
+            activeAgentId: 'router',
+            toolName: def.name,
+            tool: def,
+            policyAllowedToolNames: routerPolicy,
+            executionMode: accessContext?.executionMode,
+          })
+        );
+      });
 
-      return (
-        def.category === 'system' ||
-        PRIMARY_SYSTEM_TOOLS.includes(def.name) ||
-        isToolAllowedByPatterns(def.name, routerPolicy)
-      );
-    });
+    if (!matchedToolDefinitions || matchedToolDefinitions.length === 0) {
+      return definitions;
+    }
+
+    const maxDynamicToolDefinitions = Math.max(0, options.maxDynamicToolDefinitions ?? 15);
+    const matchedNames = new Set(
+      matchedToolDefinitions
+        .slice(0, maxDynamicToolDefinitions)
+        .map((definition) => definition.name)
+    );
+
+    return definitions.filter(
+      (definition) =>
+        PRIMARY_ALWAYS_AVAILABLE_TOOLS.has(definition.name) || matchedNames.has(definition.name)
+    );
   }
 }

@@ -226,13 +226,18 @@ export class AgentRouterResumeService {
       typeof (resumeContextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
-    const selectedContexts = Array.isArray(
+    const selectedContextsFromJob = Array.isArray(
       (resumeContextObj as Record<string, unknown>)['selectedContexts']
     )
       ? ((resumeContextObj as Record<string, unknown>)[
           'selectedContexts'
         ] as readonly AgentXSelectedContext[])
       : undefined;
+    const selectedContexts = selectedContextsFromJob?.length
+      ? selectedContextsFromJob
+      : Array.isArray(yieldState.selectedContexts)
+        ? yieldState.selectedContexts
+        : undefined;
     const contextAttachments = collectSessionFileAttachments(
       (resumeContextObj as Record<string, unknown>)['attachments']
     );
@@ -308,7 +313,7 @@ export class AgentRouterResumeService {
       resumedAttachments.length > 0 ? resumedAttachments : undefined,
       resumedVideoAttachments.length > 0 ? resumedVideoAttachments : undefined,
       resumeSessionContext?.conversationHistory,
-      undefined
+      selectedContexts
     );
     const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
     const {

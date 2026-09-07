@@ -23,6 +23,7 @@ import {
 } from '../../services/agent-x-job.service';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
 import type { AskUserReplyEvent } from '../cards/agent-x-ask-user-card.component';
+import type { OutputSelectionSubmitEvent } from '../cards/agent-x-output-selection-card.component';
 import type {
   ActionCardApprovalEvent,
   ActionCardReplyEvent,
@@ -188,6 +189,14 @@ export class AgentXOperationChatYieldFacade {
         }
       }
 
+      this.messageFacade.pushOptimisticUserReply({
+        operationId,
+        content: event.answer,
+        ...(displayAttachments.length > 0 ? { attachments: displayAttachments } : {}),
+        ...(event.messageId ? { messageId: event.messageId } : {}),
+      });
+      this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
+
       const result = await this.submitThreadAction({
         actionType: 'ask_user_reply',
         messageId: event.messageId,
@@ -202,24 +211,23 @@ export class AgentXOperationChatYieldFacade {
 
       if (result) {
         await this.haptics.notification('success');
-        this.messageFacade.pushOptimisticUserReply({
-          operationId,
-          content: event.answer,
-          ...(displayAttachments.length > 0 ? { attachments: displayAttachments } : {}),
-          ...(event.messageId ? { messageId: event.messageId } : {}),
-        });
         if (hasStagedAttachments) {
           this.attachmentsFacade.pendingFiles.set([]);
           this.attachmentsFacade.pendingConnectedSources.set([]);
           this.attachmentsFacade.clearPendingSelectedContexts();
         }
         this.messageFacade.settleActiveToolSteps('success');
-        this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
 
         if (result.resumed && result.operationId) {
           await this.attachToResumedOperation({
             operationId: result.operationId,
             threadId: result.threadId ?? undefined,
+          }).catch((attachError: unknown) => {
+            this.logger.warn('Failed to attach after ask_user reply submit', {
+              operationId,
+              resumedOperationId: result.operationId,
+              error: attachError instanceof Error ? attachError.message : String(attachError),
+            });
           });
         }
 
@@ -232,10 +240,20 @@ export class AgentXOperationChatYieldFacade {
       }
 
       await this.haptics.notification('error');
+      this.messageFacade.removeOptimisticUserReply({
+        operationId,
+        content: event.answer,
+        ...(event.messageId ? { messageId: event.messageId } : {}),
+      });
       this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     } catch (error) {
       this.logger.error('ask_user reply failed', error, { operationId });
       await this.haptics.notification('error');
+      this.messageFacade.removeOptimisticUserReply({
+        operationId,
+        content: event.answer,
+        ...(event.messageId ? { messageId: event.messageId } : {}),
+      });
       this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     }
   }
@@ -336,6 +354,12 @@ export class AgentXOperationChatYieldFacade {
           await this.attachToResumedOperation({
             operationId: result.operationId,
             threadId: result.threadId ?? undefined,
+          }).catch((attachError: unknown) => {
+            this.logger.warn('Failed to attach after output selection submit', {
+              operationId,
+              resumedOperationId: result.operationId,
+              error: attachError instanceof Error ? attachError.message : String(attachError),
+            });
           });
         }
 
@@ -352,6 +376,100 @@ export class AgentXOperationChatYieldFacade {
     } catch (error) {
       this.logger.error('Action card reply failed', error, { operationId });
       await this.haptics.notification('error');
+      this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
+    }
+  }
+
+  async onOutputSelectionSubmitted(event: OutputSelectionSubmitEvent): Promise<void> {
+    const operationId = event.operationId ?? this.yieldOperationId();
+    const selectedOptionIds = event.selectedOptionIds
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
+
+    this.logger.info('Output selection submitted', {
+      operationId,
+      selectedOptionCount: selectedOptionIds.length,
+      hasCustomText: !!event.customText?.trim(),
+    });
+    this.breadcrumb.trackUserAction('output-selection-submit', {
+      operationId,
+      selectedOptionCount: selectedOptionIds.length,
+      source: 'operation-chat',
+    });
+
+    if (!operationId) {
+      this.logger.warn('Output selection missing operationId — no active yield state');
+      this.toast.error('This selection is no longer available. Refresh and try again.');
+      return;
+    }
+
+    if (
+      selectedOptionIds.length === 0 &&
+      !event.customText?.trim() &&
+      !(event.stepResponses && event.stepResponses.length > 0)
+    ) {
+      this.toast.error('Choose an output format or type custom instructions.');
+      return;
+    }
+
+    this.messageFacade.updateInlineYieldMessageState(operationId, 'submitting');
+    const summary = this.formatOutputSelectionSummary(
+      selectedOptionIds,
+      event.customText,
+      event.stepResponses
+    );
+    this.messageFacade.pushOptimisticUserReply({
+      operationId,
+      content: summary,
+      ...(event.messageId ? { messageId: event.messageId } : {}),
+    });
+    this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', summary);
+
+    try {
+      const result = await this.submitThreadAction({
+        actionType: 'output_selection_choice',
+        messageId: event.messageId,
+        operationIdHint: operationId,
+        selectedOptionIds,
+        ...(event.customText?.trim() ? { customText: event.customText.trim() } : {}),
+        ...(event.stepResponses?.length ? { stepResponses: event.stepResponses } : {}),
+      });
+
+      if (result) {
+        await this.haptics.notification('success');
+        this.messageFacade.settleActiveToolSteps('success');
+
+        if (result.resumed && result.operationId) {
+          await this.attachToResumedOperation({
+            operationId: result.operationId,
+            threadId: result.threadId ?? undefined,
+          });
+        }
+
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_OUTPUT_SELECTION_CHOSEN, {
+          operationId,
+          selectedOptionCount: selectedOptionIds.length,
+          source: 'operation-chat',
+        });
+        this.markYieldResolvedSoon();
+      } else {
+        this.logger.warn('Thread action output selection returned null', { operationId });
+        await this.haptics.notification('error');
+        this.messageFacade.removeOptimisticUserReply({
+          operationId,
+          content: summary,
+          ...(event.messageId ? { messageId: event.messageId } : {}),
+        });
+        this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
+      }
+    } catch (error) {
+      this.logger.error('Output selection submit failed', error, { operationId });
+      await this.haptics.notification('error');
+      this.messageFacade.removeOptimisticUserReply({
+        operationId,
+        content: summary,
+        ...(event.messageId ? { messageId: event.messageId } : {}),
+      });
       this.messageFacade.updateInlineYieldMessageState(operationId, 'idle');
     }
   }
@@ -652,16 +770,26 @@ export class AgentXOperationChatYieldFacade {
   }
 
   private async submitThreadAction(params: {
-    actionType: 'ask_user_reply' | 'approval_decision';
+    actionType: 'ask_user_reply' | 'approval_decision' | 'output_selection_choice';
     messageId?: string;
     operationIdHint?: string;
     response?: string;
     attachments?: readonly AgentXAttachment[];
     decision?: 'approved' | 'rejected';
     toolInput?: Record<string, unknown>;
+    selectedOptionIds?: readonly string[];
+    customText?: string;
+    stepResponses?: readonly {
+      readonly stepId: string;
+      readonly prompt?: string;
+      readonly selectedOptionIds?: readonly string[];
+      readonly selectedOptionTitles?: readonly string[];
+      readonly customText?: string;
+      readonly skipped?: boolean;
+    }[];
     trustForSession?: boolean;
   }): Promise<{
-    actionType: 'ask_user_reply' | 'approval_decision';
+    actionType: 'ask_user_reply' | 'approval_decision' | 'output_selection_choice';
     resumed: boolean;
     decision?: 'approved' | 'rejected';
     operationId?: string;
@@ -686,6 +814,11 @@ export class AgentXOperationChatYieldFacade {
       ...(params.attachments?.length ? { attachments: params.attachments } : {}),
       ...(params.decision ? { decision: params.decision } : {}),
       ...(params.toolInput ? { toolInput: params.toolInput } : {}),
+      ...(params.actionType === 'output_selection_choice'
+        ? { selectedOptionIds: params.selectedOptionIds ?? [] }
+        : {}),
+      ...(params.customText ? { customText: params.customText } : {}),
+      ...(params.stepResponses?.length ? { stepResponses: params.stepResponses } : {}),
       ...(params.trustForSession ? { trustForSession: true } : {}),
     });
 
@@ -695,6 +828,58 @@ export class AgentXOperationChatYieldFacade {
     }
 
     return result;
+  }
+
+  private formatOutputSelectionSummary(
+    selectedOptionIds: readonly string[],
+    customText?: string,
+    stepResponses?: readonly {
+      readonly stepId: string;
+      readonly prompt?: string;
+      readonly selectedOptionIds?: readonly string[];
+      readonly selectedOptionTitles?: readonly string[];
+      readonly customText?: string;
+      readonly skipped?: boolean;
+    }[]
+  ): string {
+    if (stepResponses && stepResponses.length > 0) {
+      if (stepResponses.length === 1) {
+        const response = stepResponses[0]!;
+        if (response.skipped) return 'Skipped';
+
+        const selected = (response.selectedOptionTitles ?? response.selectedOptionIds ?? []).join(
+          ', '
+        );
+        const details = [selected, response.customText?.trim() ?? ''].filter(
+          (value) => value.length > 0
+        );
+        return details.join(' | ') || 'Answered';
+      }
+
+      return stepResponses
+        .map((response, index) => {
+          const selected = (response.selectedOptionTitles ?? response.selectedOptionIds ?? []).join(
+            ', '
+          );
+          const details = [selected, response.customText?.trim() ?? ''].filter(
+            (value) => value.length > 0
+          );
+          const answer = response.skipped ? 'Skipped' : details.join(' | ') || 'Answered';
+          return `${index + 1}. ${response.prompt ? `${response.prompt}: ` : ''}${answer}`;
+        })
+        .join('\n');
+    }
+
+    const custom = customText?.trim();
+    if (selectedOptionIds.length === 0 && !custom) {
+      return 'Skipped';
+    }
+    if (selectedOptionIds.length === 0 && custom) {
+      return `Custom output request: ${custom}`;
+    }
+    const label = selectedOptionIds.length === 1 ? 'Selected output' : 'Selected outputs';
+    const selected = selectedOptionIds.join(', ');
+    return custom ? `${label}: ${selected}\n\nCustom instructions: ${custom}` : `${label}: ${selected}`;
   }
 
   async attachToResumedOperation(params: {

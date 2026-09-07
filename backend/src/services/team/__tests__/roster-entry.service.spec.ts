@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const cacheGet = vi.fn(async () => null);
+const cacheSet = vi.fn(async () => undefined);
 const cacheDel = vi.fn(async () => undefined);
+const cacheDelByPrefix = vi.fn(async () => undefined);
 
 vi.mock('../../core/cache.service.js', () => ({
   getCacheService: () => ({
-    get: vi.fn(async () => null),
-    set: vi.fn(async () => undefined),
+    get: cacheGet,
+    set: cacheSet,
     del: cacheDel,
+    delByPrefix: cacheDelByPrefix,
   }),
 }));
 
@@ -380,6 +384,52 @@ describe('RosterEntryService', () => {
       unicode: 'coach-summitt',
       profileCode: 'coach-summitt',
     });
+  });
+
+  it('keeps inactive-inclusive roster caches separate from active membership queries', async () => {
+    const { db } = createMockFirestore({
+      'active-entry': {
+        userId: 'coach-1',
+        teamId: 'team-active',
+        organizationId: 'org-1',
+        role: 'coach',
+        sport: 'Football',
+        status: RosterEntryStatus.ACTIVE,
+        joinedAt: new Date().toISOString(),
+      },
+      'removed-entry': {
+        userId: 'coach-1',
+        teamId: 'team-removed',
+        organizationId: 'org-2',
+        role: 'coach',
+        sport: 'Football',
+        status: RosterEntryStatus.REMOVED,
+        joinedAt: new Date().toISOString(),
+      },
+    });
+    const service = new RosterEntryService(db as never);
+
+    const allEntries = await service.getUserTeams({ userId: 'coach-1', includeInactive: true });
+    const activeEntries = await service.getUserTeams({
+      userId: 'coach-1',
+      status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
+    });
+
+    expect(allEntries.map((entry) => entry.teamId).sort()).toEqual([
+      'team-active',
+      'team-removed',
+    ]);
+    expect(activeEntries.map((entry) => entry.teamId)).toEqual(['team-active']);
+    expect(cacheSet).toHaveBeenCalledWith(
+      'roster:user:coach-1:teams:includeInactive',
+      expect.any(Array),
+      { ttl: 60 }
+    );
+    expect(cacheSet).toHaveBeenCalledWith(
+      'roster:user:coach-1:teams:status:active,pending',
+      expect.any(Array),
+      { ttl: 60 }
+    );
   });
 
   it('syncs cached roster fields and athlete sport data from a user profile document', async () => {

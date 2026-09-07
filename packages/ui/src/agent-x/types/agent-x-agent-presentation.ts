@@ -118,11 +118,20 @@ export function getAgentDisplayName(agentId?: AgentIdentifier | string): string 
 export function getThinkingLabel(step?: AgentXToolStep | null): string {
   if (!step) return '';
 
-  if (step.label.trim().length > 0) {
-    return ensureEllipsis(step.label);
+  const label = normalizeToolStepLabel(step);
+  if (label.length > 0) {
+    return ensureEllipsis(label);
   }
 
   return '';
+}
+
+export function normalizeToolStepLabel(step: AgentXToolStep): string {
+  const label = step.label.trim();
+  if (step.id.includes('ask_user') || step.id.includes('ask-user') || label.toLowerCase() === 'ask user') {
+    return 'Requesting your input';
+  }
+  return label;
 }
 
 export function getToolStepContextLabel(step: AgentXToolStep): string | null {
@@ -145,8 +154,9 @@ export function getToolStepsSummaryLabel(steps: readonly AgentXToolStep[]): stri
     return 'Update';
   }
 
-  if (lastMeaningfulStep.label.trim().length > 0) {
-    return lastMeaningfulStep.label;
+  const label = normalizeToolStepLabel(lastMeaningfulStep);
+  if (label.length > 0) {
+    return label;
   }
 
   return 'Update';

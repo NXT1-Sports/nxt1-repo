@@ -50,7 +50,10 @@ import { z } from 'zod';
 import { AGENT_MODEL_PRICING, type ModelTier } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
-import { InternalProtocolStreamSanitizer } from '../utils/platform-identifier-sanitizer.js';
+import {
+  InternalProtocolStreamSanitizer,
+  parseInternalProtocolToolCalls,
+} from '../utils/platform-identifier-sanitizer.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -836,6 +839,7 @@ export class OpenRouterService {
     let outputTokens = 0;
     let responseModel = model;
     let reportedCostUsd: number | undefined;
+    const contentSanitizer = new InternalProtocolStreamSanitizer();
 
     // Accumulate tool calls from streamed deltas (indexed by tool_call index)
     const pendingToolCalls = new Map<number, { id: string; name: string; args: string }>();
@@ -900,7 +904,6 @@ export class OpenRouterService {
       const decoder = new TextDecoder();
       let buffer = '';
       let emittedThinkingContent = '';
-      const contentSanitizer = new InternalProtocolStreamSanitizer();
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1017,6 +1020,26 @@ export class OpenRouterService {
       function: { name: tc.name, arguments: tc.args },
     }));
 
+    // Some models emit tool calls as literal markup rather than structured
+    // tool_calls. That text is stripped for display, so without recovery the
+    // call is silently lost and mandatory steps never run.
+    if (toolCalls.length === 0) {
+      const recovered = parseInternalProtocolToolCalls(contentSanitizer.getDroppedProtocolText());
+      recovered.forEach((call, index) => {
+        toolCalls.push({
+          id: `recovered_call_${index}`,
+          type: 'function' as const,
+          function: { name: call.name, arguments: JSON.stringify(call.args) },
+        });
+      });
+      if (recovered.length > 0) {
+        logger.warn('[OpenRouter] Recovered tool calls emitted as markup text', {
+          model: responseModel,
+          toolNames: recovered.map((call) => call.name),
+        });
+      }
+    }
+
     // Emit telemetry
     this.telemetryCallback?.({
       operationId: options.telemetryContext?.operationId ?? '',
@@ -1086,7 +1109,7 @@ export class OpenRouterService {
 
     if (options.tools?.length) {
       body['tools'] = options.tools;
-      body['tool_choice'] = 'auto';
+      body['tool_choice'] = options.toolChoice ?? 'auto';
     }
 
     if (options.outputSchema) {
@@ -1171,7 +1194,7 @@ export class OpenRouterService {
     // Inject tools if provided (enables agentic function-calling in streams)
     if (options.tools?.length) {
       streamBody['tools'] = options.tools;
-      streamBody['tool_choice'] = 'auto';
+      streamBody['tool_choice'] = options.toolChoice ?? 'auto';
     }
 
     // Same Bedrock avoidance as non-streaming path

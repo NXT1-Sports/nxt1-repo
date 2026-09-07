@@ -41,7 +41,7 @@ export {
 // Analytics tools
 
 // System tools (cross-cutting infrastructure)
-export { DelegateTaskTool, DynamicExportTool } from './system/index.js';
+export { DelegateTaskTool, DynamicExportTool, RenderEditablePptxTool } from './system/index.js';
 
 export * from './analytics/index.js';
 export * from './assets/index.js';

@@ -5,6 +5,22 @@ type CoordinatorAgentId = Exclude<AgentIdentifier, 'router'>;
 
 type ToolPattern = string;
 
+export type ToolCapabilityRiskLevel = 'low' | 'medium' | 'high';
+export type ToolCapabilityLatencyClass = 'interactive' | 'background';
+
+export interface ToolCapabilityPolicy {
+  readonly toolName: string;
+  readonly domains: readonly string[];
+  readonly directCallableByDefault: boolean;
+  readonly requiresApproval: boolean;
+  readonly requiresBackgroundExecution: boolean;
+  readonly requiresSpecialistContext: boolean;
+  readonly preferredSpecialists: readonly CoordinatorAgentId[];
+  readonly riskLevel: ToolCapabilityRiskLevel;
+  readonly latencyClass: ToolCapabilityLatencyClass;
+  readonly notes: string;
+}
+
 export interface ToolGovernancePolicy {
   readonly globalSystem: readonly ToolPattern[];
   readonly router: readonly ToolPattern[];
@@ -43,6 +59,7 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'delete_memory',
   'dynamic_export',
   'render_html_pdf',
+  'render_editable_pptx',
   'execute_python_code',
   'recommend_learning_videos',
   'ask_user',
@@ -122,6 +139,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'list_firecrawl_monitors',
   'get_firecrawl_monitor',
   'get_firecrawl_monitor_check',
+  'open_live_view',
   'read_live_view',
   'capture_live_view_screenshot',
   'close_live_view',
@@ -180,6 +198,100 @@ const INTERNAL_ONLY_TOOL_POLICY: readonly string[] = [
   'plan_and_execute',
   'whoami_capabilities',
 ];
+
+const TOOL_CAPABILITY_POLICY: Readonly<Record<string, ToolCapabilityPolicy>> = {
+  open_live_view: {
+    toolName: 'open_live_view',
+    domains: ['browser', 'live_view', 'connected_sources'],
+    directCallableByDefault: true,
+    requiresApproval: false,
+    requiresBackgroundExecution: false,
+    requiresSpecialistContext: false,
+    preferredSpecialists: [],
+    riskLevel: 'low',
+    latencyClass: 'interactive',
+    notes:
+      'Pure browser-open requests should execute directly from the active agent when user/entity access is valid. Route only when the request becomes extraction, analysis, form submission, clipping, importing, or multi-step processing.',
+  },
+  extract_live_view_media: {
+    toolName: 'extract_live_view_media',
+    domains: ['browser', 'live_view', 'media_acquisition'],
+    directCallableByDefault: false,
+    requiresApproval: false,
+    requiresBackgroundExecution: true,
+    requiresSpecialistContext: true,
+    preferredSpecialists: ['performance_coordinator', 'brand_coordinator', 'data_coordinator'],
+    riskLevel: 'medium',
+    latencyClass: 'background',
+    notes:
+      'Media extraction is not a pure browser-open action. Use specialist/background execution for clip extraction, media acquisition, film analysis inputs, and creative video workflows.',
+  },
+  generate_graphic: {
+    toolName: 'generate_graphic',
+    domains: ['creative', 'graphics', 'media_generation'],
+    directCallableByDefault: true,
+    requiresApproval: false,
+    requiresBackgroundExecution: false,
+    requiresSpecialistContext: false,
+    preferredSpecialists: ['brand_coordinator'],
+    riskLevel: 'medium',
+    latencyClass: 'interactive',
+    notes:
+      'Single clear graphic requests can execute directly from the active agent when required subject/brand assets are available. Use Brand as fallback for multi-asset campaigns, video, ambiguous creative direction, or identity/reference uncertainty.',
+  },
+  list_film_reviews: {
+    toolName: 'list_film_reviews',
+    domains: ['film_review', 'database', 'read_only'],
+    directCallableByDefault: true,
+    requiresApproval: false,
+    requiresBackgroundExecution: false,
+    requiresSpecialistContext: false,
+    preferredSpecialists: ['performance_coordinator'],
+    riskLevel: 'low',
+    latencyClass: 'interactive',
+    notes:
+      'Read-only film-review lookup can execute directly from the active agent when user/entity access is valid. Route to Performance for video watching, clip extraction, saved breakdown mutation, or scouting-report workflows.',
+  },
+  get_film_review_source_breakdown: {
+    toolName: 'get_film_review_source_breakdown',
+    domains: ['film_review', 'breakdown_rows', 'database', 'read_only'],
+    directCallableByDefault: true,
+    requiresApproval: false,
+    requiresBackgroundExecution: false,
+    requiresSpecialistContext: false,
+    preferredSpecialists: ['performance_coordinator'],
+    riskLevel: 'low',
+    latencyClass: 'interactive',
+    notes:
+      'Read-only film breakdown row lookup can execute directly from the active agent. Route to Performance for visual clip analysis, bulk aggregation requiring normalized ownership, clip extraction, or saved-row mutation.',
+  },
+  get_film_review: {
+    toolName: 'get_film_review',
+    domains: ['film_review', 'database', 'read_only'],
+    directCallableByDefault: true,
+    requiresApproval: false,
+    requiresBackgroundExecution: false,
+    requiresSpecialistContext: false,
+    preferredSpecialists: ['performance_coordinator'],
+    riskLevel: 'low',
+    latencyClass: 'interactive',
+    notes:
+      'Read-only film-review fetch (timeline rows plus normalized ownership) can execute directly from the active agent. Route to Performance for visual clip analysis, clip extraction, or any film-review mutation.',
+  },
+  search_film_review_breakdown_rows: {
+    toolName: 'search_film_review_breakdown_rows',
+    domains: ['film_review', 'breakdown_rows', 'database', 'read_only'],
+    directCallableByDefault: true,
+    requiresApproval: false,
+    requiresBackgroundExecution: false,
+    requiresSpecialistContext: false,
+    preferredSpecialists: ['performance_coordinator'],
+    riskLevel: 'low',
+    latencyClass: 'interactive',
+    notes:
+      'Read-only tag-filtered breakdown row search can execute directly from the active agent. Route to Performance for cutup creation or saved-row mutation.',
+  },
+};
 
 const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPattern[]>> = {
   admin_coordinator: ['render_html_pdf', 'execute_python_code'],
@@ -500,6 +612,14 @@ export function getGlobalSystemToolPolicy(): readonly ToolPattern[] {
 
 export function getInternalOnlyToolPolicy(): readonly string[] {
   return INTERNAL_ONLY_TOOL_POLICY;
+}
+
+export function getToolCapabilityPolicy(toolName: string): ToolCapabilityPolicy | undefined {
+  return TOOL_CAPABILITY_POLICY[toolName];
+}
+
+export function getAllToolCapabilityPolicies(): Readonly<Record<string, ToolCapabilityPolicy>> {
+  return TOOL_CAPABILITY_POLICY;
 }
 
 export function getToolGovernancePolicy(): ToolGovernancePolicy {

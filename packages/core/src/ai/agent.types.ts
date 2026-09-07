@@ -994,6 +994,8 @@ export interface AgentYieldState {
     readonly completedTaskResults: Record<string, unknown>;
     readonly enrichedIntent: string;
   };
+  /** Selected app contexts active when the agent yielded, such as a film review or source clip. */
+  readonly selectedContexts?: readonly import('./agent-x-context.types').AgentXSelectedContext[];
   /** ISO timestamp of when the yield was created. */
   readonly yieldedAt: string;
   /** ISO timestamp after which this yield expires and the job fails. */

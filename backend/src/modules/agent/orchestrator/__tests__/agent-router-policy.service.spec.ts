@@ -334,4 +334,29 @@ describe('AgentRouterPolicyService', () => {
       },
     });
   });
+
+  it('reroutes pure selected-film tendency analysis to performance instead of strategy', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Analyze this breakdown and identify the biggest trends and tendencies.',
+      'strategy_coordinator',
+      createSessionContext(),
+      { filmReviewId: 'review-1', selectedSourceIds: ['source-1', 'source-2'] }
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'performance_coordinator',
+        statusNote:
+          'Workflow film_review_tendency_analysis reassigned from strategy_coordinator to performance_coordinator.',
+      })
+    );
+    expect(reroute?.description).toContain(
+      '[Workflow Ownership: film_review_tendency_analysis]'
+    );
+    expect(reroute?.description).toContain('resolve ownership before aggregation');
+  });
 });

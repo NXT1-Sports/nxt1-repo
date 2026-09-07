@@ -329,6 +329,20 @@ export interface PdfExportOptions {
   readonly sections?: readonly ExportSection[];
 }
 
+export const DYNAMIC_EXPORT_BILLABLE_FEATURE = 'dynamic-export';
+export const DYNAMIC_EXPORT_GAMMA_DOCUMENT_BILLABLE_FEATURE =
+  'dynamic-export-gamma-document';
+export const DYNAMIC_EXPORT_GAMMA_PRESENTATION_BILLABLE_FEATURE =
+  'dynamic-export-gamma-presentation';
+
+export type DynamicExportRenderer = 'local' | 'gamma-document' | 'gamma-presentation';
+
+export interface GeneratedDynamicExportArtifact {
+  readonly buffer: Buffer;
+  readonly billableFeature: string;
+  readonly renderer: DynamicExportRenderer;
+}
+
 // ─── NXT1 Brand Colours ────────────────────────────────────────────────────
 
 const NEUTRAL_PRIMARY = '#111111';
@@ -640,9 +654,14 @@ export class ExportService {
    * Produces an editable slide deck with a branded cover and section slides.
    */
   async generatePptx(opts: PptxExportOptions): Promise<Buffer> {
+    const artifact = await this.generatePptxArtifact(opts);
+    return artifact.buffer;
+  }
+
+  async generatePptxArtifact(opts: PptxExportOptions): Promise<GeneratedDynamicExportArtifact> {
     if (this.gammaClient.isEnabled) {
       try {
-        return await this.gammaClient.generatePptx({
+        const buffer = await this.gammaClient.generatePptx({
           title: this.normalizePdfText(opts.title?.trim() || 'NXT1 Export'),
           description: opts.description ? this.normalizePdfText(opts.description) : undefined,
           templateGammaId: opts.templateGammaId,
@@ -662,6 +681,12 @@ export class ExportService {
           pageOrientation: opts.pageOrientation,
           pageSize: opts.pageSize,
         });
+
+        return {
+          buffer,
+          billableFeature: DYNAMIC_EXPORT_GAMMA_PRESENTATION_BILLABLE_FEATURE,
+          renderer: 'gamma-presentation',
+        };
       } catch (error) {
         logger.warn('[ExportService] Gamma PPTX generation failed; using local renderer', {
           errorCode: error instanceof Error && 'code' in error ? error.code : undefined,
@@ -670,7 +695,11 @@ export class ExportService {
       }
     }
 
-    return this.generatePptxLocally(opts);
+    return {
+      buffer: await this.generatePptxLocally(opts),
+      billableFeature: DYNAMIC_EXPORT_BILLABLE_FEATURE,
+      renderer: 'local',
+    };
   }
 
   private async generatePptxLocally(opts: PptxExportOptions): Promise<Buffer> {
@@ -807,9 +836,16 @@ export class ExportService {
    * Returns a Promise because pdfmake streams the document.
    */
   async generatePdf(opts: PdfExportOptions): Promise<Buffer> {
+    const artifact = await this.generatePdfArtifact(opts);
+    return artifact.buffer;
+  }
+
+  async generatePdfArtifact(opts: PdfExportOptions): Promise<GeneratedDynamicExportArtifact> {
+    const gammaFormat = this.resolveGammaPdfFormat(opts);
+
     if (this.gammaClient.isEnabled) {
       try {
-        return await this.gammaClient.generatePdf({
+        const buffer = await this.gammaClient.generatePdf({
           title: this.normalizePdfText(opts.title.trim()),
           description: opts.description ? this.normalizePdfText(opts.description) : undefined,
           footerText: this.normalizePdfText(
@@ -831,8 +867,17 @@ export class ExportService {
           logoUrl: opts.logoUrl,
           pageOrientation: opts.pageOrientation,
           pageSize: opts.pageSize,
-          format: this.resolveGammaPdfFormat(opts),
+          format: gammaFormat,
         });
+
+        return {
+          buffer,
+          billableFeature:
+            gammaFormat === 'presentation'
+              ? DYNAMIC_EXPORT_GAMMA_PRESENTATION_BILLABLE_FEATURE
+              : DYNAMIC_EXPORT_GAMMA_DOCUMENT_BILLABLE_FEATURE,
+          renderer: gammaFormat === 'presentation' ? 'gamma-presentation' : 'gamma-document',
+        };
       } catch (error) {
         logger.warn('[ExportService] Gamma PDF generation failed; using local renderer', {
           errorCode: error instanceof Error && 'code' in error ? error.code : undefined,
@@ -982,7 +1027,11 @@ export class ExportService {
       },
     };
 
-    return this.renderPdfToBuffer(docDefinition);
+    return {
+      buffer: await this.renderPdfToBuffer(docDefinition),
+      billableFeature: DYNAMIC_EXPORT_BILLABLE_FEATURE,
+      renderer: 'local',
+    };
   }
 
   private resolveGammaPdfFormat(opts: PdfExportOptions): 'presentation' | 'document' {

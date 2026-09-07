@@ -28,6 +28,7 @@ import type {
   AgentUserContext,
   AgentYieldState,
   AgentXAttachment,
+  AgentXOutputFormatTag,
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
@@ -577,6 +578,82 @@ interface ResumeMessageShape extends Record<string, unknown> {
   readonly content: unknown;
   readonly tool_call_id?: string;
   readonly tool_calls?: readonly unknown[];
+}
+
+function readReplayContext(payload: AgentJobPayload | null | undefined): Record<string, unknown> {
+  return payload?.context && typeof payload.context === 'object' ? payload.context : {};
+}
+
+function mergeYieldSelectedContextsIntoContext(
+  context: Record<string, unknown>,
+  yieldState: AgentYieldState
+): Record<string, unknown> {
+  if (Array.isArray(context['selectedContexts']) && context['selectedContexts'].length > 0) {
+    return context;
+  }
+
+  return Array.isArray(yieldState.selectedContexts) && yieldState.selectedContexts.length > 0
+    ? { ...context, selectedContexts: yieldState.selectedContexts }
+    : context;
+}
+
+function buildSelectedContextResumeGuard(
+  originalContext: Record<string, unknown>,
+  intent: string | undefined
+): ResumeMessageShape | null {
+  const selectedContexts = Array.isArray(originalContext['selectedContexts'])
+    ? (originalContext['selectedContexts'] as readonly AgentXSelectedContext[])
+    : [];
+  const contextLabels = selectedContexts
+    .map((context) => {
+      const title = typeof context.title === 'string' ? context.title.trim() : '';
+      if (!title) return '';
+      const ids = [
+        typeof context.id === 'string' ? context.id.trim() : '',
+        typeof context.source?.id === 'string' ? context.source.id.trim() : '',
+        ...(context.entityRefs ?? [])
+          .map((entity) => (typeof entity.id === 'string' ? entity.id.trim() : '')),
+      ].filter((id) => id.length > 0);
+      return ids.length > 0 ? `${title} (${Array.from(new Set(ids)).join(', ')})` : title;
+    })
+    .filter((label) => label.length > 0)
+    .slice(0, 6);
+
+  const filmReviewId = typeof originalContext['filmReviewId'] === 'string'
+    ? originalContext['filmReviewId'].trim()
+    : '';
+  const selectedSourceIds = Array.isArray(originalContext['selectedSourceIds'])
+    ? originalContext['selectedSourceIds']
+        .map((id) => (typeof id === 'string' ? id.trim() : ''))
+        .filter((id) => id.length > 0)
+    : [];
+  const selectedFilmTitle = typeof originalContext['selectedFilmTitle'] === 'string'
+    ? originalContext['selectedFilmTitle'].trim()
+    : '';
+  const intentMentionsFilm = /\bfull\s+game|film\s+review|selected\s+(?:film|plays|clips)|\bwk\s*\d+\b/i.test(
+    intent ?? ''
+  );
+
+  if (
+    contextLabels.length === 0 &&
+    !filmReviewId &&
+    selectedSourceIds.length === 0 &&
+    !selectedFilmTitle &&
+    !intentMentionsFilm
+  ) {
+    return null;
+  }
+
+  const parts = [
+    'RESUME CONTEXT GUARD: The user already selected or attached the film/game context before answering the ask_user card. Continue with that context; do not ask the user to choose the film review again.',
+    contextLabels.length > 0 ? `Selected context(s): ${contextLabels.join('; ')}.` : '',
+    selectedFilmTitle ? `Selected film title: ${selectedFilmTitle}.` : '',
+    filmReviewId ? `Use filmReviewId: ${filmReviewId}.` : '',
+    selectedSourceIds.length > 0 ? `Use selectedSourceIds: ${selectedSourceIds.join(', ')}.` : '',
+    'If a tool needs an ID and only a title is available, resolve the unique matching film review by title yourself. Ask the user to pick a film only if no unique match exists.',
+  ].filter((part) => part.length > 0);
+
+  return { role: 'system', content: parts.join('\n') };
 }
 
 function normalizeSelectedActionForPayload(
@@ -3201,6 +3278,9 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
         ? [{ role: 'user', content: jobDoc.intent.trim() }]
         : sanitizedMessages;
 
+    const originalContext = readReplayContext(jobDoc.replayPayload);
+    const selectedContextGuard = buildSelectedContextResumeGuard(originalContext, jobDoc.intent);
+
     const resumedMessages = resumeFromPausedState
       ? trimmedUserResponse.length > 0
         ? [
@@ -3221,6 +3301,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
             }),
             tool_call_id: pendingToolCallId,
           },
+          ...(selectedContextGuard ? [selectedContextGuard] : []),
         ];
 
     const resumedPayload: AgentJobPayload = {
@@ -3230,6 +3311,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
+        ...originalContext,
         appBaseUrl: resolveRequestAppBaseUrl(req),
         agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
@@ -3295,7 +3377,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
 
 // ─── POST /threads/:threadId/actions — Thread-truth semantic actions ──────
 
-type ThreadActionType = 'ask_user_reply' | 'approval_decision';
+type ThreadActionType = 'ask_user_reply' | 'approval_decision' | 'output_selection_choice';
 
 interface ThreadActionRequestBody {
   readonly actionType?: ThreadActionType;
@@ -3305,7 +3387,431 @@ interface ThreadActionRequestBody {
   readonly attachments?: readonly unknown[];
   readonly decision?: 'approved' | 'rejected';
   readonly toolInput?: Record<string, unknown>;
+  readonly selectedOptionIds?: readonly unknown[];
+  readonly customText?: string;
+  readonly stepResponses?: readonly {
+    readonly stepId?: unknown;
+    readonly selectedOptionIds?: readonly unknown[];
+    readonly customText?: unknown;
+    readonly skipped?: unknown;
+  }[];
   readonly trustForSession?: boolean;
+}
+
+interface NormalizedOutputSelectionChoiceStep {
+  readonly stepId: string;
+  readonly prompt: string;
+  readonly selectedOptionIds: readonly string[];
+  readonly selectedOptionTitles: readonly string[];
+  readonly selectedOptions: readonly NormalizedOutputSelectionOption[];
+  readonly selectedOptionFormatTags: readonly AgentXOutputFormatTag[];
+  readonly customText?: string;
+  readonly skipped?: boolean;
+}
+
+interface NormalizedOutputSelectionChoice {
+  readonly selectedOptionIds: readonly string[];
+  readonly selectedOptionTitles: readonly string[];
+  readonly selectedOptions: readonly NormalizedOutputSelectionOption[];
+  readonly selectedOptionFormatTags: readonly AgentXOutputFormatTag[];
+  readonly customText?: string;
+  readonly stepResponses?: readonly NormalizedOutputSelectionChoiceStep[];
+}
+
+interface NormalizedOutputSelectionOption {
+  readonly id: string;
+  readonly title: string;
+  readonly formatTag?: AgentXOutputFormatTag;
+}
+
+interface NormalizedSelectableOutputStep {
+  readonly id: string;
+  readonly prompt: string;
+  readonly inputMode: 'text' | 'single_select' | 'multi_select';
+  readonly multiSelect: boolean;
+  readonly allowCustomOption: boolean;
+  readonly options: readonly {
+    readonly id: string;
+    readonly title: string;
+    readonly disabled: boolean;
+    readonly formatTag?: AgentXOutputFormatTag;
+  }[];
+}
+
+const OUTPUT_FORMAT_TAGS = new Set<AgentXOutputFormatTag>([
+  'PDF',
+  'GAMMA',
+  'XLSX',
+  'PPTX',
+  'CSV',
+  'WEB',
+  'CHOICE',
+  'CUSTOM',
+]);
+
+function normalizeOutputFormatTag(value: unknown): AgentXOutputFormatTag | undefined {
+  const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
+  return OUTPUT_FORMAT_TAGS.has(normalized as AgentXOutputFormatTag)
+    ? (normalized as AgentXOutputFormatTag)
+    : undefined;
+}
+
+function normalizeOutputSelectionOptionRecord(option: unknown): {
+  readonly id: string;
+  readonly title: string;
+  readonly disabled: boolean;
+  readonly isCustomInput: boolean;
+  readonly formatTag?: AgentXOutputFormatTag;
+} | null {
+  if (!option || typeof option !== 'object' || Array.isArray(option)) return null;
+  const record = option as Record<string, unknown>;
+  const id = typeof record['id'] === 'string' ? record['id'].trim() : '';
+  const title = typeof record['title'] === 'string' ? record['title'].trim() : id;
+  const formatTag = normalizeOutputFormatTag(record['formatTag']);
+  if (!id) return null;
+  return {
+    id,
+    title,
+    disabled: record['disabled'] === true,
+    isCustomInput:
+      record['isCustomInput'] === true ||
+      formatTag === 'CUSTOM',
+    ...(formatTag ? { formatTag } : {}),
+  };
+}
+
+function normalizeSelectedOptionIds(values: readonly unknown[] | undefined): string[] {
+  return Array.from(
+    new Set(
+      (values ?? [])
+        .map((value: unknown) => (typeof value === 'string' ? value.trim() : ''))
+        .filter((value: string) => value.length > 0)
+    )
+  );
+}
+
+function normalizeOutputSelectionSteps(
+  yieldState: AgentYieldState
+): readonly NormalizedSelectableOutputStep[] | { readonly status: number; readonly error: string } {
+  if (
+    yieldState.pendingToolCall?.toolName !== 'ask_user' &&
+    yieldState.pendingToolCall?.toolName !== 'prompt_output_selection'
+  ) {
+    return { status: 409, error: 'This pending action is not an output selection' };
+  }
+
+  const toolInput = yieldState.pendingToolCall.toolInput;
+  const rawSteps = Array.isArray(toolInput['steps']) ? toolInput['steps'] : [];
+  if (rawSteps.length > 0) {
+    const steps: NormalizedSelectableOutputStep[] = [];
+    for (const [index, step] of rawSteps.entries()) {
+      if (!step || typeof step !== 'object' || Array.isArray(step)) continue;
+      const record = step as Record<string, unknown>;
+      const id = typeof record['id'] === 'string' ? record['id'].trim() : `step_${index + 1}`;
+      const prompt = typeof record['prompt'] === 'string' ? record['prompt'].trim() : '';
+      const inputMode =
+        record['inputMode'] === 'multi_select' ||
+        record['inputMode'] === 'single_select' ||
+        record['inputMode'] === 'text'
+          ? record['inputMode']
+          : 'single_select';
+      const options = (Array.isArray(record['options']) ? record['options'] : [])
+        .map((option) => normalizeOutputSelectionOptionRecord(option))
+        .filter(
+          (
+            option
+          ): option is NonNullable<ReturnType<typeof normalizeOutputSelectionOptionRecord>> =>
+            option !== null && !option.isCustomInput
+        )
+        .map((option) => ({
+          id: option.id,
+          title: option.title,
+          disabled: option.disabled,
+          ...(option.formatTag ? { formatTag: option.formatTag } : {}),
+        }));
+      if (!prompt) continue;
+      steps.push({
+        id,
+        prompt,
+        inputMode,
+        multiSelect: inputMode === 'multi_select',
+        allowCustomOption: inputMode === 'text' ? true : record['allowCustomOption'] !== false,
+        options,
+      });
+    }
+    if (steps.length === 0) {
+      return { status: 409, error: 'Original output steps are unavailable' };
+    }
+    return steps;
+  }
+
+  const options = (Array.isArray(toolInput['options']) ? toolInput['options'] : [])
+    .map((option) => normalizeOutputSelectionOptionRecord(option))
+    .filter(
+      (
+        option
+      ): option is NonNullable<ReturnType<typeof normalizeOutputSelectionOptionRecord>> =>
+        option !== null && !option.isCustomInput
+    )
+    .map((option) => ({
+      id: option.id,
+      title: option.title,
+      disabled: option.disabled,
+      ...(option.formatTag ? { formatTag: option.formatTag } : {}),
+    }));
+
+  if (options.length === 0) {
+    return { status: 409, error: 'Original output options are unavailable' };
+  }
+
+  return [
+    {
+      id: 'step_1',
+      prompt: typeof toolInput['prompt'] === 'string' ? toolInput['prompt'].trim() : 'Choose an option',
+      inputMode: toolInput['multiSelect'] === true ? 'multi_select' : 'single_select',
+      multiSelect: toolInput['multiSelect'] === true,
+      allowCustomOption: toolInput['allowCustomOption'] !== false,
+      options,
+    },
+  ];
+}
+
+function normalizeOutputSelectionChoice(
+  body: ThreadActionRequestBody,
+  yieldState: AgentYieldState
+): NormalizedOutputSelectionChoice | { readonly status: number; readonly error: string } {
+  const normalizedSteps = normalizeOutputSelectionSteps(yieldState);
+  if ('error' in normalizedSteps) {
+    return normalizedSteps;
+  }
+
+  if (body.stepResponses !== undefined && !Array.isArray(body.stepResponses)) {
+    return { status: 400, error: 'stepResponses must be an array when provided' };
+  }
+
+  const stepById = new Map(normalizedSteps.map((step) => [step.id, step]));
+  const rawStepResponses = body.stepResponses ?? [];
+  if (rawStepResponses.length > 0) {
+    const seenStepIds = new Set<string>();
+    const stepResponses: NormalizedOutputSelectionChoiceStep[] = [];
+
+    for (const rawResponse of rawStepResponses) {
+      const stepId = typeof rawResponse?.stepId === 'string' ? rawResponse.stepId.trim() : '';
+      if (!stepId) {
+        return { status: 400, error: 'Each step response must include a stepId' };
+      }
+      if (seenStepIds.has(stepId)) {
+        return { status: 400, error: `Duplicate step response: ${stepId}` };
+      }
+      seenStepIds.add(stepId);
+
+      const step = stepById.get(stepId);
+      if (!step) {
+        return { status: 400, error: `Unknown output step: ${stepId}` };
+      }
+
+      if (
+        rawResponse.selectedOptionIds !== undefined &&
+        !Array.isArray(rawResponse.selectedOptionIds)
+      ) {
+        return { status: 400, error: `selectedOptionIds must be an array for step ${stepId}` };
+      }
+
+      const selectedOptionIds = normalizeSelectedOptionIds(rawResponse.selectedOptionIds);
+      const customText = typeof rawResponse.customText === 'string' ? rawResponse.customText.trim() : '';
+      const skipped = rawResponse.skipped === true;
+
+      if (customText.length > 2000) {
+        return { status: 400, error: `customText must be 2000 characters or less for step ${stepId}` };
+      }
+      if (step.inputMode === 'text' && selectedOptionIds.length > 0) {
+        return { status: 400, error: `Text step ${stepId} cannot include selected options` };
+      }
+      if (customText.length > 0 && !step.allowCustomOption) {
+        return { status: 400, error: `Custom text is not allowed for step ${stepId}` };
+      }
+      if (!step.multiSelect && selectedOptionIds.length > 1) {
+        return { status: 400, error: `Only one option can be selected for step ${stepId}` };
+      }
+
+      const optionById = new Map(step.options.map((option) => [option.id, option]));
+      for (const id of selectedOptionIds) {
+        const option = optionById.get(id);
+        if (!option) return { status: 400, error: `Unknown output option: ${id}` };
+        if (option.disabled) return { status: 400, error: `Output option is unavailable: ${id}` };
+      }
+
+      if (!skipped && selectedOptionIds.length === 0 && customText.length === 0) {
+        return { status: 400, error: `Provide an answer or skip step ${stepId}` };
+      }
+
+      const selectedOptionTitles = selectedOptionIds
+        .map((id) => optionById.get(id)?.title ?? id)
+        .filter((title) => title.trim().length > 0);
+      const selectedOptions = selectedOptionIds
+        .map((id) => optionById.get(id))
+        .filter((option): option is NonNullable<typeof option> => option !== undefined)
+        .map((option) => ({
+          id: option.id,
+          title: option.title,
+          ...(option.formatTag ? { formatTag: option.formatTag } : {}),
+        }));
+      const selectedOptionFormatTags = Array.from(
+        new Set(
+          selectedOptions
+            .map((option) => option.formatTag)
+            .filter((formatTag): formatTag is AgentXOutputFormatTag => !!formatTag)
+        )
+      );
+
+      stepResponses.push({
+        stepId,
+        prompt: step.prompt,
+        selectedOptionIds,
+        selectedOptionTitles,
+        selectedOptions,
+        selectedOptionFormatTags,
+        ...(customText ? { customText } : {}),
+        ...(skipped ? { skipped: true } : {}),
+      });
+    }
+
+    return {
+      selectedOptionIds: Array.from(
+        new Set(stepResponses.flatMap((step) => [...step.selectedOptionIds]))
+      ),
+      selectedOptionTitles: Array.from(
+        new Set(stepResponses.flatMap((step) => [...step.selectedOptionTitles]))
+      ),
+      selectedOptions: stepResponses.flatMap((step) => [...step.selectedOptions]),
+      selectedOptionFormatTags: Array.from(
+        new Set(stepResponses.flatMap((step) => [...step.selectedOptionFormatTags]))
+      ),
+      ...(stepResponses.find((step) => step.customText)?.customText
+        ? { customText: stepResponses.find((step) => step.customText)?.customText }
+        : {}),
+      stepResponses,
+    };
+  }
+
+  const step = normalizedSteps[0];
+  const customText = typeof body.customText === 'string' ? body.customText.trim() : '';
+  if (customText.length > 2000) {
+    return { status: 400, error: 'customText must be 2000 characters or less' };
+  }
+  if (customText.length > 0 && !step.allowCustomOption) {
+    return { status: 400, error: 'Custom output instructions are not allowed for this card' };
+  }
+  if (body.selectedOptionIds !== undefined && !Array.isArray(body.selectedOptionIds)) {
+    return { status: 400, error: 'selectedOptionIds must be an array when provided' };
+  }
+
+  const selectedOptionIds = normalizeSelectedOptionIds(body.selectedOptionIds);
+
+  if ((selectedOptionIds.length === 0 && customText.length === 0) || selectedOptionIds.length > 8) {
+    return { status: 400, error: 'Choose an output option or type custom instructions' };
+  }
+
+  if (!step.multiSelect && selectedOptionIds.length > 1) {
+    return { status: 400, error: 'Only one output option can be selected for this card' };
+  }
+
+  const optionById = new Map(step.options.map((option) => [option.id, option]));
+  for (const id of selectedOptionIds) {
+    const option = optionById.get(id);
+    if (!option) return { status: 400, error: `Unknown output option: ${id}` };
+    if (option.disabled) return { status: 400, error: `Output option is unavailable: ${id}` };
+  }
+
+  const selectedOptions = selectedOptionIds
+    .map((id) => optionById.get(id))
+    .filter((option): option is NonNullable<typeof option> => option !== undefined);
+  const selectedOutputOptions = selectedOptions.map((option) => ({
+    id: option.id,
+    title: option.title,
+    ...(option.formatTag ? { formatTag: option.formatTag } : {}),
+  }));
+  const selectedOptionFormatTags = Array.from(
+    new Set(
+      selectedOutputOptions
+        .map((option) => option.formatTag)
+        .filter((formatTag): formatTag is AgentXOutputFormatTag => !!formatTag)
+    )
+  );
+
+  return {
+    selectedOptionIds,
+    selectedOptionTitles: selectedOptions.map((option) => option.title),
+    selectedOptions: selectedOutputOptions,
+    selectedOptionFormatTags,
+    ...(customText ? { customText } : {}),
+  };
+}
+
+function formatSelectedOutputOptions(
+  options: readonly NormalizedOutputSelectionOption[]
+): string {
+  return options
+    .map((option) => `${option.title}${option.formatTag ? ` (${option.formatTag})` : ''}`)
+    .join(', ');
+}
+
+function buildSelectedOutputLaneInstruction(
+  choice: NormalizedOutputSelectionChoice
+): string {
+  const selectedText = choice.selectedOptions
+    .map((option) => `${option.id} ${option.title} ${option.formatTag ?? ''}`.toLowerCase())
+    .join(' | ');
+  const selectedFormats = new Set(choice.selectedOptionFormatTags);
+  const selectedCount = choice.selectedOptions.length;
+  const chatOnly = /\bchat[_\s-]?summary\b|\bchat only\b|\bconversation\b/.test(selectedText);
+
+  if (selectedCount === 0) {
+    return 'Follow the custom output request exactly. If it conflicts with the available export choices, ask one concise follow-up before generating an artifact.';
+  }
+
+  if (selectedCount === 1 && chatOnly) {
+    return 'The user selected chat summary only. Do not call export tools or create a downloadable artifact.';
+  }
+
+  if (selectedCount === 1 && selectedFormats.has('PDF')) {
+    return 'Generate a printable/share-ready PDF only. Prefer `render_html_pdf` for printable PDFs. Do not call `dynamic_export` with `format: "pptx"` and do not create PPTX, XLSX, or CSV outputs.';
+  }
+
+  if (selectedCount === 1 && selectedFormats.has('GAMMA')) {
+    return /\b(deck|pptx|slides?)\b/.test(selectedText)
+      ? 'Generate a Gamma Deck/PPTX only. Use `dynamic_export` with `format: "pptx"` unless a native presentation tool is explicitly required. Do not create a printable PDF, XLSX, or CSV output.'
+      : 'Generate a Gamma-styled PDF only. Use the Gamma PDF export lane. Do not create PPTX, XLSX, or CSV outputs.';
+  }
+
+  if (selectedCount === 1 && selectedFormats.has('PPTX')) {
+    return 'Generate an editable PPTX only. Do not create PDF, XLSX, or CSV outputs.';
+  }
+
+  if (selectedCount === 1 && selectedFormats.has('XLSX')) {
+    return 'Generate an XLSX workbook only. Prefer the spreadsheet/workbook lane. Do not create PDF, PPTX, or CSV outputs.';
+  }
+
+  if (selectedCount === 1 && selectedFormats.has('CSV')) {
+    return 'Generate a CSV file only. Do not create PDF, PPTX, or XLSX outputs.';
+  }
+
+  return 'Generate exactly the selected output formats and no others. Map Printable PDF to `render_html_pdf`, Gamma Deck/PPTX to `dynamic_export` with `format: "pptx"`, Gamma PDF to the Gamma PDF export lane, editable PPTX to the editable presentation lane, XLSX workbook to the spreadsheet/workbook lane, and CSV to CSV export.';
+}
+
+function buildOutputSelectionResumeGuard(
+  choice: NormalizedOutputSelectionChoice
+): ResumeMessageShape {
+  const selectedOptions = formatSelectedOutputOptions(choice.selectedOptions);
+  const parts = [
+    'OUTPUT SELECTION GUARD: The user just answered the output-format card. This selection overrides any earlier best-fit/default/deck guidance.',
+    selectedOptions ? `Selected output(s): ${selectedOptions}.` : '',
+    choice.customText ? `Custom output instructions: ${choice.customText}` : '',
+    buildSelectedOutputLaneInstruction(choice),
+    'Do not generate unselected output formats. If a prior message or coordinator prompt suggests a different format, follow this selected output instead.',
+  ].filter((part) => part.length > 0);
+
+  return { role: 'system', content: parts.join('\n') };
 }
 
 function normalizeThreadActionAttachments(input: unknown): AgentXAttachment[] | null {
@@ -3491,7 +3997,11 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
     }
 
     const body = (req.body ?? {}) as ThreadActionRequestBody;
-    if (body.actionType !== 'ask_user_reply' && body.actionType !== 'approval_decision') {
+    if (
+      body.actionType !== 'ask_user_reply' &&
+      body.actionType !== 'approval_decision' &&
+      body.actionType !== 'output_selection_choice'
+    ) {
       res.status(400).json({ success: false, error: 'Invalid actionType' });
       return;
     }
@@ -3507,6 +4017,223 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
 
     if (!resolvedOperationId) {
       res.status(409).json({ success: false, error: 'No pending action found for this thread' });
+      return;
+    }
+
+    if (body.actionType === 'output_selection_choice') {
+      const jobDoc = await jobRepository.withDb(db).getById(resolvedOperationId);
+      if (!jobDoc || jobDoc.userId !== user.uid || jobDoc.threadId !== threadIdParam.trim()) {
+        res.status(404).json({ success: false, error: 'Job not found' });
+        return;
+      }
+
+      const resumedExecutionMode = resolveJobExecutionMode(jobDoc);
+      const resumedEffortLevel = resolveJobEffortLevel(jobDoc);
+
+      const status = jobDoc.status;
+      if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
+        res.status(409).json({ success: false, error: `Job is in "${status}" state` });
+        return;
+      }
+
+      const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+      if (!yieldState) {
+        res.status(409).json({ success: false, error: 'No yield state found on this job' });
+        return;
+      }
+
+      if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
+        await jobRepository
+          .withDb(db)
+          .markFailed(resolvedOperationId, 'Output selection expired before user responded');
+        res.status(410).json({ success: false, error: 'This request has expired' });
+        return;
+      }
+
+      const normalizedChoice = normalizeOutputSelectionChoice(body, yieldState);
+      if ('error' in normalizedChoice) {
+        res.status(normalizedChoice.status).json({ success: false, error: normalizedChoice.error });
+        return;
+      }
+
+      if (!yieldState.pendingToolCall?.toolCallId) {
+        res.status(409).json({ success: false, error: 'No pending output selection tool call' });
+        return;
+      }
+
+      const selectedSummary = normalizedChoice.selectedOptionTitles.join(', ');
+      const userSelectionMessage = normalizedChoice.stepResponses?.length
+        ? normalizedChoice.stepResponses
+            .map((step, index) => {
+              const parts = [
+                ...step.selectedOptionTitles,
+                ...(step.customText ? [step.customText] : []),
+              ];
+              return `${index + 1}. ${step.prompt}: ${step.skipped ? 'Skipped' : parts.join(' | ') || 'Answered'}`;
+            })
+            .join('\n')
+        : selectedSummary
+          ? `Selected output: ${selectedSummary}${
+              normalizedChoice.customText
+                ? `\n\nCustom instructions: ${normalizedChoice.customText}`
+                : ''
+            }`
+          : `Custom output request: ${normalizedChoice.customText ?? ''}`;
+
+      const normalizedMessages = stripToolResultForCallId(
+        normalizeYieldMessages(yieldState.messages),
+        yieldState.pendingToolCall.toolCallId
+      );
+      const outputSelectionToolContent = JSON.stringify({
+        success: true,
+        data: {
+          userResponse: userSelectionMessage,
+          selectedOptionIds: normalizedChoice.selectedOptionIds,
+          selectedOptionTitles: normalizedChoice.selectedOptionTitles,
+          selectedOptions: normalizedChoice.selectedOptions,
+          selectedOptionFormatTags: normalizedChoice.selectedOptionFormatTags,
+          ...(normalizedChoice.customText ? { customText: normalizedChoice.customText } : {}),
+          ...(normalizedChoice.stepResponses
+            ? { stepResponses: normalizedChoice.stepResponses }
+            : {}),
+        },
+      });
+      const effectiveMessages: ResumeMessageShape[] =
+        normalizedMessages.length === 0 && jobDoc.intent?.trim()
+          ? [{ role: 'user', content: jobDoc.intent.trim() }]
+          : normalizedMessages;
+      const originalContext = mergeYieldSelectedContextsIntoContext(
+        readReplayContext(jobDoc.replayPayload),
+        yieldState
+      );
+      const selectedContextGuard = buildSelectedContextResumeGuard(originalContext, jobDoc.intent);
+      const outputSelectionGuard = buildOutputSelectionResumeGuard(normalizedChoice);
+      const resumedMessages: ResumeMessageShape[] = [
+        ...effectiveMessages,
+        {
+          role: 'tool',
+          content: outputSelectionToolContent,
+          tool_call_id: yieldState.pendingToolCall.toolCallId,
+        },
+        outputSelectionGuard,
+        ...(selectedContextGuard ? [selectedContextGuard] : []),
+      ];
+
+      if (jobDoc.threadId && chatService) {
+        try {
+          await chatService.addMessage({
+            threadId: jobDoc.threadId,
+            userId: user.uid,
+            role: 'tool',
+            content: outputSelectionToolContent,
+            origin: 'agent_chain',
+            operationId: resolvedOperationId,
+            toolCallId: yieldState.pendingToolCall.toolCallId,
+            resultData: {
+              eventType: 'output_selection_choice',
+              userResponse: userSelectionMessage,
+              selectedOptionIds: normalizedChoice.selectedOptionIds,
+              selectedOptionTitles: normalizedChoice.selectedOptionTitles,
+              selectedOptions: normalizedChoice.selectedOptions,
+              selectedOptionFormatTags: normalizedChoice.selectedOptionFormatTags,
+              ...(normalizedChoice.customText ? { customText: normalizedChoice.customText } : {}),
+              ...(normalizedChoice.stepResponses
+                ? { stepResponses: normalizedChoice.stepResponses }
+                : {}),
+            },
+            idempotencyKey: `output-selection-tool:${resolvedOperationId}:${yieldState.pendingToolCall.toolCallId}`,
+          });
+        } catch (chatErr) {
+          logger.warn('Failed to persist output selection tool result to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+            operationId: resolvedOperationId,
+          });
+        }
+      }
+
+      if (jobDoc.threadId && chatService) {
+        try {
+          await chatService.addMessage({
+            threadId: jobDoc.threadId,
+            userId: user.uid,
+            role: 'user',
+            content: userSelectionMessage,
+            origin: 'user',
+            operationId: resolvedOperationId,
+          });
+        } catch (chatErr) {
+          logger.warn('Failed to persist output selection message to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      const resumedPayload: AgentJobPayload = {
+        operationId: crypto.randomUUID(),
+        userId: user.uid,
+        intent: jobDoc.intent,
+        sessionId: crypto.randomUUID(),
+        origin: 'user' as AgentJobOrigin,
+        context: {
+          ...originalContext,
+          appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
+          threadId: jobDoc.threadId,
+          ...(resumedExecutionMode ? { executionMode: resumedExecutionMode } : {}),
+          ...(resumedEffortLevel ? { effortLevel: resumedEffortLevel } : {}),
+          resumedFrom: resolvedOperationId,
+          yieldState: {
+            ...yieldState,
+            messages: resumedMessages,
+          } satisfies AgentYieldState,
+        },
+      };
+
+      await jobRepository.withDb(db).create(resumedPayload);
+      await jobRepository.withDb(db).markCompleted(resolvedOperationId, {
+        summary: `Selected output — continuing as ${resumedPayload.operationId}`,
+        data: {
+          resumedAs: resumedPayload.operationId,
+          userResponse: userSelectionMessage,
+          selectedOptionIds: normalizedChoice.selectedOptionIds,
+          selectedOptionTitles: normalizedChoice.selectedOptionTitles,
+          selectedOptions: normalizedChoice.selectedOptions,
+          selectedOptionFormatTags: normalizedChoice.selectedOptionFormatTags,
+          ...(normalizedChoice.customText ? { customText: normalizedChoice.customText } : {}),
+          ...(normalizedChoice.stepResponses
+            ? { stepResponses: normalizedChoice.stepResponses, yieldResolvedText: userSelectionMessage }
+            : {}),
+        },
+      });
+
+      if (jobDoc.threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(jobDoc.threadId);
+        } catch (err) {
+          logger.warn('Failed to clear thread paused yield state on output selection resume', {
+            threadId: jobDoc.threadId,
+            operationId: resolvedOperationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
+
+      res.status(202).json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          resumed: true,
+          jobId: enqueueResult.jobId,
+          operationId: resumedPayload.operationId,
+          threadId: jobDoc.threadId,
+          resolvedOperationId,
+        },
+      });
       return;
     }
 
@@ -3620,6 +4347,9 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
           ? [{ role: 'user', content: jobDoc.intent.trim() }]
           : sanitizedMessages;
 
+      const originalContext = readReplayContext(jobDoc.replayPayload);
+      const selectedContextGuard = buildSelectedContextResumeGuard(originalContext, jobDoc.intent);
+
       const resumedMessages = resumeFromPausedState
         ? trimmedComposedUserResponse.length > 0
           ? [
@@ -3645,6 +4375,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
               }),
               tool_call_id: pendingToolCallId,
             },
+            ...(selectedContextGuard ? [selectedContextGuard] : []),
           ];
 
       const resumedPayload: AgentJobPayload = {
@@ -3654,6 +4385,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         sessionId: crypto.randomUUID(),
         origin: 'user' as AgentJobOrigin,
         context: {
+          ...originalContext,
           appBaseUrl: resolveRequestAppBaseUrl(req),
           agentRouteBase: resolveRequestAgentRouteBase(req),
           threadId: jobDoc.threadId,

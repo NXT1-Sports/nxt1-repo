@@ -5,6 +5,8 @@ const INTERNAL_PROTOCOL_TAIL_CHARS = 32;
 const INTERNAL_PROTOCOL_MARKERS = [
   '<｜DSML｜',
   '<|DSML|',
+  '</｜DSML｜',
+  '</|DSML|',
   '<tool_calls',
   '</tool_calls',
   '<function=',
@@ -73,6 +75,12 @@ export function stripInternalProtocolMarkup(value: string): string {
 export class InternalProtocolStreamSanitizer {
   private pending = '';
   private droppingProtocolBlock = false;
+  private droppedProtocolText = '';
+
+  /** Raw markup that was stripped from display text, so dropped tool calls can be recovered. */
+  getDroppedProtocolText(): string {
+    return this.droppedProtocolText;
+  }
 
   push(chunk: string): string {
     if (!chunk) return '';
@@ -105,6 +113,7 @@ export class InternalProtocolStreamSanitizer {
 
   flush(): string {
     if (this.droppingProtocolBlock) {
+      this.droppedProtocolText += this.pending;
       this.pending = '';
       this.droppingProtocolBlock = false;
       return '';
@@ -119,11 +128,62 @@ export class InternalProtocolStreamSanitizer {
     const blockEnd = findInternalProtocolBlockEnd(this.pending);
     if (blockEnd < 0) return '';
 
+    this.droppedProtocolText += this.pending.slice(0, blockEnd);
     const remainder = this.pending.slice(blockEnd);
     this.pending = '';
     this.droppingProtocolBlock = false;
     return this.push(remainder);
   }
+}
+
+/**
+ * Recovers tool calls that a model emitted as literal markup instead of
+ * structured `tool_calls`. Without this the call is stripped for display and
+ * silently never executed, which strands mandatory steps like `ask_user`.
+ */
+export function parseInternalProtocolToolCalls(
+  value: string
+): ReadonlyArray<{ readonly name: string; readonly args: Record<string, unknown> }> {
+  if (!value) return [];
+
+  const invokePattern = /<[|｜]DSML[|｜]invoke\s+name="([^"]+)"\s*>([\s\S]*?)(?=<[|｜]DSML[|｜]invoke\s|$)/gi;
+  const parameterPattern =
+    /<[|｜]DSML[|｜]parameter\s+name="([^"]+)"(?:\s+string="(true|false)")?\s*>([\s\S]*?)<\/[|｜]DSML[|｜]parameter>/gi;
+
+  const recovered: Array<{ name: string; args: Record<string, unknown> }> = [];
+  let invokeMatch: RegExpExecArray | null;
+
+  while ((invokeMatch = invokePattern.exec(value)) !== null) {
+    const toolName = invokeMatch[1]?.trim();
+    const body = invokeMatch[2] ?? '';
+    if (!toolName) continue;
+
+    const args: Record<string, unknown> = {};
+    parameterPattern.lastIndex = 0;
+    let paramMatch: RegExpExecArray | null;
+
+    while ((paramMatch = parameterPattern.exec(body)) !== null) {
+      const paramName = paramMatch[1]?.trim();
+      if (!paramName) continue;
+      const isString = paramMatch[2] !== 'false';
+      const rawValue = (paramMatch[3] ?? '').trim();
+
+      if (isString) {
+        args[paramName] = rawValue;
+        continue;
+      }
+
+      try {
+        args[paramName] = JSON.parse(rawValue);
+      } catch {
+        args[paramName] = rawValue;
+      }
+    }
+
+    recovered.push({ name: toolName, args });
+  }
+
+  return recovered;
 }
 
 function preservePublicAppUrls(value: string): {
@@ -267,9 +327,27 @@ export function sanitizeAgentOutputText(value: string): string {
   // Final pass: scrub backend infrastructure terms (Firebase, Apify, auth-gated, etc.)
   // Only applied to user-visible text, not to LLM observation payloads.
   return restorePreservedPublicAppUrls(
-    sanitizeInfrastructureTerms(stripInternalProtocolMarkup(redactedClean)),
+    sanitizeInfrastructureTerms(
+      stripLeakedOperationalHelperText(stripInternalProtocolMarkup(redactedClean))
+    ),
     preserved.urls
   );
+}
+
+function stripLeakedOperationalHelperText(value: string): string {
+  return value
+    // HTML-encoded DSML tags can leak through some rendering/serialization paths.
+    .replace(/&lt;\/?[|｜]DSML[|｜][^&]*&gt;/gi, '')
+    // Internal operational helper labels should never appear in assistant prose.
+    .replace(/\b(?:Requesting your input|Routing to specialist coordinator)(?:\s*:\s*)?/gi, '')
+    // Occasionally the UI step subtitle (e.g. "Performance Coordinator") is glued directly
+    // into the leaked text with no separator. Remove only that concatenated form.
+    .replace(
+      /\b(?:Performance|Strategy|Data|Brand|Recruiting|Admin)\s+Coordinator(?=[A-Z0-9])/g,
+      ''
+    )
+    .replace(/\bAgent X(?=[A-Z0-9])/g, '')
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 export function sanitizeAgentPayload<T>(value: T): T {

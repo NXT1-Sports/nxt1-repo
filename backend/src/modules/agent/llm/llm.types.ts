@@ -257,6 +257,13 @@ export interface LLMToolSchema {
   };
 }
 
+/** Constrains which tool the model may call. `required` forces any tool; the object form forces one specific tool. */
+export type LLMToolChoice =
+  | 'auto'
+  | 'none'
+  | 'required'
+  | { readonly type: 'function'; readonly function: { readonly name: string } };
+
 /** A tool call requested by the assistant. */
 export interface LLMToolCall {
   readonly id: string;
@@ -281,6 +288,8 @@ export interface LLMCompletionOptions<TStructuredOutput = unknown> {
   readonly temperature?: number;
   /** Tool schemas for function calling (optional). */
   readonly tools?: readonly LLMToolSchema[];
+  /** Constrains tool selection. Omit for provider default ('auto'). */
+  readonly toolChoice?: LLMToolChoice;
   /** Whether to force JSON output format. */
   readonly jsonMode?: boolean;
   /** Optional Zod schema for native structured JSON responses where supported. */
@@ -428,6 +437,8 @@ export interface LLMStreamOptions {
   readonly temperature?: number;
   /** Tool schemas for function calling (optional — enables agentic streaming). */
   readonly tools?: readonly LLMToolSchema[];
+  /** Constrains tool selection. Omit for provider default ('auto'). */
+  readonly toolChoice?: LLMToolChoice;
   /**
    * Enable extended thinking (Claude 3.7+ / Gemini 2.5 / reasoning-capable models).
    * When true, reasoning fragments may stream via `LLMStreamDelta.thinkingContent`.

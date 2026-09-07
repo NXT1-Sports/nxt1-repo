@@ -8,5 +8,6 @@ export { ExecuteSandboxScriptTool } from './execute-sandbox-script.tool.js';
 export { ExecutePythonCodeTool } from './execute-python-code.tool.js';
 export * from './dynamic-export.tool.js';
 export * from './render-html-pdf.tool.js';
+export * from './render-editable-pptx.tool.js';
 export * from './ask-user.tool.js';
 export { AskUserTool } from './ask-user.tool.js';

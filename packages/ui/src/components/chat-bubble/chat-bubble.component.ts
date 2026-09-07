@@ -33,6 +33,14 @@ import {
   AgentXConnectAccountCardComponent,
   type ConnectAccountCardActionEvent,
 } from '../../agent-x/components/cards/agent-x-connect-account-card.component';
+import {
+  AgentXAskUserCardComponent,
+  type AskUserReplyEvent,
+} from '../../agent-x/components/cards/agent-x-ask-user-card.component';
+import {
+  AgentXOutputSelectionCardComponent,
+  type OutputSelectionSubmitEvent,
+} from '../../agent-x/components/cards/agent-x-output-selection-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
 import {
   NxtMarkdownComponent,
@@ -43,6 +51,7 @@ import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-pres
 import { NxtLoggingService } from '../../services/logging';
 
 const CHAT_BUBBLE_VIDEO_POSTER_MAX_EDGE_PX = 640;
+const OUTPUT_SELECTION_CARD_TYPE = ['output', 'selection'].join('-');
 
 function resolveChatBubbleVideoPosterDimensions(
   sourceWidth: number,
@@ -85,6 +94,8 @@ export interface ChatBubbleMediaRequestedEvent {
     AgentXToolStepsComponent,
     AgentXBillingActionCardComponent,
     AgentXConnectAccountCardComponent,
+    AgentXAskUserCardComponent,
+    AgentXOutputSelectionCardComponent,
     NxtIconComponent,
     NxtMarkdownComponent,
     NxtAgentXExtendedThinkingComponent,
@@ -141,15 +152,24 @@ export interface ChatBubbleMediaRequestedEvent {
           }
           @case ('card') {
             <div class="agent-card-shell" [style]="cardThemeStyle(part.card)">
-              @if (part.card.type === 'billing-action') {
+              @if (isOutputSelectionCard(part.card)) {
+                <nxt1-agent-x-output-selection-card
+                  [card]="part.card"
+                  [externalCardState]="externalCardState()"
+                  [externalResolvedText]="externalResolvedText()"
+                  (outputSelected)="outputSelectionSubmitted.emit($event)"
+                />
+              } @else if (part.card.type === 'billing-action') {
                 <nxt1-agent-x-billing-action-card
                   [card]="part.card"
                   (actionResolved)="billingActionResolved.emit($event)"
                 />
               } @else if (part.card.type === 'ask_user') {
-                <nxt1-markdown
-                  [content]="askUserCardText(part.card)"
-                  (timestampClicked)="onMarkdownTimestampClicked($event)"
+                <nxt1-agent-x-ask-user-card
+                  [card]="part.card"
+                  [externalCardState]="externalCardState()"
+                  [externalResolvedText]="externalResolvedText()"
+                  (replySubmitted)="askUserReplySubmitted.emit($event)"
                 />
               } @else if (part.card.type === 'connect-account') {
                 <nxt1-agent-x-connect-account-card
@@ -240,15 +260,24 @@ export interface ChatBubbleMediaRequestedEvent {
       }
       @for (card of cards(); track $index) {
         <div class="agent-card-shell" [style]="cardThemeStyle(card)">
-          @if (card.type === 'billing-action') {
+          @if (isOutputSelectionCard(card)) {
+            <nxt1-agent-x-output-selection-card
+              [card]="card"
+              [externalCardState]="externalCardState()"
+              [externalResolvedText]="externalResolvedText()"
+              (outputSelected)="outputSelectionSubmitted.emit($event)"
+            />
+          } @else if (card.type === 'billing-action') {
             <nxt1-agent-x-billing-action-card
               [card]="card"
               (actionResolved)="billingActionResolved.emit($event)"
             />
           } @else if (card.type === 'ask_user') {
-            <nxt1-markdown
-              [content]="askUserCardText(card)"
-              (timestampClicked)="onMarkdownTimestampClicked($event)"
+            <nxt1-agent-x-ask-user-card
+              [card]="card"
+              [externalCardState]="externalCardState()"
+              [externalResolvedText]="externalResolvedText()"
+              (replySubmitted)="askUserReplySubmitted.emit($event)"
             />
           } @else if (card.type === 'connect-account') {
             <nxt1-agent-x-connect-account-card
@@ -870,6 +899,12 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
   /** Emitted when the user taps connect-account card actions. */
   readonly connectAccountAction = output<ConnectAccountCardActionEvent>();
 
+  /** Emitted when the user submits an output-selection card. */
+  readonly outputSelectionSubmitted = output<OutputSelectionSubmitEvent>();
+
+  /** Emitted when the user submits an ask-user card. */
+  readonly askUserReplySubmitted = output<AskUserReplyEvent>();
+
   /** Emitted when the user clicks "Try again" on an error bubble. */
   readonly retryRequested = output<void>();
 
@@ -913,20 +948,12 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
     return buildAgentCardThemeStyle(card);
   }
 
-  protected askUserCardText(card: AgentXRichCard): string {
-    if (card.type !== 'ask_user') return '';
-    const payload = card.payload as Record<string, unknown> | undefined;
-    if (!payload || typeof payload !== 'object') {
-      return card.title || 'Agent X has a question.';
-    }
-
-    const question = typeof payload['question'] === 'string' ? payload['question'].trim() : '';
-    const context = typeof payload['context'] === 'string' ? payload['context'].trim() : '';
-    const combined = [question, context]
-      .filter((value) => value.length > 0)
-      .join('\n\n')
-      .trim();
-    return combined || card.title || 'Agent X has a question.';
+  protected isOutputSelectionCard(card: unknown): boolean {
+    return (
+      typeof card === 'object' &&
+      card !== null &&
+      (card as { readonly type?: unknown }).type === OUTPUT_SELECTION_CARD_TYPE
+    );
   }
 
   private queueVideoPosterHydration(): void {

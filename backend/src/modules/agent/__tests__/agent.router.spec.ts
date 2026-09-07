@@ -18,6 +18,7 @@ import type {
   AgentOperationResult,
   AgentPromptContext,
   AgentSessionContext,
+  AgentToolDefinition,
   AgentUserContext,
 } from '@nxt1/core';
 
@@ -258,6 +259,403 @@ describe('AgentRouter', () => {
   });
 
   describe('run()', () => {
+    it('routes explicit coordinator prompt prefixes directly to the selected coordinator', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const brandAgent = createMockAgent('brand_coordinator', {
+        summary: 'Created the game day graphic.',
+        data: { response: 'Created the game day graphic.' },
+        suggestions: [],
+      });
+      router.registerAgent(brandAgent);
+
+      const bundle = router.getOrchestratorBundle();
+      const service = new AgentRouterPrimaryService({
+        ...bundle,
+        agents: router.getRegisteredAgents(),
+        resolveToolAccessContext: async () =>
+          bundle.policyService.buildToolAccessContext(createMockUserContext()),
+        planRepository: {} as AgentPlanRepository,
+      });
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn(),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, service);
+
+      const result = await router.run({
+        operationId: 'op-direct-brand',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: '@brand create a hype graphic for Friday night',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(primary.beginRun).not.toHaveBeenCalled();
+      expect(primary.execute).not.toHaveBeenCalled();
+      expect(brandAgent.execute).toHaveBeenCalledOnce();
+      expect(brandAgent.execute).toHaveBeenCalledWith(
+        expect.stringContaining('Objective: create a hype graphic for Friday night'),
+        expect.any(Object),
+        expect.any(Array),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined
+      );
+      expect((brandAgent.execute as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).not.toContain(
+        '@brand'
+      );
+      expect(result.success).toBe(true);
+      expect(result.data).toMatchObject({
+        directCoordinatorBypass: true,
+        coordinatorId: 'brand_coordinator',
+      });
+    });
+
+    it('routes selected coordinator card actions directly to the selected coordinator', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const strategyAgent = createMockAgent('strategy_coordinator', {
+        summary: 'Built the strategy brief.',
+        data: { response: 'Built the strategy brief.' },
+        suggestions: [],
+      });
+      router.registerAgent(strategyAgent);
+
+      const bundle = router.getOrchestratorBundle();
+      const service = new AgentRouterPrimaryService({
+        ...bundle,
+        agents: router.getRegisteredAgents(),
+        resolveToolAccessContext: async () =>
+          bundle.policyService.buildToolAccessContext(createMockUserContext()),
+        planRepository: {} as AgentPlanRepository,
+      });
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn(),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, service);
+
+      const result = await router.run({
+        operationId: 'op-selected-strategy',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: 'Build a red-zone game plan',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: {
+          selectedAction: {
+            coordinatorId: 'strategy_coordinator',
+            actionId: 'red-zone-plan',
+            surface: 'command',
+          },
+        },
+      });
+
+      expect(primary.execute).not.toHaveBeenCalled();
+      expect(strategyAgent.execute).toHaveBeenCalledOnce();
+      const strategyTaskIntent = (strategyAgent.execute as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[0] as string;
+      expect(strategyTaskIntent).toContain('"selectedAction"');
+      expect(strategyTaskIntent).toContain('"actionId": "red-zone-plan"');
+      expect(strategyTaskIntent).toContain('"surface": "command"');
+      expect(result.data).toMatchObject({
+        directCoordinatorBypass: true,
+        coordinatorId: 'strategy_coordinator',
+      });
+    });
+
+    it('force-exposes open_live_view for pure browser-open Hudl prompts', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const openLiveViewDefinition: AgentToolDefinition = {
+        name: 'open_live_view',
+        description: 'Open live browser session',
+        parameters: { type: 'object', properties: {}, additionalProperties: false },
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      };
+
+      (toolRegistry.getDefinitions as ReturnType<typeof vi.fn>).mockReturnValue([
+        openLiveViewDefinition,
+      ]);
+      (toolRegistry as ToolRegistry & { matchDiscoverableWithScores: ReturnType<typeof vi.fn> })
+        .matchDiscoverableWithScores = vi.fn().mockResolvedValue([]);
+
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Opened Hudl.',
+          data: { ok: true },
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      await router.run({
+        operationId: 'op-force-open-hudl',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: 'go to hudl',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(primary.execute).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.arrayContaining([expect.objectContaining({ name: 'open_live_view' })]),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined
+      );
+    });
+
+    it('force-exposes universal document retrieval tools for playbook reduction prompts', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const fileDefinitions: AgentToolDefinition[] = [
+        {
+          name: 'list_universal_team_documents',
+          description: 'List team files',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+        {
+          name: 'get_universal_team_document',
+          description: 'Open a team file',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+      ];
+
+      (toolRegistry.getDefinitions as ReturnType<typeof vi.fn>).mockReturnValue(fileDefinitions);
+      (toolRegistry as ToolRegistry & { matchDiscoverableWithScores: ReturnType<typeof vi.fn> })
+        .matchDiscoverableWithScores = vi.fn().mockResolvedValue([]);
+
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Reduced the playbook.',
+          data: { ok: true },
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      await router.run({
+        operationId: 'op-force-playbook-file',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: 'Reduce the playbook to the highest-impact concepts.',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(primary.execute).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'list_universal_team_documents' }),
+          expect.objectContaining({ name: 'get_universal_team_document' }),
+        ]),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined
+      );
+    });
+
+    it('force-exposes film review read tools for selected film breakdown prompts', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const filmDefinitions: AgentToolDefinition[] = [
+        {
+          name: 'get_film_review',
+          description: 'Load a film review',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+        {
+          name: 'list_film_review_sources',
+          description: 'List film review sources',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+        {
+          name: 'get_film_review_source_breakdown',
+          description: 'Get source breakdown rows',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+        {
+          name: 'execute_sandbox_script',
+          description: 'Analyze film review data',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'system',
+          entityGroup: 'user_tools',
+        },
+      ];
+
+      (toolRegistry.getDefinitions as ReturnType<typeof vi.fn>).mockReturnValue(filmDefinitions);
+      (toolRegistry as ToolRegistry & { matchDiscoverableWithScores: ReturnType<typeof vi.fn> })
+        .matchDiscoverableWithScores = vi.fn().mockResolvedValue([]);
+
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Analyzed the selected film breakdown.',
+          data: { ok: true },
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      await router.run({
+        operationId: 'op-force-film-review-read',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: 'Analyze this breakdown and identify the biggest trends and tendencies for these 50 selected film plays.',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(primary.execute).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'get_film_review' }),
+          expect.objectContaining({ name: 'list_film_review_sources' }),
+          expect.objectContaining({ name: 'get_film_review_source_breakdown' }),
+          expect.objectContaining({ name: 'execute_sandbox_script' }),
+        ]),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined
+      );
+    });
+
+    it('force-exposes film review read tools from selected context even when the raw prompt is generic', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const filmDefinitions: AgentToolDefinition[] = [
+        {
+          name: 'get_film_review',
+          description: 'Load a film review',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+        {
+          name: 'list_film_review_sources',
+          description: 'List film review sources',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: false,
+          category: 'database',
+          entityGroup: 'user_tools',
+        },
+      ];
+
+      (toolRegistry.getDefinitions as ReturnType<typeof vi.fn>).mockReturnValue(filmDefinitions);
+      (toolRegistry as ToolRegistry & { matchDiscoverableWithScores: ReturnType<typeof vi.fn> })
+        .matchDiscoverableWithScores = vi.fn().mockResolvedValue([]);
+
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Analyzed the selected film breakdown.',
+          data: { ok: true },
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      await router.run({
+        operationId: 'op-force-film-from-selected-context',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: 'Analyze this breakdown and identify the biggest trends and tendencies.',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        context: {
+          selectedContexts: [
+            {
+              id: 'film_play:film_review:b069f6aba08135482001093d226f2e25110470e1:bundle',
+              kind: 'film_play',
+              title: 'NXT1 Full Game (Wk 2) (50 selected film plays)',
+              source: {
+                type: 'film_review',
+                id: 'b069f6aba08135482001093d226f2e25110470e1',
+                label: 'NXT1 Full Game (Wk 2)',
+              },
+            },
+          ],
+        },
+      } as AgentJobPayload);
+
+      expect(primary.execute).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(Object),
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'get_film_review' }),
+          expect.objectContaining({ name: 'list_film_review_sources' }),
+        ]),
+        llm,
+        toolRegistry,
+        undefined,
+        undefined,
+        undefined
+      );
+    });
+
     it('forwards plan executionMode into Primary session context on initial runs', async () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);
       const primary = {
@@ -301,6 +699,43 @@ describe('AgentRouter', () => {
         undefined,
         undefined
       );
+    });
+
+    it('keeps plan mode on Primary even when a coordinator is preselected', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const brandAgent = createMockAgent('brand_coordinator');
+      router.registerAgent(brandAgent);
+      const primary = {
+        id: 'router' as const,
+        name: 'Test Primary',
+        beginRun: vi.fn(),
+        endRun: vi.fn(),
+        execute: vi.fn().mockResolvedValue({
+          summary: 'Planned successfully.',
+          data: { ok: true },
+          suggestions: [],
+        }),
+      } as unknown as import('../agents/primary.agent.js').PrimaryAgent;
+
+      router.setPrimary(primary, {} as AgentRouterPrimaryService);
+
+      await router.run({
+        operationId: 'op-plan-selected-agent',
+        userId: 'user-123',
+        sessionId: 'session-123',
+        intent: '@brand create a hype graphic',
+        origin: TEST_ORIGIN,
+        priority: 'normal',
+        createdAt: new Date().toISOString(),
+        agent: 'brand_coordinator',
+        context: {
+          executionMode: 'plan',
+        },
+      });
+
+      expect(primary.beginRun).toHaveBeenCalledOnce();
+      expect(primary.execute).toHaveBeenCalledOnce();
+      expect(brandAgent.execute).not.toHaveBeenCalled();
     });
 
     it('blocks email send requests before Primary routing when no provider is connected', async () => {
@@ -920,6 +1355,16 @@ describe('AgentRouter', () => {
           ];
         }
       );
+      (toolRegistry as ToolRegistry & { match: ReturnType<typeof vi.fn> }).match = vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'search_colleges', description: 'Search colleges', category: 'database' },
+          {
+            name: 'unassigned_internal_tool',
+            description: 'Should not count as matched capability evidence',
+            category: 'integration',
+          },
+        ]);
 
       const snapshot = await (
         router as unknown as {
@@ -929,7 +1374,11 @@ describe('AgentRouter', () => {
               accessContext: typeof toolAccessContext,
               agents: ReadonlyMap<AgentIdentifier, BaseAgent>
             ) => Promise<{
-              coordinators: Array<{ agentId: string; allowedToolNames: string[] }>;
+              coordinators: Array<{
+                agentId: string;
+                allowedToolNames: string[];
+                matchedToolNames: string[];
+              }>;
             }>;
           };
           getRegisteredAgents: () => ReadonlyMap<AgentIdentifier, BaseAgent>;
@@ -951,6 +1400,8 @@ describe('AgentRouter', () => {
       expect(recruitingSnapshot).toBeDefined();
       expect(recruitingSnapshot?.allowedToolNames).toContain('search_colleges');
       expect(recruitingSnapshot?.allowedToolNames).not.toContain('unassigned_internal_tool');
+      expect(recruitingSnapshot?.matchedToolNames).toContain('search_colleges');
+      expect(recruitingSnapshot?.matchedToolNames).not.toContain('unassigned_internal_tool');
     });
   });
 

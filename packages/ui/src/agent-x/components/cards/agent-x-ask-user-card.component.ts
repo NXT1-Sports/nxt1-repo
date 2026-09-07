@@ -42,7 +42,7 @@ export interface AskUserReplyEvent {
           />
           <circle cx="10" cy="14.5" r="1" fill="currentColor" />
         </svg>
-        <span class="ask-card__title">{{ card().title }}</span>
+        <span class="ask-card__title">{{ displayTitle() }}</span>
         @if (questionCount() > 1) {
           <span class="ask-card__progress"
             >{{ currentQuestionNumber() }}/{{ questionCount() }}</span
@@ -487,6 +487,8 @@ export class AgentXAskUserCardComponent {
   /** Per-question answers for multi-step question prompts. */
   protected readonly answers = signal<string[]>([]);
 
+  protected readonly displayTitle = computed(() => 'Requesting your input');
+
   /** True once the user has submitted locally — locks the card. */
   protected readonly answered = signal(false);
 
@@ -533,6 +535,11 @@ export class AgentXAskUserCardComponent {
 
   protected get context(): () => string | undefined {
     return () => (this.card().payload as AgentXAskUserPayload).context;
+  }
+
+  private get payloadOperationId(): string | undefined {
+    const operationId = (this.card().payload as AgentXAskUserPayload).operationId?.trim();
+    return operationId || undefined;
   }
 
   protected onInput(event: Event): void {
@@ -583,7 +590,7 @@ export class AgentXAskUserCardComponent {
     this.replySubmitted.emit({
       answer,
       messageId: this.messageId() ?? undefined,
-      operationId: this.operationId() ?? undefined,
+      operationId: this.operationId() ?? this.payloadOperationId,
     });
   }
 

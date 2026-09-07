@@ -160,7 +160,7 @@ describe('Agent X selected context drag payloads', () => {
         type: 'film_review',
         id: 'review-1',
       },
-      title: '5 selected film plays',
+      title: 'Week 4 Cutup (5 selected film plays)',
       metadata: {
         bundleCount: 5,
       },

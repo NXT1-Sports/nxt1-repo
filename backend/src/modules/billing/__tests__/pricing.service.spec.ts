@@ -38,6 +38,32 @@ describe('calculateChargeAmount', () => {
     expect(result.chargeAmountCents).toBe(500);
   });
 
+  it('lets runtime dynamic export feature overrides beat coordinator pricing for that run', async () => {
+    mockGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        defaultMultiplier: 3,
+        featureOverrides: {
+          brand_coordinator: 4,
+          'dynamic-export-gamma-document': 6,
+        },
+      }),
+    });
+
+    const { calculateChargeAmount } = await import('../pricing.service.js');
+
+    const result = await calculateChargeAmount(
+      db,
+      1,
+      'dynamic-export-gamma-document',
+      'brand_coordinator'
+    );
+
+    expect(result.multiplier).toBe(6);
+    expect(result.overrideSource).toBe('feature');
+    expect(result.chargeAmountCents).toBe(600);
+  });
+
   it('falls back to the feature override when no coordinator override exists', async () => {
     mockGet.mockResolvedValue({
       exists: true,

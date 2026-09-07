@@ -214,6 +214,10 @@ class ScoredTool extends BaseTool {
   }
 }
 
+class AgentScopedScoredTool extends ScoredTool {
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+}
+
 class ScopedFirestoreTool extends BaseTool {
   readonly name = 'scoped_firestore_tool';
   readonly description = 'Reads from Firestore using the scoped environment binding.';
@@ -671,6 +675,27 @@ describe('ToolRegistry', () => {
       expect(matchedToolNames).not.toContain('tool_low');
       expect(matched.find((tool) => tool.name === 'tool_high')?.semanticScore).toBeCloseTo(0.92, 5);
       expect(matched.find((tool) => tool.name === 'tool_mid')?.semanticScore).toBeCloseTo(0.51, 5);
+    });
+
+    it('supports global discoverable matching before per-agent execution policy is applied', async () => {
+      registry.register(new AgentScopedScoredTool('strategy_only_tool', 0.91, false));
+
+      const routerMatched = await registry.matchWithScores(
+        [0.1, 0.2],
+        async () => [0.1, 0.2],
+        'router',
+        undefined,
+        0.2
+      );
+      const discoverableMatched = await registry.matchDiscoverableWithScores(
+        [0.1, 0.2],
+        async () => [0.1, 0.2],
+        undefined,
+        0.2
+      );
+
+      expect(routerMatched.map((tool) => tool.name)).not.toContain('strategy_only_tool');
+      expect(discoverableMatched.map((tool) => tool.name)).toContain('strategy_only_tool');
     });
   });
 });

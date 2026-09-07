@@ -1732,6 +1732,18 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
     this.db = db ?? getFirestore();
   }
 
+  private async findAccessibleReviewBySourceId(
+    userId: string,
+    sourceId: string
+  ): Promise<TeamFilmReviewDoc | null> {
+    const reviews = await listUserScopedUniversalFilmReviews({
+      db: this.db,
+      userId,
+      limit: 100,
+    });
+    return reviews.find((review) => review.sources?.some((source) => source.id === sourceId)) ?? null;
+  }
+
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
@@ -1745,9 +1757,19 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    const review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
+    let review = await loadUniversalFilmReview(this.db, parsed.data.filmReviewId);
+    const requestedFilmReviewId = parsed.data.filmReviewId;
+    let recoveredFromSourceId = false;
     if (!review) {
-      return { success: false, error: `Film review ${parsed.data.filmReviewId} not found.` };
+      review = await this.findAccessibleReviewBySourceId(context.userId, parsed.data.sourceId);
+      recoveredFromSourceId = !!review;
+    }
+
+    if (!review) {
+      return {
+        success: false,
+        error: `Film review ${requestedFilmReviewId} not found, and no accessible film review contains source ${parsed.data.sourceId}.`,
+      };
     }
 
     const permission = await assertReviewAccess(this.db, review, context.userId, 'read');
@@ -1775,6 +1797,8 @@ export class GetFilmReviewSourceBreakdownTool extends BaseTool {
       )}`,
       data: {
         filmReviewId: review.id,
+        requestedFilmReviewId,
+        recoveredFromSourceId,
         source: breakdown.source,
         timeline: breakdown.timeline,
         rowOwnership,

@@ -253,3 +253,154 @@ describe('AgentWorker :: Approval Cards', () => {
     });
   });
 });
+
+describe('AgentWorker :: Output Selection Cards', () => {
+  it('maps ask_user allowCustomText to the output-selection payload', () => {
+    const card = buildInlineYieldCard({
+      yieldPayload: {
+        reason: 'needs_input',
+        promptToUser: 'Pick how you want the report delivered.',
+        agentId: 'primary',
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: 'tool-call-output-choice',
+          toolInput: {
+            question: 'Choose report output',
+            prompt: 'How should I deliver this report?',
+            inputMode: 'single_select',
+            allowCustomText: false,
+            options: [
+              {
+                id: 'pdf',
+                title: 'Printable PDF',
+                description: 'Best for sharing with staff.',
+                formatTag: 'PDF',
+                icon: 'pdf',
+              },
+            ],
+          },
+        },
+      },
+      operationId: 'op-output-choice',
+      threadId: 'thread-output-choice',
+    });
+
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('output-selection');
+    expect(card?.title).toBe('Choose Output Format');
+    expect(card?.payload.allowCustomOption).toBe(false);
+  });
+
+  it('prefers normalized allowCustomOption over legacy allowCustomText', () => {
+    const card = buildInlineYieldCard({
+      yieldPayload: {
+        reason: 'needs_input',
+        promptToUser: 'Pick how you want the report delivered.',
+        agentId: 'primary',
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: 'tool-call-output-choice',
+          toolInput: {
+            question: 'Choose report output',
+            prompt: 'How should I deliver this report?',
+            inputMode: 'single_select',
+            allowCustomText: false,
+            allowCustomOption: true,
+            options: [
+              {
+                id: 'pdf',
+                title: 'Printable PDF',
+                description: 'Best for sharing with staff.',
+                formatTag: 'PDF',
+                icon: 'pdf',
+              },
+            ],
+          },
+        },
+      },
+      operationId: 'op-output-choice',
+      threadId: 'thread-output-choice',
+    });
+
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('output-selection');
+    expect(card?.payload.allowCustomOption).toBe(true);
+  });
+
+  it('uses the ask_user prompt as the title for non-format structured choices', () => {
+    const card = buildInlineYieldCard({
+      yieldPayload: {
+        reason: 'needs_input',
+        promptToUser: 'Confirm how the film breakdown is keyed.',
+        agentId: 'primary',
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: 'tool-call-film-ownership',
+          toolInput: {
+            question: 'Confirm ODK ownership',
+            prompt: 'How is this film breakdown keyed to the Falcons?',
+            inputMode: 'single_select',
+            category: 'film_review',
+            options: [
+              {
+                id: 'd_us_o_them',
+                title: 'D rows are Falcons defense, O rows are opponent offense',
+                description: 'Build this as a Falcons defensive self-scout.',
+                formatTag: 'CHOICE',
+                icon: 'choice',
+              },
+            ],
+          },
+        },
+      },
+      operationId: 'op-film-ownership',
+      threadId: 'thread-film-ownership',
+    });
+
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('output-selection');
+    expect(card?.title).toBe('How is this film breakdown keyed to the Falcons?');
+  });
+
+  it('renders plain ask_user prompts with the same structured card family via a text step', () => {
+    const card = buildInlineYieldCard({
+      yieldPayload: {
+        reason: 'needs_input',
+        promptToUser: 'Which opponent should I build this for?',
+        agentId: 'primary',
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: 'tool-call-plain-ask-user',
+          toolInput: {
+            question: 'Which opponent should I build this for?',
+            prompt: 'Which opponent should I build this for?',
+            steps: [
+              {
+                id: 'response',
+                prompt: 'Which opponent should I build this for?',
+                inputMode: 'text',
+                allowCustomOption: true,
+                customPlaceholder: 'Type your answer...',
+              },
+            ],
+          },
+        },
+      },
+      operationId: 'op-plain-ask-user',
+      threadId: 'thread-plain-ask-user',
+    });
+
+    expect(card).not.toBeNull();
+    expect(card?.type).toBe('output-selection');
+    expect(card?.title).toBe('Which opponent should I build this for?');
+    expect(card?.payload.steps).toEqual([
+      expect.objectContaining({
+        id: 'response',
+        prompt: 'Which opponent should I build this for?',
+        inputMode: 'text',
+        allowCustomOption: true,
+        customPlaceholder: 'Type your answer...',
+      }),
+    ]);
+  });
+});

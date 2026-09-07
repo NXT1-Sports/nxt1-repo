@@ -54,6 +54,21 @@ export function getLocalChromiumLaunchArgs(
 const MAX_HTML_BYTES = 1_500_000;
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 
+export function resolveE2bHtmlPdfTemplateRef(
+  templateEnv = process.env['E2B_HTML_PDF_TEMPLATE']
+): string {
+  const raw = templateEnv?.trim();
+  if (!raw) return 'nxt1-html-pdf-renderer:production';
+
+  // E2B treats an untagged template ref as tag "default", but our build
+  // pipeline publishes stable tags like production/latest instead.
+  const lastSlash = raw.lastIndexOf('/');
+  const lastColon = raw.lastIndexOf(':');
+  const hasExplicitTag = lastColon > lastSlash;
+
+  return hasExplicitTag ? raw : `${raw}:production`;
+}
+
 export class HtmlPdfRendererService {
   constructor(private readonly runner: HtmlPdfRunner = new E2bHtmlPdfRunner()) {}
 
@@ -132,7 +147,7 @@ export class HtmlPdfRendererService {
 
 class E2bHtmlPdfRunner implements HtmlPdfRunner {
   async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const template = process.env['E2B_HTML_PDF_TEMPLATE']?.trim() || 'nxt1-html-pdf-renderer';
+    const template = resolveE2bHtmlPdfTemplateRef();
     const moduleLoader = new Function('specifier', 'return import(specifier)') as (
       specifier: string
     ) => Promise<{ Sandbox: { create: (...args: unknown[]) => Promise<E2bSandboxLike> } }>;

@@ -529,6 +529,33 @@ class FakeExtractLiveViewMediaTool extends BaseTool {
   }
 }
 
+class FakeOpenLiveViewTool extends BaseTool {
+  readonly name = 'open_live_view';
+  readonly description = 'Opens a live browser session.';
+  readonly parameters = z.object({
+    url: z.string().min(1),
+    platformKey: z.string().optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['*'] as const;
+
+  calls: Array<Record<string, unknown>> = [];
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    this.calls.push(input);
+    return {
+      success: true,
+      data: {
+        sessionId: 'live-session-1',
+        autoOpenPanel: true,
+        url: input['url'],
+      },
+    };
+  }
+}
+
 class FakeSearchCollegeCoachesTool extends BaseTool {
   readonly name = 'search_college_coaches';
   readonly description = 'Looks up coaching staff for a school.';
@@ -1070,6 +1097,100 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(result.summary).not.toContain('user-123');
     expect(result.summary).not.toContain('team-789');
+  });
+
+  it('does not expose mutating system artifact tools in plan mode', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Plan only.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.execute(
+      'Plan an editable deck.',
+      { ...createMockContext(), executionMode: 'plan' },
+      [
+        {
+          name: 'render_editable_pptx',
+          description: 'Render editable PPTX',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['*'],
+          isMutation: true,
+          category: 'system',
+          entityGroup: 'user_tools',
+        },
+      ],
+      llm as never,
+      registry
+    );
+
+    expect(llm.complete).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.not.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: 'render_editable_pptx' }),
+          }),
+        ]),
+      })
+    );
+  });
+
+  it('uses resolver-approved tool schemas during resume execution', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Ready to continue.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.resumeExecution(
+      {
+        reason: 'needs_input',
+        promptToUser: 'What should the graphic say?',
+        messages: [{ role: 'user', content: 'Create a game day graphic.' }],
+      },
+      createMockContext(),
+      [
+        {
+          name: 'generate_graphic',
+          description: 'Generate a graphic',
+          parameters: { type: 'object', properties: {}, additionalProperties: false },
+          allowedAgents: ['brand_coordinator'],
+          isMutation: true,
+          category: 'media',
+          entityGroup: 'user_tools',
+        },
+      ],
+      llm as never,
+      registry
+    );
+
+    expect(llm.complete).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({
+            function: expect.objectContaining({ name: 'generate_graphic' }),
+          }),
+        ]),
+      })
+    );
   });
 
   it('sanitizes streamed tool args, tool results, and final output', async () => {
@@ -2073,7 +2194,7 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('reroutes open_live_view on signed document URLs to parse_document before router denial', async () => {
+  it('reroutes open_live_view on signed document URLs to parse_document before browser opening', async () => {
     const agent = new FakeRouterAgent();
     const registry = new ToolRegistry();
     const parseTool = new FakeParseDocumentTool();
@@ -2105,6 +2226,46 @@ describe('BaseAgent identifier scrubbing', () => {
         success: true,
         data: expect.objectContaining({
           source: 'firecrawl',
+        }),
+      })
+    );
+  });
+
+  it('allows router to open live view directly for pure browser-open requests', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    const openLiveViewTool = new FakeOpenLiveViewTool();
+    registry.register(openLiveViewTool);
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'open_live_view_router_1',
+        type: 'function',
+        function: {
+          name: 'open_live_view',
+          arguments: JSON.stringify({
+            url: 'https://hudl.com/team/nxt1seedteam',
+            platformKey: 'hudl',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['open_live_view'] }
+    );
+
+    expect(openLiveViewTool.calls).toEqual([
+      {
+        url: 'https://hudl.com/team/nxt1seedteam',
+        platformKey: 'hudl',
+      },
+    ]);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          autoOpenPanel: true,
+          url: 'https://hudl.com/team/nxt1seedteam',
         }),
       })
     );
@@ -4392,6 +4553,500 @@ describe('BaseAgent identifier scrubbing', () => {
           },
         },
       })
+    );
+  });
+
+  it('injects selected film context into resumed LLM messages', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Continuing with the selected film.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+
+    await agent.resumeExecution(
+      {
+        reason: 'needs_input',
+        promptToUser: 'Confirm film report setup',
+        messages: [{ role: 'user', content: 'Analyze this breakdown.' }],
+      },
+      {
+        ...createMockContext(),
+        selectedContexts: [
+          {
+            id: 'film_play:film_review:b069f6aba0813548201093d226f2e25110470e1:bundle',
+            kind: 'film_play',
+            title: 'NXT1 Full Game (Wk 2) (50 selected film plays)',
+            summary: 'From NXT1 Full Game (Wk 2).',
+            source: {
+              type: 'film_review',
+              id: 'b069f6aba0813548201093d226f2e25110470e1',
+              label: 'NXT1 Full Game (Wk 2)',
+            },
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const messages = vi.mocked(llm.complete).mock.calls[0]?.[0] as readonly LLMMessage[];
+    const guard = messages.find(
+      (message) =>
+        message.role === 'system' &&
+        typeof message.content === 'string' &&
+        message.content.includes('RESUME CONTEXT GUARD')
+    );
+
+    expect(guard?.content).toContain('NXT1 Full Game (Wk 2)');
+    expect(guard?.content).toContain('b069f6aba0813548201093d226f2e25110470e1');
+    expect(guard?.content).toContain('do not ask which film');
+  });
+});
+
+describe('ambiguous film ownership gate', () => {
+  class FakeGetFilmReviewTool extends BaseTool {
+    readonly name = 'get_film_review';
+    readonly description = 'Loads a film review.';
+    readonly parameters = z.object({ filmReviewId: z.string() });
+    readonly isMutation = false;
+    readonly category = 'database' as const;
+    readonly entityGroup = 'user_tools' as const;
+    override readonly allowedAgents = ['performance_coordinator'] as const;
+
+    async execute(): Promise<ToolResult> {
+      return {
+        success: true,
+        data: {
+          title: 'NXT1 Full Game (Wk 2)',
+          ownershipSummary: {
+            requiredClarifications: ['Which team is this ODK keyed to?'],
+            confidenceCounts: { verified: 5, inferred: 6, ambiguous: 39 },
+          },
+        },
+      };
+    }
+  }
+
+  class FakeAnalyzeImageTool extends BaseTool {
+    readonly name = 'analyze_image';
+    readonly description = 'Analyzes an image.';
+    readonly parameters = z.object({ imageUrl: z.string() });
+    readonly isMutation = false;
+    readonly category = 'media' as const;
+    readonly entityGroup = 'user_tools' as const;
+    override readonly allowedAgents = ['performance_coordinator'] as const;
+
+    async execute(): Promise<ToolResult> {
+      return { success: true, data: { summary: 'jerseys visible' } };
+    }
+  }
+
+  class FakeFilmReviewSandboxTool extends BaseTool {
+    readonly name = 'execute_sandbox_script';
+    readonly description = 'Analyzes film-review data.';
+    readonly parameters = z.object({ dataSources: z.array(z.unknown()) });
+    readonly isMutation = false;
+    readonly category = 'system' as const;
+    readonly entityGroup = 'user_tools' as const;
+    override readonly allowedAgents = ['performance_coordinator'] as const;
+
+    async execute(): Promise<ToolResult> {
+      return {
+        success: true,
+        data: {
+          ownershipSummary: {
+            requiredClarifications: ['Which team is this ODK keyed to?'],
+            confidenceCounts: { verified: 5, inferred: 6, ambiguous: 39 },
+          },
+        },
+      };
+    }
+  }
+
+  const filmOwnershipToolDefinitions: AgentToolDefinition[] = [
+    {
+      name: 'get_film_review',
+      description: 'Loads a film review.',
+      parameters: { type: 'object', properties: { filmReviewId: { type: 'string' } } },
+      allowedAgents: ['performance_coordinator'],
+      isMutation: false,
+      category: 'database',
+      entityGroup: 'user_tools',
+    },
+    {
+      name: 'analyze_image',
+      description: 'Analyzes an image.',
+      parameters: { type: 'object', properties: { imageUrl: { type: 'string' } } },
+      allowedAgents: ['performance_coordinator'],
+      isMutation: false,
+      category: 'media',
+      entityGroup: 'user_tools',
+    },
+    {
+      name: 'execute_sandbox_script',
+      description: 'Analyzes film-review data.',
+      parameters: { type: 'object', properties: { dataSources: { type: 'array' } } },
+      allowedAgents: ['performance_coordinator'],
+      isMutation: false,
+      category: 'system',
+      entityGroup: 'user_tools',
+    },
+    {
+      name: 'ask_user',
+      description: 'Ask the user a clarifying question.',
+      parameters: { type: 'object', properties: { question: { type: 'string' } } },
+      allowedAgents: ['*'],
+      isMutation: false,
+      category: 'system',
+      entityGroup: 'user_tools',
+    },
+  ];
+
+  it('restricts tool schemas to ask_user after an ambiguous ownership signal on an ownership-sensitive request', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGetFilmReviewTool());
+    registry.register(new FakeAnalyzeImageTool());
+    registry.register(new AskUserTool());
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'get_film_review', arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'Which team is the ODK keyed to?',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    await agent.execute(
+      'Break down this film and build a full scouting report',
+      createMockContext(),
+      filmOwnershipToolDefinitions,
+      llm as never,
+      registry
+    );
+
+    expect(llm.complete).toHaveBeenCalledTimes(2);
+
+    const firstCallOptions = vi.mocked(llm.complete).mock.calls[0]?.[1] as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    const secondCallOptions = vi.mocked(llm.complete).mock.calls[1]?.[1] as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+
+    const firstToolNames = (firstCallOptions.tools ?? []).map((tool) => tool.function.name);
+    const secondToolNames = (secondCallOptions.tools ?? []).map((tool) => tool.function.name);
+
+    expect(firstToolNames).toEqual(
+      expect.arrayContaining(['get_film_review', 'analyze_image', 'ask_user'])
+    );
+    expect(secondToolNames).toEqual(['ask_user']);
+  });
+
+  it('runs one film ownership hard-stop read before sibling tools in the same model turn', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    const getFilmReview = new FakeGetFilmReviewTool();
+    const sandbox = new FakeFilmReviewSandboxTool();
+    const getFilmReviewSpy = vi.spyOn(getFilmReview, 'execute');
+    const sandboxSpy = vi.spyOn(sandbox, 'execute');
+    registry.register(getFilmReview);
+    registry.register(sandbox);
+    registry.register(new AskUserTool());
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_sandbox',
+              type: 'function',
+              function: {
+                name: 'execute_sandbox_script',
+                arguments: JSON.stringify({
+                  dataSources: [{ sourceType: 'film_review', alias: 'review', filmReviewId: 'fr_1' }],
+                }),
+              },
+            },
+            {
+              id: 'call_get_review',
+              type: 'function',
+              function: { name: 'get_film_review', arguments: '{"filmReviewId":"fr_1"}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'Which team is the ODK keyed to?',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    await agent.execute(
+      'Analyze this breakdown and identify the biggest trends and tendencies.',
+      createMockContext(),
+      filmOwnershipToolDefinitions,
+      llm as never,
+      registry
+    );
+
+    expect(sandboxSpy).toHaveBeenCalledTimes(1);
+    expect(getFilmReviewSpy).not.toHaveBeenCalled();
+
+    const firstCallMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as readonly LLMMessage[];
+    const firstAssistantToolTurn = firstCallMessages.find(
+      (message) => message.role === 'assistant' && message.tool_calls?.length
+    );
+    expect(firstAssistantToolTurn?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual([
+      'execute_sandbox_script',
+    ]);
+
+    const secondCallOptions = vi.mocked(llm.complete).mock.calls[1]?.[1] as {
+      tools?: Array<{ function: { name: string } }>;
+      toolChoice?: { type: string; function: { name: string } };
+    };
+    expect((secondCallOptions.tools ?? []).map((tool) => tool.function.name)).toEqual(['ask_user']);
+    expect(secondCallOptions.toolChoice).toEqual({
+      type: 'function',
+      function: { name: 'ask_user' },
+    });
+  });
+
+  it('forces the ask_user tool call so the model cannot answer with prose instead', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGetFilmReviewTool());
+    registry.register(new FakeAnalyzeImageTool());
+    registry.register(new AskUserTool());
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'get_film_review', arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'Which team is the ODK keyed to?',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    await agent.execute(
+      'Break down this film and build a full scouting report',
+      createMockContext(),
+      filmOwnershipToolDefinitions,
+      llm as never,
+      registry
+    );
+
+    const secondCallOptions = vi.mocked(llm.complete).mock.calls[1]?.[1] as {
+      toolChoice?: { type: string; function: { name: string } };
+    };
+
+    expect(secondCallOptions.toolChoice).toEqual({
+      type: 'function',
+      function: { name: 'ask_user' },
+    });
+
+    const secondCallMessages = vi.mocked(llm.complete).mock.calls[1]?.[0] as readonly LLMMessage[];
+    const forcedInstruction = secondCallMessages.find(
+      (message) =>
+        message.role === 'system' &&
+        typeof message.content === 'string' &&
+        message.content.includes('RUNTIME GUARD: Ambiguous film ownership')
+    );
+
+    expect(forcedInstruction?.content).toContain('must use steps');
+    expect(forcedInstruction?.content).toContain('report perspective');
+    expect(forcedInstruction?.content).toContain('multi_select delivery/output');
+    expect(forcedInstruction?.content).toContain('Gamma PDF');
+  });
+
+  it('does not re-arm the gate after the user already answered a clarification', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGetFilmReviewTool());
+    registry.register(new FakeAnalyzeImageTool());
+    registry.register(new AskUserTool());
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'get_film_review', arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'Here is the offense-vs-defense breakdown.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    // Prior turn already asked the clarification and the user answered it.
+    const context: AgentSessionContext = {
+      ...createMockContext(),
+      conversationHistory: [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [
+            {
+              id: 'prior_ask',
+              type: 'function',
+              function: { name: 'ask_user', arguments: '{"question":"Confirm ODK ownership"}' },
+            },
+          ],
+        },
+        { role: 'tool', content: '{"success":true}', toolCallId: 'prior_ask' },
+        { role: 'user', content: 'ODK is keyed to our team.' },
+      ] as never,
+    };
+
+    await agent.execute(
+      'Break down this film and build a full scouting report',
+      context,
+      filmOwnershipToolDefinitions,
+      llm as never,
+      registry
+    );
+
+    const secondCallOptions = vi.mocked(llm.complete).mock.calls[1]?.[1] as {
+      tools?: Array<{ function: { name: string } }>;
+      toolChoice?: unknown;
+    };
+    const secondToolNames = (secondCallOptions.tools ?? []).map((tool) => tool.function.name);
+
+    expect(secondToolNames).toEqual(
+      expect.arrayContaining(['get_film_review', 'analyze_image', 'ask_user'])
+    );
+    expect(secondCallOptions.toolChoice).toBeUndefined();
+  });
+
+  it('does not restrict tool schemas when the request is not ownership-sensitive', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGetFilmReviewTool());
+    registry.register(new FakeAnalyzeImageTool());
+    registry.register(new AskUserTool());
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_1',
+              type: 'function',
+              function: { name: 'get_film_review', arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'This review has 100 clips across two angles.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    await agent.execute(
+      'How many clips are in this film review?',
+      createMockContext(),
+      filmOwnershipToolDefinitions,
+      llm as never,
+      registry
+    );
+
+    const secondCallOptions = vi.mocked(llm.complete).mock.calls[1]?.[1] as {
+      tools?: Array<{ function: { name: string } }>;
+    };
+    const secondToolNames = (secondCallOptions.tools ?? []).map((tool) => tool.function.name);
+
+    expect(secondToolNames).toEqual(
+      expect.arrayContaining(['get_film_review', 'analyze_image', 'ask_user'])
     );
   });
 });

@@ -118,6 +118,15 @@ function resolveMultiplier(
   feature: string,
   coordinatorId?: string
 ): { multiplier: number; overrideSource: ChargeCalculation['overrideSource'] } {
+  const dynamicExportFeatureOverride =
+    feature.startsWith('dynamic-export-') && typeof config.featureOverrides[feature] === 'number'
+      ? config.featureOverrides[feature]
+      : undefined;
+
+  if (typeof dynamicExportFeatureOverride === 'number') {
+    return { multiplier: dynamicExportFeatureOverride, overrideSource: 'feature' };
+  }
+
   if (coordinatorId) {
     const coordinatorMultiplier = config.featureOverrides[coordinatorId];
     if (typeof coordinatorMultiplier === 'number') {

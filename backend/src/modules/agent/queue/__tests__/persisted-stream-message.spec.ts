@@ -156,7 +156,7 @@ describe('PersistedAssistantStreamBuilder', () => {
         type: 'tool-steps',
         steps: [
           expect.objectContaining({
-            label: 'Routing to specialist coordinator: Brand & Media Coordinator',
+            label: 'Brand & Media Coordinator',
             status: 'error',
           }),
         ],

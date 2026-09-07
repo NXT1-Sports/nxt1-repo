@@ -129,6 +129,29 @@ export class AgentXOperationChatMessageFacade {
     });
   }
 
+  removeOptimisticUserReply(params: {
+    readonly operationId: string;
+    readonly content: string;
+    readonly messageId?: string;
+  }): void {
+    const content = params.content.trim();
+    const operationId = params.operationId.trim();
+    if (!content || !operationId) return;
+
+    const id = `ask-user-reply:${operationId}:${params.messageId?.trim() || content}`;
+    this.messages.update((previous) =>
+      previous.filter(
+        (message) =>
+          message.id !== id &&
+          !(
+            message.role === 'user' &&
+            message.operationId === operationId &&
+            message.content.trim() === content
+          )
+      )
+    );
+  }
+
   stampLatestUserMessageOperationId(params: {
     readonly operationId: string;
     readonly idempotencyKey?: string;
@@ -901,6 +924,16 @@ export class AgentXOperationChatMessageFacade {
       };
       const typingIndex = messages.findIndex((message) => message.id === 'typing');
       const typingMessage = typingIndex >= 0 ? messages[typingIndex] : undefined;
+      const shouldSuppressAskUserStep =
+        yieldState.reason === 'needs_input' &&
+        yieldState.pendingToolCall?.toolName === 'ask_user' &&
+        !this.isOutputSelectionYieldState(yieldState);
+      const pendingToolCallId = yieldState.pendingToolCall?.toolCallId?.trim() ?? '';
+      const carriedSteps = typingMessage?.steps?.filter((step) => {
+        if (!shouldSuppressAskUserStep) return true;
+        if (pendingToolCallId && step.id === pendingToolCallId) return false;
+        return step.label.trim().toLowerCase() !== 'ask user';
+      });
       const carriedParts = typingMessage?.parts?.filter(
         (part) => part.type !== 'card' || !isActionableApprovalCard(part.card)
       );
@@ -909,7 +942,7 @@ export class AgentXOperationChatMessageFacade {
         !!typingMessage &&
         ((typingMessage.content ?? '').trim().length > 0 ||
           (typingMessage.attachments?.length ?? 0) > 0 ||
-          (typingMessage.steps?.length ?? 0) > 0 ||
+          (carriedSteps?.length ?? 0) > 0 ||
           (carriedParts?.length ?? 0) > 0 ||
           (carriedCards?.length ?? 0) > 0);
 
@@ -935,7 +968,7 @@ export class AgentXOperationChatMessageFacade {
             ...(typingMessage?.attachments?.length
               ? { attachments: typingMessage.attachments }
               : {}),
-            ...(typingMessage?.steps?.length ? { steps: typingMessage.steps } : {}),
+            ...(carriedSteps?.length ? { steps: carriedSteps } : {}),
             ...(carriedCards?.length ? { cards: carriedCards } : {}),
             ...(carriedParts?.length ? { parts: carriedParts } : {}),
           }
@@ -961,6 +994,9 @@ export class AgentXOperationChatMessageFacade {
               : {
                   ...message,
                   id: committedId,
+                  steps: carriedSteps?.length ? carriedSteps : undefined,
+                  cards: carriedCards?.length ? carriedCards : undefined,
+                  parts: carriedParts?.length ? carriedParts : undefined,
                   isTyping: false,
                   semanticPhase: 'assistant_partial' as const,
                 }
@@ -1033,8 +1069,21 @@ export class AgentXOperationChatMessageFacade {
 
       if (existingIndex >= 0) {
         const existing = messages[existingIndex];
+        const syntheticAskUserCard = this.buildAskUserCardForYield(yieldState, operationId);
         const preservedYieldCards = [...yieldOnlyCards(existing), ...yieldOnlyCards(typingMessage)];
         const preservedYieldParts = [...yieldOnlyParts(existing), ...yieldOnlyParts(typingMessage)];
+        const yieldCards =
+          preservedYieldCards.length > 0
+            ? preservedYieldCards
+            : syntheticAskUserCard
+              ? [syntheticAskUserCard]
+              : [];
+        const yieldParts =
+          preservedYieldParts.length > 0
+            ? preservedYieldParts
+            : syntheticAskUserCard
+              ? [{ type: 'card' as const, card: syntheticAskUserCard }]
+              : [];
         const updated: OperationMessage = separatesTypingPayload
           ? {
               ...existing,
@@ -1042,8 +1091,8 @@ export class AgentXOperationChatMessageFacade {
               content: '',
               attachments: undefined,
               steps: undefined,
-              ...(preservedYieldCards.length > 0 ? { cards: preservedYieldCards } : { cards: [] }),
-              ...(preservedYieldParts.length > 0 ? { parts: preservedYieldParts } : { parts: [] }),
+              ...(yieldCards.length > 0 ? { cards: yieldCards } : { cards: [] }),
+              ...(yieldParts.length > 0 ? { parts: yieldParts } : { parts: [] }),
               yieldState,
               operationId: operationId || existing.operationId,
               yieldCardState: existing.yieldCardState ?? 'idle',
@@ -1096,6 +1145,7 @@ export class AgentXOperationChatMessageFacade {
         );
       }
 
+      const syntheticAskUserCard = this.buildAskUserCardForYield(yieldState, operationId);
       const yieldMessage: OperationMessage = separatesTypingPayload
         ? {
             // Yield bubble carries only the interactive affordance. The streamed
@@ -1108,6 +1158,8 @@ export class AgentXOperationChatMessageFacade {
             operationId,
             yieldState,
             yieldCardState: 'idle',
+            ...(syntheticAskUserCard ? { cards: [syntheticAskUserCard] } : {}),
+            ...(syntheticAskUserCard ? { parts: [{ type: 'card', card: syntheticAskUserCard }] } : {}),
           }
         : {
             id: messageId,
@@ -1519,6 +1571,46 @@ export class AgentXOperationChatMessageFacade {
     if (trimmedFallback) return trimmedFallback;
     const host = this.host;
     return host?.contextId() ?? '';
+  }
+
+  private isOutputSelectionYieldState(yieldState: AgentYieldState): boolean {
+    const pendingToolCall = yieldState.pendingToolCall;
+    return (
+      yieldState.reason === 'needs_input' &&
+      (pendingToolCall?.toolName === 'ask_user' ||
+        pendingToolCall?.toolName === 'prompt_output_selection') &&
+      (Array.isArray(pendingToolCall.toolInput?.['options']) ||
+        Array.isArray(pendingToolCall.toolInput?.['steps']))
+    );
+  }
+
+  private buildAskUserCardForYield(
+    yieldState: AgentYieldState,
+    operationId: string
+  ): AgentXRichCard | null {
+    if (yieldState.reason !== 'needs_input') return null;
+    if (this.isOutputSelectionYieldState(yieldState)) return null;
+    if (yieldState.pendingToolCall?.toolName === 'execute_saved_plan') return null;
+
+    const toolInput = yieldState.pendingToolCall?.toolInput ?? {};
+    const question =
+      typeof toolInput['question'] === 'string' && toolInput['question'].trim().length > 0
+        ? toolInput['question'].trim()
+        : yieldState.promptToUser.trim();
+    if (!question) return null;
+
+    const context = typeof toolInput['context'] === 'string' ? toolInput['context'].trim() : '';
+
+    return {
+      type: 'ask_user',
+      agentId: yieldState.agentId,
+      title: 'Requesting your input',
+      payload: {
+        question,
+        ...(context ? { context } : {}),
+        operationId,
+      },
+    };
   }
 
   private yieldIdentityKey(yieldState: AgentYieldState | undefined | null): string {

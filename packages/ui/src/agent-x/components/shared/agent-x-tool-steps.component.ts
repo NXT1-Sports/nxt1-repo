@@ -14,6 +14,7 @@ import type { AgentXToolStep } from '@nxt1/core/ai';
 import {
   getToolStepContextLabel,
   getToolStepsSummaryLabel,
+  normalizeToolStepLabel,
   normalizeToolStepIcon,
 } from '../../types/agent-x-agent-presentation';
 
@@ -612,7 +613,7 @@ export class AgentXToolStepsComponent {
   }
 
   protected displayLabel(step: AgentXToolStep): string {
-    return step.label;
+    return normalizeToolStepLabel(step);
   }
 
   protected resolvedIcon(step: AgentXToolStep): string {

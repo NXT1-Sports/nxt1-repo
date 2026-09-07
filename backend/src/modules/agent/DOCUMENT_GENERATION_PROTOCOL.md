@@ -74,7 +74,8 @@ Choose the artifact tool based on output shape:
 | Connected native document/table  | Microsoft 365 tools                                                | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs                             |
 | Spreadsheet / workbook export    | `execute_python_code`                                              | Explicit XLSX files, trackers, matrices, budgets, dashboards, formula workbooks, editable sheets |
 | Exact-layout PDF from HTML/CSS   | `render_html_pdf`                                                  | Sample-matched PDFs, one-page staff sheets, callsheets, wristbands, depth charts, sideline cards |
-| Gamma-style report / slide deck  | `dynamic_export`                                                   | Presentation decks, multi-page narrative reports, scout-card packets, briefing decks             |
+| Editable PowerPoint deck         | `render_editable_pptx`                                             | Custom/manual PPTX, revision-friendly staff decks, native object slide layouts                    |
+| Gamma-style report / slide deck  | `dynamic_export`                                                   | Quick AI-styled draft decks, multi-page narrative reports, scout-card packets, briefing decks     |
 | Fallback document / table export | `dynamic_export`                                                   | Fallback PDF/XLSX/CSV export when no better dedicated path fits                                  |
 | Data visualization / chart       | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps                      |
 | Play / drill / tactical diagram  | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                                         |
@@ -86,11 +87,13 @@ presentation, use the Microsoft workspace tool surface first so the artifact
 lives in Word, Excel, or PowerPoint instead of only as a generic export.
 
 **Downloadable presentation fallback:** When the user wants a downloadable deck
-that should be persisted back into Team Files, use `dynamic_export` with
-`format="pptx"`. This follows the same artifact persistence flow as PDF/XLSX:
-create or update the Team Files document first when possible, then pass
-`relatedDocumentId` into `dynamic_export` so the generated presentation attaches
-back to the saved record.
+that should be persisted back into Team Files, use `render_editable_pptx` for
+custom/manual decks that need native editable PowerPoint objects and a saved
+source schema. Use `dynamic_export` with `format="pptx"` for quick Gamma-styled
+draft decks. Both flows follow the same artifact persistence pattern as
+PDF/XLSX: create or update the Team Files document first when possible, then
+pass `relatedDocumentId` so the generated presentation attaches back to the
+saved record.
 
 **Exact PDF rule:** When the user asks to match a sample image, screenshot,
 paper form, staff sheet, or reference layout exactly, use `render_html_pdf` with
@@ -104,11 +107,19 @@ the user explicitly asks for spreadsheet/workbook output.
 **Routing order (mandatory):**
 
 1. User-facing printable/share-ready PDFs first -> `render_html_pdf`
-2. Presentation decks and Gamma-style reports -> `dynamic_export`
-3. Editable spreadsheets/workbooks only when explicitly requested ->
+2. Custom/manual editable PowerPoint decks -> `render_editable_pptx`
+3. Quick Gamma-style presentation drafts and reports -> `dynamic_export`
+4. Editable spreadsheets/workbooks only when explicitly requested ->
    `execute_python_code`
-4. `dynamic_export` is the last fallback for PDF/XLSX when the dedicated path
+5. `dynamic_export` is the last fallback for PDF/XLSX when the dedicated path
    above is not the right fit or is unavailable
+
+`render_editable_pptx` persists two artifacts: the final `.pptx` export and a
+sibling editable `.json` source schema. Generated text, labels, paragraphs, stat
+cards, badges, dividers, table cells, and shapes should be native PowerPoint
+objects; logos, photos, and chart snapshots may be image objects but must remain
+separate moveable/resizable image elements. When the user later asks to revise
+the deck, reuse the saved source schema before rerendering.
 
 `render_html_pdf` persists two artifacts: the final PDF export and a sibling
 editable HTML source artifact with inline CSS. When the user later asks to

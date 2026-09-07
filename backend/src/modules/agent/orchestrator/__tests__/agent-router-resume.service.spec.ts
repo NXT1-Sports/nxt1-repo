@@ -101,6 +101,16 @@ describe('AgentRouterResumeService', () => {
     expect(agent.resumeExecution).not.toHaveBeenCalled();
   });
 
+
+  const selectedFilmContext = [
+    {
+      id: 'film-week-2',
+      title: 'NXT1 Full Game (Wk 2)',
+      kind: 'film_review',
+      source: { type: 'film_review', id: 'b069f6aba08135482001093d226f2e2510470e1' },
+      metadata: { filmReviewId: 'b069f6aba08135482001093d226f2e2510470e1' },
+    },
+  ];
   it('continues into agent.resumeExecution when persisted status is not cancelled', async () => {
     const service = new AgentRouterResumeService(
       llm,
@@ -141,6 +151,44 @@ describe('AgentRouterResumeService', () => {
     expect(toolRegistry.getDefinitions).toHaveBeenCalled();
     expect(toolRegistry.match).toHaveBeenCalled();
     expect(result.summary).toBe('Resumed successfully');
+  });
+
+  it('recovers selected film context from yield state when resume job context omits it', async () => {
+    const service = new AgentRouterResumeService(
+      llm,
+      toolRegistry,
+      contextBuilder,
+      routerContext,
+      telemetry,
+      buildToolAccessContext
+    );
+
+    const agent = makeAgent();
+    await service.runResumed({
+      job: makeJob(),
+      yieldState: { ...makeYieldState(), selectedContexts: selectedFilmContext } as never,
+      planner,
+      agents: new Map([['recruiting_coordinator', agent]]),
+      firestore: makeFirestore('awaiting_input'),
+    });
+
+    expect(routerContext.buildSessionContext).toHaveBeenCalledWith(
+      'user-1',
+      undefined,
+      'op-1',
+      'thread-1',
+      'production',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'plan',
+      undefined,
+      undefined,
+      undefined,
+      selectedFilmContext
+    );
   });
 
   it('resumes router yields through Primary with per-run dispatch state', async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   InternalProtocolStreamSanitizer,
   containsInternalProtocolMarkup,
+  parseInternalProtocolToolCalls,
   sanitizeAgentOutputText,
   sanitizeAgentPayload,
 } from '../utils/platform-identifier-sanitizer.js';
@@ -188,6 +189,60 @@ describe('platform identifier sanitizer', () => {
       expect(output).toContain('Clean summary after the tool block.');
       expect(output).not.toContain('<｜DSML｜');
       expect(output).not.toContain('dynamic_export');
+    });
+
+    it('recovers a tool call that the model emitted as markup instead of dropping it', () => {
+      const sanitizer = new InternalProtocolStreamSanitizer();
+      const chunks = [
+        'Which team is the ODK keyed to? ',
+        '<｜DSML｜tool_calls>\n<｜DSML｜invoke name="ask_user">',
+        '\n<｜DSML｜parameter name="question" string="true">Confirm ODK ownership</｜DSML｜parameter>',
+      ];
+
+      chunks.forEach((chunk) => sanitizer.push(chunk));
+      sanitizer.flush();
+
+      const recovered = parseInternalProtocolToolCalls(sanitizer.getDroppedProtocolText());
+
+      expect(recovered).toHaveLength(1);
+      expect(recovered[0]?.name).toBe('ask_user');
+      expect(recovered[0]?.args['question']).toBe('Confirm ODK ownership');
+    });
+
+    it('parses non-string markup parameters as structured JSON', () => {
+      const recovered = parseInternalProtocolToolCalls(
+        '<｜DSML｜invoke name="dynamic_export">\n<｜DSML｜parameter name="sections" string="false">[{"title":"Plan"}]</｜DSML｜parameter>'
+      );
+
+      expect(recovered[0]?.name).toBe('dynamic_export');
+      expect(recovered[0]?.args['sections']).toEqual([{ title: 'Plan' }]);
+    });
+
+    it('returns no recovered calls for ordinary prose', () => {
+      expect(parseInternalProtocolToolCalls('Your PDF is ready.')).toEqual([]);
+    });
+
+    it('strips leaked encoded DSML tags and operational helper labels from visible text', () => {
+      const dirty =
+        '&lt;/｜DSML｜invoke&gt;Requesting your input: ODK: O=Falcons offense or D=Falcons defense?Performance CoordinatorODK: O=Falcons offense or D=Falcons defense?';
+
+      const sanitized = sanitizeAgentOutputText(dirty);
+
+      expect(sanitized).not.toContain('DSML');
+      expect(sanitized).not.toContain('Requesting your input:');
+      expect(sanitized).not.toContain('Performance CoordinatorODK');
+    });
+
+    it('strips dangling raw DSML closing tags from ask_user prose', () => {
+      const dirty =
+        'Is this breakdown from our perspective or the opponent?\n\n</｜DSML｜invoke>\n\nRequesting your input';
+
+      const sanitized = sanitizeAgentOutputText(dirty);
+
+      expect(sanitized).toContain('Is this breakdown from our perspective or the opponent?');
+      expect(sanitized).not.toContain('DSML');
+      expect(sanitized).not.toContain('invoke');
+      expect(sanitized).not.toContain('Requesting your input');
     });
   });
 });

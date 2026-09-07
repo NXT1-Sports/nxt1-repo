@@ -9,6 +9,7 @@ import type { PrimaryDispatcher } from '../primary-dispatcher.js';
 import type { CapabilityRegistry } from '../../capabilities/capability-registry.js';
 import { PrimaryAgent } from '../primary.agent.js';
 import type { ToolSessionContext } from '../base.agent.js';
+import { AskUserTool } from '../../tools/system/ask-user.tool.js';
 import { DelegateToCoordinatorTool } from '../../tools/system/delegate-to-coordinator.tool.js';
 import { CreatePlanTool } from '../../tools/system/create-plan.tool.js';
 import { ExecuteSavedPlanTool } from '../../tools/system/execute-saved-plan.tool.js';
@@ -120,6 +121,36 @@ class StubSendEmailTool extends BaseTool {
   }
 }
 
+class StubGenerateGraphicTool extends BaseTool {
+  readonly name = 'generate_graphic';
+  readonly description = 'Generate a single sports graphic';
+  readonly parameters = z.object({
+    prompt: z.string().min(1),
+  });
+  readonly isMutation = true;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['brand_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true, data: { imageUrl: 'https://cdn.example.com/graphic.png' } };
+  }
+}
+
+class StubSystemMutationTool extends BaseTool {
+  readonly name = 'render_editable_pptx';
+  readonly description = 'Render an editable PPTX artifact';
+  readonly parameters = z.object({});
+  readonly isMutation = true;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['*'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true, data: { exportUrl: 'https://cdn.example.com/deck.pptx' } };
+  }
+}
+
 class StubListTeamFileFoldersTool extends BaseTool {
   readonly name = 'list_team_file_folders';
   readonly description = 'List team file folders';
@@ -201,6 +232,26 @@ class StubUpdateUniversalTeamDocumentTool extends BaseTool {
   }
 }
 
+class StubGetFilmReviewTool extends BaseTool {
+  readonly name = 'get_film_review';
+  readonly description = 'Get a film review';
+  readonly parameters = z.object({ filmReviewId: z.string() });
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'user_tools' as const;
+
+  async execute(args: z.infer<typeof this.parameters>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        title: 'NXT1 Full Game (Wk 2)',
+        filmReviewId: args.filmReviewId,
+        timeline: [{ id: 'play-1', tags: { odk: 'D' } }],
+      },
+    };
+  }
+}
+
 describe('PrimaryAgent delegation control flow', () => {
   it('hides blocked email send tools from the primary tool surface', () => {
     const registry = new ConcreteToolRegistry();
@@ -253,6 +304,285 @@ describe('PrimaryAgent delegation control flow', () => {
     });
 
     expect(definitions.some((definition) => definition.name === 'save_memory')).toBe(true);
+  });
+
+  it('narrows the primary dynamic tool surface to matched tools plus always-available tools', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+    registry.register(new StubListUniversalTeamDocumentsTool());
+
+    const fullDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'coach',
+      allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+    });
+    const matchedTool = fullDefinitions.find(
+      (definition) => definition.name === 'list_team_file_folders'
+    );
+
+    expect(matchedTool).toBeDefined();
+
+    const narrowedDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+    const toolNames = narrowedDefinitions.map((definition) => definition.name);
+
+    expect(toolNames).toContain('list_team_file_folders');
+    expect(toolNames).not.toContain('list_universal_team_documents');
+  });
+
+  it('keeps ask_user on the primary surface when semantic narrowing is active', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+    registry.register(new AskUserTool());
+
+    const fullDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'coach',
+      allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+    });
+    const matchedTool = fullDefinitions.find(
+      (definition) => definition.name === 'list_team_file_folders'
+    );
+
+    const narrowedDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    // Without this, Primary must delegate to a coordinator just to ask a question.
+    expect(narrowedDefinitions.map((definition) => definition.name)).toContain('ask_user');
+  });
+
+  it('keeps execute_sandbox_script on the primary surface when semantic narrowing is active', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+    registry.register({
+      name: 'execute_sandbox_script',
+      description: 'Analyze deterministic data in a sandbox.',
+      parameters: z.object({}),
+      isMutation: false,
+      category: 'system' as const,
+      entityGroup: 'user_tools' as const,
+      allowedAgents: ['*'] as const,
+      execute: async () => ({ success: true, data: { ok: true } }),
+    } as unknown as BaseTool);
+
+    const fullDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'coach',
+      allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+    });
+    const matchedTool = fullDefinitions.find(
+      (definition) => definition.name === 'list_team_file_folders'
+    );
+
+    const narrowedDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    expect(narrowedDefinitions.map((definition) => definition.name)).toContain(
+      'execute_sandbox_script'
+    );
+  });
+
+  it('keeps core film review read/query tools on the primary surface when semantic narrowing is active', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubListTeamFileFoldersTool());
+    registry.register(new StubGetFilmReviewTool());
+    registry.register({
+      name: 'get_film_review_source_breakdown',
+      description: 'Get source breakdown rows',
+      parameters: z.object({ filmReviewId: z.string(), sourceId: z.string() }),
+      isMutation: false,
+      category: 'database' as const,
+      entityGroup: 'user_tools' as const,
+      allowedAgents: ['*'] as const,
+      execute: async () => ({ success: true, data: { timeline: [] } }),
+    } as unknown as BaseTool);
+    registry.register({
+      name: 'search_film_review_breakdown_rows',
+      description: 'Search film review breakdown rows',
+      parameters: z.object({ filmReviewId: z.string() }),
+      isMutation: false,
+      category: 'database' as const,
+      entityGroup: 'user_tools' as const,
+      allowedAgents: ['*'] as const,
+      execute: async () => ({ success: true, data: { rows: [] } }),
+    } as unknown as BaseTool);
+
+    const fullDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'coach',
+      allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+    });
+    const matchedTool = fullDefinitions.find(
+      (definition) => definition.name === 'list_team_file_folders'
+    );
+
+    const narrowedDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    const names = narrowedDefinitions.map((definition) => definition.name);
+    expect(names).toContain('get_film_review');
+    expect(names).toContain('get_film_review_source_breakdown');
+    expect(names).toContain('search_film_review_breakdown_rows');
+  });
+
+  it('filters matched mutation tools from the primary surface in plan mode', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubSendEmailTool());
+
+    const executeDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'athlete',
+      allowedEntityGroups: ['system_tools'],
+    });
+    const matchedTool = executeDefinitions.find((definition) => definition.name === 'send_email');
+
+    expect(matchedTool).toBeDefined();
+
+    const planDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'athlete',
+        allowedEntityGroups: ['system_tools'],
+        executionMode: 'plan',
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    expect(planDefinitions.some((definition) => definition.name === 'send_email')).toBe(false);
+  });
+
+  it('filters matched mutating system tools from the primary surface in plan mode', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubSystemMutationTool());
+    const matchedTool = registry
+      .getDefinitions(undefined, {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      })
+      .find((definition) => definition.name === 'render_editable_pptx');
+
+    expect(matchedTool).toBeDefined();
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+        executionMode: 'plan',
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    expect(definitions.map((definition) => definition.name)).not.toContain('render_editable_pptx');
+  });
+
+  it('exposes semantically matched capability-direct tools beyond the static router policy', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubGenerateGraphicTool());
+
+    const matchedTool = registry
+      .getDefinitions(undefined, {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      })
+      .find((definition) => definition.name === 'generate_graphic');
+
+    expect(matchedTool).toBeDefined();
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    expect(definitions.map((definition) => definition.name)).toContain('generate_graphic');
+  });
+
+  it('keeps capability-direct mutation tools out of plan mode', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubGenerateGraphicTool());
+    const matchedTool = registry
+      .getDefinitions(undefined, {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+      })
+      .find((definition) => definition.name === 'generate_graphic');
+
+    expect(matchedTool).toBeDefined();
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(
+      registry,
+      {
+        userId: 'viewer-1',
+        role: 'coach',
+        allowedEntityGroups: ['user_tools', 'platform_tools', 'system_tools'],
+        executionMode: 'plan',
+      },
+      {
+        matchedToolDefinitions: [matchedTool!],
+        maxDynamicToolDefinitions: 15,
+      }
+    );
+
+    expect(definitions.map((definition) => definition.name)).not.toContain('generate_graphic');
   });
 
   it('rejects direct coordinator delegation when the surfaced plan-mode allowlist excludes it', async () => {
@@ -327,11 +657,9 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('Connected-source monitoring ownership');
     expect(prompt).toContain('Router may handle simple read-only monitor lookups directly');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
-    expect(prompt).toContain('Use `delegate_to_coordinator` with `performance_coordinator`');
-    expect(prompt).toContain(
-      'generate chart visualizations when structured chart-worthy metrics are present'
-    );
-    expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
+    expect(prompt).toContain('Delegate to `performance_coordinator` only when deep video vision analysis');
+    expect(prompt).toContain('Graphic generation capability rule');
+    expect(prompt).toContain('call `generate_graphic` directly from the active agent');
     expect(prompt).toContain('External social publishing boundary');
     expect(prompt).toContain('Do NOT promise external publishing');
     expect(prompt).toContain(
@@ -341,6 +669,8 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('Do NOT force a The Lab upload');
     expect(prompt).toContain('connect my Hudl');
     expect(prompt).toContain('route to `data_coordinator` for connected-source handling');
+    expect(prompt).toContain('Pure browser-open exception');
+    expect(prompt).toContain('call `open_live_view` directly from the active agent');
     expect(prompt).toContain('use NXT1 desktop, select the "The Lab" button');
     expect(prompt).toContain('at the top next to Action Plan');
     expect(prompt).toContain('downloaded Hudl export packages, ZIP exports');
@@ -785,6 +1115,70 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-program-game-plan');
   });
 
+  it('preserves compact coordinator read results for parent reuse after delegation', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: { compactMarkdown: 'Capabilities', detailedMarkdown: 'Capabilities' },
+      }),
+    } as unknown as CapabilityRegistry;
+    const coordinatorReadResults = [
+      {
+        toolName: 'get_film_review',
+        input: { filmReviewId: 'film-week-2' },
+        output: {
+          title: 'NXT1 Full Game (Wk 2)',
+          rowCount: 50,
+          sourceCount: 100,
+          ownershipSummary: { confidenceCounts: { ambiguous: 39 } },
+        },
+      },
+    ];
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: 'Coordinator loaded the film review and needs ownership clarification.',
+        coordinatorReadResults,
+      }),
+    });
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-film-week-2',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Analyze this breakdown and identify the biggest trends and tendencies.',
+    });
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'delegate-film-analysis',
+        type: 'function',
+        function: {
+          name: 'delegate_to_coordinator',
+          arguments: JSON.stringify({
+            coordinator: 'strategy_coordinator',
+            goal: 'Analyze this breakdown and identify trends.',
+          }),
+        },
+      },
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-film-week-2' },
+      []
+    );
+
+    expect(JSON.parse(observation)).toMatchObject({
+      success: true,
+      data: { coordinator_read_results: coordinatorReadResults },
+    });
+
+    agent.endRun('op-film-week-2');
+  });
+
   it('preserves artifact-linkage IDs in internal tool records after sanitization', () => {
     const capabilities = {
       current: () => ({
@@ -1132,6 +1526,61 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('Brand coordinator completed the media step.');
 
     agent.endRun('op-brand-media-fallback');
+  });
+
+  it('does not route capability-direct generate_graphic calls through brand fallback', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: 'Brand coordinator should not run.',
+      }),
+    });
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-direct-graphic',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Create one game day graphic.',
+    });
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_generate_graphic',
+        type: 'function',
+        function: {
+          name: 'generate_graphic',
+          arguments: JSON.stringify({ prompt: 'Create one game day graphic.' }),
+        },
+      },
+      new ConcreteToolRegistry(),
+      context.userId,
+      undefined,
+      undefined,
+      {
+        operationId: 'op-direct-graphic',
+        exactAllowedToolNames: ['generate_graphic'],
+        allowedToolNames: ['generate_graphic'],
+      }
+    );
+
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: 'Unknown tool: generate_graphic',
+      })
+    );
+    agent.endRun('op-direct-graphic');
   });
 
   it('emits terminal tool_result before plan_and_execute dispatch finishes', async () => {
@@ -1577,7 +2026,7 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-4');
   });
 
-  it('reroutes direct generate_graphic tool calls to brand_coordinator', async () => {
+  it('does not reroute direct generate_graphic tool calls to brand_coordinator', async () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -1627,25 +2076,23 @@ describe('PrimaryAgent delegation control flow', () => {
       context.userId,
       undefined,
       undefined,
-      { operationId: 'op-5' },
+      {
+        operationId: 'op-5',
+        exactAllowedToolNames: ['generate_graphic'],
+        allowedToolNames: ['generate_graphic'],
+      },
       [],
       undefined,
       undefined
     );
 
-    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
-      'brand_coordinator',
-      expect.stringContaining('creative media processing step'),
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(JSON.parse(observation)).toEqual(
       expect.objectContaining({
-        operationId: 'op-5',
-      }),
-      expect.objectContaining({
-        source: 'router_brand_media_tool_fallback',
-        originalToolName: 'generate_graphic',
-        graphicType: 'commitment',
+        success: false,
+        error: 'Unknown tool: generate_graphic',
       })
     );
-    expect(observation).toContain('brand_coordinator');
 
     agent.endRun('op-5');
   });
@@ -1811,6 +2258,62 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('Duke 3PT Containment Game Plan');
 
     agent.endRun('op-6b');
+  });
+
+  it('executes direct get_film_review tool calls without strategy fallback', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn(),
+    });
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-film-direct-read',
+    };
+
+    agent.beginRun({
+      operationId: 'op-film-direct-read',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Analyze this breakdown and identify the biggest trends and tendencies.',
+    });
+
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubGetFilmReviewTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_direct_get_film_review',
+        type: 'function',
+        function: {
+          name: 'get_film_review',
+          arguments: JSON.stringify({ filmReviewId: 'b069f6aba0813548201093d226f2e2510470e1' }),
+        },
+      },
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-film-direct-read' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).not.toHaveBeenCalled();
+    expect(observation).toContain('NXT1 Full Game (Wk 2)');
+    expect(observation).toContain('b069f6aba0813548201093d226f2e2510470e1');
+
+    agent.endRun('op-film-direct-read');
   });
 
   it('executes direct team file folder lookup tools without strategy fallback', async () => {

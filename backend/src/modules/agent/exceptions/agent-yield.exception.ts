@@ -16,6 +16,7 @@
  */
 
 import type { AgentYieldReason, AgentIdentifier } from '@nxt1/core';
+import type { AgentXSelectedContext } from '@nxt1/core';
 import type { LLMMessage } from '../llm/llm.types.js';
 
 /**
@@ -69,6 +70,8 @@ export interface AgentYieldPayload {
     readonly completedTaskResults: Record<string, unknown>;
     readonly enrichedIntent: string;
   };
+  /** Selected app contexts active when the agent yielded. */
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
 }
 
 /**

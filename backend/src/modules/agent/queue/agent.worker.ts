@@ -611,6 +611,22 @@ function shouldSkipBillingForPersistenceOnlySuccess(successfulTools: readonly st
   );
 }
 
+function resolveSuccessfulToolBillingKey(event: {
+  readonly toolName?: string;
+  readonly toolResult?: Record<string, unknown>;
+}): string | null {
+  if (typeof event.toolName !== 'string' || event.toolName.trim().length === 0) {
+    return null;
+  }
+
+  const billableFeature = event.toolResult?.['billableFeature'];
+  if (typeof billableFeature === 'string' && billableFeature.trim().length > 0) {
+    return billableFeature;
+  }
+
+  return event.toolName;
+}
+
 function addBillingCoordinatorCandidate(
   candidates: Set<BillableCoordinatorId>,
   value: unknown
@@ -933,6 +949,30 @@ function buildGenericApprovalTitle(toolName: string): string {
   if (AUTOMATION_TOOLS.has(toolName)) return 'Review Automation';
   if (toolName.startsWith('write_') || toolName.startsWith('update_')) return 'Review Data Write';
   return 'Approval Required';
+}
+
+function resolveStructuredInputCardTitle(params: {
+  readonly toolName: string;
+  readonly toolInput: Record<string, unknown>;
+  readonly promptToUser: string;
+  readonly options: readonly unknown[];
+}): string {
+  if (params.toolName === 'prompt_output_selection') return 'Choose Output Format';
+
+  const formatOnly =
+    params.options.length > 0 &&
+    params.options.every((option) => {
+      if (!option || typeof option !== 'object' || Array.isArray(option)) return false;
+      const formatTag = (option as Record<string, unknown>)['formatTag'];
+      return typeof formatTag === 'string' && !['CHOICE', 'CUSTOM'].includes(formatTag);
+    });
+  if (formatOnly) return 'Choose Output Format';
+
+  const prompt =
+    typeof params.toolInput['prompt'] === 'string'
+      ? params.toolInput['prompt'].trim()
+      : params.promptToUser.trim();
+  return prompt.length > 0 && prompt.length <= 90 ? prompt : 'Answer Required';
 }
 
 function extractTimelinePostDraft(
@@ -1365,6 +1405,55 @@ export function buildInlineYieldCard(params: {
     };
   }
 
+  // ── Output selection cards ─────────────────────────────────────────────
+  if (
+    reason === 'needs_input' &&
+    pendingToolCall &&
+    (pendingToolCall.toolName === 'ask_user' || pendingToolCall.toolName === 'prompt_output_selection')
+  ) {
+    const toolInput = pendingToolCall.toolInput;
+    const options = Array.isArray(toolInput['options']) ? toolInput['options'] : [];
+    const steps = Array.isArray(toolInput['steps']) ? toolInput['steps'] : [];
+    if (options.length > 0 || steps.length > 0) {
+      return {
+        type: 'output-selection',
+        agentId,
+        title: resolveStructuredInputCardTitle({
+          toolName: pendingToolCall.toolName,
+          toolInput,
+          promptToUser,
+          options,
+        }),
+        payload: {
+          prompt: typeof toolInput['prompt'] === 'string' ? toolInput['prompt'] : promptToUser,
+          ...(typeof toolInput['context'] === 'string' ? { context: toolInput['context'] } : {}),
+          ...(typeof toolInput['category'] === 'string'
+            ? { category: toolInput['category'] as never }
+            : {}),
+          ...(typeof toolInput['multiSelect'] === 'boolean'
+            ? { multiSelect: toolInput['multiSelect'] }
+            : {}),
+          allowCustomOption:
+            typeof toolInput['allowCustomOption'] === 'boolean'
+              ? toolInput['allowCustomOption']
+              : typeof toolInput['allowCustomText'] === 'boolean'
+                ? toolInput['allowCustomText']
+              : true,
+          options: options as never,
+          ...(steps.length > 0 ? { steps: steps as never } : {}),
+          ...(Array.isArray(toolInput['defaultSelectedIds'])
+            ? { defaultSelectedIds: toolInput['defaultSelectedIds'] as never }
+            : {}),
+          ...(typeof toolInput['submitLabel'] === 'string'
+            ? { submitLabel: toolInput['submitLabel'] }
+            : {}),
+          ...(threadId ? { threadId } : {}),
+          operationId,
+        },
+      };
+    }
+  }
+
   // ── Ask-user / paused cards ────────────────────────────────────────────
   if (reason === 'needs_input') {
     // Saved-plan review is handled conversationally: keep the planner card
@@ -1378,7 +1467,7 @@ export function buildInlineYieldCard(params: {
     return {
       type: 'ask_user',
       agentId,
-      title: 'Agent X has a question',
+      title: 'Requesting your input',
       payload: {
         question: promptToUser,
         ...(threadId ? { threadId } : {}),
@@ -2768,8 +2857,11 @@ export class AgentWorker {
       if (event.toolName && (event.type === 'tool_call' || event.type === 'step_active')) {
         invokedTools.push(event.toolName);
       }
-      if (event.toolName && event.type === 'tool_result' && event.toolSuccess !== false) {
-        successfulTools.push(event.toolName);
+      if (event.type === 'tool_result' && event.toolSuccess !== false) {
+        const successfulToolBillingKey = resolveSuccessfulToolBillingKey(event);
+        if (successfulToolBillingKey) {
+          successfulTools.push(successfulToolBillingKey);
+        }
       }
 
       // ── Emit connect-account card when email tool reports no connected provider ─
@@ -3018,6 +3110,7 @@ export class AgentWorker {
           pendingToolCall: yieldPayload.pendingToolCall,
           approvalId: yieldPayload.approvalId,
           planContext: yieldPayload.planContext,
+          selectedContexts: yieldPayload.selectedContexts,
           yieldedAt: now.toISOString(),
           expiresAt: expiresAt.toISOString(),
         };

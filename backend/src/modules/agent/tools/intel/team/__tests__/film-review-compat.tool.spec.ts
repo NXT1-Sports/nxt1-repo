@@ -549,6 +549,28 @@ describe('film review compatibility tools', () => {
     expect(breakdownData.timeline[0]?.id).toBe('play-1');
   });
 
+  it('recovers source breakdown lookup by sourceId when the requested filmReviewId is stale', async () => {
+    const db = createDb([makeFilmReviewFile('review-actual')]);
+    const breakdownTool = new GetFilmReviewSourceBreakdownTool(db as never);
+
+    const breakdownResult = await breakdownTool.execute(
+      { filmReviewId: 'review-stale', sourceId: 'source-1' },
+      { userId: 'coach-1' }
+    );
+
+    expect(breakdownResult.success).toBe(true);
+    const breakdownData = breakdownResult.data as {
+      filmReviewId: string;
+      requestedFilmReviewId: string;
+      recoveredFromSourceId: boolean;
+      timeline: Array<{ id: string }>;
+    };
+    expect(breakdownData.filmReviewId).toBe('review-actual');
+    expect(breakdownData.requestedFilmReviewId).toBe('review-stale');
+    expect(breakdownData.recoveredFromSourceId).toBe(true);
+    expect(breakdownData.timeline[0]?.id).toBe('play-1');
+  });
+
   it('searches all breakdown rows by formation tag and returns matching source IDs', async () => {
     const db = createDb([
       makeFilmReviewFile('review-1', {

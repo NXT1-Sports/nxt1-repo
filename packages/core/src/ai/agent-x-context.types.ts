@@ -199,7 +199,9 @@ export function bundleAgentXSelectedContexts(
       .slice(0, AGENT_X_SELECTED_CONTEXT_BUNDLE_PREVIEW_LIMIT)
       .map((entry) => entry.label);
     const moreCount = entityRefs.length - previewTitles.length;
-    const bundleLabel = formatSelectedContextKindLabel(representative.kind, count);
+    const bundleLabel = sourceLabel
+      ? `${sourceLabel} (${formatSelectedContextKindLabel(representative.kind, count)})`
+      : formatSelectedContextKindLabel(representative.kind, count);
     const previewText =
       previewTitles.length > 0
         ? ` Includes ${previewTitles.join(', ')}${moreCount > 0 ? `, and ${moreCount} more.` : '.'}`

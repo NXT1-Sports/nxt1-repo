@@ -6,6 +6,8 @@ import { ToolRegistry } from '../../tool-registry.js';
 describe('DynamicExportTool', () => {
   const generateXlsx = vi.fn();
   const generatePdf = vi.fn();
+  const generatePdfArtifact = vi.fn();
+  const generatePptxArtifact = vi.fn();
   const emitStage = vi.fn();
   const fileSave = vi.fn();
   const fileExists = vi.fn();
@@ -18,6 +20,8 @@ describe('DynamicExportTool', () => {
   beforeEach(() => {
     generateXlsx.mockReset();
     generatePdf.mockReset();
+    generatePdfArtifact.mockReset();
+    generatePptxArtifact.mockReset();
     emitStage.mockReset();
     fileSave.mockReset();
     fileExists.mockReset();
@@ -26,6 +30,16 @@ describe('DynamicExportTool', () => {
 
     generateXlsx.mockResolvedValue(Buffer.from('xlsx-binary'));
     generatePdf.mockResolvedValue(Buffer.from('%PDF-test'));
+    generatePdfArtifact.mockResolvedValue({
+      buffer: Buffer.from('%PDF-test'),
+      billableFeature: 'dynamic-export-gamma-document',
+      renderer: 'gamma-document',
+    });
+    generatePptxArtifact.mockResolvedValue({
+      buffer: Buffer.from('PK\x03\x04pptx-binary'),
+      billableFeature: 'dynamic-export-gamma-presentation',
+      renderer: 'gamma-presentation',
+    });
     fileSave.mockResolvedValue(undefined);
     fileExists.mockResolvedValue([true]);
     bucketFile.mockReturnValue({
@@ -38,6 +52,8 @@ describe('DynamicExportTool', () => {
       generateCsv: vi.fn(),
       generateXlsx,
       generatePdf,
+      generatePdfArtifact,
+      generatePptxArtifact,
     } as never);
 
     Object.assign(tool as object, {
@@ -151,7 +167,7 @@ describe('DynamicExportTool', () => {
         ],
       },
     });
-    expect(generatePdf).toHaveBeenCalledWith(
+    expect(generatePdfArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
         layoutMode: 'multi_column_grid',
         pageOrientation: 'landscape',
@@ -178,11 +194,32 @@ describe('DynamicExportTool', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(generatePdf).toHaveBeenCalledWith(
+    expect(generatePdfArtifact).toHaveBeenCalledWith(
       expect.objectContaining({
         watermarkText: undefined,
       })
     );
+  });
+
+  it('includes the runtime-derived billing key for Gamma-backed PDF exports', async () => {
+    const result = await tool.execute(
+      {
+        format: 'pdf',
+        fileName: 'staff-brief',
+        title: 'Staff Brief',
+        bodyParagraphs: ['Narrative content for Gamma PDF.'],
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(generatePdfArtifact).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      data: {
+        billableFeature: 'dynamic-export-gamma-document',
+        exportRenderer: 'gamma-document',
+      },
+    });
   });
 
   it('exposes PPTX as a first-class dynamic_export format to performance coordinator tools', () => {

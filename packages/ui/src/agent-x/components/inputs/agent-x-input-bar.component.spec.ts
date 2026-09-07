@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import { ElementRef } from '@angular/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
+import { AGENT_X_INPUT_TEST_IDS } from '@nxt1/core/testing';
 
 describe('AgentXInputBarComponent', () => {
   let fixture: ComponentFixture<AgentXInputBarComponent>;
@@ -92,6 +93,82 @@ describe('AgentXInputBarComponent', () => {
     });
 
     expect(layout.offsetX).toBe(-92);
+  });
+
+  it('shows coordinator mention options when typing @', async () => {
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    textarea.value = '@';
+    textarea.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const menu = fixture.nativeElement.querySelector(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_MENU}"]`
+    );
+    const options = fixture.nativeElement.querySelectorAll(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_OPTION}"]`
+    );
+
+    expect(menu).toBeTruthy();
+    expect(options.length).toBeGreaterThanOrEqual(6);
+    expect(menu.textContent).toContain('Brand Coordinator');
+    expect(menu.textContent).toContain('@brand');
+  });
+
+  it('turns the selected coordinator mention into structured composer state', async () => {
+    const messageValues: string[] = [];
+    const selectedActions: unknown[] = [];
+    component.messageChange.subscribe((value) => messageValues.push(value));
+    component.coordinatorMentionSelected.subscribe((value) => selectedActions.push(value));
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    textarea.value = '@br';
+    textarea.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const brandOption = Array.from(
+      fixture.nativeElement.querySelectorAll(
+        `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_OPTION}"]`
+      )
+    ).find((option) => (option as HTMLElement).textContent?.includes('Brand Coordinator')) as
+      | HTMLButtonElement
+      | undefined;
+
+    expect(brandOption).toBeTruthy();
+
+    brandOption?.click();
+
+    expect(messageValues.at(-1)).toBe('');
+    expect(selectedActions.at(-1)).toMatchObject({
+      coordinatorId: 'brand_coordinator',
+      actionId: 'mention-brand',
+      surface: 'command',
+      label: 'Brand Coordinator',
+    });
+  });
+
+  it('renders a selected coordinator as a pill inside the input card', () => {
+    Object.defineProperty(component, 'selectedCoordinatorMention', {
+      configurable: true,
+      value: () => ({
+        id: 'brand_coordinator',
+        alias: 'brand',
+        name: 'Brand Coordinator',
+        description: 'Generates graphics and branded creative deliverables.',
+        icon: 'color-wand',
+      }),
+    });
+    fixture.detectChanges();
+
+    const pill = fixture.nativeElement.querySelector(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_PILL}"]`
+    ) as HTMLElement | null;
+
+    expect(pill).toBeTruthy();
+    expect(pill?.textContent).toContain('Brand Coordinator');
+    expect(pill?.textContent).toContain('@brand');
   });
 
   it('falls back to a Cloudflare poster when the selected context thumbnail fails', () => {

@@ -508,6 +508,7 @@ EXECUTION FLOW:
     2. Use the correct artifact tool:
       - \`render_html_pdf\` first for printable/share-ready branded sheets, guides, calendars, one-pagers, and fixed-layout PDFs
       - \`dynamic_export\` for PPTX/Gamma-style brand reports, report-style PDFs, decks, CSV exports, and only as the fallback path for PDF/XLSX structured brand documents
+      - If the user asks for a brand report/export but leaves the output format open and does not explicitly say to choose for them, call \`ask_user\` with \`inputMode\`, \`options\`, and \`allowCustomText: true\` using concrete choices (Printable PDF, Gamma PDF, Gamma Deck/PPTX, CSV, Chat summary only, Custom). Keep Gamma PDF and Gamma Deck separate when both are viable.
      - \`generate_graphic\`, Runway, FFmpeg, thumbnail, or caption tools for graphics, videos, thumbnails, and motion assets
   3. In chat: provide a 2-3 sentence summary with the artifact link(s)
   4. Never paste large content blocks directly in chat and never claim a media asset is ready unless a tool returned it

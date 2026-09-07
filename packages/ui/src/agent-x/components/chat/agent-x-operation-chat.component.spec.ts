@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import type { AgentYieldState } from '@nxt1/core';
+import type { AgentXRichCard } from '@nxt1/core/ai';
 import { describe, expect, it, vi } from 'vitest';
 import {
   AgentXOperationChatComponent,
@@ -73,6 +74,23 @@ type QuickActionDraftHelper = {
   onQuickAction(action: OperationQuickAction): Promise<void>;
 };
 
+type DesktopQuickPromptVisibilityHelper = {
+  embedded: boolean;
+  contextId: string;
+  hasUserSent: ReturnType<typeof signal<boolean>>;
+  messages: ReturnType<typeof signal<readonly OperationMessage[]>>;
+  isComposerOperationInFlight(): boolean;
+  inputValue: ReturnType<typeof signal<string>>;
+  pendingSelectedAction: ReturnType<
+    typeof signal<OperationQuickAction['selectedAction'] | null>
+  >;
+  pendingFiles: ReturnType<typeof signal<readonly unknown[]>>;
+  pendingConnectedSources: ReturnType<typeof signal<readonly unknown[]>>;
+  pendingSelectedContexts: ReturnType<typeof signal<readonly unknown[]>>;
+  attachmentsFacade: { showDesktopAttachmentMenu(): boolean };
+  shouldShowDesktopComposerQuickPrompts(): boolean;
+};
+
 type PendingComposerReplyHelper = {
   messages: () => readonly OperationMessage[];
   activeYieldState: ReturnType<typeof signal<AgentYieldState | null>>;
@@ -94,6 +112,13 @@ type PendingComposerReplyHelper = {
     operationId?: string;
   } | null;
   isAwaitingComposerReply(): boolean;
+};
+
+type AskUserCardRenderHelper = {
+  messageContentForBubble(msg: OperationMessage): string;
+  messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[];
+  isAskUserYield(msg: OperationMessage): boolean;
+  resolveYieldOperationId(yieldState?: AgentYieldState | null): string | undefined;
 };
 
 describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
@@ -154,6 +179,101 @@ describe('AgentXOperationChatComponent messageAttachmentsForStrip', () => {
         'https://firebasestorage.googleapis.com/v0/b/nxt1-test.appspot.com/o/team-files%2Fthumbs%2Fabc123?alt=media&token=test-token'
       )
     ).toBe(true);
+  });
+});
+
+describe('AgentXOperationChatComponent Ask User card rendering', () => {
+  const component = Object.create(AgentXOperationChatComponent.prototype) as AskUserCardRenderHelper;
+
+  it('renders plain ask-user yields as input cards instead of waiting text', () => {
+    component.resolveYieldOperationId = vi.fn().mockReturnValue('op-ask-user-1');
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which sections should I include?',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: 'tool-ask-user-1',
+        toolInput: {
+          question: 'Which sections should I include?',
+        },
+      },
+      messages: [],
+    };
+    const message: OperationMessage = {
+      id: 'yield-ask-user-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-06T12:00:00.000Z'),
+      operationId: 'op-ask-user-1',
+      yieldState,
+    };
+
+    expect(component.messageContentForBubble(message)).toBe('');
+    expect(component.messageCardsForBubble(message)).toEqual([
+      expect.objectContaining({
+        type: 'ask_user',
+        title: 'Requesting your input',
+        payload: expect.objectContaining({
+          question: 'Which sections should I include?',
+          operationId: 'op-ask-user-1',
+        }),
+      }),
+    ]);
+  });
+
+  it('does not append a fallback ask-user card when a step-based structured card already exists', () => {
+    component.resolveYieldOperationId = vi.fn().mockReturnValue('op-ask-user-steps-1');
+    const structuredCard: AgentXRichCard = {
+      type: 'output-selection',
+      agentId: 'router',
+      title: 'Which opponent should I build this for?',
+      payload: {
+        prompt: 'Which opponent should I build this for?',
+        operationId: 'op-ask-user-steps-1',
+        steps: [
+          {
+            id: 'response',
+            prompt: 'Which opponent should I build this for?',
+            inputMode: 'text',
+            allowCustomOption: true,
+          },
+        ],
+      },
+    };
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which opponent should I build this for?',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolCallId: 'tool-ask-user-steps-1',
+        toolInput: {
+          question: 'Which opponent should I build this for?',
+          prompt: 'Which opponent should I build this for?',
+          steps: [
+            {
+              id: 'response',
+              prompt: 'Which opponent should I build this for?',
+              inputMode: 'text',
+              allowCustomOption: true,
+            },
+          ],
+        },
+      },
+      messages: [],
+    };
+    const message: OperationMessage = {
+      id: 'yield-ask-user-steps-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-06T12:05:00.000Z'),
+      operationId: 'op-ask-user-steps-1',
+      yieldState,
+      cards: [structuredCard],
+    };
+
+    expect(component.messageCardsForBubble(message)).toEqual([structuredCard]);
   });
 });
 
@@ -444,6 +564,54 @@ describe('AgentXOperationChatComponent quick action drafting', () => {
   });
 });
 
+describe('AgentXOperationChatComponent desktop composer quick prompts', () => {
+  function createVisibilityHelper(): DesktopQuickPromptVisibilityHelper {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as DesktopQuickPromptVisibilityHelper;
+
+    component.embedded = true;
+    component.contextId = 'agent-x-chat';
+    component.hasUserSent = signal(false);
+    component.messages = signal([]);
+    component.isComposerOperationInFlight = () => false;
+    component.inputValue = signal('');
+    component.pendingSelectedAction = signal(null);
+    component.pendingFiles = signal([]);
+    component.pendingConnectedSources = signal([]);
+    component.pendingSelectedContexts = signal([]);
+    component.attachmentsFacade = { showDesktopAttachmentMenu: () => false };
+    return component;
+  }
+
+  it('hides quick prompts while the attachment menu is open', () => {
+    const component = createVisibilityHelper();
+
+    expect(component.shouldShowDesktopComposerQuickPrompts()).toBe(true);
+
+    component.attachmentsFacade = { showDesktopAttachmentMenu: () => true };
+
+    expect(component.shouldShowDesktopComposerQuickPrompts()).toBe(false);
+  });
+
+  it('hides quick prompts while the composer has an @ draft or coordinator pill', () => {
+    const component = createVisibilityHelper();
+
+    component.inputValue.set('@');
+    expect(component.shouldShowDesktopComposerQuickPrompts()).toBe(false);
+
+    component.inputValue.set('');
+    component.pendingSelectedAction.set({
+      coordinatorId: 'brand_coordinator',
+      actionId: 'mention-brand',
+      surface: 'command',
+      label: 'Brand Coordinator',
+    });
+
+    expect(component.shouldShowDesktopComposerQuickPrompts()).toBe(false);
+  });
+});
+
 describe('AgentXOperationChatComponent composer reply routing', () => {
   it('treats pending approval cards as composer-reply targets', () => {
     const component = Object.create(
@@ -659,6 +827,32 @@ describe('resolveDockedExecutionPlanCard', () => {
     expect(resolveVisibleDockedExecutionPlanCard([message], 'execute', true)?.title).toBe(
       'Execution Plan'
     );
+  });
+
+  it('does not show the docked planner card in execute mode for generic active work alone', () => {
+    const message: OperationMessage = {
+      id: 'assistant-4b',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-25T12:00:00.000Z'),
+      cards: [
+        {
+          type: 'planner',
+          title: 'Execution Plan',
+          payload: {
+            items: [{ id: '1', label: 'Create highlight reel', done: false, active: true }],
+          },
+        },
+      ],
+    };
+
+    expect(shouldShowExecutionPlanDockForActiveWork([message], {
+      operationStatus: 'processing',
+      activityPhase: 'idle',
+      loading: false,
+      awaitingComposerReply: false,
+    })).toBe(true);
+    expect(resolveVisibleDockedExecutionPlanCard([message], 'execute', false)).toBeNull();
   });
 });
 

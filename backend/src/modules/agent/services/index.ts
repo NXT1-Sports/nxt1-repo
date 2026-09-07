@@ -5,6 +5,13 @@
 
 export { ApprovalGateService } from './approval-gate.service.js';
 export {
+  canExposeToolSchemaForActiveAgent,
+  resolveToolExecutionDecision,
+  type ResolveToolExecutionDecisionInput,
+  type ToolExecutionDecision,
+  type ToolExecutionDecisionKind,
+} from './tool-execution-resolver.service.js';
+export {
   logAgentTaskCompletion,
   logAgentTaskFailure,
   type AgentActivityInput,
@@ -38,6 +45,16 @@ export {
   type PptxExportOptions,
   type XlsxExportOptions,
 } from './export.service.js';
+export {
+  EditablePptxRendererService,
+  type EditablePptxAspectRatio,
+  type EditablePptxDeckSchema,
+  type EditablePptxElement,
+  type EditablePptxRenderMetadata,
+  type EditablePptxRenderResult,
+  type EditablePptxSlide,
+  type EditablePptxTheme,
+} from './editable-pptx-renderer.service.js';
 export {
   GammaClient,
   type GammaClientConfig,

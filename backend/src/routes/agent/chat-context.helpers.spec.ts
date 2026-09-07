@@ -199,7 +199,7 @@ describe('chat-context.helpers', () => {
     expect(normalized).toHaveLength(1);
     expect(normalized[0]).toMatchObject({
       kind: 'film_play',
-      title: '25 selected film plays',
+      title: 'Video 2026 (25 selected film plays)',
       source: {
         type: 'film_review',
         id: 'review-1',

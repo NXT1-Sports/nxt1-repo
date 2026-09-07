@@ -49,7 +49,6 @@ import { isExecuteSavedPlan } from '../exceptions/execute-saved-plan.exception.j
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
-import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
   containsInternalProtocolMarkup,
@@ -66,6 +65,7 @@ import {
 const AGENT_X_LAB_LABEL = AGENT_X_WORKSPACE_TERMS.workspaceTitle;
 const AGENT_X_FILES_ALIAS = AGENT_X_WORKSPACE_TERMS.filesAlias;
 const AGENT_X_FILES_PANEL_ALIAS = AGENT_X_WORKSPACE_TERMS.filesPanelAlias;
+const PLAN_MODE_ALLOWED_SYSTEM_MUTATION_TOOLS = new Set(['execute_saved_plan']);
 import { UrlClassifierService } from '../tools/media/url-classifier.service.js';
 import {
   getCachedAgentAppConfig,
@@ -75,6 +75,7 @@ import {
 } from '../config/agent-app-config.js';
 import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
 import { getPromptBudgetService } from '../services/prompt-budget.service.js';
+import { canExposeToolSchemaForActiveAgent } from '../services/tool-execution-resolver.service.js';
 import {
   normalizeModelSlugForBudget,
   resolvePromptBudgetPolicyForTier,
@@ -261,6 +262,8 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Files editability is explicit: if `get_universal_team_document` returns `editableViaUniversalDocumentTool: false` or an `artifactKind` other than `managed_document` (for example `pointer_file` or `film_review`), do NOT treat that Files item like a raw content document you can overwrite wholesale. Use a NEW managed document only for standalone derivative reports or drafts. Exception: when the user explicitly wants notes, summary, key takeaways, or artifact annotations saved back onto that SAME selected Files item, update the existing record in place with artifact metadata fields (`artifactSummary`, `artifactNotes`, `artifactTags`, `artifactStatus`, `artifactGeneratedAt`, optional `artifactClassification`) instead of creating a separate document.',
   '- Pointer-resolution contract: when the user or app provides only lightweight pointers (for example `team_file`, `playbook`, `film_review`, `film_review_source`, or folder ids) and the inline context is not sufficient to answer safely, proactively resolve backing data before answering or mutating anything. For Files-backed artifacts, run semantic Files discovery first with `list_universal_team_documents` using the artifact family and domain terminology needed, then hydrate selected/referenced Files with `get_universal_team_document` as high-priority candidates. For film-review pointers, use `get_film_review`, `list_film_review_sources`, and `get_film_review_source_breakdown` when those tools are in your current tool surface; otherwise route the film-review work to the owning coordinator instead of pretending the pointer is complete. For folder structure, use `list_team_file_folders`. Selected/referenced Files are priority candidates after semantic discovery, not the only search path.',
   '- Deliverable artifact rule: when the user asks to create an artifact, prefer the richest appropriate persisted deliverable that the current workflow can actually produce (for example a saved film review/cutup, export/PDF, diagram/image, trimmed or merged video, downloadable package, or saved team file plus export). A plain managed text document is appropriate as a companion source record for notes, scout reports, game plans, callsheets, practice scripts, install sheets, checklists, and written summaries when the user wants something searchable/editable in Files, but it is not a substitute for available media/export/film-review deliverables. When those requests are user-facing deliverables, default to producing the export/artifact in the same workflow instead of stopping at text-document persistence.',
+  '- Export format checkpoint (CRITICAL): before calling `dynamic_export`, `render_html_pdf`, `render_editable_pptx`, or `execute_python_code` for a user-facing downloadable export, if the user asked for an export/report/deliverable/downloadable artifact but did not explicitly name the output format or say to choose for them, write a concise format-selection question in normal prose, then call structured `ask_user` and wait. Treat phrases like "clearest deliverable", "best deliverable", "full deliverable", "downloadable", "build the list", "create the report", or "give me the deliverable" as no explicit format. Offer concrete options such as Printable PDF, Gamma PDF, Gamma Deck/PPTX, XLSX workbook, CSV, Chat summary only, and Custom with `allowCustomText: true`. Do NOT infer PDF just because it seems like the best fit.',
+  '- Structured ask-user card rule (CRITICAL): when asking the user for 2+ missing fields, use `ask_user.steps` so the UI renders the multi-question card instead of a flat prompt. For any field with a small explicit answer set, use `single_select` or `multi_select` with concrete options. Reserve `inputMode: "text"` for truly freeform fields like names, dates, URLs, or notes.',
   '- Do NOT use `query_nxt1_platform_data` or low-level collection mutation tools as the primary path for retrieving or revising saved workspace artifacts when the universal-document surface is available.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
@@ -336,6 +339,120 @@ const PROGRESS_COMMENTARY_COUNT_PATTERN =
   /\b(?:processed|completed|handled|ran|executed)\s+\d+\s+tool\s+calls?\b/i;
 const BRAND_MEDIA_DELEGATION_PATTERN =
   /\b(ffmpeg|merge(?:d|s|ing)?|video|highlight|reel|clip|trim|subtitle|hudl|twitter|instagram|stage[_\s-]?media|analyze[_\s-]?video)\b/i;
+
+// Matches user intents where ambiguous film ownership must block ALL further
+// tool activity except `ask_user` — mirrors the HARD STOP scope documented in
+// performance-coordinator.agent.ts. Prompt-only enforcement was not reliable:
+// models observed exploring analyze_image/search_web/recommend_learning_videos
+// before finally asking, despite the tool result already saying "STOP".
+const FILM_OWNERSHIP_SENSITIVE_INTENT_PATTERN =
+  /\b(break(?:\s|-)?down|breakdown|scout(?:ing)?\s*report|self[-\s]?scout|opponent\s*(?:scout(?:ing)?|report)|tendenc(?:y|ies)|game\s*plan|offense\s*(?:vs\.?|versus)\s*defense|our\s*team\s*(?:vs\.?|versus)\s*opponent)\b/i;
+
+const FILM_OWNERSHIP_HARD_STOP_TOOL_NAMES = new Set([
+  'get_film_review',
+  'get_film_review_source_breakdown',
+]);
+
+function safeParseToolArguments(args: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(args) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function isFilmReviewSandboxToolCall(toolCall: LLMToolCall): boolean {
+  if (toolCall.function.name !== 'execute_sandbox_script') return false;
+  const input = safeParseToolArguments(toolCall.function.arguments);
+  const dataSources = input['dataSources'];
+  return (
+    Array.isArray(dataSources) &&
+    dataSources.some(
+      (source) =>
+        source &&
+        typeof source === 'object' &&
+        !Array.isArray(source) &&
+        (source as Record<string, unknown>)['sourceType'] === 'film_review'
+    )
+  );
+}
+
+function canTriggerAmbiguousFilmOwnershipGate(toolCall: LLMToolCall): boolean {
+  return (
+    FILM_OWNERSHIP_HARD_STOP_TOOL_NAMES.has(toolCall.function.name) ||
+    isFilmReviewSandboxToolCall(toolCall)
+  );
+}
+
+/** Detects `ownershipSummary.requiredClarifications`/`confidenceCounts.ambiguous` on a film-review tool observation. */
+function detectAmbiguousFilmOwnershipSignal(observation: string): boolean {
+  try {
+    const parsed = JSON.parse(observation) as Record<string, unknown>;
+    const data = parsed['data'] as Record<string, unknown> | undefined;
+    const ownershipSummary = data?.['ownershipSummary'] as
+      | { requiredClarifications?: unknown[]; confidenceCounts?: { ambiguous?: number } }
+      | undefined;
+    if (!ownershipSummary) return false;
+    const clarificationCount = Array.isArray(ownershipSummary.requiredClarifications)
+      ? ownershipSummary.requiredClarifications.length
+      : 0;
+    const ambiguousCount = ownershipSummary.confidenceCounts?.ambiguous ?? 0;
+    return clarificationCount > 0 || ambiguousCount > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when this conversation already asked the user a clarification.
+ * The ownership gate must be one-shot: the user's answer lives in the prompt,
+ * not in the stored film rows, so the raw data stays "ambiguous" forever and a
+ * re-arming gate would strand the agent with only `ask_user` available.
+ */
+function hasPriorAskUserTurn(messages: readonly LLMMessage[]): boolean {
+  return messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      (message.tool_calls ?? []).some((toolCall) => toolCall.function?.name === 'ask_user')
+  );
+}
+
+function buildSelectedContextResumeInstruction(
+  selectedContexts: readonly AgentXSelectedContext[] | undefined
+): LLMMessage | null {
+  if (!selectedContexts?.length) return null;
+
+  const labels = selectedContexts
+    .map((context) => {
+      const title = context.title.trim();
+      const sourceLabel = context.source?.label?.trim();
+      const sourceId = context.source?.id?.trim();
+      const displayTitle = sourceLabel && sourceLabel !== title ? `${sourceLabel} (${title})` : title;
+      return `${displayTitle}${sourceId ? ` — sourceId: ${sourceId}` : ''}`;
+    })
+    .filter((label) => label.trim().length > 0)
+    .slice(0, 6);
+
+  if (labels.length === 0) return null;
+
+  return {
+    role: 'system',
+    content:
+      'RESUME CONTEXT GUARD: The user already selected or attached these contexts before answering the ask_user card. Continue with them; do not ask which film, game, file, or selected context to use again unless every listed source is inaccessible. Selected context(s): ' +
+      labels.join('; '),
+  };
+}
+
+function buildAmbiguousFilmOwnershipAskUserInstruction(): LLMMessage {
+  return {
+    role: 'system',
+    content:
+      'RUNTIME GUARD: Ambiguous film ownership was detected for an ownership-sensitive tendency/scouting analysis. Your next response is forced to call ask_user. Do not provide findings, trend math, or recommendations before the user answers. The ask_user call must use steps, not a single flat question. Include these steps unless already answered by the user: (1) a single_select ownership step asking whether the ODK/possession fields are keyed to our team or keyed to the opponent, or if no ODK/possession keys exist which team the selected plays/rows represent. For ODK, use options such as "ODK is keyed to our team (O = our offense, D = our defense)", "ODK is keyed to the opponent (O = opponent offense, D = opponent defense)", and "Mixed / selected rows include both teams"; (2) a single_select report perspective step with self_scout, opponent_scout, and balanced_tendencies options; (3) a multi_select delivery/output step when the user did not explicitly choose chat-only or a file format, with Chat Summary, Printable PDF, Gamma PDF, Gamma Deck, XLSX Workbook, and CSV options plus allowCustomText. The ask_user question field should be a short notification label such as "Confirm film report setup".',
+  };
+}
 
 type PromptDocumentAttachmentRef = {
   readonly url: string;
@@ -553,7 +670,7 @@ export abstract class BaseAgent {
    * the messages array remains structurally valid for OpenRouter.
    */
   getToolConcurrency(): number {
-    return 5;
+    return 1;
   }
 
   private shouldInlineImageAttachment(attachment: SessionImageAttachment): boolean {
@@ -804,7 +921,15 @@ export abstract class BaseAgent {
     // infrastructure that every coordinator needs.
     const toolSchemas: LLMToolSchema[] = toolDefinitions
       .filter(
-        (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
+        (def) =>
+          this.canExposeSystemToolSchema(def, context) ||
+          canExposeToolSchemaForActiveAgent({
+            activeAgentId: this.id,
+            toolName: def.name,
+            tool: def,
+            policyAllowedToolNames: allowedToolNames,
+            executionMode: context.executionMode,
+          })
       )
       .map((def) => ({
         type: 'function' as const,
@@ -1099,7 +1224,15 @@ export abstract class BaseAgent {
     const allowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const toolSchemas: LLMToolSchema[] = _toolDefinitions
       .filter(
-        (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
+        (def) =>
+          this.canExposeSystemToolSchema(def, context) ||
+          canExposeToolSchemaForActiveAgent({
+            activeAgentId: this.id,
+            toolName: def.name,
+            tool: def,
+            policyAllowedToolNames: allowedToolNames,
+            executionMode: context.executionMode,
+          })
       )
       .map((def) => ({
         type: 'function' as const,
@@ -1109,6 +1242,14 @@ export abstract class BaseAgent {
           parameters: def.parameters,
         },
       }));
+    const effectiveExecutionAllowlist = Array.from(
+      new Set([
+        ...allowedToolNames,
+        ...getEffectiveAgentToolPolicy(this.id),
+        ...toolSchemas.map((schema) => schema.function.name),
+      ])
+    );
+    const exactAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
 
     // Phase L (thread-as-truth): replay the canonical history from
     // MongoDB. This guarantees the resume sees every persisted
@@ -1181,7 +1322,29 @@ export abstract class BaseAgent {
     } else {
       messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
     }
-    if (yieldState.reason === 'needs_input' && yieldState.pendingToolCall) {
+
+    const selectedContextResumeInstruction = buildSelectedContextResumeInstruction(
+      context.selectedContexts
+    );
+    if (
+      selectedContextResumeInstruction &&
+      !messages.some(
+        (msg) =>
+          msg.role === 'system' &&
+          typeof msg.content === 'string' &&
+          msg.content.includes('RESUME CONTEXT GUARD')
+      )
+    ) {
+      messages.push(selectedContextResumeInstruction);
+    }
+
+    if (
+      yieldState.reason === 'needs_input' &&
+      yieldState.pendingToolCall &&
+      !(yieldState.pendingToolCall.toolName === 'ask_user' &&
+        Array.isArray(yieldState.pendingToolCall.toolInput['options'])) &&
+      yieldState.pendingToolCall.toolName !== 'prompt_output_selection'
+    ) {
       const pendingToolMessage = this.buildPendingInputResumeMessage(yieldState.pendingToolCall);
       const alreadyPresent = messages.some(
         (msg) => msg.role === 'assistant' && msg.content === pendingToolMessage
@@ -1202,6 +1365,8 @@ export abstract class BaseAgent {
       ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
+      allowedToolNames: effectiveExecutionAllowlist,
+      ...(this.shouldEnforceExactToolSurface() ? { exactAllowedToolNames } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
             bypassPermissionForTool: {
@@ -1401,6 +1566,16 @@ export abstract class BaseAgent {
     ].join(' ');
   }
 
+  private canExposeSystemToolSchema(
+    definition: AgentToolDefinition,
+    context: AgentSessionContext
+  ): boolean {
+    if (definition.category !== 'system') return false;
+    if (context.executionMode !== 'plan') return true;
+    if (!definition.isMutation) return true;
+    return PLAN_MODE_ALLOWED_SYSTEM_MUTATION_TOOLS.has(definition.name);
+  }
+
   private async runLoop(
     messages: LLMMessage[],
     context: AgentSessionContext,
@@ -1429,6 +1604,11 @@ export abstract class BaseAgent {
     const artifactLedger: ArtifactLedgerEntry[] = [];
     const latestUserText = this.extractLatestUserText(messages);
     const requestedDeliverableTools = resolveRequestedDeliverableTools(latestUserText);
+    // Once an ambiguous film-ownership signal is observed for an ownership-sensitive
+    // task, force every subsequent LLM call in this loop to see `ask_user` only —
+    // a code-level backstop for the prompt HARD STOP (see detectAmbiguousFilmOwnershipSignal).
+    let ownershipClarificationGateActive = false;
+    const clarificationAlreadyRequested = hasPriorAskUserTurn(messages);
     let completedToolCallCount = 0;
     const recentToolNames: string[] = [];
     let lastProgressCommentaryAtMs = 0;
@@ -1504,13 +1684,22 @@ export abstract class BaseAgent {
 
       const telemetryFeatureHint = this.resolveOrchestrationTelemetryFeature();
 
+      const activeToolSchemas = ownershipClarificationGateActive
+        ? toolSchemas.filter((schema) => schema.function.name === 'ask_user')
+        : toolSchemas;
+
       const llmOptions = {
         tier: effectiveRouting.tier,
         modelOverride,
         candidateModels: effectiveRouting.candidateModels,
         maxTokens: effectiveRouting.maxTokens,
         temperature: effectiveRouting.temperature,
-        tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        tools: activeToolSchemas.length > 0 ? activeToolSchemas : undefined,
+        // Constrain the decode instead of trusting prompt compliance — some models
+        // otherwise emit the call as literal markup, which is stripped and lost.
+        ...(ownershipClarificationGateActive && activeToolSchemas.length > 0
+          ? { toolChoice: { type: 'function' as const, function: { name: 'ask_user' } } }
+          : {}),
         // Agent queue jobs can take longer than the default 60s — use 5 minutes
         timeoutMs: 300_000,
         ...(effectiveRouting.enableThinking && {
@@ -1529,11 +1718,14 @@ export abstract class BaseAgent {
         // Propagate the SSE abort signal so client disconnects cancel in-flight LLM calls
         ...(context.signal && { signal: context.signal }),
       };
+      const messagesForCompletion = ownershipClarificationGateActive
+        ? [...messages, buildAmbiguousFilmOwnershipAskUserInstruction()]
+        : messages;
 
       // Use streaming when onStreamEvent is provided so deltas flow to the caller.
       // SSE chat now provides onStreamEvent, so streaming is always active for live requests.
       const result = onStreamEvent
-        ? await llm.completeStream(messages, llmOptions, (delta) => {
+        ? await llm.completeStream(messagesForCompletion, llmOptions, (delta) => {
             // Abort the stream eagerly if the operation was paused/cancelled
             // mid-stream — without this check, deltas could keep flowing for
             // hundreds of ms after `signal.abort()` because the underlying
@@ -1563,7 +1755,7 @@ export abstract class BaseAgent {
               });
             }
           })
-        : await llm.complete(messages, llmOptions);
+        : await llm.complete(messagesForCompletion, llmOptions);
 
       this.throwIfAborted(context.signal);
 
@@ -1793,19 +1985,43 @@ export abstract class BaseAgent {
         };
       }
 
-      const askUserToolCall = result.toolCalls.find(
+      const exclusiveYieldToolCall = result.toolCalls.find(
         (toolCall) => toolCall.function.name === 'ask_user'
       );
-      const toolCallsForIteration = askUserToolCall ? [askUserToolCall] : result.toolCalls;
-      if (askUserToolCall && result.toolCalls.length > 1) {
-        logger.warn(`[${this.id}] Dropping sibling tool calls from ask_user yield turn`, {
+      const initialToolCallsForIteration = exclusiveYieldToolCall
+        ? [exclusiveYieldToolCall]
+        : result.toolCalls;
+      let toolCallsForIteration = initialToolCallsForIteration;
+      if (exclusiveYieldToolCall && result.toolCalls.length > 1) {
+        logger.warn(`[${this.id}] Dropping sibling tool calls from HITL yield turn`, {
           agentId: this.id,
           operationId: context.operationId,
-          keptToolCallId: askUserToolCall.id,
+          keptToolCallId: exclusiveYieldToolCall.id,
+          keptToolName: exclusiveYieldToolCall.function.name,
           droppedTools: result.toolCalls
-            .filter((toolCall) => toolCall.id !== askUserToolCall.id)
+            .filter((toolCall) => toolCall.id !== exclusiveYieldToolCall.id)
             .map((toolCall) => toolCall.function.name),
         });
+      }
+
+      const hardStopToolCall = toolCallsForIteration.find(canTriggerAmbiguousFilmOwnershipGate);
+      if (
+        !exclusiveYieldToolCall &&
+        !clarificationAlreadyRequested &&
+        FILM_OWNERSHIP_SENSITIVE_INTENT_PATTERN.test(latestUserText) &&
+        hardStopToolCall &&
+        toolCallsForIteration.length > 1
+      ) {
+        logger.warn(`[${this.id}] Running film ownership hard-stop tool before sibling tools`, {
+          agentId: this.id,
+          operationId: context.operationId,
+          keptToolCallId: hardStopToolCall.id,
+          keptToolName: hardStopToolCall.function.name,
+          droppedTools: toolCallsForIteration
+            .filter((toolCall) => toolCall.id !== hardStopToolCall.id)
+            .map((toolCall) => toolCall.function.name),
+        });
+        toolCallsForIteration = [hardStopToolCall];
       }
 
       // Append the assistant message with its tool calls to the conversation
@@ -1887,7 +2103,11 @@ export abstract class BaseAgent {
       }
 
       const effectiveExecutionAllowlist = Array.from(
-        new Set([...allowedToolNames, ...getEffectiveAgentToolPolicy(this.id)])
+        new Set([
+          ...allowedToolNames,
+          ...getEffectiveAgentToolPolicy(this.id),
+          ...toolSchemas.map((schema) => schema.function.name),
+        ])
       );
       const exactAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
 
@@ -1910,7 +2130,11 @@ export abstract class BaseAgent {
       //    The yield-context messages snapshot is captured here, before any tool
       //    observations are pushed \u2014 safe because ask_user is never co-emitted
       //    alongside data tools in the same LLM response.
-      const yieldCtxSnapshot = { agentId: this.id, messages };
+      const yieldCtxSnapshot = {
+        agentId: this.id,
+        messages,
+        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+      };
       const toolBatchResults = await parallelBatch(
         toolCallsForIteration,
         async (toolCall) => {
@@ -2109,6 +2333,19 @@ export abstract class BaseAgent {
         completedToolCallCount += 1;
         iterationCompletedToolCalls += 1;
         this.recordRecentToolName(recentToolNames, toolCall.function.name);
+        if (
+          !ownershipClarificationGateActive &&
+          !clarificationAlreadyRequested &&
+          FILM_OWNERSHIP_SENSITIVE_INTENT_PATTERN.test(latestUserText) &&
+          detectAmbiguousFilmOwnershipSignal(observation)
+        ) {
+          ownershipClarificationGateActive = true;
+          logger.warn(`[${this.id}] Ambiguous film ownership — restricting to ask_user only`, {
+            agentId: this.id,
+            operationId: context.operationId,
+            triggeringTool: toolCall.function.name,
+          });
+        }
         // ── Artifact Ledger (Tier 3): capture artifacts from this tool result ──
         // Entries survive context pruning and are used as the last-resort fallback
         // by augmentToolCallWithArtifact on subsequent iterations.
@@ -3606,14 +3843,16 @@ export abstract class BaseAgent {
     const bypassPermissions =
       sessionContext?.bypassPermissionForTool?.toolName === toolName &&
       sessionContext?.bypassPermissionForTool?.toolCallId === toolCall.id;
+    const hasExplicitSessionAllowlist = Array.isArray(sessionContext?.allowedToolNames);
     const blockedBySessionAllowlist =
       !isSystemTool &&
       !bypassPermissions &&
+      hasExplicitSessionAllowlist &&
       allowedToolNames.length > 0 &&
       !allowedToolNames.includes(toolName);
-    const blockedByPolicy = !isToolAllowedByPatterns(toolName, policyAllowedToolNames);
+    const blockedByPolicy = false;
 
-    if (!bypassPermissions && blockedBySessionAllowlist) {
+    if (!bypassPermissions && (blockedBySessionAllowlist || blockedByPolicy)) {
       if (EMAIL_SEND_TOOL_NAMES.has(toolName)) {
         return JSON.stringify({
           success: false,
@@ -3628,15 +3867,6 @@ export abstract class BaseAgent {
           errorCode: 'AGENT_TOOL_NOT_ALLOWED',
           guidance:
             'Call delegate_to_coordinator with coordinatorId="performance_coordinator" and include the user goal, current live-view context, and a strict small-batch limit. Do not retry the forbidden media tool from router.',
-        });
-      }
-
-      if (this.id === 'router' && toolName === 'open_live_view') {
-        return JSON.stringify({
-          error: 'Tool "open_live_view" is not allowed for agent "router".',
-          errorCode: 'ROUTER_LIVE_VIEW_DELEGATION_REQUIRED',
-          guidance:
-            'Delegate browser, form, or media acquisition work to the appropriate coordinator. For creative highlight/video/reel production, call delegate_to_coordinator with coordinatorId="brand_coordinator". Do not retry open_live_view from router.',
         });
       }
 
@@ -3679,17 +3909,6 @@ export abstract class BaseAgent {
       currentMessages,
       sessionContext,
     });
-
-    if (this.id === 'router' && toolName === 'open_live_view') {
-      return JSON.stringify({
-        success: false,
-        error:
-          'The router cannot open live view directly. Delegate browser, form, or media acquisition work to the appropriate coordinator. For creative highlight/video/reel production, delegate to brand_coordinator first.',
-        errorCode: 'ROUTER_LIVE_VIEW_DELEGATION_REQUIRED',
-        guidance:
-          'Call delegate_to_coordinator with coordinatorId="brand_coordinator" for creative video production, or recruiting_coordinator for form-fill/browser workflows. Do not retry open_live_view from router.',
-      });
-    }
 
     const operationMemory = sessionContext?.operationId ? getOperationMemoryService() : null;
 
@@ -3816,7 +4035,10 @@ export abstract class BaseAgent {
     // Inject yield context into the input so AskUserTool can read it
     // without relying on mutable singleton state (safe with concurrent workers).
     if (yieldContext && toolName === 'ask_user') {
-      input[ASK_USER_CONTEXT_KEY] = yieldContext;
+      input[ASK_USER_CONTEXT_KEY] = {
+        ...yieldContext,
+        toolCallId: toolCall.id,
+      };
     }
 
     // Build execution context for the tool — provides identity & session info
@@ -6042,6 +6264,9 @@ export abstract class BaseAgent {
     }
 
     const baseLabel = this.humanizeToolName(toolName);
+    if (toolName === 'ask_user') {
+      return baseLabel;
+    }
     if (
       toolName === 'ffmpeg_trim_video' ||
       toolName === 'ffmpeg_merge_videos' ||

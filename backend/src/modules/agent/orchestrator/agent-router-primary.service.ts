@@ -717,6 +717,7 @@ function formatDispatchResult(payload: {
   // Merges artifacts across tasks so Primary can chain downstream tool calls
   // (e.g. use a video URL produced by performance_coordinator in a follow-up).
   const coordinatorArtifacts: Record<string, unknown> = {};
+  const coordinatorReadResults: Record<string, unknown>[] = [];
   const coordinatorToolCallRecords: AgentToolCallRecord[] = [];
   for (const [, rawResult] of taskResults) {
     const r = rawResult as
@@ -731,6 +732,7 @@ function formatDispatchResult(payload: {
     const nestedToolCallRecords = r?.result?.data?.toolCallRecords;
     if (Array.isArray(nestedToolCallRecords)) {
       coordinatorToolCallRecords.push(...nestedToolCallRecords);
+      coordinatorReadResults.push(...collectCoordinatorReadResults(nestedToolCallRecords));
     }
   }
 
@@ -744,8 +746,51 @@ function formatDispatchResult(payload: {
     streamedDeltaCount,
     streamedCharCount,
     ...(Object.keys(coordinatorArtifacts).length > 0 ? { coordinatorArtifacts } : {}),
+    ...(coordinatorReadResults.length > 0 ? { coordinatorReadResults } : {}),
     ...(coordinatorToolCallRecords.length > 0 ? { coordinatorToolCallRecords } : {}),
   };
+}
+
+function collectCoordinatorReadResults(
+  records: readonly AgentToolCallRecord[]
+): Record<string, unknown>[] {
+  const reusableToolNames = new Set([
+    'get_film_review',
+    'get_film_review_source_breakdown',
+    'execute_sandbox_script',
+  ]);
+
+  return records
+    .filter((record) => record.status === 'success' && reusableToolNames.has(record.toolName))
+    .map((record) => ({
+      toolName: record.toolName,
+      input: record.input,
+      output: compactCoordinatorReadOutput(record.output),
+    }))
+    .filter((result) => result.output !== undefined)
+    .slice(0, 6);
+}
+
+function compactCoordinatorReadOutput(output: unknown): unknown {
+  if (!output || typeof output !== 'object') return output;
+  const record = output as Record<string, unknown>;
+  const data = record['data'] && typeof record['data'] === 'object' ? record['data'] : record;
+  if (!data || typeof data !== 'object') return data;
+  const obj = data as Record<string, unknown>;
+
+  if (Array.isArray(obj['timeline']) || obj['ownershipSummary']) {
+    return {
+      title: obj['title'],
+      sport: obj['sport'],
+      perspective: obj['perspective'],
+      uploadMode: obj['uploadMode'],
+      rowCount: Array.isArray(obj['timeline']) ? obj['timeline'].length : undefined,
+      sourceCount: Array.isArray(obj['sources']) ? obj['sources'].length : undefined,
+      ownershipSummary: obj['ownershipSummary'],
+    };
+  }
+
+  return obj;
 }
 
 function isUserFacingDispatchSummary(value: string, taskDescription?: string): boolean {

@@ -9,6 +9,7 @@ import { StrategyCoordinatorAgent } from '../strategy-coordinator.agent.js';
 import {
   getEffectiveAgentToolPolicy,
   getRouterToolPolicy,
+  getToolCapabilityPolicy,
   isToolAllowedByPatterns,
 } from '../tool-policy.js';
 import { COORDINATOR_AGENT_IDS } from '@nxt1/core';
@@ -362,6 +363,8 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('search_web` only');
     expect(prompt).toContain('compare offer lists');
     expect(prompt).toContain('build recruiting boards');
+    expect(prompt).toContain('target list, recruiting board, tracker, or other deliverable');
+    expect(prompt).toContain('Treat "clearest deliverable" and "build the target list" as no explicit format');
   });
 
   it('keeps strategy coordinator explicit and non-empty', () => {
@@ -620,7 +623,8 @@ describe('Agent tool exposure regressions', () => {
     expect(routerTools).toContain('search_college_coaches');
     expect(routerTools).toContain('create_universal_team_document');
     expect(routerTools).toContain('update_universal_team_document');
-    expect(routerTools).not.toContain('open_live_view');
+    expect(routerTools).toContain('open_live_view');
+    expect(routerTools).not.toContain('extract_live_view_media');
     expect(routerTools).not.toContain('write_playbooks');
     expect(routerTools).not.toContain('create_play_diagram');
     expect(strategyTools).not.toContain('write_playbooks');
@@ -645,6 +649,26 @@ describe('Agent tool exposure regressions', () => {
     expect(isToolAllowedByPatterns('docs_create_document', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('sheets_create_spreadsheet', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('create_presentation_from_markdown', routerTools)).toBe(false);
+  });
+
+  it('classifies pure live-view opening as direct-callable capability metadata', () => {
+    expect(getToolCapabilityPolicy('open_live_view')).toEqual(
+      expect.objectContaining({
+        directCallableByDefault: true,
+        requiresSpecialistContext: false,
+        requiresBackgroundExecution: false,
+        riskLevel: 'low',
+        latencyClass: 'interactive',
+      })
+    );
+
+    expect(getToolCapabilityPolicy('extract_live_view_media')).toEqual(
+      expect.objectContaining({
+        directCallableByDefault: false,
+        requiresSpecialistContext: true,
+        requiresBackgroundExecution: true,
+      })
+    );
   });
 
   it('supports wildcard matching beyond simple prefix-only patterns', () => {
@@ -688,6 +712,9 @@ describe('Agent tool exposure regressions', () => {
         'Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.'
       );
       expect(prompt).toContain('For low-risk read/processing steps, proceed without asking');
+      expect(prompt).toContain('Export format checkpoint (CRITICAL)');
+      expect(prompt).toContain('Do NOT infer PDF just because it seems like the best fit');
+      expect(prompt).toContain('Chat summary only');
       expect(prompt).toContain('## Shared Persistence Contract (CRITICAL)');
       expect(prompt).toContain('call `save_memory` immediately');
       expect(prompt).toContain('Files contract');

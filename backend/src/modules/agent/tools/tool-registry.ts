@@ -602,13 +602,57 @@ export class ToolRegistry {
         !isToolDisabled(tool.name)
     );
 
-    // Compute cosine similarity for all allowed tools
+    return this.scoreMatchingTools(allowedTools, intentVector, embedFn, threshold);
+  }
+
+  /**
+   * Semantically discover relevant tools across the full registered catalog.
+   * This intentionally ignores per-agent `allowedAgents` so the active agent
+   * can learn a capability exists before execution policy decides whether to
+   * expose a schema, approval-gate it, route it, or block it.
+   */
+  async matchDiscoverable(
+    intentVector: readonly number[],
+    embedFn: (text: string) => Promise<readonly number[]>,
+    accessContext?: AgentToolAccessContext,
+    threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
+  ): Promise<readonly AgentToolDefinition[]> {
+    const matched = await this.matchDiscoverableWithScores(
+      intentVector,
+      embedFn,
+      accessContext,
+      threshold
+    );
+
+    return matched.map(({ semanticScore: _semanticScore, ...definition }) => definition);
+  }
+
+  async matchDiscoverableWithScores(
+    intentVector: readonly number[],
+    embedFn: (text: string) => Promise<readonly number[]>,
+    accessContext?: AgentToolAccessContext,
+    threshold: number = ToolRegistry.DEFAULT_TOOL_THRESHOLD
+  ): Promise<readonly MatchedToolDefinition[]> {
+    const discoverableTools = Array.from(this.tools.values()).filter(
+      (tool) => this.isAllowedForAccessContext(tool, accessContext) && !isToolDisabled(tool.name)
+    );
+
+    return this.scoreMatchingTools(discoverableTools, intentVector, embedFn, threshold);
+  }
+
+  private async scoreMatchingTools(
+    tools: readonly BaseTool[],
+    intentVector: readonly number[],
+    embedFn: (text: string) => Promise<readonly number[]>,
+    threshold: number
+  ): Promise<readonly MatchedToolDefinition[]> {
+    // Compute cosine similarity for all candidate tools
     type ScoredTool = { tool: BaseTool; score: number };
     const scoredTools: ScoredTool[] = [];
 
     // Parallel embedding cache check & matching
     await Promise.all(
-      allowedTools.map(async (tool) => {
+      tools.map(async (tool) => {
         try {
           const score = await tool.matchIntent(intentVector, embedFn);
           if (score >= threshold) {

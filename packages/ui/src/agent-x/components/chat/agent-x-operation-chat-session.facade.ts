@@ -372,15 +372,7 @@ export class AgentXOperationChatSessionFacade {
     const replaySteps = this.stepSignature(replay.steps);
     if (messageSteps && messageSteps === replaySteps) return true;
 
-    const replayOperationIds = new Set(
-      [...replay.operationIds].map((operationId) => this.normalizeReplayOperationId(operationId))
-    );
-    const messageOperationId = this.normalizeReplayOperationId(message.operationId);
-    return (
-      !!messageOperationId &&
-      replayOperationIds.has(messageOperationId) &&
-      message.semanticPhase !== 'assistant_tool_call'
-    );
+    return false;
   }
 
   private shouldDropPersistedRowForActiveTyping(
@@ -401,17 +393,7 @@ export class AgentXOperationChatSessionFacade {
       return true;
     }
 
-    if (message.role !== 'assistant' || message.operationId !== params.liveOperationId) {
-      return false;
-    }
-    if (message.semanticPhase === 'assistant_tool_call') return false;
-
-    // Keep interruption rows (ask_user/approval) for the live operation.
-    // Dropping all assistant rows for the active operation causes the
-    // pending action card to disappear on session re-entry.
-    if (message.yieldState || this.messageHasYieldCard(message)) return false;
-
-    return true;
+    return false;
   }
 
   private shouldPreserveTypingAfterThreadReload(
@@ -2113,23 +2095,22 @@ export class AgentXOperationChatSessionFacade {
         return item.semanticPhase === 'assistant_final';
       }
 
-      // ask_user (needs_input) operations: keep one pre-yield tool_call row
-      // (latest) so thread reload retains the visible question/context prose,
-      // while still suppressing assistant_yield rows and intermediate trajectory.
+      // ask_user (needs_input) operations: pending yields keep one pre-yield
+      // tool_call row so reload retains the visible question/context prose.
+      // Answered yields preserve already-rendered assistant context rows and
+      // suppress only the assistant_yield row; otherwise pre-question assistant
+      // context persisted as assistant_partial can disappear after reload.
       // This runs AFTER finalOperationIds so completed ask_user ops still keep
       // their final answer visible on reload.
-      //
-      // Exception: when the ask_user yield has been answered, restore the last
-      // assistant_tool_call row so the pre-yield prose (question context and search
-      // results the agent wrote before calling ask_user) remains visible in the chat
-      // history alongside the resolved ask_user card. This matches the mandatory
-      // 2-step ask_user pattern where the agent writes the full question as prose
-      // BEFORE invoking the ask_user tool.
       if (item.operationId && inputYieldedOpIds.has(item.operationId)) {
-        if (item.semanticPhase === 'assistant_tool_call') {
-          if (answeredYieldOpIds.has(item.operationId)) {
+        if (answeredYieldOpIds.has(item.operationId)) {
+          if (item.semanticPhase === 'assistant_tool_call') {
             return !answeredInputYieldToolCallSuppressedIds.has(item.id);
           }
+          return true;
+        }
+
+        if (item.semanticPhase === 'assistant_tool_call') {
           return !pendingInputYieldToolCallSuppressedIds.has(item.id);
         }
         return false;
@@ -4830,10 +4811,48 @@ export class AgentXOperationChatSessionFacade {
         .some((later) => later.role === 'assistant' && later.semanticPhase === 'assistant_final');
       if (hasSubsequentFinal) continue;
 
+      if (this.hasLaterReplyForYield(item, yieldState, items.slice(index + 1))) continue;
+
       return yieldState;
     }
 
     return null;
+  }
+
+  private hasLaterReplyForYield(
+    yieldItem: AgentMessage,
+    yieldState: AgentYieldState,
+    laterItems: readonly AgentMessage[]
+  ): boolean {
+    const operationId =
+      typeof yieldItem.operationId === 'string' && yieldItem.operationId.trim().length > 0
+        ? yieldItem.operationId.trim()
+        : this.resolveYieldOperationId(yieldState);
+    if (!operationId) return false;
+
+    const pendingToolCallId = yieldState.pendingToolCall?.toolCallId?.trim() ?? '';
+
+    return laterItems.some((later) => {
+      if ((later.operationId?.trim() ?? '') !== operationId) return false;
+
+      if (later.role === 'user' && typeof later.content === 'string' && later.content.trim().length > 0) {
+        return true;
+      }
+
+      if (later.role !== 'tool') return false;
+
+      if (pendingToolCallId && typeof later.toolCallId === 'string' && later.toolCallId.trim() === pendingToolCallId) {
+        return true;
+      }
+
+      if (typeof later.content !== 'string' || later.content.trim().length === 0) return false;
+      try {
+        const parsed = JSON.parse(later.content) as { data?: { userResponse?: unknown } };
+        return typeof parsed.data?.userResponse === 'string' && parsed.data.userResponse.trim().length > 0;
+      } catch {
+        return false;
+      }
+    });
   }
 
   private applyPendingYieldState(

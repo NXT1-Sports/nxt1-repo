@@ -4,6 +4,7 @@ import {
   buildPlaywrightPdfOptions,
   getLocalChromiumLaunchArgs,
   HtmlPdfRendererService,
+  resolveE2bHtmlPdfTemplateRef,
   type HtmlPdfRunner,
 } from '../html-pdf-renderer.service.js';
 
@@ -42,6 +43,29 @@ describe('HtmlPdfRendererService', () => {
       ])
     );
     expect(getLocalChromiumLaunchArgs('darwin')).toEqual([]);
+  });
+
+  it('defaults the E2B template ref to the production tag', () => {
+    expect(resolveE2bHtmlPdfTemplateRef(undefined)).toBe('nxt1-html-pdf-renderer:production');
+    expect(resolveE2bHtmlPdfTemplateRef('')).toBe('nxt1-html-pdf-renderer:production');
+  });
+
+  it('adds the production tag when the template ref is missing one', () => {
+    expect(resolveE2bHtmlPdfTemplateRef('nxt1-html-pdf-renderer')).toBe(
+      'nxt1-html-pdf-renderer:production'
+    );
+    expect(resolveE2bHtmlPdfTemplateRef('johns-project-8567/nxt1-html-pdf-renderer')).toBe(
+      'johns-project-8567/nxt1-html-pdf-renderer:production'
+    );
+  });
+
+  it('preserves explicit E2B template tags', () => {
+    expect(resolveE2bHtmlPdfTemplateRef('nxt1-html-pdf-renderer:latest')).toBe(
+      'nxt1-html-pdf-renderer:latest'
+    );
+    expect(
+      resolveE2bHtmlPdfTemplateRef('johns-project-8567/nxt1-html-pdf-renderer:production')
+    ).toBe('johns-project-8567/nxt1-html-pdf-renderer:production');
   });
 
   it('renders a valid complete HTML document and returns metadata', async () => {

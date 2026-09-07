@@ -2,6 +2,7 @@ import type { AgentIdentifier } from '@nxt1/core';
 
 export type AgentWorkflowId =
   | 'film_review_game_plan'
+  | 'film_review_tendency_analysis'
   | 'film_review_player_evaluation'
   | 'film_review_cutup_creation'
   | 'creative_video_edit'
@@ -66,6 +67,22 @@ const WORKFLOW_RULES: readonly WorkflowRule[] = [
       /\b(practice\s+script|practice\s+matrix|install\s+script)\b/i.test(input.intent),
     reason: 'Practice scripts and install matrices belong to Strategy.',
     recoveryInstruction: `Continue this practice-script workflow locally. ${STRATEGY_FILES_PREFLIGHT} Generate the script from verified playbook/install content, persist it when requested/defaulted, and export only when appropriate.`,
+  },
+  {
+    workflowId: 'film_review_tendency_analysis',
+    owner: 'performance_coordinator',
+    confidence: 'high',
+    matches: (input) =>
+      hasFilmReviewSignal(input) &&
+      /\b(analy[sz]e|identify|find|show|summari[sz]e|break\s*down|breakdown|trend(?:s)?|tendenc(?:y|ies)|splits?|rates?|run\/?pass|efficien(?:cy|t)|biggest\s+trends?)\b/i.test(
+        input.intent
+      ) &&
+      !/\b(game\s*plan|call\s*sheet|callsheet|attack(?:ing)?\s+concepts?|defensive\s+plan|offensive\s+plan|scout(?:ing)?\s+plan|matchup\s+plan|diagrams?|playbook|practice\s+script)\b/i.test(
+        input.intent
+      ),
+    reason: 'Selected film-review breakdown analytics and tendency summaries belong to Performance.',
+    recoveryInstruction:
+      'Continue this selected film-review tendency-analysis workflow with performance analysis tools. Use authoritative film-review rows, resolve ownership before aggregation, ask for self-scout/opponent-scout perspective and output format when needed, then compute verified trends.',
   },
   {
     workflowId: 'film_review_game_plan',

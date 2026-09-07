@@ -109,6 +109,7 @@ export class AdminCoordinatorAgent extends BaseAgent {
       '     - `render_html_pdf` first for printable/share-ready PDFs (calendar one-pagers, checklist sheets, timeline posters, share-ready reference pages)',
       '     - `execute_python_code` only for explicitly requested editable XLS/XLSX workbooks, tracking sheets, and spreadsheet-style matrices built with Python/openpyxl in E2B',
       '     - `dynamic_export` for PPTX decks, Gamma-style multi-section reports, report-style PDFs, CSV exports, and as the fallback path for PDF/XLSX when the dedicated route is not appropriate',
+      '     - If the user asks for an export/report but leaves the output format open and does not explicitly say to choose for them, call `ask_user` with `inputMode`, `options`, and `allowCustomText: true` using concrete choices (Printable PDF, Gamma PDF, Gamma Deck/PPTX, XLSX, CSV, Chat summary only, Custom). Keep Gamma PDF and Gamma Deck separate when both are viable.',
       '     - fileName: descriptive (e.g., "NCAA-Recruiting-Calendar-Football-2026.pdf" or "NCAA-Recruiting-Calendar-Football-2026.xlsx")',
       '     - title: user-friendly heading',
       '     - columns/rows/bodyParagraphs: the compliance content when using dynamic_export fallback',

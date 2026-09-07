@@ -728,6 +728,20 @@ export const AGENT_X_ACTION_CARD_TEST_IDS = {
 } as const;
 
 /**
+ * Agent X Output Selection Card test IDs.
+ */
+export const AGENT_X_OUTPUT_SELECTION_TEST_IDS = {
+  CARD: 'agent-output-selection-card',
+  PROMPT: 'agent-output-selection-prompt',
+  OPTION_TILE: 'agent-output-selection-option',
+  OPTION_RADIO: 'agent-output-selection-radio',
+  OPTION_CHECKBOX: 'agent-output-selection-checkbox',
+  CUSTOM_INPUT: 'agent-output-selection-custom-input',
+  SUBMIT_BTN: 'agent-output-selection-submit',
+  RESOLVED_BADGE: 'agent-output-selection-resolved',
+} as const;
+
+/**
  * Agent X Billing Action Card test IDs.
  */
 export const AGENT_X_BILLING_CARD_TEST_IDS = {
@@ -813,6 +827,10 @@ export const AGENT_X_INPUT_TEST_IDS = {
   ATTACHMENT_THUMB: 'agent-input-attachment-thumb',
   ATTACHMENT_FILE_ICON: 'agent-input-attachment-file-icon',
   ATTACHMENT_NAME: 'agent-input-attachment-name',
+  COORDINATOR_MENTION_MENU: 'agent-input-coordinator-mention-menu',
+  COORDINATOR_MENTION_OPTION: 'agent-input-coordinator-mention-option',
+  COORDINATOR_MENTION_PILL: 'agent-input-coordinator-mention-pill',
+  COORDINATOR_MENTION_REMOVE: 'agent-input-coordinator-mention-remove',
   EFFORT_OPTION_HIGH: 'agent-input-effort-high',
   EFFORT_OPTION_MEDIUM: 'agent-input-effort-medium',
   EFFORT_OPTION_LOW: 'agent-input-effort-low',
@@ -1552,6 +1570,7 @@ export const TEST_IDS = {
   ACTIVITY: ACTIVITY_TEST_IDS,
   USAGE: USAGE_TEST_IDS,
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
+  AGENT_X_OUTPUT_SELECTION: AGENT_X_OUTPUT_SELECTION_TEST_IDS,
   AGENT_X_BILLING_CARD: AGENT_X_BILLING_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
   AGENT_X_CHAT_BUBBLE_ACTIONS: AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS,

@@ -10,6 +10,11 @@ import { describe, expect, it, beforeEach, vi } from 'vitest';
 import ExcelJS from 'exceljs';
 import { ExportService } from '../export.service.js';
 import type { GammaPresentationGenerator } from '../gamma-client.service.js';
+import {
+  DYNAMIC_EXPORT_BILLABLE_FEATURE,
+  DYNAMIC_EXPORT_GAMMA_DOCUMENT_BILLABLE_FEATURE,
+  DYNAMIC_EXPORT_GAMMA_PRESENTATION_BILLABLE_FEATURE,
+} from '../export.service.js';
 import type {
   CsvExportOptions,
   PdfExportOptions,
@@ -461,6 +466,19 @@ describe('ExportService', () => {
   // ── PPTX ─────────────────────────────────────────────────────────────────
 
   describe('generatePptx', () => {
+    it('returns the Gamma presentation billing key when Gamma renders the deck', async () => {
+      const gammaPptx = Buffer.from('PK\x03\x04gamma-pptx');
+      const generatePptx = vi.fn().mockResolvedValue(gammaPptx);
+      const generatePdf = vi.fn();
+      service = new ExportService({ isEnabled: true, generatePptx, generatePdf });
+
+      await expect(service.generatePptxArtifact(pptxOpts())).resolves.toEqual({
+        buffer: gammaPptx,
+        billableFeature: DYNAMIC_EXPORT_GAMMA_PRESENTATION_BILLABLE_FEATURE,
+        renderer: 'gamma-presentation',
+      });
+    });
+
     it('uses Gamma when enabled for a structured text deck', async () => {
       const gammaPptx = Buffer.from('PK\x03\x04gamma-pptx');
       const generatePptx = vi.fn().mockResolvedValue(gammaPptx);
@@ -485,6 +503,18 @@ describe('ExportService', () => {
 
       expect(generatePptx).toHaveBeenCalledTimes(1);
       expect(result.subarray(0, 2).toString('utf8')).toBe('PK');
+    });
+
+    it('returns the non-Gamma billing key when Gamma deck generation falls back locally', async () => {
+      const generatePptx = vi.fn().mockRejectedValue(new Error('Gamma unavailable'));
+      const generatePdf = vi.fn();
+      service = new ExportService({ isEnabled: true, generatePptx, generatePdf });
+
+      const result = await service.generatePptxArtifact(pptxOpts());
+
+      expect(result.billableFeature).toBe(DYNAMIC_EXPORT_BILLABLE_FEATURE);
+      expect(result.renderer).toBe('local');
+      expect(result.buffer.subarray(0, 2).toString('utf8')).toBe('PK');
     });
 
     it('passes brand and image-specific decks through Gamma when enabled', async () => {
@@ -553,6 +583,19 @@ describe('ExportService', () => {
   // ── PDF ──────────────────────────────────────────────────────────────────
 
   describe('generatePdf', () => {
+    it('returns the Gamma document billing key when Gamma renders a document PDF', async () => {
+      const gammaPdf = Buffer.from('%PDF-1.7 gamma-pdf');
+      const generatePptx = vi.fn();
+      const generatePdf = vi.fn().mockResolvedValue(gammaPdf);
+      service = new ExportService({ isEnabled: true, generatePptx, generatePdf });
+
+      await expect(service.generatePdfArtifact(pdfOpts())).resolves.toEqual({
+        buffer: gammaPdf,
+        billableFeature: DYNAMIC_EXPORT_GAMMA_DOCUMENT_BILLABLE_FEATURE,
+        renderer: 'gamma-document',
+      });
+    });
+
     it('uses Gamma for narrative visual PDFs when enabled', async () => {
       const gammaPdf = Buffer.from('%PDF-1.7 gamma-pdf');
       const generatePptx = vi.fn();
@@ -615,6 +658,38 @@ describe('ExportService', () => {
           format: 'presentation',
         })
       );
+    });
+
+    it('returns the Gamma presentation billing key when Gamma renders a presentation PDF', async () => {
+      const gammaPdf = Buffer.from('%PDF-1.7 gamma-presentation-pdf');
+      const generatePptx = vi.fn();
+      const generatePdf = vi.fn().mockResolvedValue(gammaPdf);
+      service = new ExportService({ isEnabled: true, generatePptx, generatePdf });
+
+      await expect(
+        service.generatePdfArtifact(
+          pdfOpts({
+            gammaPdfFormat: 'presentation',
+            title: 'Falcons Staff Briefing Deck',
+          })
+        )
+      ).resolves.toEqual({
+        buffer: gammaPdf,
+        billableFeature: DYNAMIC_EXPORT_GAMMA_PRESENTATION_BILLABLE_FEATURE,
+        renderer: 'gamma-presentation',
+      });
+    });
+
+    it('returns the non-Gamma billing key when Gamma PDF generation falls back locally', async () => {
+      const generatePptx = vi.fn();
+      const generatePdf = vi.fn().mockRejectedValue(new Error('Gamma unavailable'));
+      service = new ExportService({ isEnabled: true, generatePptx, generatePdf });
+
+      const result = await service.generatePdfArtifact(pdfOpts());
+
+      expect(result.billableFeature).toBe(DYNAMIC_EXPORT_BILLABLE_FEATURE);
+      expect(result.renderer).toBe('local');
+      expect(result.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-');
     });
 
     it('should return a Buffer', async () => {
