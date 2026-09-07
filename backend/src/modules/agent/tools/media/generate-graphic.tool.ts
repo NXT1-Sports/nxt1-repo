@@ -27,27 +27,10 @@ import { MediaTransportResolverService } from './media-transport-resolver.servic
 import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
-import sharp from 'sharp';
-import { readFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const TOOL_DIR = dirname(fileURLToPath(import.meta.url));
-const LOCAL_LOGO_CANDIDATE_PATHS = [
-  resolve(TOOL_DIR, '../../../../../../packages/design-tokens/assets/logo/nxt1-whitelogo.png'),
-  resolve(TOOL_DIR, '../../../../../../dist/packages/design-tokens/assets/logo/nxt1-whitelogo.png'),
-] as const;
-const STORAGE_LOGO_CANDIDATE_PATHS = [
-  'brand-assets/reference/nxt1-whitelogo.png',
-  'brand-assets/reference/nxt1-logo.png',
-  'brand-assets/logo/nxt1-whitelogo.png',
-  'brand-assets/nxt1-whitelogo.png',
-] as const;
-const LOGO_WIDTH_RATIO = 0.05;
-const LOGO_MARGIN_RATIO = 0.015;
 const MAX_SUBJECT_PHOTOS = 5;
 const MAX_LOGOS = 3;
 const IMAGE_FETCH_TIMEOUT_MS = 20_000;
@@ -382,61 +365,6 @@ export class GenerateGraphicTool extends BaseTool {
     } catch {
       return null;
     }
-  }
-
-  /** Fetches the NXT1 logo buffer from local disk or Firebase Storage. */
-  private async fetchLogoBuffer(context?: ToolExecutionContext): Promise<Buffer | null> {
-    for (const localPath of LOCAL_LOGO_CANDIDATE_PATHS) {
-      try {
-        const buf = await readFile(localPath);
-        if (buf.length > 0) return buf;
-      } catch {
-        // Try next candidate
-      }
-    }
-    try {
-      const bucket = this.resolveStorage(context).bucket();
-      for (const storagePath of STORAGE_LOGO_CANDIDATE_PATHS) {
-        try {
-          const file = bucket.file(storagePath);
-          const [exists] = await file.exists();
-          if (!exists) continue;
-          const [buffer] = await file.download();
-          if (buffer.length > 0) return buffer;
-        } catch {
-          // Try next candidate
-        }
-      }
-    } catch {
-      // Storage unavailable — skip logo
-    }
-    return null;
-  }
-
-  /** Stamps the NXT1 logo in the bottom-right corner via Sharp compositing. */
-  private async stampLogoBottomRight(baseImage: Buffer, logoPng: Buffer): Promise<Buffer> {
-    const meta = await sharp(baseImage).metadata();
-    const width = meta.width ?? 0;
-    const height = meta.height ?? 0;
-    if (width <= 0 || height <= 0) return baseImage;
-
-    const targetLogoWidth = Math.max(36, Math.round(width * LOGO_WIDTH_RATIO));
-    const margin = Math.max(10, Math.round(width * LOGO_MARGIN_RATIO));
-
-    const logoResized = await sharp(logoPng)
-      .resize({ width: targetLogoWidth, fit: 'contain' })
-      .png()
-      .toBuffer();
-
-    const logoMeta = await sharp(logoResized).metadata();
-    const logoWidth = logoMeta.width ?? targetLogoWidth;
-    const logoHeight = logoMeta.height ?? targetLogoWidth;
-    const left = Math.max(0, width - logoWidth - margin);
-    const top = Math.max(0, height - logoHeight - margin);
-
-    return sharp(baseImage)
-      .composite([{ input: logoResized, left, top }])
-      .toBuffer();
   }
 
   private normalizeUrlList(urls: readonly string[] | undefined, max: number): string[] {
@@ -1019,18 +947,10 @@ Return JSON only. No explanation outside the JSON.`;
       const bucket = this.resolveStorage(context).bucket();
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
-      // Stamp the NXT1 logo in the bottom-right corner.
-      // User/team logos are model-visible references and should be integrated
-      // by the generated artwork, not pasted into a fixed corner afterward.
-      const logoBuffer = await this.fetchLogoBuffer(context);
-      const finalBuffer = logoBuffer
-        ? await this.stampLogoBottomRight(imageBuffer, logoBuffer)
-        : imageBuffer;
-
       const mediaAccess = await AgentMediaLifecycleService.saveBufferAndMakePublic({
         bucket,
         storagePath: filePath,
-        buffer: finalBuffer,
+        buffer: imageBuffer,
         mimeType: result.mimeType,
         cacheControl: 'public, max-age=31536000, immutable',
       });
