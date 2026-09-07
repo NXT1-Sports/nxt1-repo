@@ -7,7 +7,7 @@ import { SeoService } from '../../core/services/web/seo.service';
 
 const AGENT_X_MARKETING_TITLE = 'NXT1 Agent X | AI Command Center for Sports';
 const AGENT_X_MARKETING_DESCRIPTION =
-  'Agent X is the NXT1 AI command center for sports that executes film, creative, communications, and operations for athletes, coaches, directors, and programs.';
+  "Agent X is a multimodal AI assistant with hundreds of tools and skills for coaches, staff, and directors. It learns your organization's intelligence and terminology to elevate your program in a fraction of the time.";
 const AGENT_X_MARKETING_URL = 'https://nxt1sports.com/agent-x';
 const AGENT_X_MARKETING_IMAGE = 'https://nxt1sports.com/assets/shared/images/og-image.jpg';
 const AGENT_X_MARKETING_IMAGE_ALT = 'Agent X AI command center for sports preview';

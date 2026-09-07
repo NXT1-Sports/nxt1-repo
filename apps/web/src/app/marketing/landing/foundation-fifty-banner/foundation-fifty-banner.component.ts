@@ -2,7 +2,7 @@
  * @fileoverview Foundation 50 — Coach Early Access Banner
  * @module apps/web/features/marketing/landing/foundation-fifty-banner
  *
- * Coaches-only early access offer. First 50 coaches to join this summer
+ * Coaches-only early access offer. First 50 coaches to join now
  * receive $100+ in free AI budget plus exclusive early access perks.
  *
  * Displayed as the first section directly under the ImmersiveHero
@@ -44,6 +44,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     name: 'Akron East High School',
     location: 'Akron, OH',
     src: PARTNER_TEAM_LOGO_PATHS.akronEastHs,
+  },
+  {
+    id: 'akron-north-hs',
+    name: 'Akron North High School',
+    location: 'Akron, OH',
+    src: PARTNER_TEAM_LOGO_PATHS.akronNorthHs,
   },
   {
     id: 'barberton-hs',
@@ -90,7 +96,7 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
   {
     id: 'centennial-hs',
     name: 'Centennial High School',
-    location: 'Columbus, OH',
+    location: 'Centennial, TN',
     src: PARTNER_TEAM_LOGO_PATHS.centennialHs,
   },
   {
@@ -196,6 +202,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.marlingtonHs,
   },
   {
+    id: 'massillon-hs',
+    name: 'Massillon High School',
+    location: 'Massillon, OH',
+    src: PARTNER_TEAM_LOGO_PATHS.massillonHs,
+  },
+  {
     id: 'martin-county-hs',
     name: 'Martin County High School',
     location: 'Inez, KY',
@@ -218,6 +230,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     name: 'North High School',
     location: 'Akron, OH',
     src: PARTNER_TEAM_LOGO_PATHS.northHs,
+  },
+  {
+    id: 'parkside-md-hs',
+    name: 'Parkside High School',
+    location: 'Salisbury, MD',
+    src: PARTNER_TEAM_LOGO_PATHS.parksideMdHs,
   },
   {
     id: 'perry-pirates-hs',
@@ -302,8 +320,8 @@ const FOUNDATION_PARTNER_ROWS: readonly FoundationPartnerTeamLogoRow[] = Array.f
           </h2>
 
           <p class="f50__sub">
-            Sign up as a founding coach this summer for early platform access, exclusive community
-            access, and a direct hand in shaping a new era platform around your program.
+            Sign up as a founding coach now for early platform access, exclusive community access,
+            and a direct hand in shaping a new era platform around your program.
           </p>
 
           <!-- Perks row -->

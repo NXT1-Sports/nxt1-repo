@@ -54,7 +54,7 @@ const LANDING_FAQS: readonly FaqItem[] = [
     id: 'icp',
     question: 'Who is NXT1 built for?',
     answer:
-      'NXT1 is built for athletes, coaches, directors, and program leaders who need a smarter way to operate. It helps teams and sports organizations execute faster across performance, content, communications, planning, and day-to-day operations.',
+      'NXT1 is built for coaches, directors, and program leaders who want a secure AI assistant that understands their program and works alongside their team. Agent X learns your terminology and organizational intelligence, handles film breakdowns, game planning, practice scripts, highlights, reports, content, and communications, and saves your staff tremendous time while helping your program build for the future.',
   },
   {
     id: 'sports-supported',
@@ -65,19 +65,13 @@ const LANDING_FAQS: readonly FaqItem[] = [
     id: 'agentx',
     question: 'What does Agent X do?',
     answer:
-      "Agent X is NXT1's primary AI coordinator. It turns plain-language requests into completed work across film analysis, highlight creation, graphics, communications, daily briefings, weekly playbooks, and background operations.",
-  },
-  {
-    id: 'athletes',
-    question: 'How do athletes use NXT1?',
-    answer:
-      'Athletes use NXT1 as a personal command center for performance insights, film breakdowns, highlight reels, graphics, communication support, and action plans that help them move faster without juggling multiple apps.',
+      "Agent X is an AI agent assistant built to work alongside your program. It understands your organization's intelligence and terminology, collaborates with your staff, and turns what they need next into finished work faster.",
   },
   {
     id: 'programs',
     question: 'How do coaches, directors, and programs use NXT1?',
     answer:
-      'Coaches, directors, and program leaders use NXT1 to align player development, evaluations, content, communications, reporting, and operations in one command center powered by AI coordinators.',
+      'Coaches, directors, and program leaders use Agent X as an AI assistant that does the work behind the scenes: tagging and breaking down film, creating highlights, building game plans, writing practice scripts, preparing reports, and supporting communications. It is built around the real needs of your program, so staff can get the right work done when they need it.',
   },
   {
     id: 'category',
@@ -210,7 +204,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
             <h2 id="faq-heading" class="sr-only">Frequently Asked Questions</h2>
             <nxt1-faq-section
               title="Frequently Asked Questions"
-              subtitle="How NXT1 works for athletes, coaches, directors, and program leaders."
+              subtitle="How NXT1 works for coaches, directors, and program leaders."
               [items]="faqs"
               defaultOpenId="icp"
             />
