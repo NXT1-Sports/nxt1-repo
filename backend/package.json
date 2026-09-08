@@ -201,7 +201,7 @@
     "shx": "^0.4.0",
     "supertest": "^7.2.2",
     "typescript": "6.0.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "google-auth-library": "10.7.0",
