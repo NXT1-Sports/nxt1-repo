@@ -54,7 +54,7 @@ const LANDING_FAQS: readonly FaqItem[] = [
     id: 'icp',
     question: 'Who is NXT1 built for?',
     answer:
-      'NXT1 is built for coaches, directors, and program leaders who want a secure AI assistant that understands their program and works alongside their team. Agent X learns your terminology and organizational intelligence, handles film breakdowns, game planning, practice scripts, highlights, reports, content, and communications, and saves your staff tremendous time while helping your program build for the future.',
+      'NXT1 is built for coaches, directors, and program leaders who want a secure AI assistant that understands their program and is collaborative within their team. Agent X learns your terminology and organizational intelligence, handles film breakdowns, game planning, practice scripts, highlights, reports, content, and communications, and saves your staff tremendous time while helping your program build for the future.',
   },
   {
     id: 'sports-supported',
@@ -204,7 +204,6 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
             <h2 id="faq-heading" class="sr-only">Frequently Asked Questions</h2>
             <nxt1-faq-section
               title="Frequently Asked Questions"
-              subtitle="How NXT1 works for coaches, directors, and program leaders."
               [items]="faqs"
               defaultOpenId="icp"
             />
@@ -220,7 +219,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
               variant="conversion"
               badgeLabel="Join The Revolution"
               title="Stop Competing. Start Dominating."
-              subtitle="Join the NXT1 sports intelligence platform built for coaches, directors, and program leaders who need one command center for planning, recruiting, player development, content, communications, and day-to-day operations."
+              subtitle="Join the secure AI platform built for coaches, directors, and program leaders. Agent X understands your terminology and your program, collaborates within your team, and helps your staff find more ways to win, develop, coach, plan, and lead."
               ctaLabel="Create Your NXT1 Account"
               ctaRoute="/auth"
               titleId="landing-final-cta-title"

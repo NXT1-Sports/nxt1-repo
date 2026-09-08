@@ -27,81 +27,83 @@ export interface CapabilitySecondaryNode {
 const CENTER = { x: 50, y: 50 } as const;
 
 const PRIMARY_NODES: readonly CapabilityPrimaryNode[] = [
-  { id: 'intel', label: 'Sports Intelligence', x: 34, y: 28 },
-  { id: 'creative', label: 'Creative Director', x: 28, y: 70 },
-  { id: 'workflow', label: 'Workflow Engine', x: 67, y: 28 },
-  { id: 'ops', label: 'Operations Manager', x: 74, y: 68 },
-  { id: 'analytics', label: 'Command Center', x: 50, y: 84 },
+  { id: 'intel', label: 'Video', x: 34, y: 28 },
+  { id: 'creative', label: 'Roster', x: 28, y: 70 },
+  { id: 'workflow', label: 'Data', x: 67, y: 28 },
+  { id: 'ops', label: 'Schedule', x: 74, y: 68 },
+  { id: 'analytics', label: 'Playbooks', x: 50, y: 84 },
 ] as const;
 
 const SECONDARY_NODES: readonly CapabilitySecondaryNode[] = [
-  { id: 'intel-1', parentId: 'intel', label: 'Film Analysis', x: 23, y: 18 },
-  { id: 'intel-2', parentId: 'intel', label: 'Risk Signals', x: 23, y: 36 },
-  { id: 'intel-3', parentId: 'intel', label: 'Progression', x: 41, y: 17 },
+  { id: 'intel-1', parentId: 'intel', label: 'Film Breakdown', x: 23, y: 18 },
+  { id: 'intel-2', parentId: 'intel', label: 'Tagging', x: 23, y: 36 },
+  { id: 'intel-3', parentId: 'intel', label: 'Reports', x: 41, y: 17 },
 
-  { id: 'creative-1', parentId: 'creative', label: 'Highlight Reels', x: 18, y: 60 },
-  { id: 'creative-2', parentId: 'creative', label: 'Graphic Packs', x: 18, y: 80 },
-  { id: 'creative-3', parentId: 'creative', label: 'Captions', x: 47, y: 70 },
+  { id: 'creative-1', parentId: 'creative', label: 'Player Profiles', x: 18, y: 60 },
+  { id: 'creative-2', parentId: 'creative', label: 'Recruiting', x: 18, y: 80 },
+  { id: 'creative-3', parentId: 'creative', label: 'Player Development', x: 47, y: 70 },
 
-  { id: 'workflow-1', parentId: 'workflow', label: 'Background Ops', x: 78, y: 18 },
-  { id: 'workflow-2', parentId: 'workflow', label: 'Daily Briefings', x: 78, y: 36 },
-  { id: 'workflow-3', parentId: 'workflow', label: 'Playbooks', x: 59, y: 17 },
+  { id: 'workflow-1', parentId: 'workflow', label: 'Stats', x: 78, y: 18 },
+  { id: 'workflow-2', parentId: 'workflow', label: 'Opponent Scouting', x: 78, y: 36 },
+  { id: 'workflow-3', parentId: 'workflow', label: 'Team Trends', x: 59, y: 17 },
 
-  { id: 'ops-1', parentId: 'ops', label: 'Team Comms', x: 83, y: 60 },
-  { id: 'ops-2', parentId: 'ops', label: 'Weekly Plans', x: 83, y: 79 },
-  { id: 'ops-3', parentId: 'ops', label: 'Scheduling', x: 67, y: 86 },
+  { id: 'ops-1', parentId: 'ops', label: 'Team Calendar', x: 83, y: 55 },
+  { id: 'ops-2', parentId: 'ops', label: 'Meetings', x: 83, y: 72 },
+  { id: 'ops-3', parentId: 'ops', label: 'Game Plans', x: 71, y: 78 },
 
-  { id: 'analytics-1', parentId: 'analytics', label: 'Trend Signals', x: 41, y: 90 },
-  { id: 'analytics-2', parentId: 'analytics', label: 'Outcome Plans', x: 61, y: 90 },
+  { id: 'analytics-1', parentId: 'analytics', label: 'Practice Scripts', x: 41, y: 90 },
+  { id: 'analytics-2', parentId: 'analytics', label: 'Playsheets', x: 61, y: 90 },
+  { id: 'analytics-3', parentId: 'analytics', label: 'Installs', x: 50, y: 96 },
 ] as const;
 
 const MOBILE_PRIMARY_NODES: readonly CapabilityPrimaryNode[] = [
-  { id: 'intel', label: 'Sports Intelligence', x: 24, y: 31 },
-  { id: 'creative', label: 'Creative Director', x: 25, y: 63 },
-  { id: 'workflow', label: 'Workflow Engine', x: 76, y: 31 },
-  { id: 'ops', label: 'Operations Manager', x: 75, y: 63 },
-  { id: 'analytics', label: 'Command Center', x: 50, y: 83 },
+  { id: 'intel', label: 'Video', x: 24, y: 31 },
+  { id: 'creative', label: 'Roster', x: 25, y: 63 },
+  { id: 'workflow', label: 'Data', x: 76, y: 31 },
+  { id: 'ops', label: 'Schedule', x: 75, y: 63 },
+  { id: 'analytics', label: 'Playbooks', x: 50, y: 83 },
 ] as const;
 
 const MOBILE_SECONDARY_NODES: readonly CapabilitySecondaryNode[] = [
-  { id: 'intel-1', parentId: 'intel', label: 'Film Analysis', x: 17, y: 17 },
-  { id: 'intel-2', parentId: 'intel', label: 'Risk Signals', x: 16, y: 42 },
-  { id: 'intel-3', parentId: 'intel', label: 'Progression', x: 39, y: 21 },
+  { id: 'intel-1', parentId: 'intel', label: 'Film Breakdown', x: 17, y: 17 },
+  { id: 'intel-2', parentId: 'intel', label: 'Tagging', x: 16, y: 42 },
+  { id: 'intel-3', parentId: 'intel', label: 'Reports', x: 39, y: 21 },
 
-  { id: 'creative-1', parentId: 'creative', label: 'Highlight Reels', x: 15, y: 55 },
-  { id: 'creative-2', parentId: 'creative', label: 'Graphic Packs', x: 17, y: 75 },
-  { id: 'creative-3', parentId: 'creative', label: 'Captions', x: 38, y: 71 },
+  { id: 'creative-1', parentId: 'creative', label: 'Player Profiles', x: 15, y: 55 },
+  { id: 'creative-2', parentId: 'creative', label: 'Recruiting', x: 17, y: 75 },
+  { id: 'creative-3', parentId: 'creative', label: 'Player Development', x: 38, y: 71 },
 
-  { id: 'workflow-1', parentId: 'workflow', label: 'Background Ops', x: 83, y: 17 },
-  { id: 'workflow-2', parentId: 'workflow', label: 'Daily Briefings', x: 84, y: 42 },
-  { id: 'workflow-3', parentId: 'workflow', label: 'Playbooks', x: 61, y: 21 },
+  { id: 'workflow-1', parentId: 'workflow', label: 'Stats', x: 83, y: 17 },
+  { id: 'workflow-2', parentId: 'workflow', label: 'Opponent Scouting', x: 84, y: 42 },
+  { id: 'workflow-3', parentId: 'workflow', label: 'Team Trends', x: 61, y: 21 },
 
-  { id: 'ops-1', parentId: 'ops', label: 'Team Comms', x: 84, y: 55 },
-  { id: 'ops-2', parentId: 'ops', label: 'Weekly Plans', x: 83, y: 75 },
-  { id: 'ops-3', parentId: 'ops', label: 'Scheduling', x: 62, y: 71 },
+  { id: 'ops-1', parentId: 'ops', label: 'Team Calendar', x: 84, y: 55 },
+  { id: 'ops-2', parentId: 'ops', label: 'Meetings', x: 83, y: 78 },
+  { id: 'ops-3', parentId: 'ops', label: 'Game Plans', x: 62, y: 71 },
 
-  { id: 'analytics-1', parentId: 'analytics', label: 'Trend Signals', x: 35, y: 93 },
-  { id: 'analytics-2', parentId: 'analytics', label: 'Outcome Plans', x: 65, y: 93 },
+  { id: 'analytics-1', parentId: 'analytics', label: 'Practice Scripts', x: 35, y: 93 },
+  { id: 'analytics-2', parentId: 'analytics', label: 'Playsheets', x: 65, y: 93 },
+  { id: 'analytics-3', parentId: 'analytics', label: 'Installs', x: 50, y: 98 },
 ] as const;
 
 const CAPABILITY_PILLARS: readonly { id: string; title: string; detail: string }[] = [
   {
     id: 'intel',
-    title: 'Break down complexity in real time',
+    title: 'Turn ideas into finished work',
     detail:
-      'Agent X turns film, stats, and context into actionable intelligence so athletes, coaches, and program leaders can move faster.',
+      'Tell Agent X what you need and it can generate the plan, report, graphic, highlight, message, or material that moves your program forward.',
   },
   {
     id: 'orchestration',
-    title: 'Execute complete workflows, not single tasks',
+    title: 'Specialized in sports',
     detail:
-      'From media production to outreach and follow-through, Agent X runs coordinated multi-step operations from one command center.',
+      'Built for every sport, Agent X breaks down film and opponents while supporting game plans, branding, recruiting, communications, and the rest of your program.',
   },
   {
     id: 'advantage',
-    title: 'Compound your operational advantage',
+    title: 'Background execution that keeps moving',
     detail:
-      'Every action connects to the broader system so your team captures stronger signals, clearer priorities, and better outcomes.',
+      'While your staff is on the field or court, Agent X completes tasks in the background so the work is ready when your team gets back to it.',
   },
 ] as const;
 
