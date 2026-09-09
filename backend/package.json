@@ -181,7 +181,7 @@
     "pptxgenjs": "^4.0.1",
     "rate-limit-redis": "^5.0.0",
     "reflect-metadata": "^0.2.2",
-    "sharp": "^0.35.2",
+    "sharp": "^0.35.4",
     "stripe": "^22.5.0",
     "zod": "^4.4.3"
   },
