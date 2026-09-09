@@ -11,7 +11,7 @@ import type { CreatePlayDiagramInput, PlayDiagramResult } from './schemas.js';
 const DIAGRAMS_EDITOR_BASE = 'https://app.diagrams.net/';
 const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 const MAX_QUERY_LENGTH = 380;
-const MIN_IMAGE_SCORE = 3;
+const MIN_IMAGE_SCORE = 2;
 
 const STOP_WORDS = new Set([
   'the',
@@ -38,8 +38,6 @@ const STOP_WORDS = new Set([
   'about',
   'over',
   'under',
-  'route',
-  'routes',
 ]);
 
 type TavilyImageItem = string | { readonly url: string; readonly description?: string };
@@ -120,7 +118,29 @@ function scoreImageCandidate(
   }
 
   const urlLower = candidate.url.toLowerCase();
-  if (urlLower.includes('playbook') || urlLower.includes('diagram') || urlLower.includes('drill')) {
+  const descriptionLower = candidate.description.toLowerCase();
+  const DIAGRAM_KEYWORDS = [
+    'playbook',
+    'diagram',
+    'drill',
+    'formation',
+    'coverage',
+    'route',
+    'scheme',
+    'tactic',
+    'x-and-o',
+    'xs-and-os',
+    'play-call',
+    'playcall',
+    'chalkboard',
+    'whiteboard',
+    'board',
+  ];
+  if (
+    DIAGRAM_KEYWORDS.some(
+      (keyword) => urlLower.includes(keyword) || descriptionLower.includes(keyword)
+    )
+  ) {
     score += 2;
   }
 
@@ -210,10 +230,15 @@ async function runTavilySearch(query: string, context?: ToolExecutionContext): P
     body: JSON.stringify({
       api_key: process.env['TAVILY_API_KEY'],
       query,
-      max_results: 5,
+      max_results: 10,
       search_depth: 'advanced',
       include_answer: true,
       include_images: true,
+      // Without this flag Tavily returns bare image URLs with no alt-text,
+      // which starves the relevance scorer of the terms it needs to match
+      // candidates against the request. This was the primary cause of
+      // "no candidate found" results even when relevant images existed.
+      include_image_descriptions: true,
     }),
     signal: context?.signal,
   });
