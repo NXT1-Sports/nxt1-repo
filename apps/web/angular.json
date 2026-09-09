@@ -155,6 +155,18 @@
                 }
               }
             },
+            "local-production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.local-production.ts"
+                }
+              ],
+              "optimization": false,
+              "sourceMap": true,
+              "namedChunks": true,
+              "extractLicenses": false
+            },
             "development": {
               "optimization": false,
               "extractLicenses": false,
@@ -176,6 +188,9 @@
             },
             "staging": {
               "buildTarget": "nxt1-web:build:staging"
+            },
+            "local-production": {
+              "buildTarget": "nxt1-web:build:local-production"
             },
             "development": {
               "buildTarget": "nxt1-web:build:development"

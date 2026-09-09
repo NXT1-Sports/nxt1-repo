@@ -3341,7 +3341,8 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
         ? String(userProfileSnap.data()?.['role'])
         : null;
 
-    const grantedAccessKeys = buildGrantedAccessKeys(await resolveFileAccessContext(db, auth.uid));
+    const fileAccessContext = await resolveFileAccessContext(db, auth.uid);
+    const grantedAccessKeys = buildGrantedAccessKeys(fileAccessContext);
     const bucket = req.firebase!.storage.bucket();
 
     if (!teamId) {
@@ -3352,13 +3353,59 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
       });
     }
 
-    const [universalFileSnapshot, folderSnapshot] = await Promise.all([
-      db.collection(UNIVERSAL_FILES_COLLECTION).limit(250).get(),
-      db.collection(TEAM_FILE_FOLDERS_COLLECTION).limit(250).get(),
+    const universalFilesCollection = db.collection(UNIVERSAL_FILES_COLLECTION);
+    const scopedUniversalFileQueries = [
+      universalFilesCollection.where('ownerUserId', '==', auth.uid).limit(250),
+      universalFilesCollection.where('createdByUserId', '==', auth.uid).limit(250),
+      ...fileAccessContext.teamIds.map((teamId) =>
+        universalFilesCollection.where('teamId', '==', teamId).limit(250)
+      ),
+      ...fileAccessContext.organizationIds.map((organizationId) =>
+        universalFilesCollection.where('organizationId', '==', organizationId).limit(250)
+      ),
+      ...grantedAccessKeys.map((accessKey) =>
+        universalFilesCollection.where('readAccessKeys', 'array-contains', accessKey).limit(250)
+      ),
+    ];
+
+    const foldersCollection = db.collection(TEAM_FILE_FOLDERS_COLLECTION);
+    const scopedFolderQueries = [
+      foldersCollection.where('createdByUserId', '==', auth.uid).limit(250),
+      ...fileAccessContext.teamIds.map((teamId) =>
+        foldersCollection.where('teamId', '==', teamId).limit(250)
+      ),
+      ...fileAccessContext.organizationIds.map((organizationId) =>
+        foldersCollection.where('organizationId', '==', organizationId).limit(250)
+      ),
+      ...grantedAccessKeys.map((accessKey) =>
+        foldersCollection.where('readAccessKeys', 'array-contains', accessKey).limit(250)
+      ),
+    ];
+
+    const [universalFileSnapshots, folderSnapshots] = await Promise.all([
+      Promise.all(scopedUniversalFileQueries.map((query) => query.get())),
+      Promise.all(scopedFolderQueries.map((query) => query.get())),
     ]);
 
+    const universalFileDocs = new Map<
+      string,
+      (typeof universalFileSnapshots)[number]['docs'][number]
+    >();
+    for (const snapshot of universalFileSnapshots) {
+      for (const doc of snapshot.docs) {
+        universalFileDocs.set(doc.id, doc);
+      }
+    }
+
+    const folderDocs = new Map<string, (typeof folderSnapshots)[number]['docs'][number]>();
+    for (const snapshot of folderSnapshots) {
+      for (const doc of snapshot.docs) {
+        folderDocs.set(doc.id, doc);
+      }
+    }
+
     const files = await Promise.all(
-      universalFileSnapshot.docs.map(async (doc) => {
+      [...universalFileDocs.values()].map(async (doc) => {
         const data = doc.data() as Record<string, unknown>;
         if (
           !canReadAccessControlledRecord(data, {
@@ -3406,7 +3453,7 @@ router.get('/files/universal', appGuard, async (req: Request, res: Response) => 
       compareTeamFilesByUpdatedAtDesc(left, right)
     );
 
-    const folders = folderSnapshot.docs
+    const folders = [...folderDocs.values()]
       .filter((doc) =>
         canReadAccessControlledRecord(doc.data() as Record<string, unknown>, {
           grantedAccessKeys,

@@ -243,6 +243,11 @@ function createMockFirestore() {
       for (const constraint of whereConstraints) {
         if (constraint.operator === '==') {
           entries = entries.filter((entry) => entry.data[constraint.field] === constraint.value);
+        } else if (constraint.operator === 'array-contains') {
+          entries = entries.filter((entry) => {
+            const value = entry.data[constraint.field];
+            return Array.isArray(value) && value.includes(constraint.value);
+          });
         }
       }
 

@@ -2684,7 +2684,9 @@ router.get('/context/warm', appGuard, async (req: Request, res: Response) => {
     });
   } catch (err) {
     logger.error('Failed to warm Agent X context', { err, userId: user.uid });
-    res.status(500).json({ success: false, error: 'Failed to warm Agent context' });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to warm Agent context' });
+    }
   }
 });
 
