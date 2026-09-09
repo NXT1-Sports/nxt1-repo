@@ -2,7 +2,7 @@ import '@angular/compiler';
 import { Injector, PLATFORM_ID, runInInjectionContext } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';

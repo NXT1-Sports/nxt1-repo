@@ -2560,6 +2560,87 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(JSON.stringify(events)).toContain('execute_saved_plan');
   });
 
+  it('short-circuits and skips second LLM turn when any delegated tool returns user_already_received_response', async () => {
+    class FakeDelegatedVideoTool extends BaseTool {
+      readonly name = 'analyze_video';
+      readonly description = 'Analyzes video and responds directly.';
+      readonly parameters = z.object({ url: z.string() });
+      readonly isMutation = false;
+      readonly category = 'media' as const;
+      readonly entityGroup = 'system_tools' as const;
+      override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+      async execute(): Promise<ToolResult> {
+        return {
+          success: true,
+          data: {
+            dispatch_kind: 'coordinator',
+            coordinator_id: 'performance_coordinator',
+            user_already_received_response: true,
+            follow_up_required: false,
+            coordinator_observation: 'Performance coordinator finished and streamed to user.',
+          },
+        };
+      }
+    }
+
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDelegatedVideoTool());
+
+    const llm = {
+      completeStream: vi.fn().mockResolvedValue({
+        content: 'Analyzing the film now.',
+        toolCalls: [
+          {
+            id: 'call_analyze_video',
+            type: 'function',
+            function: {
+              name: 'analyze_video',
+              arguments: JSON.stringify({ url: 'https://example.com/film.mp4' }),
+            },
+          },
+        ],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'tool_calls',
+      }),
+    };
+
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'analyze_video',
+        description: 'Analyzes video.',
+        parameters: {
+          type: 'object',
+          properties: { url: { type: 'string' } },
+          required: ['url'],
+        },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'system_tools',
+      },
+    ];
+
+    const result = await agent.execute(
+      'Analyze film',
+      createMockContext(),
+      toolDefinitions,
+      llm as never,
+      registry,
+      undefined,
+      vi.fn()
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.summary).toBe('');
+    expect(llm.completeStream).toHaveBeenCalledTimes(1);
+    expect(result.data?.['user_already_received_response']).toBe(true);
+  });
+
   it('preserves a completed artifact when the final allowed turn also records analytics', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();

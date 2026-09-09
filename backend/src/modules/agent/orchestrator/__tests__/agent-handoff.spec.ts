@@ -67,6 +67,16 @@ describe('Agent handoff and tool narrowing', () => {
     expect(forced).not.toContain('generate_chart_visualization');
   });
 
+  it('does not force chart visualization when user explicitly requests free tier / chat only / no extras', () => {
+    const forced = computeForcedToolInclusions(
+      'Now were doing a free tier for Alex Waszczenko - Profile Link: https://nxtgen-recruits.com/athlete/123 Film Link: http://www.hudl.com/v/2SYm5g (REMEMBER this is just a free tier so your only doing player trait scores and composite score nothing else, no pdf nothing extra)'
+    );
+
+    expect(forced).not.toContain('generate_chart_visualization');
+    expect(forced).not.toContain('render_html_pdf');
+    expect(forced).not.toContain('dynamic_export');
+  });
+
   it('defaults callsheet creation to render_html_pdf instead of dynamic_export', () => {
     const forced = computeForcedToolInclusions('Build a Maumelle-style callsheet from our plays.');
 
@@ -421,6 +431,72 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('read_safe_tool');
     expect(usedToolNames).toContain('mutate_high_confidence');
     expect(usedToolNames).not.toContain('mutate_low_confidence');
+  });
+
+  it('suppresses planner card emission when emitPlannerCards is false', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.1, 0.2, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const fakeAgent = {
+      id: 'performance_coordinator' as AgentIdentifier,
+      name: 'Performance',
+      execute: vi.fn().mockResolvedValue({
+        summary: 'Analyzed video successfully',
+        data: {},
+        suggestions: [],
+      }),
+    } as unknown as BaseAgent;
+
+    const task: AgentTask = {
+      id: 'task-1',
+      assignedAgent: 'performance_coordinator',
+      description: 'Analyze the provided video',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const streamEvents: unknown[] = [];
+    await service.executePlan({
+      operationId: 'op-suppress-plan',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Analyze this video',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'coach',
+        allowedEntityGroups: ['system_tools'],
+      },
+      taskMaxRetries: 0,
+      emitPlannerCards: false,
+      onStreamEvent: (event) => streamEvents.push(event),
+      agents: new Map([['performance_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Analyze this video',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const plannerCards = streamEvents.filter(
+      (e): e is { type: string; cardData?: { type?: string } } =>
+        !!e &&
+        typeof e === 'object' &&
+        (e as { type?: unknown }).type === 'card' &&
+        (e as { cardData?: { type?: unknown } }).cardData?.type === 'planner'
+    );
+    expect(plannerCards).toHaveLength(0);
   });
 
   it('retains runway_check_task when a narrowed runway submit tool is selected', async () => {

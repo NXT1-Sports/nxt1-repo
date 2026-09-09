@@ -119,6 +119,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         enrichedIntent: ctx.enrichedIntent,
         context: ctx.sessionContext,
         toolAccessContext,
+        emitPlannerCards: false,
         ...(ctx.approvalGate ? { approvalGate: ctx.approvalGate } : {}),
         taskMaxRetries: 1,
         agents: this.opts.agents,
