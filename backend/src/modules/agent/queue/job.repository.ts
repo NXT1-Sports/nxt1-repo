@@ -1357,9 +1357,10 @@ export class AgentJobRepository {
     }
 
     const snapshot = await query.limit(pageLimit + 1).get();
-    const docs = await Promise.all(
-      snapshot.docs.map((doc) => this.hydrateResult(doc.data() as AgentJobDocument))
-    );
+    // The operations log only needs job metadata. Loading full result/error
+    // chunk subcollections for every row turns a simple page query into a
+    // fan-out of additional Firestore reads.
+    const docs = snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
     const hasMore = docs.length > pageLimit;
     const jobs = hasMore ? docs.slice(0, pageLimit) : docs;
     const lastJob = jobs[jobs.length - 1];

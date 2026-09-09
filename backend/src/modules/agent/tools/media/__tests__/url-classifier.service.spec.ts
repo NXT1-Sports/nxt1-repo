@@ -114,6 +114,13 @@ describe('UrlClassifierService.classify()', () => {
     expect(result.correctiveExample).toContain('extract_hudl_video');
   });
 
+  it('classifies a public Hudl short link (/v/) as extract_hudl_video', () => {
+    const result = svc.classify('http://www.hudl.com/v/2SYm5g');
+    expect(result.platform).toBe('hudl');
+    expect(result.strategy).toBe('extract_hudl_video');
+    expect(result.correctiveExample).toContain('extract_hudl_video');
+  });
+
   it('classifies non-video Hudl surfaces as live_view_required fallback', () => {
     const result = svc.classify('https://www.hudl.com/library/12345');
     expect(result.platform).toBe('hudl');

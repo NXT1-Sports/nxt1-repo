@@ -132,7 +132,8 @@ export class HtmlPdfRendererService {
 
 class E2bHtmlPdfRunner implements HtmlPdfRunner {
   async render(input: HtmlPdfRenderInput): Promise<Buffer> {
-    const template = process.env['E2B_HTML_PDF_TEMPLATE']?.trim() || 'nxt1-html-pdf-renderer';
+    const template =
+      process.env['E2B_HTML_PDF_TEMPLATE']?.trim() || 'nxt1-html-pdf-renderer:production';
     const moduleLoader = new Function('specifier', 'return import(specifier)') as (
       specifier: string
     ) => Promise<{ Sandbox: { create: (...args: unknown[]) => Promise<E2bSandboxLike> } }>;

@@ -1015,6 +1015,56 @@ describe('Agent X Routes', () => {
     expect(response.body.data.folders).toEqual([]);
   });
 
+  it('should find personal and legacy shared files beyond the first 250 records', async () => {
+    __seedMockFirestoreDocument('RosterEntries/legacy-membership', {
+      userId: 'test-user',
+      teamId: 'legacy-team',
+      organizationId: 'legacy-org',
+      status: 'active',
+    });
+
+    for (let index = 0; index < 260; index += 1) {
+      __seedMockFirestoreDocument(`UniversalFiles/unrelated-${index}`, {
+        type: 'file',
+        title: `Unrelated ${index}`,
+        status: 'ready',
+        ownerUserId: `other-user-${index}`,
+        createdByUserId: `other-user-${index}`,
+        readAccessKeys: [`user:other-user-${index}`],
+        payloadKind: 'native',
+        payload: { mimeType: 'text/plain', kind: 'doc', origin: 'files_upload', sizeBytes: 1 },
+      });
+    }
+
+    for (const [id, fields] of [
+      ['personal-after-page', { ownerUserId: 'test-user', createdByUserId: 'test-user' }],
+      ['legacy-team-after-page', { teamId: 'legacy-team' }],
+      ['legacy-org-after-page', { organizationId: 'legacy-org' }],
+    ] as const) {
+      __seedMockFirestoreDocument(`UniversalFiles/${id}`, {
+        ...fields,
+        type: 'file',
+        title: id,
+        status: 'ready',
+        payloadKind: 'native',
+        payload: { mimeType: 'text/plain', kind: 'doc', origin: 'files_upload', sizeBytes: 1 },
+      });
+    }
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/files/universal')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'personal-after-page' }),
+        expect.objectContaining({ id: 'legacy-team-after-page' }),
+        expect.objectContaining({ id: 'legacy-org-after-page' }),
+      ])
+    );
+  });
+
   it('should bootstrap starter personal folders for a new user-scoped library', async () => {
     const response = await request(app)
       .get('/api/v1/agent-x/files/universal')

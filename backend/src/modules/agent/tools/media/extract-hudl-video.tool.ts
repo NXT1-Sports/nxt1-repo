@@ -169,9 +169,11 @@ export class ExtractHudlVideoTool extends BaseTool {
     }
 
     const isHudl = parsedUrl.hostname.toLowerCase().includes('hudl.com');
+    const pathname = parsedUrl.pathname.toLowerCase();
     const isVideoPath =
-      parsedUrl.pathname.toLowerCase().startsWith('/video/') ||
-      parsedUrl.pathname.toLowerCase().startsWith('/embed/video/');
+      pathname.startsWith('/video/') ||
+      pathname.startsWith('/embed/video/') ||
+      pathname.startsWith('/v/');
 
     if (!isHudl) {
       return {
@@ -184,7 +186,7 @@ export class ExtractHudlVideoTool extends BaseTool {
       return {
         success: false,
         error:
-          'This Hudl URL is not a public video page (/video/ path required). ' +
+          'This Hudl URL is not a public video page (/video/ or /v/ path required). ' +
           'Run classify_media_url and follow the direct extraction route first. Use open_live_view only if the classifier returns live_view_required or direct extraction fails with no usable media.',
       };
     }

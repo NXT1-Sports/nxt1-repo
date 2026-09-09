@@ -81,6 +81,7 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'classify_media_url',
   'extract_page_images',
   'extract_hudl_video',
+  'analyze_video',
 ]);
 
 /**
@@ -119,6 +120,11 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'execute_python_code',
   'search_colleges',
   'search_college_coaches',
+  'classify_media_url',
+  'extract_hudl_video',
+  'extract_page_images',
+  'stage_media',
+  'import_video',
   'list_firecrawl_monitors',
   'get_firecrawl_monitor',
   'get_firecrawl_monitor_check',
@@ -129,6 +135,7 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'enrich_document_notes',
   'render_pdf_pages',
   'analyze_image',
+  'analyze_video',
   'recommend_learning_videos',
   'get_analytics_summary',
   'generate_chart_visualization',

@@ -1010,7 +1010,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         jobScanCursor = page.nextCreatedAt;
       } catch (queryErr) {
         const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
-        logger.warn('agentJobs paged query failed — composite index may not be deployed', {
+        logger.warn('AgentJobs operations-log page query failed', {
           userId: user.uid,
           error: msg,
         });

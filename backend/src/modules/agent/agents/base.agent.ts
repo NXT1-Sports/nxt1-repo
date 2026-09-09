@@ -2180,19 +2180,13 @@ export abstract class BaseAgent {
       // 5. Rethrow yield/delegation only after all tool messages are committed.
       if (pendingThrow) throw pendingThrow;
 
-      // 6. Short-circuit: if any delegation tool already delivered the full
+      // 6. Short-circuit: if any tool/delegation already delivered the full
       //    user-facing response (user_already_received_response: true,
       //    follow_up_required: false), skip the next LLM call entirely.
       //    Without this guard the model generates an acknowledgment token
-      //    like "Completed:" that appears as a spurious second response.
-      const DELEGATION_TOOLS = new Set([
-        'delegate_to_coordinator',
-        'create_plan',
-        'execute_saved_plan',
-        'plan_and_execute',
-      ]);
+      //    like "Completed:" or leaks CoT reasoning that appears as a
+      //    spurious duplicate second response.
       const shouldExitAfterDelegation = toolCallsForIteration.some((tc) => {
-        if (!DELEGATION_TOOLS.has(tc.function.name)) return false;
         const toolMsg = [...messages]
           .reverse()
           .find(
@@ -2984,7 +2978,7 @@ export abstract class BaseAgent {
     return `${key}: "${valStr}"${suffix}`;
   }
 
-  private parseToolCallInput(rawArgs: string): Record<string, unknown> | null {
+  private parseToolCallInput(rawArgs: string, toolName?: string): Record<string, unknown> | null {
     const tryParse = (candidate: string): Record<string, unknown> | null => {
       try {
         const parsed = JSON.parse(candidate) as unknown;
@@ -3055,17 +3049,47 @@ export abstract class BaseAgent {
     };
 
     const direct = tryParse(rawArgs);
-    if (direct) return direct;
+    if (direct) {
+      if (
+        typeof direct['arguments'] === 'string' &&
+        Object.keys(direct).length === 1 &&
+        toolName !== 'run_microsoft_365_tool'
+      ) {
+        const nested = tryParse(direct['arguments']);
+        if (nested) return nested;
+      }
+      return direct;
+    }
 
     const trimmed = rawArgs.trim();
     const unfenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
     const fromFence = tryParse(unfenced);
-    if (fromFence) return fromFence;
+    if (fromFence) {
+      if (
+        typeof fromFence['arguments'] === 'string' &&
+        Object.keys(fromFence).length === 1 &&
+        toolName !== 'run_microsoft_365_tool'
+      ) {
+        const nested = tryParse(fromFence['arguments']);
+        if (nested) return nested;
+      }
+      return fromFence;
+    }
 
     const repairedUnfenced = repairUnclosedJson(unfenced);
     if (repairedUnfenced) {
       const repaired = tryParse(repairedUnfenced);
-      if (repaired) return repaired;
+      if (repaired) {
+        if (
+          typeof repaired['arguments'] === 'string' &&
+          Object.keys(repaired).length === 1 &&
+          toolName !== 'run_microsoft_365_tool'
+        ) {
+          const nested = tryParse(repaired['arguments']);
+          if (nested) return nested;
+        }
+        return repaired;
+      }
     }
 
     const firstBrace = unfenced.indexOf('{');
@@ -3073,11 +3097,31 @@ export abstract class BaseAgent {
     if (firstBrace !== -1 && lastBrace > firstBrace) {
       const objectSlice = unfenced.slice(firstBrace, lastBrace + 1);
       const sliced = tryParse(objectSlice);
-      if (sliced) return sliced;
+      if (sliced) {
+        if (
+          typeof sliced['arguments'] === 'string' &&
+          Object.keys(sliced).length === 1 &&
+          toolName !== 'run_microsoft_365_tool'
+        ) {
+          const nested = tryParse(sliced['arguments']);
+          if (nested) return nested;
+        }
+        return sliced;
+      }
 
       const withoutTrailingCommas = objectSlice.replace(/,\s*([}\]])/g, '$1');
       const repaired = tryParse(withoutTrailingCommas);
-      if (repaired) return repaired;
+      if (repaired) {
+        if (
+          typeof repaired['arguments'] === 'string' &&
+          Object.keys(repaired).length === 1 &&
+          toolName !== 'run_microsoft_365_tool'
+        ) {
+          const nested = tryParse(repaired['arguments']);
+          if (nested) return nested;
+        }
+        return repaired;
+      }
     }
 
     if (firstBrace !== -1) {
@@ -3085,7 +3129,17 @@ export abstract class BaseAgent {
       const repairedTail = repairUnclosedJson(objectTail);
       if (repairedTail) {
         const repaired = tryParse(repairedTail);
-        if (repaired) return repaired;
+        if (repaired) {
+          if (
+            typeof repaired['arguments'] === 'string' &&
+            Object.keys(repaired).length === 1 &&
+            toolName !== 'run_microsoft_365_tool'
+          ) {
+            const nested = tryParse(repaired['arguments']);
+            if (nested) return nested;
+          }
+          return repaired;
+        }
       }
     }
 
@@ -3380,7 +3434,6 @@ export abstract class BaseAgent {
     messages: readonly LLMMessage[]
   ): boolean {
     return toolCallsForIteration.some((tc) => {
-      if (tc.function.name !== 'delegate_to_coordinator') return false;
       const toolMsg = [...messages]
         .reverse()
         .find(
@@ -3391,6 +3444,8 @@ export abstract class BaseAgent {
       try {
         const obs = JSON.parse(toolMsg.content) as Record<string, unknown>;
         const data = obs['data'] as Record<string, unknown> | undefined;
+        if (data?.['user_already_received_response'] === true) return false;
+        if (data?.['follow_up_required'] !== true) return false;
         const observation = data?.['coordinator_observation'];
         const synthesizedSummary =
           typeof observation === 'string'
@@ -3399,13 +3454,7 @@ export abstract class BaseAgent {
                 []
               ).trim()
             : '';
-        return (
-          obs['success'] === true &&
-          data?.['user_already_received_response'] !== true &&
-          data?.['follow_up_required'] === true &&
-          synthesizedSummary.length > 0 &&
-          synthesizedSummary.length > 0
-        );
+        return obs['success'] === true && synthesizedSummary.length > 0;
       } catch {
         return false;
       }
@@ -3514,7 +3563,7 @@ export abstract class BaseAgent {
     this.throwIfAborted(signal);
 
     let toolName = toolCall.function.name;
-    const input = this.parseToolCallInput(toolCall.function.arguments);
+    const input = this.parseToolCallInput(toolCall.function.arguments, toolName);
     if (!input) {
       const loopDetector = getToolLoopDetector();
       const { advisory } = loopDetector.record(

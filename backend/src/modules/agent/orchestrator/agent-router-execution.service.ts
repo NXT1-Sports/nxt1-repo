@@ -332,8 +332,16 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     /\b(metrics?|trend(?:s|line)?|split|splits|rate|rates|efficien(?:cy|t)|comparison|compare|leaderboard|progression|tendency|tendencies|break\s*down|breakdown|analytics?|report|summary|distribution|percentage|percent|yards?|points?|touches|scores?|confidence)\b/i.test(
       normalizedIntent
     );
+  const explicitlyRequestsNoExtrasOrChatOnly =
+    /\b(no\s+(?:charts?|visuals?|graphics?|extras?|extra|artifacts?|files?|pdf|docs?)|chat\s*only|free\s*tier|just\s+(?:the\s+)?scores?|scores?\s+only|nothing\s+else)\b/i.test(
+      normalizedIntent
+    );
 
-  if (mentionsCoachPerformanceAnalytics && mentionsChartWorthyPerformanceMetrics) {
+  if (
+    mentionsCoachPerformanceAnalytics &&
+    mentionsChartWorthyPerformanceMetrics &&
+    !explicitlyRequestsNoExtrasOrChatOnly
+  ) {
     forced.add('generate_chart_visualization');
   }
 
@@ -588,6 +596,7 @@ export class AgentRouterExecutionService {
       readonly structuredPayload?: Record<string, unknown>;
       readonly statusNote?: string;
     } | null>;
+    readonly emitPlannerCards?: boolean;
   }): Promise<AgentExecutionLoopResult> {
     const {
       operationId,
@@ -605,6 +614,7 @@ export class AgentRouterExecutionService {
       signal,
       buildTaskIntent,
       rerouteDelegatedTask,
+      emitPlannerCards = true,
     } = payload;
 
     const executionPhaseStartMs = Date.now();
@@ -649,7 +659,7 @@ export class AgentRouterExecutionService {
                 'Execution plan stalled because remaining tasks had unmet dependencies.';
             }
           }
-          this.emitPlannerCard(onStreamEvent, mutableTasks);
+          this.emitPlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
           await onPlanStateChange?.(mutableTasks, taskResults);
           break;
         }
@@ -671,7 +681,7 @@ export class AgentRouterExecutionService {
             metadata: { taskId: activeTask.id },
           }
         );
-        this.emitActivePlannerCard(onStreamEvent, mutableTasks);
+        this.emitActivePlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
         await onPlanStateChange?.(mutableTasks, taskResults);
 
         const completedAtBatchStart = Object.fromEntries(
@@ -917,7 +927,7 @@ export class AgentRouterExecutionService {
                 }
               );
 
-              this.emitPlannerCard(onStreamEvent, mutableTasks);
+              this.emitPlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
               await onPlanStateChange?.(mutableTasks, taskResults);
               return;
             } catch (err) {
@@ -927,7 +937,7 @@ export class AgentRouterExecutionService {
                 const yieldErr = err as AgentYieldException;
                 task.status = 'awaiting_tool_approval' as AgentTaskStatus;
                 task._lastError = 'Waiting for user approval to continue this task.';
-                this.emitPlannerCard(onStreamEvent, mutableTasks);
+                this.emitPlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
                 await onPlanStateChange?.(mutableTasks, taskResults);
                 throw new AgentYieldException({
                   ...yieldErr.payload,
@@ -986,7 +996,7 @@ export class AgentRouterExecutionService {
                       }
                     );
                     this.cascadeFailure(task.id, mutableTasks);
-                    this.emitPlannerCard(onStreamEvent, mutableTasks);
+                    this.emitPlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
                     await onPlanStateChange?.(mutableTasks, taskResults);
                     return;
                   }
@@ -1050,7 +1060,7 @@ export class AgentRouterExecutionService {
                   }
                 );
                 this.cascadeFailure(task.id, mutableTasks);
-                this.emitPlannerCard(onStreamEvent, mutableTasks);
+                this.emitPlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
                 await onPlanStateChange?.(mutableTasks, taskResults);
                 return;
               }
@@ -1090,7 +1100,7 @@ export class AgentRouterExecutionService {
                   }
                 );
                 this.cascadeFailure(task.id, mutableTasks);
-                this.emitPlannerCard(onStreamEvent, mutableTasks);
+                this.emitPlannerCard(onStreamEvent, mutableTasks, emitPlannerCards);
                 await onPlanStateChange?.(mutableTasks, taskResults);
                 return;
               }
@@ -1184,9 +1194,10 @@ export class AgentRouterExecutionService {
    */
   private emitPlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
-    mutableTasks: readonly AgentExecutionMutableTask[]
+    mutableTasks: readonly AgentExecutionMutableTask[],
+    emitPlannerCards = true
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 1) return;
+    if (!emitPlannerCards || !onStreamEvent || mutableTasks.length < 1) return;
 
     onStreamEvent({
       type: 'card',
@@ -1207,9 +1218,10 @@ export class AgentRouterExecutionService {
    */
   private emitActivePlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
-    mutableTasks: readonly AgentExecutionMutableTask[]
+    mutableTasks: readonly AgentExecutionMutableTask[],
+    emitPlannerCards = true
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 1) return;
+    if (!emitPlannerCards || !onStreamEvent || mutableTasks.length < 1) return;
 
     onStreamEvent({
       type: 'card',

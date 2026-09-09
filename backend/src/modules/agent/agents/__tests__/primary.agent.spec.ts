@@ -494,6 +494,8 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(agent.getAvailableTools()).toContain('create_universal_team_document');
     expect(agent.getAvailableTools()).toContain('update_universal_team_document');
     expect(agent.getAvailableTools()).toContain('delete_universal_team_document');
+    expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('analyze_image');
     expect(agent.getAvailableTools()).not.toContain('write_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('update_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('delete_firecrawl_monitor');

@@ -348,7 +348,11 @@ export class UrlClassifierService {
     // ── Hudl (public pages vs auth-gated) ──────────────────────────────
     if (HUDL.test(href)) {
       const path = url.pathname.toLowerCase();
-      if (path.startsWith('/video/') || path.startsWith('/embed/video/')) {
+      if (
+        path.startsWith('/video/') ||
+        path.startsWith('/embed/video/') ||
+        path.startsWith('/v/')
+      ) {
         return {
           platform: 'hudl',
           assetKind: 'video',
