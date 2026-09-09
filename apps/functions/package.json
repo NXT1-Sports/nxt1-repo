@@ -30,7 +30,7 @@
     "firebase-functions": "^7.2.5",
     "lodash": "^4.17.21",
     "nodemailer": "^9.0.1",
-    "sharp": "^0.35.2",
+    "sharp": "^0.35.4",
     "stripe": "^22.5.0",
     "undici": "^7.29.0"
   },
