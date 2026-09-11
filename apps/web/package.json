@@ -53,7 +53,7 @@
     "tailwindcss": "^3.4.19",
     "tslib": "^2.3.0",
     "tus-js-client": "^4.3.1",
-    "zone.js": "^0.16.2"
+    "zone.js": "^0.16.3"
   },
   "devDependencies": {
     "@ionic/angular-toolkit": "^12.1.0",
