@@ -273,12 +273,41 @@ type OutputCardState = 'idle' | 'submitting' | 'resolved';
           var(--nxt1-color-brand-volt-400, #ccff00) 10%,
           transparent
         );
+        --input-primary-button-bg: var(--input-primary-glow);
+        --input-primary-button-text: var(--input-primary);
+        --input-primary-button-border: var(--input-primary);
+        --input-primary-button-hover-bg: color-mix(
+          in srgb,
+          var(--input-primary-glow) 88%,
+          var(--input-surface)
+        );
+        --input-primary-button-hover-text: var(--input-primary);
+        --input-primary-button-hover-border: var(--input-primary);
+        --input-primary-button-shadow: 0 4px 12px
+          color-mix(in srgb, var(--input-primary) 18%, transparent);
         --input-surface-hover: var(--nxt1-color-surface-200);
         --output-card-hover: color-mix(
           in srgb,
           var(--nxt1-color-brand-volt-400, #ccff00) 6%,
           var(--input-surface)
         );
+      }
+
+      :host-context(.light),
+      :host-context([data-theme='light']),
+      :host-context([data-base-theme='light']) {
+        --input-primary-button-bg: var(--nxt1-color-primary, var(--input-primary));
+        --input-primary-button-text: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        --input-primary-button-border: var(--nxt1-color-primary, var(--input-primary));
+        --input-primary-button-hover-bg: color-mix(
+          in srgb,
+          var(--nxt1-color-primary, var(--input-primary)) 92%,
+          white
+        );
+        --input-primary-button-hover-text: var(--nxt1-color-text-onPrimary, #0a0a0a);
+        --input-primary-button-hover-border: var(--nxt1-color-primary, var(--input-primary));
+        --input-primary-button-shadow: 0 4px 12px
+          color-mix(in srgb, var(--nxt1-color-primary, var(--input-primary)) 22%, transparent);
       }
 
       .output-card {
@@ -601,10 +630,10 @@ type OutputCardState = 'idle' | 'submitting' | 'resolved';
         min-height: 36px;
         width: 36px;
         padding: 0;
-        border: 1px solid var(--input-primary);
+        border: 1px solid var(--input-primary-button-border, var(--input-primary));
         border-radius: 999px;
-        background: var(--input-primary-glow);
-        color: var(--input-primary);
+        background: var(--input-primary-button-bg, var(--input-primary-glow));
+        color: var(--input-primary-button-text, var(--input-primary));
         font-weight: 900;
         cursor: pointer;
         transition:
@@ -622,10 +651,16 @@ type OutputCardState = 'idle' | 'submitting' | 'resolved';
 
       .output-card__submit:hover:not(:disabled),
       .output-card__submit:focus-visible {
-        background: color-mix(in srgb, var(--input-primary-glow) 88%, var(--output-card-surface));
-        color: var(--input-primary);
-        border-color: var(--input-primary);
-        box-shadow: 0 4px 12px rgba(204, 255, 0, 0.15);
+        background: var(
+          --input-primary-button-hover-bg,
+          color-mix(in srgb, var(--input-primary-glow) 88%, var(--output-card-surface))
+        );
+        color: var(--input-primary-button-hover-text, var(--input-primary));
+        border-color: var(--input-primary-button-hover-border, var(--input-primary));
+        box-shadow: var(
+          --input-primary-button-shadow,
+          0 4px 12px color-mix(in srgb, var(--input-primary) 18%, transparent)
+        );
         outline: none;
       }
 

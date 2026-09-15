@@ -8,6 +8,7 @@ import {
   type AgentXAskUserPayload,
   type AgentXBillingActionPayload,
   type AgentXBillingActionReason,
+  type AgentXOutputSelectionPayload,
   type AgentXToolStep,
   type AgentXMessagePart,
   type AgentXRichCard,
@@ -1529,6 +1530,52 @@ export class AgentXOperationChatMessageFacade {
       return yieldState;
     }
 
+    if (card.type === 'output-selection') {
+      const payload = card.payload as AgentXOutputSelectionPayload | undefined;
+      if (!payload) return null;
+
+      const prompt = payload.prompt?.trim();
+      if (!prompt) return null;
+
+      const nowIso = new Date().toISOString();
+      const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const context = typeof payload.context === 'string' ? payload.context.trim() : '';
+      const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+      const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
+
+      return {
+        reason: 'needs_input',
+        promptToUser: context ? `${prompt}\n\n${context}` : prompt,
+        agentId: card.agentId,
+        messages: [],
+        pendingToolCall: {
+          toolName: 'prompt_output_selection',
+          toolCallId: operationId
+            ? `output_selection:${operationId}`
+            : `output_selection:${prompt}`,
+          toolInput: {
+            prompt,
+            ...(context ? { context } : {}),
+            options: payload.options,
+            ...(payload.category ? { category: payload.category } : {}),
+            ...(payload.multiSelect !== undefined ? { multiSelect: payload.multiSelect } : {}),
+            ...(payload.allowCustomOption !== undefined
+              ? { allowCustomOption: payload.allowCustomOption }
+              : {}),
+            ...(payload.steps ? { steps: payload.steps } : {}),
+            ...(payload.defaultSelectedIds
+              ? { defaultSelectedIds: payload.defaultSelectedIds }
+              : {}),
+            ...(payload.submitLabel ? { submitLabel: payload.submitLabel } : {}),
+            ...(threadId ? { threadId } : {}),
+            ...(operationId ? { operationId } : {}),
+          },
+        },
+        yieldedAt: nowIso,
+        expiresAt: expiresIso,
+      };
+    }
+
     if (card.type !== 'ask_user') return null;
 
     const payload = card.payload as AgentXAskUserPayload | undefined;
@@ -1633,7 +1680,23 @@ export class AgentXOperationChatMessageFacade {
    * requiring a synthesized yieldState.
    */
   private cardPayloadYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
-    if (!card || card.type !== 'confirmation') return '';
+    if (!card) return '';
+
+    if (card.type === 'ask_user') {
+      const payload = card.payload as AgentXAskUserPayload | undefined;
+      if (!payload) return '';
+      const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+      return operationId ? `tool:ask_user:${operationId}` : '';
+    }
+
+    if (card.type === 'output-selection') {
+      const payload = card.payload as AgentXOutputSelectionPayload | undefined;
+      if (!payload) return '';
+      const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+      return operationId ? `tool:output_selection:${operationId}` : '';
+    }
+
+    if (card.type !== 'confirmation') return '';
     const payload = card.payload as
       | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
       | undefined;

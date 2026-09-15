@@ -177,6 +177,11 @@ export interface AskUserReplyEvent {
         --ask-input-primary: var(--nxt1-color-primary, #ccff00);
         --ask-input-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --ask-input-selection-bg: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --ask-input-primary-button-bg: var(--ask-input-primary-glow);
+        --ask-input-primary-button-text: var(--ask-input-primary);
+        --ask-input-primary-button-border: var(--ask-input-primary);
+        --ask-input-primary-button-shadow: 0 4px 12px
+          color-mix(in srgb, var(--ask-input-primary) 18%, transparent);
 
         border: 1px solid var(--nxt1-color-primary, #ccff00);
         border-radius: 12px;
@@ -201,6 +206,11 @@ export interface AskUserReplyEvent {
           --ask-input-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.09));
           --ask-input-text: var(--nxt1-color-text-primary, #1a1a1a);
           --ask-input-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
+          --ask-input-primary-button-bg: var(--nxt1-color-primary, var(--ask-input-primary));
+          --ask-input-primary-button-text: var(--nxt1-color-text-onPrimary, #0a0a0a);
+          --ask-input-primary-button-border: var(--nxt1-color-primary, var(--ask-input-primary));
+          --ask-input-primary-button-shadow: 0 4px 12px
+            color-mix(in srgb, var(--nxt1-color-primary, var(--ask-input-primary)) 22%, transparent);
         }
       }
 
@@ -392,10 +402,13 @@ export interface AskUserReplyEvent {
       }
 
       .ask-card__send-btn.active {
-        background: var(--ask-input-primary-glow);
-        color: var(--ask-input-primary);
-        border-color: var(--ask-input-primary);
-        box-shadow: 0 4px 12px rgba(204, 255, 0, 0.15);
+        background: var(--ask-input-primary-button-bg, var(--ask-input-primary-glow));
+        color: var(--ask-input-primary-button-text, var(--ask-input-primary));
+        border-color: var(--ask-input-primary-button-border, var(--ask-input-primary));
+        box-shadow: var(
+          --ask-input-primary-button-shadow,
+          0 4px 12px color-mix(in srgb, var(--ask-input-primary) 18%, transparent)
+        );
       }
 
       .ask-card__send-btn:disabled {

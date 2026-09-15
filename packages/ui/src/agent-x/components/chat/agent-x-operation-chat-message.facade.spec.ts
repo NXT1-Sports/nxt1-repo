@@ -421,6 +421,78 @@ describe('AgentXOperationChatMessageFacade', () => {
     ).toBe('op-card-first-ask-user-1');
   });
 
+  it('preserves output-selection card metadata when the card arrives before the operation yield', () => {
+    const outputSelectionCard: AgentXRichCard = {
+      type: 'output-selection',
+      agentId: 'router',
+      title: 'Which output do you want?',
+      payload: {
+        prompt: 'Which output do you want?',
+        context: 'Pick the final deliverable format.',
+        threadId: 'thread-card-first-output-1',
+        operationId: 'op-card-first-output-1',
+        options: [
+          {
+            id: 'pdf',
+            title: 'Printable PDF',
+            description: 'Best for printing.',
+            formatTag: 'PDF',
+            icon: 'pdf',
+          },
+        ],
+        steps: [
+          {
+            id: 'format',
+            prompt: 'Which output do you want?',
+            inputMode: 'single_select',
+            options: [
+              {
+                id: 'pdf',
+                title: 'Printable PDF',
+                description: 'Best for printing.',
+                formatTag: 'PDF',
+                icon: 'pdf',
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I need one more detail before I continue.',
+        timestamp: new Date('2026-09-15T14:00:00.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    const yieldState = facade.attachStreamedCard(
+      'typing',
+      outputSelectionCard,
+      'fallback-op-2',
+      true
+    );
+
+    expect(yieldState?.pendingToolCall?.toolName).toBe('prompt_output_selection');
+    expect(yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      prompt: 'Which output do you want?',
+      context: 'Pick the final deliverable format.',
+      threadId: 'thread-card-first-output-1',
+      operationId: 'op-card-first-output-1',
+      steps: [expect.objectContaining({ id: 'format', prompt: 'Which output do you want?' })],
+    });
+    expect(
+      facade
+        .messages()
+        .find(
+          (message) => message.yieldState?.pendingToolCall?.toolName === 'prompt_output_selection'
+        )?.operationId
+    ).toBe('op-card-first-output-1');
+  });
+
   it('preserves streamed context when converting to an approval yield row', () => {
     const yieldState: AgentYieldState = {
       reason: 'needs_approval',

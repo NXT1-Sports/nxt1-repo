@@ -5,6 +5,7 @@ import {
   type AgentYieldState,
   type AgentXAttachment,
   AgentXAskUserPayload,
+  type AgentXOutputSelectionPayload,
   type AgentXEffortLevel,
   type AgentXExecutionMode,
   AgentXMessagePart,
@@ -1500,7 +1501,23 @@ export class AgentXOperationChatSessionFacade {
   }
 
   private cardYieldIdentityKey(card: AgentXRichCard | undefined | null): string {
-    if (!card || card.type !== 'confirmation') return '';
+    if (!card) return '';
+
+    if (card.type === 'ask_user') {
+      const payload = card.payload as AgentXAskUserPayload | undefined;
+      if (!payload) return '';
+      const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+      return operationId ? `tool:ask_user:${operationId}` : '';
+    }
+
+    if (card.type === 'output-selection') {
+      const payload = card.payload as AgentXOutputSelectionPayload | undefined;
+      if (!payload) return '';
+      const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
+      return operationId ? `tool:output_selection:${operationId}` : '';
+    }
+
+    if (card.type !== 'confirmation') return '';
     const payload = card.payload as
       | { approvalId?: unknown; toolCallId?: unknown; yieldState?: AgentYieldState }
       | undefined;
@@ -4716,48 +4733,62 @@ export class AgentXOperationChatSessionFacade {
     const fromResultData = this.coercePersistedYieldState(message.resultData?.['yieldState']);
     if (fromResultData) return fromResultData;
 
-    // Reconstruct yield state from persisted assistant_yield rows.
-    // The worker saves content = promptToUser (the ask_user question) when the
-    // agent pauses for input. No rich card payload is stored on this row, so
-    // we build a minimal AgentYieldState from the content string.
-    if (message.semanticPhase === 'assistant_yield' && message.content?.trim()) {
-      const question = message.content.trim();
-      const normalizedPrompt = question.toLowerCase();
-      const looksLikeApprovalPrompt =
-        normalizedPrompt.includes('review and approve') ||
-        normalizedPrompt.includes('approve this') ||
-        normalizedPrompt.includes('approval required');
-      // Approval yields require structured payload (approvalId/actions). If we
-      // coerce these prose prompts into needs_input, replay can show a random
-      // ask-user card after completed turns.
-      if (looksLikeApprovalPrompt) {
-        return null;
-      }
-      const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
-      const yieldedAt = message.createdAt ?? new Date().toISOString();
-      const expiresAt = new Date(Date.parse(yieldedAt) + 24 * 60 * 60 * 1000).toISOString();
-      return {
-        reason: 'needs_input',
-        promptToUser: question,
-        agentId: message.agentId ?? 'router',
-        messages: [],
-        pendingToolCall: {
-          toolName: 'ask_user',
-          toolCallId: operationId
-            ? `ask_user:${operationId}`
-            : `ask_user:${message.id ?? 'unknown'}`,
-          toolInput: { question, ...(operationId ? { operationId } : {}) },
-        },
-        yieldedAt,
-        expiresAt,
-      };
-    }
-
     for (const card of persistedCards) {
       if (card.type === 'confirmation') {
         const payload = card.payload as Record<string, unknown> | undefined;
         const fromCard = this.coercePersistedYieldState(payload?.['yieldState']);
         if (fromCard) return fromCard;
+      }
+
+      if (card.type === 'output-selection') {
+        const payload = card.payload as AgentXOutputSelectionPayload | undefined;
+        if (!payload) continue;
+
+        const prompt = payload.prompt?.trim();
+        if (!prompt) continue;
+
+        const context = typeof payload.context === 'string' ? payload.context.trim() : '';
+        const operationId =
+          typeof payload.operationId === 'string' && payload.operationId.trim().length > 0
+            ? payload.operationId.trim()
+            : typeof message.operationId === 'string'
+              ? message.operationId.trim()
+              : '';
+        const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
+        const yieldedAt = message.createdAt ?? new Date().toISOString();
+        const expiresAt = new Date(Date.parse(yieldedAt) + 24 * 60 * 60 * 1000).toISOString();
+
+        return {
+          reason: 'needs_input',
+          promptToUser: context ? `${prompt}\n\n${context}` : prompt,
+          agentId: message.agentId ?? card.agentId ?? 'router',
+          messages: [],
+          pendingToolCall: {
+            toolName: 'prompt_output_selection',
+            toolCallId: operationId
+              ? `output_selection:${operationId}`
+              : `output_selection:${prompt}`,
+            toolInput: {
+              prompt,
+              ...(context ? { context } : {}),
+              options: payload.options,
+              ...(payload.category ? { category: payload.category } : {}),
+              ...(payload.multiSelect !== undefined ? { multiSelect: payload.multiSelect } : {}),
+              ...(payload.allowCustomOption !== undefined
+                ? { allowCustomOption: payload.allowCustomOption }
+                : {}),
+              ...(payload.steps ? { steps: payload.steps } : {}),
+              ...(payload.defaultSelectedIds
+                ? { defaultSelectedIds: payload.defaultSelectedIds }
+                : {}),
+              ...(payload.submitLabel ? { submitLabel: payload.submitLabel } : {}),
+              ...(operationId ? { operationId } : {}),
+              ...(threadId ? { threadId } : {}),
+            },
+          },
+          yieldedAt,
+          expiresAt,
+        };
       }
 
       if (card.type === 'ask_user') {
@@ -4797,6 +4828,43 @@ export class AgentXOperationChatSessionFacade {
           expiresAt,
         };
       }
+    }
+
+    // Reconstruct yield state from persisted assistant_yield rows.
+    // The worker saves content = promptToUser (the ask_user question) when the
+    // agent pauses for input. No rich card payload is stored on this row, so
+    // we build a minimal AgentYieldState from the content string.
+    if (message.semanticPhase === 'assistant_yield' && message.content?.trim()) {
+      const question = message.content.trim();
+      const normalizedPrompt = question.toLowerCase();
+      const looksLikeApprovalPrompt =
+        normalizedPrompt.includes('review and approve') ||
+        normalizedPrompt.includes('approve this') ||
+        normalizedPrompt.includes('approval required');
+      // Approval yields require structured payload (approvalId/actions). If we
+      // coerce these prose prompts into needs_input, replay can show a random
+      // ask-user card after completed turns.
+      if (looksLikeApprovalPrompt) {
+        return null;
+      }
+      const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
+      const yieldedAt = message.createdAt ?? new Date().toISOString();
+      const expiresAt = new Date(Date.parse(yieldedAt) + 24 * 60 * 60 * 1000).toISOString();
+      return {
+        reason: 'needs_input',
+        promptToUser: question,
+        agentId: message.agentId ?? 'router',
+        messages: [],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: operationId
+            ? `ask_user:${operationId}`
+            : `ask_user:${message.id ?? 'unknown'}`,
+          toolInput: { question, ...(operationId ? { operationId } : {}) },
+        },
+        yieldedAt,
+        expiresAt,
+      };
     }
 
     return null;
@@ -4965,6 +5033,7 @@ export class AgentXOperationChatSessionFacade {
 
   private isYieldRichCard(card: AgentXRichCard): boolean {
     if (card.type === 'ask_user') return true;
+    if (card.type === 'output-selection') return true;
     if (card.type !== 'confirmation') return false;
 
     const payload = card.payload as Record<string, unknown> | undefined;
