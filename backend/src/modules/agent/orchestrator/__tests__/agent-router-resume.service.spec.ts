@@ -143,6 +143,109 @@ describe('AgentRouterResumeService', () => {
     expect(result.summary).toBe('Resumed successfully');
   });
 
+  it('propagates printable PDF output intent into resumed agent context', async () => {
+    const service = new AgentRouterResumeService(
+      llm,
+      toolRegistry,
+      contextBuilder,
+      routerContext,
+      telemetry,
+      buildToolAccessContext
+    );
+    const agent = makeAgent();
+    const job = {
+      ...makeJob(),
+      context: {
+        threadId: 'thread-1',
+        executionMode: 'plan',
+        outputIntent: {
+          lanes: ['printable_pdf'],
+          source: 'ask_user_reply',
+        },
+      },
+    } as never;
+
+    await service.runResumed({
+      job,
+      yieldState: makeYieldState(),
+      planner,
+      agents: new Map([['recruiting_coordinator', agent]]),
+      firestore: makeFirestore('awaiting_input'),
+    });
+
+    const resumedContext = vi.mocked(agent.resumeExecution).mock.calls[0]?.[1];
+    expect(resumedContext).toEqual(
+      expect.objectContaining({
+        outputIntent: {
+          lanes: ['printable_pdf'],
+          source: 'ask_user_reply',
+        },
+      })
+    );
+  });
+
+  it('re-adds forced printable PDF tools during resume even when semantic match omits them', async () => {
+    toolRegistry.getDefinitions.mockReturnValueOnce([
+      {
+        name: 'render_html_pdf',
+        description: 'Render a printable coaching document.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['recruiting_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'dynamic_export',
+        description: 'Export a document.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['recruiting_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ]);
+    toolRegistry.match.mockResolvedValueOnce([
+      {
+        name: 'dynamic_export',
+        description: 'Export a document.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['recruiting_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ]);
+
+    const service = new AgentRouterResumeService(
+      llm,
+      toolRegistry,
+      contextBuilder,
+      routerContext,
+      telemetry,
+      buildToolAccessContext
+    );
+    const agent = makeAgent();
+    const job = {
+      ...makeJob(),
+      intent: 'Build a printable pressbox cheat sheet from this film.',
+      context: { threadId: 'thread-1', executionMode: 'plan' },
+    } as never;
+
+    await service.runResumed({
+      job,
+      yieldState: makeYieldState(),
+      planner,
+      agents: new Map([['recruiting_coordinator', agent]]),
+      firestore: makeFirestore('awaiting_input'),
+    });
+
+    const resumedToolDefs = vi.mocked(agent.resumeExecution).mock.calls[0]?.[2] as
+      | Array<{ name: string }>
+      | undefined;
+    expect(resumedToolDefs?.map((tool) => tool.name)).toContain('render_html_pdf');
+  });
+
   it('resumes router yields through Primary with per-run dispatch state', async () => {
     const primary = {
       id: 'router',

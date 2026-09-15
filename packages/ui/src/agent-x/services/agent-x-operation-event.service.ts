@@ -957,6 +957,23 @@ export class AgentXOperationEventService {
       let latestLifecycleStatus: AgentXOperationLifecycleStatus | null = null;
       let maxSeq = -1;
 
+      const appendThinkingPart = (thinkingText: string): void => {
+        const existingThinkingIndex = parts.findIndex((part) => part.type === 'thinking');
+        if (existingThinkingIndex >= 0) {
+          const existing = parts[existingThinkingIndex];
+          if (existing?.type === 'thinking') {
+            parts[existingThinkingIndex] = {
+              type: 'thinking',
+              content: existing.content + thinkingText,
+              ...(existing.done ? { done: true as const } : {}),
+            };
+          }
+          return;
+        }
+
+        parts.push({ type: 'thinking', content: thinkingText });
+      };
+
       // In-place helper: upsert `step` into the trailing tool-steps part,
       // mirroring AgentXStreamRegistryService.upsertStep for cold-path replay.
       const upsertStepIntoParts = (step: AgentXToolStep): void => {
@@ -981,6 +998,13 @@ export class AgentXOperationEventService {
         if (event.seq > maxSeq) maxSeq = event.seq;
 
         switch (event.type) {
+          case 'thinking': {
+            if (event.thinkingText) {
+              appendThinkingPart(event.thinkingText);
+            }
+            break;
+          }
+
           case 'delta': {
             if (event.text) {
               content += event.text;
@@ -1850,7 +1874,8 @@ export class AgentXOperationEventService {
     return step;
   }
 
-  private resolveBackendStepLabel(event: Pick<JobEvent, 'message'>): string | null {
+  private resolveBackendStepLabel(event: Pick<JobEvent, 'message' | 'toolName'>): string | null {
+    if (event.toolName === 'ask_user') return 'Requesting your input';
     const label = typeof event.message === 'string' ? event.message.trim() : '';
     return label.length > 0 ? label : null;
   }

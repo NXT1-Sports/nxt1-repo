@@ -144,6 +144,28 @@ describe('AgentXOperationEventService stored operation state', () => {
     expect(stored.isDone).toBe(true);
     expect(stored.content).toBe('Working...');
   });
+
+  it('rebuilds interleaved thinking and text as one reasoning part', async () => {
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn().mockReturnValue(() => undefined),
+      getDocs: vi.fn().mockResolvedValue([
+        { seq: 1, type: 'thinking', thinkingText: 'Need tendency scope. ' },
+        { seq: 2, type: 'delta', text: 'Got it - self scout. ' },
+        { seq: 3, type: 'thinking', thinkingText: 'Need final format. ' },
+        { seq: 4, type: 'delta', text: 'I will build the PDF.' },
+      ]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+
+    const stored = await service.getStoredEventState('op-thinking');
+
+    expect(stored.content).toBe('Got it - self scout. I will build the PDF.');
+    expect(stored.parts).toEqual([
+      { type: 'thinking', content: 'Need tendency scope. Need final format. ', done: true },
+      { type: 'text', content: 'Got it - self scout. I will build the PDF.' },
+    ]);
+  });
 });
 
 describe('AgentXOperationEventService thread message refresh events', () => {

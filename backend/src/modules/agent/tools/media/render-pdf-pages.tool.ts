@@ -185,8 +185,9 @@ class NodeCanvasFactory {
 export class RenderPdfPagesTool extends BaseTool {
   readonly name = 'render_pdf_pages';
   readonly description =
-    'Render one or more pages from a PDF attachment into signed image URLs for vision analysis. ' +
-    'Use this after parse_document when a PDF is diagram-heavy but no embedded image assets were extracted.';
+    'Rasterize pages of an ALREADY-EXISTING PDF attachment/upload into signed image URLs for vision inspection (PDF → images). ' +
+    'Use this after parse_document when an uploaded PDF is diagram-heavy and you need to inspect page visuals. ' +
+    'CRITICAL: NEVER use this tool to create, build, export, or generate a new PDF document or report. To create/generate a PDF report, use render_html_pdf.';
 
   readonly parameters = RenderPdfPagesInputSchema;
   readonly isMutation = false;
@@ -232,7 +233,10 @@ export class RenderPdfPagesTool extends BaseTool {
 
     const directUrl = url?.trim();
     if (!directUrl) {
-      return { error: 'render_pdf_pages requires a PDF URL or storagePath.' };
+      return {
+        error:
+          'render_pdf_pages requires a PDF URL or storagePath of an existing PDF file to inspect. If you are trying to CREATE or GENERATE a new PDF report, use render_html_pdf instead.',
+      };
     }
 
     const response = await fetch(directUrl, { signal: context?.signal });
@@ -277,7 +281,8 @@ export class RenderPdfPagesTool extends BaseTool {
     if (!isPdfDocument(mimeType, fileName)) {
       return {
         success: false,
-        error: 'render_pdf_pages only supports PDF attachments.',
+        error:
+          'render_pdf_pages only inspects existing PDF documents (PDF -> images). If you are trying to CREATE or GENERATE a new PDF report or document, use render_html_pdf instead.',
       };
     }
 

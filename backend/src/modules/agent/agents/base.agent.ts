@@ -19,6 +19,7 @@
 import type {
   AgentArtifactHandoff,
   AgentIdentifier,
+  AgentOutputIntent,
   AgentToolDefinition,
   AgentToolEntityGroup,
   AgentSessionContext,
@@ -133,6 +134,33 @@ function resolveRequestedDeliverableTools(intent: string): ReadonlySet<string> {
   }
 
   return PRIMARY_DELIVERABLE_TOOLS;
+}
+
+function buildSelectedContextResumeInstruction(
+  selectedContexts: readonly AgentXSelectedContext[] | undefined
+): LLMMessage | null {
+  if (!selectedContexts?.length) return null;
+
+  const labels = selectedContexts
+    .map((context) => {
+      const title = context.title.trim();
+      const sourceLabel = context.source?.label?.trim();
+      const sourceId = context.source?.id?.trim();
+      const displayTitle =
+        sourceLabel && sourceLabel !== title ? `${sourceLabel} (${title})` : title;
+      return `${displayTitle}${sourceId ? ` - sourceId: ${sourceId}` : ''}`;
+    })
+    .filter((label) => label.trim().length > 0)
+    .slice(0, 6);
+
+  if (labels.length === 0) return null;
+
+  return {
+    role: 'system',
+    content:
+      'RESUME CONTEXT GUARD: The user already selected or attached these contexts before answering the ask_user card. Continue with them; do not ask which film, game, file, or selected context to use again unless every listed source is inaccessible. Selected context(s): ' +
+      labels.join('; '),
+  };
 }
 
 function readRecord(value: unknown): Record<string, unknown> | null {
@@ -439,6 +467,11 @@ const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_
 const EMAIL_CONNECTION_REQUIRED_MESSAGE =
   'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
 const DOCUMENT_URL_REDIRECT_TOOLS = new Set(['scrape_webpage', 'open_live_view']);
+const OUTPUT_ARTIFACT_TOOL_NAMES = new Set([
+  'render_html_pdf',
+  'dynamic_export',
+  'execute_python_code',
+]);
 const documentUrlClassifier = new UrlClassifierService();
 
 interface ToolSessionAttachment {
@@ -486,6 +519,72 @@ function resolveParseDocumentAttachment(
   return narrowedMatches.length === 1 ? (narrowedMatches[0] ?? null) : null;
 }
 
+function hasPrintablePdfOutputGuard(messages?: readonly LLMMessage[]): boolean {
+  if (!messages?.length) return false;
+
+  return messages.some((message) => {
+    if (message.role !== 'system' || typeof message.content !== 'string') return false;
+    return (
+      message.content.includes('OUTPUT SELECTION GUARD') &&
+      message.content.includes('Selected output(s): Printable PDF') &&
+      message.content.includes('render_html_pdf') &&
+      message.content.includes('Do not call `dynamic_export`')
+    );
+  });
+}
+
+function isDynamicPdfExportCall(toolName: string, input: Record<string, unknown>): boolean {
+  return toolName === 'dynamic_export' && String(input['format'] ?? '').toLowerCase() === 'pdf';
+}
+
+function resolveOutputIntentArtifactTools(
+  outputIntent?: AgentOutputIntent
+): ReadonlySet<string> | null {
+  if (!outputIntent?.lanes.length) return null;
+
+  const tools = new Set<string>();
+  for (const lane of outputIntent.lanes) {
+    switch (lane) {
+      case 'printable_pdf':
+        tools.add('render_html_pdf');
+        break;
+      case 'gamma_pdf':
+      case 'presentation':
+      case 'csv':
+        tools.add('dynamic_export');
+        break;
+      case 'xlsx':
+        tools.add('execute_python_code');
+        break;
+      case 'chat_only':
+        break;
+    }
+  }
+  return tools;
+}
+
+function isToolAllowedForOutputIntent(toolName: string, outputIntent?: AgentOutputIntent): boolean {
+  if (!OUTPUT_ARTIFACT_TOOL_NAMES.has(toolName)) return true;
+  const allowedArtifactTools = resolveOutputIntentArtifactTools(outputIntent);
+  return allowedArtifactTools === null || allowedArtifactTools.has(toolName);
+}
+
+function buildOutputIntentInstruction(outputIntent?: AgentOutputIntent): LLMMessage | null {
+  if (!outputIntent?.lanes.length) return null;
+
+  const lanes = outputIntent.lanes.join(', ');
+  const requiredTools = Array.from(resolveOutputIntentArtifactTools(outputIntent) ?? []);
+  const printablePdfOnly =
+    outputIntent.lanes.length === 1 && outputIntent.lanes[0] === 'printable_pdf';
+
+  return {
+    role: 'system',
+    content: printablePdfOnly
+      ? 'DETERMINISTIC OUTPUT CONTRACT: The user selected Printable PDF. The only allowed artifact generator is `render_html_pdf`. Build complete HTML/CSS and call `render_html_pdf` with `layoutIntent: "best_fit_operational"`. `dynamic_export` and `execute_python_code` are unavailable for this run.'
+      : `DETERMINISTIC OUTPUT CONTRACT: Selected delivery lanes: ${lanes}. Allowed artifact generator(s): ${requiredTools.join(', ') || 'none (chat only)'}. Do not use another artifact generator or create an unselected format.`,
+  };
+}
+
 export interface ToolSessionContext {
   readonly sessionId?: string;
   readonly threadId?: string;
@@ -493,6 +592,7 @@ export interface ToolSessionContext {
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
   readonly selectedContexts?: readonly AgentXSelectedContext[];
+  readonly outputIntent?: AgentOutputIntent;
   readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
@@ -804,7 +904,9 @@ export abstract class BaseAgent {
     // infrastructure that every coordinator needs.
     const toolSchemas: LLMToolSchema[] = toolDefinitions
       .filter(
-        (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
+        (def) =>
+          (def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)) &&
+          isToolAllowedForOutputIntent(def.name, context.outputIntent)
       )
       .map((def) => ({
         type: 'function' as const,
@@ -884,6 +986,10 @@ export abstract class BaseAgent {
     systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent, context)}`;
 
     systemContent += delegationRule;
+    const outputIntentInstruction = buildOutputIntentInstruction(context.outputIntent);
+    if (outputIntentInstruction && typeof outputIntentInstruction.content === 'string') {
+      systemContent += `\n\n${outputIntentInstruction.content}`;
+    }
     systemContent +=
       '\n- Film evidence rule: when answering from film-review rows, selected source clips, or analyze_video results with sourceEvidence, attach each video-backed tendency, coaching point, or recommendation to the source label/title and timestamp/time range that supports it. If source evidence is not attached, say the video source is not traceable instead of inventing a citation.';
     systemContent +=
@@ -1099,7 +1205,9 @@ export abstract class BaseAgent {
     const allowedToolNames = getEffectiveAgentToolPolicy(this.id);
     const toolSchemas: LLMToolSchema[] = _toolDefinitions
       .filter(
-        (def) => def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)
+        (def) =>
+          (def.category === 'system' || isToolAllowedByPatterns(def.name, allowedToolNames)) &&
+          isToolAllowedForOutputIntent(def.name, context.outputIntent)
       )
       .map((def) => ({
         type: 'function' as const,
@@ -1181,7 +1289,42 @@ export abstract class BaseAgent {
     } else {
       messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
     }
-    if (yieldState.reason === 'needs_input' && yieldState.pendingToolCall) {
+    const selectedContextResumeInstruction = buildSelectedContextResumeInstruction(
+      context.selectedContexts
+    );
+    if (
+      selectedContextResumeInstruction &&
+      !messages.some(
+        (msg) =>
+          msg.role === 'system' &&
+          typeof msg.content === 'string' &&
+          msg.content.includes('RESUME CONTEXT GUARD')
+      )
+    ) {
+      messages.push(selectedContextResumeInstruction);
+    }
+    const outputIntentInstruction = buildOutputIntentInstruction(context.outputIntent);
+    if (
+      outputIntentInstruction &&
+      !messages.some(
+        (message) =>
+          message.role === 'system' &&
+          typeof message.content === 'string' &&
+          message.content.includes('DETERMINISTIC OUTPUT CONTRACT')
+      )
+    ) {
+      messages.push(outputIntentInstruction);
+    }
+
+    if (
+      yieldState.reason === 'needs_input' &&
+      yieldState.pendingToolCall &&
+      !(
+        yieldState.pendingToolCall.toolName === 'ask_user' &&
+        Array.isArray(yieldState.pendingToolCall.toolInput['options'])
+      ) &&
+      yieldState.pendingToolCall.toolName !== 'prompt_output_selection'
+    ) {
       const pendingToolMessage = this.buildPendingInputResumeMessage(yieldState.pendingToolCall);
       const alreadyPresent = messages.some(
         (msg) => msg.role === 'assistant' && msg.content === pendingToolMessage
@@ -1200,6 +1343,7 @@ export abstract class BaseAgent {
       ...(context.attachments?.length ? { attachments: context.attachments } : {}),
       ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
       ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+      ...(context.outputIntent ? { outputIntent: context.outputIntent } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
@@ -1888,7 +2032,7 @@ export abstract class BaseAgent {
 
       const effectiveExecutionAllowlist = Array.from(
         new Set([...allowedToolNames, ...getEffectiveAgentToolPolicy(this.id)])
-      );
+      ).filter((toolName) => isToolAllowedForOutputIntent(toolName, context.outputIntent));
       const exactAllowedToolNames = toolSchemas.map((schema) => schema.function.name);
 
       const sessionCtxForTools: ToolSessionContext = {
@@ -1900,6 +2044,7 @@ export abstract class BaseAgent {
         ...(context.attachments?.length ? { attachments: context.attachments } : {}),
         ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
         ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+        ...(context.outputIntent ? { outputIntent: context.outputIntent } : {}),
         ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         ...(this.shouldEnforceExactToolSurface() ? { exactAllowedToolNames } : {}),
@@ -1910,7 +2055,11 @@ export abstract class BaseAgent {
       //    The yield-context messages snapshot is captured here, before any tool
       //    observations are pushed \u2014 safe because ask_user is never co-emitted
       //    alongside data tools in the same LLM response.
-      const yieldCtxSnapshot = { agentId: this.id, messages };
+      const yieldCtxSnapshot = {
+        agentId: this.id,
+        messages,
+        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
+      };
       const toolBatchResults = await parallelBatch(
         toolCallsForIteration,
         async (toolCall) => {
@@ -3588,6 +3737,32 @@ export abstract class BaseAgent {
       });
     }
 
+    if (!isToolAllowedForOutputIntent(toolName, sessionContext?.outputIntent)) {
+      const selectedLanes = sessionContext?.outputIntent?.lanes ?? [];
+      const allowedArtifactTools = Array.from(
+        resolveOutputIntentArtifactTools(sessionContext?.outputIntent) ?? []
+      );
+      logger.warn('[BaseAgent] Blocked artifact tool outside deterministic output contract', {
+        agentId: this.id,
+        operationId: sessionContext?.operationId,
+        toolName,
+        selectedLanes,
+        allowedArtifactTools,
+      });
+      return JSON.stringify({
+        success: false,
+        error: `Tool "${toolName}" does not match the user-selected output delivery lane.`,
+        errorCode: 'AGENT_WRONG_EXPORT_LANE',
+        guidance: allowedArtifactTools.length
+          ? `Use only the selected artifact generator: ${allowedArtifactTools.join(', ')}.`
+          : 'Do not generate a downloadable artifact for this chat-only response.',
+        data: {
+          selectedLanes,
+          allowedArtifactTools,
+        },
+      });
+    }
+
     if (toolName === 'delegate_task' && this.id !== 'router') {
       const forwardingIntent =
         typeof input['forwarding_intent'] === 'string' ? input['forwarding_intent'].trim() : '';
@@ -3714,6 +3889,25 @@ export abstract class BaseAgent {
         errorCode: 'FEATURE_TEMPORARILY_UNAVAILABLE',
         guidance:
           'Do not retry ffmpeg_burn_annotation. Use analyze_video directly on the clip and explain that annotation burn support is temporarily disabled.',
+      });
+    }
+
+    if (isDynamicPdfExportCall(toolName, input) && hasPrintablePdfOutputGuard(currentMessages)) {
+      logger.warn('[BaseAgent] Blocked dynamic_export PDF for printable PDF output lane', {
+        agentId: this.id,
+        operationId: sessionContext?.operationId,
+      });
+      return JSON.stringify({
+        success: false,
+        error:
+          'The user selected Printable PDF, so dynamic_export with format "pdf" is the wrong delivery lane.',
+        errorCode: 'AGENT_WRONG_EXPORT_LANE',
+        guidance:
+          'Call render_html_pdf with complete HTML/CSS and layoutIntent="best_fit_operational". Do not retry dynamic_export for this printable PDF request.',
+        data: {
+          requestedFormat: 'pdf',
+          requiredTool: 'render_html_pdf',
+        },
       });
     }
 
@@ -3865,7 +4059,10 @@ export abstract class BaseAgent {
     // Inject yield context into the input so AskUserTool can read it
     // without relying on mutable singleton state (safe with concurrent workers).
     if (yieldContext && toolName === 'ask_user') {
-      input[ASK_USER_CONTEXT_KEY] = yieldContext;
+      input[ASK_USER_CONTEXT_KEY] = {
+        ...yieldContext,
+        toolCallId: toolCall.id,
+      };
     }
 
     // Build execution context for the tool — provides identity & session info

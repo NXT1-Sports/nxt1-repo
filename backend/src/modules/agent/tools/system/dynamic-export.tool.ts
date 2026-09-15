@@ -84,7 +84,7 @@ export class DynamicExportTool extends BaseTool {
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
     'branding, and cloud hosting.\n\n' +
     'HOW TO FORMAT LIKE A PRO:\n' +
-    '- ROUTING FIRST: Do NOT use this as the default for every export. Use `render_html_pdf` first for printable/share-ready operational PDFs such as callsheets, wristbands, practice scripts, depth charts, staff sheets, one-pagers, or any sample-matched printable layout. Use `execute_python_code` only when the user explicitly asks for editable spreadsheets, XLSX, Excel, workbooks, or workbook-style artifacts. Use this tool for Gamma-style report PDFs/PPTX decks/packets and as the PDF/XLSX fallback when those dedicated paths are unavailable or not appropriate.\n' +
+    '- ROUTING FIRST: Do NOT use this as the default for every export. Use `render_html_pdf` first for printable/share-ready operational PDFs such as scouting reports, tendency reports, callsheets, wristbands, practice scripts, depth charts, staff sheets, one-pagers, or any sample-matched printable layout. Use `execute_python_code` only when the user explicitly asks for editable spreadsheets, XLSX, Excel, workbooks, or workbook-style artifacts. Use this tool for Gamma-style PDFs only when the user selected/requested a Gamma PDF, for PPTX decks/packets, for CSV flat-table exports, and as the PDF/XLSX fallback only when those dedicated paths are unavailable or not appropriate.\n' +
     '- NEVER use emojis in the data or titles. They break the PDF and Excel generators. Use text only.\n' +
     '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/PPTX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
     '- For Practice Scripts/Schedules: Prefer render_html_pdf for printable/share-ready one-pagers and use execute_python_code only when the user explicitly asks for editable sheets. Use this tool only when the user wants a report/deck or the dedicated routes are not the chosen artifact path.\n' +
@@ -487,15 +487,19 @@ export class DynamicExportTool extends BaseTool {
         },
         context
       );
+      const fileName = `${outputBaseName}.${extension}`;
+      const deliverableMarkdown = `[${fileName}](${downloadUrl})`;
 
       return {
         success: true,
         data: {
           downloadUrl,
           storagePath,
-          fileName: `${outputBaseName}.${extension}`,
+          fileName,
           mimeType,
           format: extension,
+          deliverableMarkdown,
+          assistantInstruction: `Tell the user the file is ready and include this exact download link in your response: ${deliverableMarkdown}. Do not replace it with only the file name.`,
           sizeBytes: buffer.length,
           rowCount: this.resolveRowCount(rows, sections),
           columnCount: this.resolveColumnCount(columns, sections),
@@ -508,7 +512,7 @@ export class DynamicExportTool extends BaseTool {
             {
               url: downloadUrl,
               storagePath,
-              name: `${outputBaseName}.${extension}`,
+              name: fileName,
               mimeType,
               type: 'doc',
               sizeBytes: buffer.length,

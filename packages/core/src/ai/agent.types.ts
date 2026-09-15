@@ -368,12 +368,31 @@ export interface KnowledgeIngestionResult {
   readonly version: number;
 }
 
+/** Deterministic delivery lane selected by the user for an Agent X output. */
+export type AgentOutputDeliveryLane =
+  | 'printable_pdf'
+  | 'gamma_pdf'
+  | 'presentation'
+  | 'xlsx'
+  | 'csv'
+  | 'chat_only';
+
+/** Server-derived output constraint carried independently of conversation replay. */
+export interface AgentOutputIntent {
+  readonly lanes: readonly AgentOutputDeliveryLane[];
+  readonly source: 'output_selection' | 'ask_user_reply';
+  readonly selectedOptionIds?: readonly string[];
+  readonly selectedOptionTitles?: readonly string[];
+}
+
 /** A session-scoped context object (stored in Redis, not vector DB). */
 export interface AgentSessionContext {
   readonly sessionId: string;
   readonly userId: string;
   readonly conversationHistory: readonly AgentSessionMessage[];
   readonly selectedContexts?: readonly import('./agent-x-context.types').AgentXSelectedContext[];
+  /** Explicit user-selected output lane used to constrain artifact tool routing. */
+  readonly outputIntent?: AgentOutputIntent;
   /** Injected context from long-term memory retrieval. */
   readonly retrievedMemories?: readonly AgentMemoryEntry[];
   readonly createdAt: string;
@@ -994,6 +1013,8 @@ export interface AgentYieldState {
     readonly completedTaskResults: Record<string, unknown>;
     readonly enrichedIntent: string;
   };
+  /** Selected app contexts active when the agent yielded, such as a film review or source clip. */
+  readonly selectedContexts?: readonly import('./agent-x-context.types').AgentXSelectedContext[];
   /** ISO timestamp of when the yield was created. */
   readonly yieldedAt: string;
   /** ISO timestamp after which this yield expires and the job fails. */

@@ -630,19 +630,28 @@ export class AgentXOperationChatTransportFacade {
           onThinking: (event) => {
             const threadId = host.resolvedThreadId();
             if (threadId) this.streamRegistry.appendThinking(threadId, event.content);
-            // Thinking arrives before deltas — update parts on the typing message
+            // Some providers interleave reasoning after visible text; merge into
+            // the existing reasoning block instead of adding repeated toggles.
             this.messageFacade.messages.update((messages) =>
               messages.map((message) => {
                 if (message.id !== 'typing') return message;
                 const prevParts = message.parts ?? [];
-                const last = prevParts[prevParts.length - 1];
-                const nextParts =
-                  last?.type === 'thinking'
-                    ? [
-                        ...prevParts.slice(0, -1),
-                        { type: 'thinking' as const, content: last.content + event.content },
-                      ]
-                    : [...prevParts, { type: 'thinking' as const, content: event.content }];
+                const existingThinkingIndex = prevParts.findIndex(
+                  (part) => part.type === 'thinking'
+                );
+                const nextParts = [...prevParts];
+                if (existingThinkingIndex >= 0) {
+                  const existing = nextParts[existingThinkingIndex];
+                  if (existing?.type === 'thinking') {
+                    nextParts[existingThinkingIndex] = {
+                      type: 'thinking' as const,
+                      content: existing.content + event.content,
+                      ...(existing.done ? { done: true as const } : {}),
+                    };
+                  }
+                } else {
+                  nextParts.push({ type: 'thinking' as const, content: event.content });
+                }
                 return { ...message, parts: nextParts };
               })
             );

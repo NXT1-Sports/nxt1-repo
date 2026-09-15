@@ -354,16 +354,24 @@ export class AgentXStreamRegistryService {
   /**
    * Append extended thinking text (Claude 3.7+ / Gemini 2.5).
    * Accumulates into a `thinking` part and notifies the active listener.
-   * Thinking always arrives before content tokens so the part is prepended.
+   * Some providers interleave reasoning after visible text; keep one canonical
+   * thinking part per stream instead of creating repeated reasoning blocks.
    */
   appendThinking(threadId: string, content: string): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
     entry.thinking += content;
 
-    const last = entry.parts[entry.parts.length - 1];
-    if (last?.type === 'thinking') {
-      entry.parts[entry.parts.length - 1] = { type: 'thinking', content: last.content + content };
+    const existingThinkingIndex = entry.parts.findIndex((part) => part.type === 'thinking');
+    if (existingThinkingIndex >= 0) {
+      const existing = entry.parts[existingThinkingIndex];
+      if (existing?.type === 'thinking') {
+        entry.parts[existingThinkingIndex] = {
+          type: 'thinking',
+          content: existing.content + content,
+          ...(existing.done ? { done: true as const } : {}),
+        };
+      }
     } else {
       entry.parts.push({ type: 'thinking', content });
     }

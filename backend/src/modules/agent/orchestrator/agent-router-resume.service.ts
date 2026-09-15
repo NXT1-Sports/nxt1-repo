@@ -4,6 +4,8 @@ import type {
   AgentJobPayload,
   AgentJobUpdate,
   AgentOperationResult,
+  AgentOutputDeliveryLane,
+  AgentOutputIntent,
   AgentSessionContext,
   AgentToolAccessContext,
   AgentXSelectedContext,
@@ -22,6 +24,7 @@ import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
+import { computeForcedToolInclusions } from './agent-router-execution.service.js';
 
 type RouterContextDeps = Pick<
   AgentRouterContextService,
@@ -35,6 +38,43 @@ type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments'
 
 const VIDEO_URL_HINT_PATTERN =
   /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
+const OUTPUT_DELIVERY_LANES = new Set<AgentOutputDeliveryLane>([
+  'printable_pdf',
+  'gamma_pdf',
+  'presentation',
+  'xlsx',
+  'csv',
+  'chat_only',
+]);
+
+function resolveOutputIntent(value: unknown): AgentOutputIntent | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const record = value as Record<string, unknown>;
+  const lanes = Array.isArray(record['lanes'])
+    ? record['lanes'].filter(
+        (lane): lane is AgentOutputDeliveryLane =>
+          typeof lane === 'string' && OUTPUT_DELIVERY_LANES.has(lane as AgentOutputDeliveryLane)
+      )
+    : [];
+  const source = record['source'];
+  if (lanes.length === 0 || (source !== 'output_selection' && source !== 'ask_user_reply')) {
+    return undefined;
+  }
+
+  const selectedOptionIds = Array.isArray(record['selectedOptionIds'])
+    ? record['selectedOptionIds'].filter((entry): entry is string => typeof entry === 'string')
+    : undefined;
+  const selectedOptionTitles = Array.isArray(record['selectedOptionTitles'])
+    ? record['selectedOptionTitles'].filter((entry): entry is string => typeof entry === 'string')
+    : undefined;
+
+  return {
+    lanes: Array.from(new Set(lanes)),
+    source,
+    ...(selectedOptionIds?.length ? { selectedOptionIds } : {}),
+    ...(selectedOptionTitles?.length ? { selectedOptionTitles } : {}),
+  };
+}
 
 function isVideoAttachmentLike(attachment: {
   readonly mimeType?: string;
@@ -311,6 +351,9 @@ export class AgentRouterResumeService {
       undefined
     );
     const defaultGameAnalysisContext = buildDefaultGameAnalysisContext(userContext);
+    const outputIntent = resolveOutputIntent(
+      (resumeContextObj as Record<string, unknown>)['outputIntent']
+    );
     const {
       effortLevel: _discardedEffortLevel,
       attachments: _discardedAttachments,
@@ -323,6 +366,7 @@ export class AgentRouterResumeService {
       ...(resumedAttachments.length > 0 ? { attachments: resumedAttachments } : {}),
       ...(resumedVideoAttachments.length > 0 ? { videoAttachments: resumedVideoAttachments } : {}),
       ...(selectedContexts?.length ? { selectedContexts } : {}),
+      ...(outputIntent ? { outputIntent } : {}),
       ...(defaultGameAnalysisContext ? { defaultGameAnalysisContext } : {}),
     };
     const approvalId =
@@ -392,12 +436,20 @@ export class AgentRouterResumeService {
       if (!isPrimaryResume) {
         try {
           const intentEmbedding = await this.llm.embed(enrichedIntent);
-          toolDefs = await this.toolRegistry.match(
+          const matchedToolDefs = await this.toolRegistry.match(
             intentEmbedding,
             (text) => this.llm.embed(text),
             agent.id,
             toolAccessContext
           );
+          const finalTools = new Map(matchedToolDefs.map((tool) => [tool.name, tool]));
+          for (const forcedToolName of computeForcedToolInclusions(enrichedIntent)) {
+            const fallbackForcedTool = toolDefs.find((tool) => tool.name === forcedToolName);
+            if (fallbackForcedTool) {
+              finalTools.set(fallbackForcedTool.name, fallbackForcedTool);
+            }
+          }
+          toolDefs = [...finalTools.values()];
         } catch {
           // Ignore embedding failures during resume and pass all possible tools.
         }

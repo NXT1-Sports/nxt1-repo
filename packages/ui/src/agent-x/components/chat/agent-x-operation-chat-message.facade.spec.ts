@@ -364,21 +364,24 @@ describe('AgentXOperationChatMessageFacade', () => {
       );
 
     // Typing sentinel is committed in place as a separate assistant bubble so
-    // the streamed prose/tool-steps remain visible above the yield bubble.
+    // the streamed prose remains visible above the yield card.
     expect(typing).toBeUndefined();
     expect(committedProse).toBeDefined();
     expect(committedProse?.isTyping).toBe(false);
-    expect(committedProse?.steps ?? []).toEqual([
-      {
-        id: 'tool-1',
-        label: 'Ask user',
-        status: 'active',
-        stageType: 'tool',
-      },
-    ]);
-    // Yield bubble carries ONLY the question (via yieldState.promptToUser).
+    expect(committedProse?.steps ?? []).toEqual([]);
+    // Yield bubble carries the interactive Ask User card.
     expect(yieldMessage?.content).toBe('');
     expect(yieldMessage?.steps ?? []).toEqual([]);
+    expect(yieldMessage?.cards).toEqual([
+      expect.objectContaining({
+        type: 'ask_user',
+        title: 'Requesting your input',
+        payload: expect.objectContaining({
+          question: 'What should I focus on first for recruiting outreach?',
+          operationId: 'op-1',
+        }),
+      }),
+    ]);
     expect(yieldMessage?.yieldState).toEqual(yieldState);
   });
 
@@ -653,6 +656,31 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(yieldIndex).toBeGreaterThanOrEqual(0);
     expect(typingIndex).toBeGreaterThan(yieldIndex);
     expect(messages[typingIndex]?.content).toBe('Sending the approved email now.');
+  });
+
+  it('can roll back an optimistic ask-user reply when submit fails', () => {
+    facade.pushOptimisticUserReply({
+      operationId: 'op-ask-user-1',
+      content: 'Printable PDF',
+      messageId: 'message-ask-user-1',
+    });
+
+    expect(facade.messages()).toEqual([
+      expect.objectContaining({
+        id: 'ask-user-reply:op-ask-user-1:message-ask-user-1',
+        role: 'user',
+        content: 'Printable PDF',
+        operationId: 'op-ask-user-1',
+      }),
+    ]);
+
+    facade.removeOptimisticUserReply({
+      operationId: 'op-ask-user-1',
+      content: 'Printable PDF',
+      messageId: 'message-ask-user-1',
+    });
+
+    expect(facade.messages()).toEqual([]);
   });
 
   it('removes an empty stale typing row so new typing is not deduped', () => {

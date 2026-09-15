@@ -139,6 +139,8 @@ describe('DynamicExportTool', () => {
         fileName: 'game-plan.pdf',
         mimeType: 'application/pdf',
         format: 'pdf',
+        deliverableMarkdown: expect.stringContaining('[game-plan.pdf]('),
+        assistantInstruction: expect.stringContaining('include this exact download link'),
         artifactRole: 'export',
         relatedDocumentId: 'game-plan-document-1',
         attachments: [

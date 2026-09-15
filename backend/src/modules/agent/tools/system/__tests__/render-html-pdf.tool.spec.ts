@@ -122,6 +122,8 @@ describe('RenderHtmlPdfTool', () => {
         fileName: 'Depth Chart.pdf',
         mimeType: 'application/pdf',
         format: 'pdf',
+        deliverableMarkdown: expect.stringContaining('[Depth Chart.pdf]('),
+        assistantInstruction: expect.stringContaining('include this exact download link'),
         artifactRole: 'export',
         layoutIntent: 'exact_match',
         editableSource: expect.objectContaining({
@@ -151,6 +153,7 @@ describe('RenderHtmlPdfTool', () => {
         ],
       },
     });
+    expect(JSON.stringify(result.data)).not.toContain('[Depth Chart.html](');
   });
 
   it('renders exact-match exports best-effort instead of blocking on layout lint', async () => {

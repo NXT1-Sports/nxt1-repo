@@ -184,6 +184,7 @@ export class RenderHtmlPdfTool extends BaseTool {
       { storagePath, fileName: input.fileName, mimeType: 'application/pdf' },
       context
     );
+    const deliverableMarkdown = `[${input.fileName}](${downloadUrl})`;
     const sourceDownloadUrl = this.buildExportDownloadUrl(
       { storagePath: sourceStoragePath, fileName: sourceFileName, mimeType: 'text/html' },
       context
@@ -227,6 +228,8 @@ export class RenderHtmlPdfTool extends BaseTool {
         fileName: input.fileName,
         mimeType: 'application/pdf',
         format: 'pdf',
+        deliverableMarkdown,
+        assistantInstruction: `Tell the user the PDF is ready and include this exact download link in your response: ${deliverableMarkdown}. Do not replace it with only the file name. Do not include the editable HTML source link unless the user asks to revise the PDF.`,
         sizeBytes: renderResult.buffer.length,
         artifactRole: 'export',
         layoutIntent: input.layoutIntent ?? 'best_fit_operational',

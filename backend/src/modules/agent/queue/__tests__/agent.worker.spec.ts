@@ -1144,6 +1144,282 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('attaches render_html_pdf exports to the immediately preceding created Files document', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-render-html-pdf-123' },
+      intent: 'build a self scout PDF and save it',
+    });
+    const job = makeMockJob(payload);
+    const pdfUrl = 'https://cdn.example.com/Falcons_Self_Scout.pdf';
+    const storagePath =
+      'Users/user-abc/threads/thread-render-html-pdf-123/exports/falcons-self-scout.pdf';
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Your self-scout PDF is ready.',
+      data: {
+        toolCallRecords: [
+          {
+            toolName: 'create_universal_team_document',
+            status: 'success',
+            input: { title: 'Falcons Self Scout Report' },
+            output: {
+              document: {
+                id: 'doc-render-html-pdf-1',
+                title: 'Falcons Self Scout Report',
+              },
+            },
+          },
+          {
+            toolName: 'render_html_pdf',
+            status: 'success',
+            input: {
+              fileName: 'Falcons_Self_Scout.pdf',
+            },
+            output: {
+              downloadUrl: pdfUrl,
+              storagePath,
+              fileName: 'Falcons_Self_Scout.pdf',
+              mimeType: 'application/pdf',
+              format: 'pdf',
+              artifactRole: 'export',
+              attachments: [
+                {
+                  url: pdfUrl,
+                  storagePath,
+                  name: 'Falcons_Self_Scout.pdf',
+                  mimeType: 'application/pdf',
+                  type: 'doc',
+                  sizeBytes: 19044,
+                  artifactRole: 'export',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockUpsertTeamFileFromAttachment).not.toHaveBeenCalled();
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledTimes(1);
+    expect(mockAttachExportAssetToUniversalDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-render-html-pdf-1',
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-render-html-pdf-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          relatedDocumentId: 'doc-render-html-pdf-1',
+          artifactGroupId: 'op-worker-test',
+          mimeType: 'application/pdf',
+          type: 'pdf',
+          storagePath,
+          name: 'Falcons_Self_Scout.pdf',
+        }),
+      })
+    );
+  });
+
+  it('promotes standalone rendered PDF exports to Files and appends only the deliverable link', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-standalone-render-html-pdf-123' },
+      intent: 'build me a printable self scout pdf',
+    });
+    const job = makeMockJob(payload);
+    const pdfUrl = 'https://cdn.example.com/Falcons_Self_Scout.pdf';
+    const sourceUrl = 'https://cdn.example.com/Falcons_Self_Scout.html';
+    const pdfStoragePath =
+      'Users/user-abc/threads/thread-standalone-render-html-pdf-123/exports/falcons-self-scout.pdf';
+    const sourceStoragePath =
+      'Users/user-abc/threads/thread-standalone-render-html-pdf-123/exports/falcons-self-scout.html';
+
+    mockRouter.run.mockImplementationOnce(async (_payload, _onUpdate, _db, onStreamEvent) => {
+      onStreamEvent?.({
+        type: 'delta',
+        agentId: 'performance_coordinator',
+        text: 'Your self-scout PDF is ready.',
+      });
+
+      return {
+        summary: 'Your self-scout PDF is ready.',
+        data: {
+          toolCallRecords: [
+            {
+              toolName: 'render_html_pdf',
+              status: 'success',
+              input: {
+                fileName: 'Falcons_Self_Scout.pdf',
+              },
+              output: {
+                downloadUrl: pdfUrl,
+                storagePath: pdfStoragePath,
+                fileName: 'Falcons_Self_Scout.pdf',
+                mimeType: 'application/pdf',
+                format: 'pdf',
+                artifactRole: 'export',
+                editableSource: {
+                  url: sourceUrl,
+                  storagePath: sourceStoragePath,
+                  name: 'Falcons_Self_Scout.html',
+                  mimeType: 'text/html',
+                  type: 'doc',
+                  sizeBytes: 4201,
+                  artifactRole: 'source',
+                },
+                attachments: [
+                  {
+                    url: pdfUrl,
+                    storagePath: pdfStoragePath,
+                    name: 'Falcons_Self_Scout.pdf',
+                    mimeType: 'application/pdf',
+                    type: 'doc',
+                    sizeBytes: 19044,
+                    artifactRole: 'export',
+                  },
+                  {
+                    url: sourceUrl,
+                    storagePath: sourceStoragePath,
+                    name: 'Falcons_Self_Scout.html',
+                    mimeType: 'text/html',
+                    type: 'doc',
+                    sizeBytes: 4201,
+                    artifactRole: 'source',
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      } satisfies AgentOperationResult;
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockAttachExportAssetToUniversalDocument).not.toHaveBeenCalled();
+    expect(mockUpsertTeamFileFromAttachment).toHaveBeenCalledTimes(1);
+    expect(mockUpsertTeamFileFromAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-abc',
+        origin: 'agent_chat_output',
+        sourceThreadId: 'thread-standalone-render-html-pdf-123',
+        sourceOperationId: 'op-worker-test',
+        attachment: expect.objectContaining({
+          artifactRole: 'export',
+          type: 'pdf',
+          storagePath: pdfStoragePath,
+          name: 'Falcons_Self_Scout.pdf',
+        }),
+      })
+    );
+
+    const persistedMessage = mockChatService.addMessage.mock.calls.at(-1)?.[0] as {
+      content: string;
+      parts?: Array<{ type: string; content?: string }>;
+    };
+    expect(persistedMessage.content).toContain(pdfUrl);
+    expect(persistedMessage.content).not.toContain(sourceUrl);
+    expect(persistedMessage.parts).toEqual([
+      {
+        type: 'text',
+        content:
+          'Your self-scout PDF is ready.\n\nDownload:\n- [Falcons_Self_Scout.pdf](' + pdfUrl + ')',
+      },
+    ]);
+  });
+
+  it('does not append stale older export links when the current rendered PDF is already in the reply', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-callsheet-123' },
+      intent: 'build me an nfl style callsheet from my plays',
+    });
+    const job = makeMockJob(payload);
+    const currentPdfUrl = 'https://cdn.example.com/NXT1_NFL_Style_Callsheet_vs_Georgetown.pdf';
+    const currentStoragePath =
+      'Users/user-abc/threads/thread-callsheet-123/exports/current-callsheet.pdf';
+    const olderPdfUrl = 'https://cdn.example.com/NXT1_Callsheet_vs_Georgetown.pdf';
+    const olderStoragePath =
+      'Users/user-abc/threads/thread-callsheet-123/exports/older-callsheet.pdf';
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary:
+        'Here is your callsheet:\n\n### [NXT1_NFL_Style_Callsheet_vs_Georgetown.pdf](' +
+        currentPdfUrl +
+        ')',
+      data: {
+        attachments: [
+          {
+            url: olderPdfUrl,
+            storagePath: olderStoragePath,
+            name: 'NXT1_Callsheet_vs_Georgetown.pdf',
+            mimeType: 'application/pdf',
+            type: 'doc',
+            sizeBytes: 18000,
+            artifactRole: 'export',
+          },
+        ],
+        toolCallRecords: [
+          {
+            toolName: 'render_html_pdf',
+            status: 'success',
+            input: {
+              fileName: 'NXT1_NFL_Style_Callsheet_vs_Georgetown.pdf',
+            },
+            output: {
+              downloadUrl: currentPdfUrl,
+              storagePath: currentStoragePath,
+              fileName: 'NXT1_NFL_Style_Callsheet_vs_Georgetown.pdf',
+              mimeType: 'application/pdf',
+              format: 'pdf',
+              artifactRole: 'export',
+              attachments: [
+                {
+                  url: currentPdfUrl,
+                  storagePath: currentStoragePath,
+                  name: 'NXT1_NFL_Style_Callsheet_vs_Georgetown.pdf',
+                  mimeType: 'application/pdf',
+                  type: 'doc',
+                  sizeBytes: 22044,
+                  artifactRole: 'export',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    const persistedMessage = mockChatService.addMessage.mock.calls.at(-1)?.[0] as {
+      content: string;
+      attachments?: Array<{ url: string; name: string }>;
+    };
+
+    expect(persistedMessage.content).toContain(currentPdfUrl);
+    expect(persistedMessage.content).not.toContain(
+      `Download:\n- [NXT1_Callsheet_vs_Georgetown.pdf](${olderPdfUrl})`
+    );
+    expect(persistedMessage.attachments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: currentPdfUrl,
+          name: 'NXT1_NFL_Style_Callsheet_vs_Georgetown.pdf',
+        }),
+      ])
+    );
+    expect(persistedMessage.attachments).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: olderPdfUrl,
+          name: 'NXT1_Callsheet_vs_Georgetown.pdf',
+        }),
+      ])
+    );
+  });
+
   it('persists generated video links with poster metadata for markdown reloads', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-video-123' },

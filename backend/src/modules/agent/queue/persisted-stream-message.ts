@@ -112,10 +112,18 @@ export class PersistedAssistantStreamBuilder {
       case 'thinking': {
         if (!event.thinkingText) return;
         const text = sanitizeAgentOutputText(event.thinkingText);
-        const last = this.parts[this.parts.length - 1];
-        const lastAgentId = this.partAgentIds[this.partAgentIds.length - 1];
-        if (last?.type === 'thinking' && lastAgentId === event.agentId) {
-          this.parts[this.parts.length - 1] = { type: 'thinking', content: last.content + text };
+        const existingThinkingIndex = this.parts.findIndex(
+          (part, index) => part.type === 'thinking' && this.partAgentIds[index] === event.agentId
+        );
+        if (existingThinkingIndex >= 0) {
+          const existing = this.parts[existingThinkingIndex];
+          if (existing?.type === 'thinking') {
+            this.parts[existingThinkingIndex] = {
+              type: 'thinking',
+              content: existing.content + text,
+              ...(existing.done ? { done: true as const } : {}),
+            };
+          }
         } else {
           this.parts.push({ type: 'thinking', content: text });
           this.partAgentIds.push(event.agentId);
@@ -131,6 +139,7 @@ export class PersistedAssistantStreamBuilder {
         if (last?.type === 'text' && lastAgentId === event.agentId) {
           this.parts[this.parts.length - 1] = { type: 'text', content: last.content + text };
         } else {
+          this.markThinkingDone(event.agentId);
           this.parts.push({ type: 'text', content: text });
           this.partAgentIds.push(event.agentId);
         }
@@ -394,6 +403,15 @@ export class PersistedAssistantStreamBuilder {
 
     this.parts.push({ type: 'tool-steps', steps: [step] });
     this.partAgentIds.push(step.agentId);
+  }
+
+  private markThinkingDone(agentId?: string): void {
+    for (let index = 0; index < this.parts.length; index++) {
+      const part = this.parts[index];
+      if (part.type === 'thinking' && !part.done && this.partAgentIds[index] === agentId) {
+        this.parts[index] = { type: 'thinking', content: part.content, done: true };
+      }
+    }
   }
 
   private recordFailedCoordinatorFromToolResult(event: StreamEvent): void {

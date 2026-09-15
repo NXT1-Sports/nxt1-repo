@@ -136,7 +136,10 @@ export interface AgentXStreamMessageOptions {
   readonly streamDebug?: boolean;
 }
 
-export type AgentXThreadActionType = 'ask_user_reply' | 'approval_decision';
+export type AgentXThreadActionType =
+  | 'ask_user_reply'
+  | 'approval_decision'
+  | 'output_selection_choice';
 
 export interface AgentXThreadActionRequest {
   readonly actionType: AgentXThreadActionType;
@@ -146,6 +149,14 @@ export interface AgentXThreadActionRequest {
   readonly attachments?: readonly AgentXAttachment[];
   readonly decision?: 'approved' | 'rejected';
   readonly toolInput?: Record<string, unknown>;
+  readonly selectedOptionIds?: readonly string[];
+  readonly customText?: string;
+  readonly stepResponses?: readonly {
+    readonly stepId: string;
+    readonly selectedOptionIds?: readonly string[];
+    readonly customText?: string;
+    readonly skipped?: boolean;
+  }[];
   readonly trustForSession?: boolean;
 }
 

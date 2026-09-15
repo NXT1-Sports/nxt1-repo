@@ -2,6 +2,38 @@ import { describe, expect, it } from 'vitest';
 import { PersistedAssistantStreamBuilder } from '../persisted-stream-message.js';
 
 describe('PersistedAssistantStreamBuilder', () => {
+  it('merges interleaved thinking chunks into one reasoning part per agent', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    builder.process({
+      type: 'thinking',
+      agentId: 'performance_coordinator',
+      thinkingText: 'Plan first. ',
+    });
+    builder.process({
+      type: 'delta',
+      agentId: 'performance_coordinator',
+      text: 'Here is the first point. ',
+    });
+    builder.process({
+      type: 'thinking',
+      agentId: 'performance_coordinator',
+      thinkingText: 'Plan second. ',
+    });
+    builder.process({
+      type: 'delta',
+      agentId: 'performance_coordinator',
+      text: 'Here is the second point.',
+    });
+
+    const snapshot = builder.snapshot();
+
+    expect(snapshot.parts).toEqual([
+      { type: 'thinking', content: 'Plan first. Plan second. ', done: true },
+      { type: 'text', content: 'Here is the first point. Here is the second point.' },
+    ]);
+  });
+
   it('reuses explicit step ids and ignores tool_call placeholder events', () => {
     const builder = new PersistedAssistantStreamBuilder();
 

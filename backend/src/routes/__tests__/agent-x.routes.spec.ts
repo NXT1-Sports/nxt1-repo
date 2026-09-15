@@ -3125,6 +3125,471 @@ describe('Agent X Routes', () => {
     expect(parsedToolResult?.data?.attachments).toEqual([expect.objectContaining({ id: 'att-1' })]);
   });
 
+  it('should preserve selected film context when output selection resumes a yielded job', async () => {
+    const selectedContexts = [
+      {
+        id: 'film-week-2',
+        title: 'NXT1 Full Game (Wk 2)',
+        kind: 'film_review',
+        source: { type: 'film_review', id: 'b069f6aba0813548201093d226f2e2510470e1' },
+        metadata: { filmReviewId: 'b069f6aba0813548201093d226f2e2510470e1' },
+      },
+    ];
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-film-output-selection',
+      userId: 'test-user',
+      intent: 'Analyze this breakdown and identify the biggest trends and tendencies.',
+      threadId: 'thread-123',
+      replayPayload: {
+        context: { threadId: 'thread-123' },
+      },
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'Confirm film report setup',
+        agentId: 'performance_coordinator',
+        messages: [
+          { role: 'user', content: 'Analyze this breakdown: NXT1 Full Game (Wk 2)' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'tool-ask-user-film',
+                type: 'function',
+                function: {
+                  name: 'ask_user',
+                  arguments: JSON.stringify({ question: 'Confirm film report setup' }),
+                },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: {
+            prompt: 'Confirm film report setup',
+            steps: [
+              {
+                id: 'ownership',
+                prompt: 'Which team is the ODK keyed to in this breakdown?',
+                inputMode: 'single_select',
+                options: [
+                  {
+                    id: 'o_us_d_them',
+                    title: 'O rows are our offense, D rows are opponent offense',
+                  },
+                ],
+              },
+              {
+                id: 'report_type',
+                prompt: 'What kind of report do you want?',
+                inputMode: 'single_select',
+                options: [{ id: 'opponent_scout', title: 'Opponent scout their tendencies' }],
+              },
+            ],
+          },
+          toolCallId: 'tool-ask-user-film',
+        },
+        selectedContexts,
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_input',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = { enqueue: vi.fn().mockResolvedValue('job-123') };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer ' + 'test-token')
+      .send({
+        actionType: 'output_selection_choice',
+        operationIdHint: 'op-film-output-selection',
+        stepResponses: [
+          { stepId: 'ownership', selectedOptionIds: ['o_us_d_them'] },
+          { stepId: 'report_type', selectedOptionIds: ['opponent_scout'] },
+        ],
+      });
+
+    expect(response.status).toBe(202);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        selectedContexts?: unknown;
+        yieldState?: {
+          selectedContexts?: unknown;
+          messages?: Array<{ role?: string; content?: string }>;
+        };
+      };
+    };
+    expect(resumedPayload.context?.selectedContexts).toEqual(selectedContexts);
+    expect(resumedPayload.context?.yieldState?.selectedContexts).toEqual(selectedContexts);
+    expect(JSON.stringify(resumedPayload.context?.yieldState?.messages)).toContain(
+      'Continue with that context; do not ask the user to choose the film review again.'
+    );
+    expect(JSON.stringify(resumedPayload.context?.yieldState?.messages)).toContain(
+      'NXT1 Full Game (Wk 2)'
+    );
+  });
+
+  it('should preserve selected film context when ask_user_reply resumes a yielded job', async () => {
+    const selectedContexts = [
+      {
+        id: 'film-georgetown-2025',
+        title: 'Georgetown Full Game Film (2025)',
+        kind: 'film_review',
+        source: { type: 'film_review', id: 'review-georgetown-2025' },
+        metadata: { filmReviewId: 'review-georgetown-2025' },
+      },
+    ];
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-film-ask-user-reply',
+      userId: 'test-user',
+      intent: 'Create film report for self scout from this Georgetown Full Game Film (2025)',
+      threadId: 'thread-123',
+      replayPayload: {
+        context: { threadId: 'thread-123' },
+      },
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'Confirm film report setup',
+        agentId: 'performance_coordinator',
+        messages: [
+          {
+            role: 'user',
+            content: 'Create film report for self scout from this Georgetown Full Game Film (2025)',
+          },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'tool-ask-user-film-setup',
+                type: 'function',
+                function: {
+                  name: 'ask_user',
+                  arguments: JSON.stringify({ question: 'Confirm film report setup' }),
+                },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: { question: 'Confirm film report setup' },
+          toolCallId: 'tool-ask-user-film-setup',
+        },
+        selectedContexts,
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_input',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = { enqueue: vi.fn().mockResolvedValue('job-123') };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer ' + 'test-token')
+      .send({
+        actionType: 'ask_user_reply',
+        operationIdHint: 'op-film-ask-user-reply',
+        response: 'ODK is keyed to our team and I want a self-scout of our tendencies.',
+      });
+
+    expect(response.status).toBe(202);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        selectedContexts?: unknown;
+        yieldState?: { messages?: Array<{ role?: string; content?: string }> };
+      };
+    };
+    expect(resumedPayload.context?.selectedContexts).toEqual(selectedContexts);
+    expect(JSON.stringify(resumedPayload.context?.yieldState?.messages)).toContain(
+      'Continue with that context; do not ask the user to choose the film review again.'
+    );
+    expect(JSON.stringify(resumedPayload.context?.yieldState?.messages)).toContain(
+      'Georgetown Full Game Film (2025)'
+    );
+  });
+
+  it('should convert ask_user Printable PDF replies into a render_html_pdf-only resume guard', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-film-ask-user-printable-pdf',
+      userId: 'test-user',
+      intent: 'Create a self-scout tendency report from the selected game film.',
+      threadId: 'thread-123',
+      replayPayload: {
+        context: { threadId: 'thread-123' },
+      },
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'Confirm film report setup',
+        agentId: 'performance_coordinator',
+        messages: [
+          {
+            role: 'user',
+            content: 'Create a self-scout tendency report from the selected game film.',
+          },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'tool-ask-user-film-pdf',
+                type: 'function',
+                function: {
+                  name: 'ask_user',
+                  arguments: JSON.stringify({ question: 'Confirm film report setup' }),
+                },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: {
+            prompt: 'Confirm film report setup',
+            steps: [
+              { id: 'odk', prompt: 'Which team is this ODK keyed to?' },
+              { id: 'report_type', prompt: 'What kind of tendency report do you want?' },
+              { id: 'delivery', prompt: 'How would you like this delivered?' },
+            ],
+          },
+          toolCallId: 'tool-ask-user-film-pdf',
+        },
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_input',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = { enqueue: vi.fn().mockResolvedValue('job-123') };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer ' + 'test-token')
+      .send({
+        actionType: 'ask_user_reply',
+        operationIdHint: 'op-film-ask-user-printable-pdf',
+        response:
+          '1. Which team is this ODK keyed to?: ODK is keyed to our team\n2. What kind of tendency report do you want?: Self-scout our tendencies\n3. How would you like this delivered?: Printable PDF',
+      });
+
+    expect(response.status).toBe(202);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        outputIntent?: {
+          lanes?: string[];
+          source?: string;
+        };
+        yieldState?: { messages?: Array<{ role?: string; content?: string }> };
+      };
+    };
+    const guardText = (resumedPayload.context?.yieldState?.messages ?? [])
+      .filter((message) => message.role === 'system')
+      .map((message) => message.content)
+      .join('\n');
+
+    expect(guardText).toContain('OUTPUT SELECTION GUARD');
+    expect(guardText).toContain('Selected output(s): Printable PDF (PDF).');
+    expect(guardText).toContain('You MUST call `render_html_pdf`');
+    expect(guardText).toContain('Do not call `dynamic_export`');
+    expect(resumedPayload.context?.outputIntent).toEqual({
+      lanes: ['printable_pdf'],
+      source: 'ask_user_reply',
+    });
+  });
+
+  it('should preserve printable PDF output selection as a PDF-only resume guard', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-target-list-output-selection',
+      userId: 'test-user',
+      intent: 'Build Program Target List with the Recruiting Coordinator.',
+      threadId: 'thread-123',
+      replayPayload: {
+        context: { threadId: 'thread-123' },
+      },
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'What format for the target list deliverable?',
+        agentId: 'recruiting_coordinator',
+        messages: [
+          { role: 'user', content: 'Build Program Target List with the Recruiting Coordinator.' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'tool-ask-user-output-format',
+                type: 'function',
+                function: {
+                  name: 'ask_user',
+                  arguments: JSON.stringify({ question: 'Choose target list format' }),
+                },
+              },
+            ],
+          },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: {
+            prompt: 'What format for the target list deliverable?',
+            inputMode: 'single_select',
+            options: [
+              { id: 'printable_pdf', title: 'Printable PDF', formatTag: 'PDF' },
+              { id: 'gamma_deck_pptx', title: 'Gamma Deck / PPTX', formatTag: 'GAMMA' },
+            ],
+          },
+          toolCallId: 'tool-ask-user-output-format',
+        },
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_input',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = { enqueue: vi.fn().mockResolvedValue('job-123') };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer ' + 'test-token')
+      .send({
+        actionType: 'output_selection_choice',
+        operationIdHint: 'op-target-list-output-selection',
+        selectedOptionIds: ['printable_pdf'],
+      });
+
+    expect(response.status).toBe(202);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        outputIntent?: {
+          lanes?: string[];
+          source?: string;
+          selectedOptionIds?: string[];
+          selectedOptionTitles?: string[];
+        };
+        yieldState?: { messages?: Array<{ role?: string; content?: string }> };
+      };
+    };
+    const resumedMessages = resumedPayload.context?.yieldState?.messages ?? [];
+    const resumedToolResult = resumedMessages.find((message) => message.role === 'tool');
+    const parsedToolResult = resumedToolResult?.content
+      ? (JSON.parse(resumedToolResult.content) as {
+          data?: {
+            userResponse?: string;
+            selectedOptionFormatTags?: string[];
+            selectedOptions?: Array<{ id?: string; title?: string; formatTag?: string }>;
+          };
+        })
+      : null;
+    const guardText = resumedMessages
+      .filter((message) => message.role === 'system')
+      .map((message) => message.content)
+      .join('\n');
+
+    expect(parsedToolResult?.data?.userResponse).toBe('Selected output: Printable PDF');
+    expect(parsedToolResult?.data?.selectedOptionFormatTags).toEqual(['PDF']);
+    expect(parsedToolResult?.data?.selectedOptions).toEqual([
+      expect.objectContaining({ id: 'printable_pdf', title: 'Printable PDF', formatTag: 'PDF' }),
+    ]);
+    expect(guardText).toContain('Generate a printable/share-ready PDF only');
+    expect(guardText).toContain('do not create PPTX');
+    expect(resumedPayload.context?.outputIntent).toEqual({
+      lanes: ['printable_pdf'],
+      source: 'output_selection',
+      selectedOptionIds: ['printable_pdf'],
+      selectedOptionTitles: ['Printable PDF'],
+    });
+  });
+
   it('should enqueue chat and stream replayed yield events from persisted history', async () => {
     const jobRepository = createMockJobRepository({
       userId: 'test-user',

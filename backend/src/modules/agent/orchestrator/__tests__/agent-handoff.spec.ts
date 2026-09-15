@@ -85,6 +85,36 @@ describe('Agent handoff and tool narrowing', () => {
     expect(forced).not.toContain('dynamic_export');
   });
 
+  it('defaults printable pressbox cheat sheets to render_html_pdf', () => {
+    const forced = computeForcedToolInclusions(
+      'Build a printable pressbox cheat sheet from this film.'
+    );
+
+    expect(forced).toContain('create_universal_team_document');
+    expect(forced).toContain('render_html_pdf');
+    expect(forced).not.toContain('dynamic_export');
+  });
+
+  it('defaults coach-facing tendency reports to render_html_pdf unless gamma is requested', () => {
+    const forced = computeForcedToolInclusions(
+      'Build a coach-facing tendency report from the selected film breakdown rows.'
+    );
+
+    expect(forced).toContain('create_universal_team_document');
+    expect(forced).toContain('render_html_pdf');
+    expect(forced).not.toContain('dynamic_export');
+  });
+
+  it('uses dynamic_export when the user explicitly asks for a Gamma deck route', () => {
+    const forced = computeForcedToolInclusions(
+      'Build a Gamma slide deck opponent report from this film.'
+    );
+
+    expect(forced).toContain('create_universal_team_document');
+    expect(forced).toContain('dynamic_export');
+    expect(forced).not.toContain('render_html_pdf');
+  });
+
   it('uses execute_python_code for explicit editable callsheet spreadsheet requests', () => {
     const forced = computeForcedToolInclusions(
       'Build an editable XLSX workbook callsheet from our plays.'

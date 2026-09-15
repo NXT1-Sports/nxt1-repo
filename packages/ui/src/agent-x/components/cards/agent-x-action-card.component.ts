@@ -120,6 +120,7 @@ export interface EmailAttachmentEdit {
     <div
       class="action-card"
       [class.action-card--approval]="isApproval()"
+      [class.action-card--email-approval]="isApproval() && isEmailApproval()"
       [class.action-card--input]="!isApproval()"
       [class.action-card--submitting]="displayCardState() === 'submitting'"
       [class.action-card--resolved]="displayCardState() === 'resolved'"
@@ -128,12 +129,14 @@ export interface EmailAttachmentEdit {
       @if (displayCardState() !== 'resolved') {
         <!-- ═══ HEADER ═══ -->
         <div class="action-card__header" [attr.data-testid]="testIds.HEADER">
-          <div class="action-card__icon-wrap">
-            <svg class="action-card__agent-mark" viewBox="0 0 612 792" aria-hidden="true">
-              <path [attr.d]="agentXLogoPath" />
-              <polygon [attr.points]="agentXLogoPolygon" />
-            </svg>
-          </div>
+          @if (!isEmailApproval()) {
+            <div class="action-card__icon-wrap">
+              <svg class="action-card__agent-mark" viewBox="0 0 612 792" aria-hidden="true">
+                <path [attr.d]="agentXLogoPath" />
+                <polygon [attr.points]="agentXLogoPolygon" />
+              </svg>
+            </div>
+          }
           <div class="action-card__header-text">
             <span class="action-card__title">
               {{ cardTitle() }}
@@ -164,9 +167,11 @@ export interface EmailAttachmentEdit {
 
         <!-- ═══ BODY ═══ -->
         <div class="action-card__body">
-          <p class="action-card__prompt" [attr.data-testid]="testIds.PROMPT">
-            {{ yield().promptToUser }}
-          </p>
+          @if (!(isApproval() && isEmailApproval())) {
+            <p class="action-card__prompt" [attr.data-testid]="testIds.PROMPT">
+              {{ yield().promptToUser }}
+            </p>
+          }
 
           @if (isApproval() && isEmailApproval()) {
             <!-- ═══ EMAIL DRAFT EDITOR ═══ -->
@@ -261,14 +266,17 @@ export interface EmailAttachmentEdit {
                 </div>
                 <div class="action-card__email-field">
                   <label class="action-card__email-label">Body</label>
-                  <div
-                    class="action-card__email-preview action-card__email-preview--editable"
-                    contenteditable="true"
+                  <textarea
+                    class="action-card__email-textarea"
+                    [ngModel]="editEmailBody()"
+                    (ngModelChange)="onMobileBodyTextChange($event)"
+                    placeholder="Write the email body"
+                    rows="8"
                     spellcheck="true"
-                    [innerHTML]="safeBodyHtml()"
-                    (input)="onBodyHtmlInput($event)"
-                    (blur)="onBodyHtmlBlur($event)"
-                  ></div>
+                    autocapitalize="sentences"
+                    autocomplete="off"
+                    inputmode="text"
+                  ></textarea>
                 </div>
                 @if (editEmailAttachments().length > 0) {
                   <div class="action-card__email-field">
@@ -785,6 +793,57 @@ export interface EmailAttachmentEdit {
         max-width: 100%;
       }
 
+      .action-card--email-approval {
+        --input-surface: var(--nxt1-color-surface-100);
+        --input-border: var(--nxt1-color-border-default);
+        --input-text: var(--nxt1-color-text-primary);
+        --input-muted: var(--nxt1-color-text-tertiary);
+        --input-attach-fg: var(--nxt1-color-text-secondary);
+        --input-primary: var(--nxt1-color-brand-volt-400, #ccff00);
+        --input-primary-glow: color-mix(
+          in srgb,
+          var(--nxt1-color-brand-volt-400, #ccff00) 10%,
+          transparent
+        );
+        --input-surface-hover: var(--nxt1-color-surface-200);
+        --output-card-hover: color-mix(
+          in srgb,
+          var(--nxt1-color-brand-volt-400, #ccff00) 6%,
+          var(--input-surface)
+        );
+
+        display: grid;
+        gap: 4px;
+        padding: 8px;
+        border: 1px solid var(--input-border);
+        border-radius: 18px;
+        background: var(--input-surface);
+        color: var(--input-text);
+        box-shadow:
+          0 8px 24px rgba(0, 0, 0, 0.12),
+          0 0 0 1px var(--input-border);
+        backdrop-filter: saturate(160%) blur(14px);
+        -webkit-backdrop-filter: saturate(160%) blur(14px);
+      }
+
+      :host {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+      }
+
+      :host-context(.light),
+      :host-context([data-theme='light']),
+      :host-context([data-base-theme='light']) {
+        .action-card--email-approval {
+          --input-surface: var(--nxt1-color-surface-100);
+          --input-border: var(--nxt1-color-border-default);
+          --input-text: var(--nxt1-color-text-primary);
+          --input-muted: var(--nxt1-color-text-tertiary);
+          --input-attach-fg: var(--nxt1-color-text-secondary);
+        }
+      }
+
       @keyframes card-entrance {
         from {
           opacity: 0;
@@ -816,6 +875,11 @@ export interface EmailAttachmentEdit {
         border: 1px solid rgba(204, 255, 0, 0.15);
       }
 
+      .action-card--email-approval.action-card--approval {
+        background: var(--input-surface);
+        border-color: var(--input-border);
+      }
+
       /* ── Submitting state ── */
       .action-card--submitting {
         opacity: 0.85;
@@ -827,12 +891,30 @@ export interface EmailAttachmentEdit {
         opacity: 0.7;
       }
 
+      .action-card--email-approval.action-card--resolved {
+        border-color: var(--input-border);
+      }
+
       /* ── HEADER ── */
       .action-card__header {
         display: flex;
         align-items: center;
         gap: 10px;
         padding: 14px 16px 0;
+      }
+
+      .action-card--email-approval .action-card__header {
+        align-items: start;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 4px 6px 6px;
+        background: transparent;
+        border-bottom: none;
+      }
+
+      .action-card--email-approval.action-card--resolved .action-card__header {
+        background: transparent;
+        border-bottom: none;
       }
 
       .action-card__icon-wrap {
@@ -855,6 +937,17 @@ export interface EmailAttachmentEdit {
         color: var(--nxt1-color-primary, #ccff00);
       }
 
+      .action-card--email-approval .action-card__icon-wrap {
+        width: 18px;
+        height: 18px;
+        border-radius: 0;
+        background: transparent;
+      }
+
+      .action-card--email-approval.action-card--resolved .action-card__icon-wrap {
+        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+      }
+
       .action-card__agent-mark {
         width: 18px;
         height: 18px;
@@ -868,11 +961,27 @@ export interface EmailAttachmentEdit {
         min-width: 0;
       }
 
+      .action-card--email-approval .action-card__header-text {
+        display: grid;
+        flex: 1;
+        gap: 4px;
+        min-width: 0;
+      }
+
       .action-card__title {
         font-size: 13px;
         font-weight: 600;
         color: var(--nxt1-color-text-primary, #fff);
         letter-spacing: 0.01em;
+      }
+
+      .action-card--email-approval .action-card__title {
+        max-width: 34rem;
+        font-size: 0.98rem;
+        font-weight: 700;
+        line-height: 1.28;
+        letter-spacing: 0;
+        color: var(--input-text);
       }
 
       .action-card__expires {
@@ -927,15 +1036,26 @@ export interface EmailAttachmentEdit {
 
       /* ── BODY ── */
       .action-card__body {
-        padding: 12px 16px;
+        padding: 12px;
       }
 
       .action-card__prompt {
-        font-size: 14px;
-        line-height: 1.5;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.85));
+        font-size: 0.875rem;
+        line-height: 1.55;
+        color: var(--nxt1-color-text-primary, #ffffff);
         margin: 0;
         white-space: pre-wrap;
+      }
+
+      .action-card--email-approval .action-card__body {
+        padding: 0;
+      }
+
+      .action-card--email-approval .action-card__prompt {
+        color: var(--input-muted);
+        font-size: 0.72rem;
+        line-height: 1.45;
+        padding: 0 6px 8px;
       }
 
       .action-card__details {
@@ -1291,13 +1411,22 @@ export interface EmailAttachmentEdit {
       /* ── Email editor ── */
       .action-card__email-editor {
         margin-top: 10px;
-        border-radius: 8px;
+        border-radius: 10px;
         background: rgba(255, 255, 255, 0.03);
         border: 1px solid rgba(255, 255, 255, 0.06);
         padding: 10px;
         display: flex;
         flex-direction: column;
         gap: 8px;
+      }
+
+      .action-card--email-approval .action-card__email-editor {
+        gap: 8px;
+        padding: 10px 12px;
+        margin: 0;
+        border-radius: 14px;
+        border: 1px solid transparent;
+        background: transparent;
       }
 
       .action-card__email-field {
@@ -1311,16 +1440,16 @@ export interface EmailAttachmentEdit {
         font-weight: 600;
         letter-spacing: 0.04em;
         text-transform: uppercase;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.45));
+        color: var(--input-muted);
       }
 
       .action-card__email-input,
       .action-card__email-textarea {
         width: 100%;
         border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--nxt1-color-text-primary, #fff);
+        border: 1px solid var(--input-border);
+        background: var(--input-surface-hover);
+        color: var(--input-text);
         font-size: 13px;
         line-height: 1.5;
         padding: 7px 10px;
@@ -1334,9 +1463,9 @@ export interface EmailAttachmentEdit {
       .action-card__email-preview {
         width: 100%;
         border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--nxt1-color-text-primary, #fff);
+        border: 1px solid var(--input-border);
+        background: var(--input-surface-hover);
+        color: var(--input-text);
         font-size: 13px;
         line-height: 1.65;
         padding: 7px 10px;
@@ -1352,7 +1481,8 @@ export interface EmailAttachmentEdit {
       }
 
       .action-card__email-preview--editable:focus {
-        border-color: rgba(204, 255, 0, 0.35);
+        border-color: color-mix(in srgb, var(--input-primary) 42%, var(--input-border));
+        background: color-mix(in srgb, var(--input-primary-glow) 72%, var(--input-surface));
       }
 
       .action-card__email-preview ::ng-deep p {
@@ -1378,15 +1508,16 @@ export interface EmailAttachmentEdit {
       }
 
       .action-card__email-preview ::ng-deep a {
-        color: #ccff00;
+        color: var(--input-primary);
       }
 
       .action-card__email-input::placeholder {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.3));
+        color: var(--input-muted);
       }
 
       .action-card__email-input:focus {
-        border-color: rgba(204, 255, 0, 0.35);
+        border-color: color-mix(in srgb, var(--input-primary) 42%, var(--input-border));
+        background: color-mix(in srgb, var(--input-primary-glow) 72%, var(--input-surface));
       }
 
       /* ── Recipient pills (batch email) ── */
@@ -1401,9 +1532,9 @@ export interface EmailAttachmentEdit {
         display: inline-flex;
         align-items: center;
         gap: 5px;
-        background: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.12));
-        color: var(--nxt1-color-text-primary, var(--ion-color-primary-contrast, #111));
-        border: 1px solid var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.22));
+        background: var(--input-primary-glow);
+        color: var(--input-text);
+        border: 1px solid color-mix(in srgb, var(--input-primary) 52%, var(--input-border));
         border-radius: 16px;
         padding: 4px 10px;
         font-size: 12px;
@@ -1436,7 +1567,7 @@ export interface EmailAttachmentEdit {
         margin-top: 2px;
         border: none;
         background: transparent;
-        color: #ccff00;
+        color: var(--input-primary);
         font-size: 12px;
         font-weight: 600;
         line-height: 1.3;
@@ -1505,11 +1636,12 @@ export interface EmailAttachmentEdit {
       }
 
       .action-card__email-textarea::placeholder {
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.3));
+        color: var(--input-muted);
       }
 
       .action-card__email-textarea:focus {
-        border-color: rgba(204, 255, 0, 0.35);
+        border-color: color-mix(in srgb, var(--input-primary) 42%, var(--input-border));
+        background: color-mix(in srgb, var(--input-primary-glow) 72%, var(--input-surface));
       }
 
       /* ── FOOTER / ACTIONS ── */
@@ -1520,10 +1652,26 @@ export interface EmailAttachmentEdit {
         padding: 10px 16px 14px;
       }
 
+      .action-card--email-approval .action-card__footer {
+        gap: 10px;
+        padding: 10px 8px 8px 12px;
+        margin: 0 10px 10px;
+        border: 1px solid var(--ask-input-border);
+        border-radius: 22px;
+        background: var(--ask-input-surface);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      }
+
       .action-card__footer-btns {
         display: flex;
         align-items: center;
         gap: 8px;
+      }
+
+      .action-card--email-approval .action-card__footer-btns {
+        gap: 8px;
+        justify-content: flex-end;
+        width: 100%;
       }
 
       .action-card__trust-label {
@@ -1531,7 +1679,7 @@ export interface EmailAttachmentEdit {
         align-items: center;
         gap: 6px;
         font-size: 11px;
-        color: rgba(255, 255, 255, 0.55);
+        color: var(--input-muted);
         cursor: pointer;
         user-select: none;
         padding: 0 2px;
@@ -1540,7 +1688,7 @@ export interface EmailAttachmentEdit {
       .action-card__trust-checkbox {
         width: 13px;
         height: 13px;
-        accent-color: #c084fc;
+        accent-color: var(--input-primary);
         cursor: pointer;
       }
 
@@ -1562,43 +1710,69 @@ export interface EmailAttachmentEdit {
         align-items: center;
         justify-content: center;
         gap: 5px;
-        border: none;
-        border-radius: 8px;
-        font-size: 13px;
-        font-weight: 600;
-        padding: 8px 16px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 800;
+        padding: 0 12px;
         cursor: pointer;
         transition: all 0.15s ease;
         white-space: nowrap;
       }
 
       .action-card__btn--approve {
-        background: rgba(76, 175, 80, 0.15);
-        color: #66bb6a;
+        background: var(--input-primary-glow);
+        color: var(--input-primary);
+        border: 1px solid var(--input-primary);
         flex: 1;
       }
 
       .action-card__btn--approve:hover {
-        background: rgba(76, 175, 80, 0.25);
+        background: color-mix(in srgb, var(--input-primary-glow) 88%, var(--input-surface));
+        color: var(--input-primary);
+        border-color: var(--input-primary);
+        box-shadow: 0 4px 12px rgba(204, 255, 0, 0.15);
       }
 
       .action-card__btn--approve:active {
         transform: scale(0.97);
       }
 
+      .action-card--email-approval .action-card__btn--approve,
+      .action-card--email-approval .action-card__btn--reject {
+        min-height: 36px;
+        padding: 0 14px;
+        flex: 0 0 auto;
+      }
+
+      .action-card--email-approval .action-card__btn--approve {
+        min-width: 104px;
+        gap: 6px;
+        font-weight: 900;
+      }
+
       .action-card__btn--reject {
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        background: transparent;
+        color: var(--input-muted);
+        border: 1px solid var(--input-border);
         flex: 1;
       }
 
       .action-card__btn--reject:hover {
-        background: rgba(244, 67, 54, 0.12);
-        color: #f44336;
+        background: var(--input-surface-hover);
+        color: var(--input-text);
+      }
+
+      .action-card--email-approval .action-card__btn--reject {
+        min-width: 84px;
       }
 
       .action-card__btn--reject:active {
         transform: scale(0.97);
+      }
+
+      .action-card--email-approval .action-card__trust-label {
+        padding: 0;
       }
 
       .action-card__btn--send {
@@ -1627,10 +1801,19 @@ export interface EmailAttachmentEdit {
         gap: 12px;
         padding: 14px;
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.06);
         background: rgba(255, 255, 255, 0.03);
         text-align: left;
         color: inherit;
+      }
+
+      .action-card--email-approval .action-card__email-launcher {
+        gap: 8px;
+        padding: 10px 12px;
+        margin: 0;
+        border-radius: 14px;
+        border: 1px solid transparent;
+        background: transparent;
       }
 
       .action-card__email-launcher-field {
@@ -1644,7 +1827,7 @@ export interface EmailAttachmentEdit {
         font-weight: 700;
         letter-spacing: 0.04em;
         text-transform: uppercase;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.6));
+        color: var(--input-muted);
       }
 
       .action-card__email-launcher-value {
@@ -1662,7 +1845,7 @@ export interface EmailAttachmentEdit {
         font-size: 12px;
         font-weight: 700;
         letter-spacing: 0.03em;
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--input-primary);
       }
 
       .action-card__attachments {
@@ -1682,10 +1865,10 @@ export interface EmailAttachmentEdit {
         gap: var(--nxt1-spacing-2, 8px);
         min-height: 42px;
         padding: 8px 10px;
-        border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        border: 1px solid var(--ask-input-border);
         border-radius: var(--nxt1-radius-sm, 8px);
-        background: rgba(255, 255, 255, 0.04);
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+        background: color-mix(in srgb, var(--ask-input-surface) 90%, transparent);
+        color: var(--ask-input-muted);
       }
 
       .action-card__attachment-pill--composer {
@@ -1752,8 +1935,8 @@ export interface EmailAttachmentEdit {
         justify-content: center;
         border: none;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: rgba(255, 255, 255, 0.08);
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.55));
+        background: var(--ask-input-surface);
+        color: var(--ask-input-muted);
         cursor: pointer;
       }
 
