@@ -236,13 +236,18 @@ function inferChartType(input: GenerateChartVisualizationInput): ConcreteChartTy
 
   const fields = normalizeCommonFields(input);
   const firstRow = input.data[0] ?? {};
-  const numericKeys = Object.keys(firstRow).filter(
-    (key) => typeof firstRow[key] === 'number' && Number.isFinite(firstRow[key])
-  );
 
+  if (input.insightGoal === 'correlation') {
+    return 'scatter';
+  }
+
+  // Scatter requires two numeric axes and no primary categorical dimension.
   if (
-    (fields.xField && fields.yField && numericKeys.includes(fields.xField)) ||
-    numericKeys.length >= 2
+    !fields.categoryField &&
+    fields.xField &&
+    fields.yField &&
+    typeof firstRow[fields.xField] === 'number' &&
+    typeof firstRow[fields.yField] === 'number'
   ) {
     return 'scatter';
   }
@@ -320,9 +325,15 @@ function buildPayload(
         'Scatter charts require xField and yField (or two numeric columns in data).'
       );
     }
+    if (merged['axisXTitle'] === undefined) {
+      merged['axisXTitle'] = humanizeFieldName(xField, 'X');
+    }
+    if (merged['axisYTitle'] === undefined) {
+      merged['axisYTitle'] = humanizeFieldName(yField, 'Y');
+    }
     merged['data'] = input.data.map((row) => ({
-      x: Number(row[xField]),
-      y: Number(row[yField]),
+      x: normalizeFiniteNumber(row[xField], xField),
+      y: normalizeFiniteNumber(row[yField], yField),
       ...(fields.groupField && typeof row[fields.groupField] === 'string'
         ? { group: String(row[fields.groupField]) }
         : {}),

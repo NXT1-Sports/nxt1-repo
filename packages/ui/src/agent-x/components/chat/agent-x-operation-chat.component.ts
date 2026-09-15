@@ -112,6 +112,7 @@ import {
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
+import type { OutputSelectionSubmitEvent } from '../cards/agent-x-output-selection-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -559,6 +560,8 @@ export function normalizeExecutionPlanItemsForActiveResume(
                   (mediaRequested)="onBubbleMediaRequested($event)"
                   (timestampClicked)="onBubbleTimestampClicked($event, idx)"
                   (billingActionResolved)="onBillingActionResolved($event)"
+                  (askUserReplySubmitted)="yieldFacade.onAskUserReply($event)"
+                  (outputSelectionSubmitted)="onOutputSelectionSubmitted($event, msg)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
                 @if (msg.id === 'typing' && showThinking()) {
@@ -2739,6 +2742,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Structured quick action metadata for the next auto-sent chip selection. */
   private readonly _pendingSelectedAction = signal<AgentXSelectedAction | null>(null);
+  protected readonly pendingSelectedAction = computed(() => this._pendingSelectedAction());
 
   /** Active yield state for this operation (set via input binding). */
   protected readonly activeYieldState = signal<AgentYieldState | null>(null);
@@ -2851,13 +2855,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const messages = this.messages();
     const showExecuteModeDock =
       this.showApprovedExecutionPlanDock() ??
-      (shouldShowApprovedExecutionPlanDockFromMessages(messages) ||
-        shouldShowExecutionPlanDockForActiveWork(messages, {
-          operationStatus: this.operationStatus,
-          activityPhase: this._activityPhase(),
-          loading: this._loading(),
-          awaitingComposerReply: this.isAwaitingComposerReply(),
-        }));
+      shouldShowApprovedExecutionPlanDockFromMessages(messages);
 
     return resolveVisibleDockedExecutionPlanCard(
       messages,
@@ -3334,6 +3332,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
       resolvedThreadId: this._resolvedThreadId,
+      clearRealtimePipelines: () => {
+        this.messageFacade.clearPendingTypingDelta();
+        this._activeFirestoreSub?.unsubscribe();
+        this._activeFirestoreSub = null;
+        this._shadowFirestoreSub?.unsubscribe();
+        this._shadowFirestoreSub = null;
+        this._streamTurnWatermark = null;
+      },
       loadThreadMessages: (threadId) => this.sessionFacade.loadThreadMessages(threadId),
       getCurrentOperationId: () => this._currentOperationId,
       setCurrentOperationId: (operationId) => {
@@ -3342,6 +3348,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       getActiveStream: () => this.activeStream,
       setActiveStream: (controller) => {
         this.activeStream = controller;
+      },
+      setOperationStatus: (status) => {
+        this.operationStatus = status;
+      },
+      setActivityPhase: (phase, label) => {
+        this.setActivityPhase(phase, label);
       },
       send: () => this.runControlFacade.send(),
       uid: () => this.uid(),
@@ -3961,7 +3973,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.contextId === 'agent-x-chat' &&
       !this.hasUserSent() &&
       this.messages().length === 0 &&
-      !this.isComposerOperationInFlight()
+      !this.isComposerOperationInFlight() &&
+      this.inputValue().trim().length === 0 &&
+      !this.pendingSelectedAction() &&
+      this.pendingFiles().length === 0 &&
+      this.pendingConnectedSources().length === 0 &&
+      this.pendingSelectedContexts().length === 0 &&
+      !this.attachmentsFacade.showDesktopAttachmentMenu()
     );
   }
 
@@ -4105,6 +4123,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.inputValue.set(`${currentDraft}\n\n${trimmedPrompt}`);
   }
 
+  protected onCoordinatorMentionSelected(action: AgentXSelectedAction): void {
+    this._pendingSelectedAction.set(action);
+  }
+
+  protected onCoordinatorMentionRemoved(): void {
+    this._pendingSelectedAction.set(null);
+  }
+
   /**
    * True when a message has visible content that should render in a chat
    * bubble alongside any yield card (approval / ask-user). When `false`,
@@ -4185,24 +4211,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /**
    * Bubble text for an ask_user yield checkpoint.
    *
-   * Option B (2026): the actual question is streamed as ordinary assistant
-   * prose in the preceding assistant_partial bubble. The yield row itself is
-   * ALWAYS a thin "Waiting for your reply…" affordance — never the question
-   * text. The short `question` label the LLM passes to `ask_user` is used
-   * for push/SMS notification previews only, not for the in-chat bubble.
-   * This guarantees the bubble cannot duplicate (or shadow) the prose row
-   * regardless of legacy data shape.
+   * Questions render through the Ask User card. The surrounding bubble content
+   * stays empty so the card does not compete with a duplicate waiting label.
    */
   protected messageContentForBubble(msg: OperationMessage): string {
     if (!this.isAskUserYield(msg)) return this.visibleMessageContent(msg);
-    if (msg.yieldCardState === 'resolved') return '';
-    if ((msg.yieldResolvedText ?? '').trim().length > 0) return '';
-
-    const index = this.messages().findIndex((candidate) => candidate.id === msg.id);
-    if (index >= 0 && this.resolveExternalCardStateForMessage(msg, index) !== null) {
-      return '';
-    }
-    return 'Waiting for your reply…';
+    return '';
   }
 
   protected contextAttachmentIcon(att: MessageAttachment): string {
@@ -4237,27 +4251,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    *
    * - `planner` is rendered once in the composer dock
    * - pending approval confirmations are rendered by the dedicated action card
-   * - `ask_user` is filtered out: the prior assistant prose already carries
-   *   the question text in `content`, and the yield message renders the
-   *   question via `messageContentForBubble`. Keeping ask_user inline here
-   *   would shadow `msg.content` (the bubble template takes the parts/cards
-   *   path whenever they are non-empty, skipping legacy content rendering)
-   *   and visually erase the streamed prose.
+   * - `ask_user` cards stay inline so every question renders as the real input card.
    */
   protected messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[] {
-    return (msg.cards ?? []).filter(
-      (card) =>
-        card.type !== 'planner' &&
-        card.type !== 'ask_user' &&
-        !this.isApprovalConfirmationCard(card)
+    const cards = (msg.cards ?? []).filter(
+      (card) => card.type !== 'planner' && !this.isApprovalConfirmationCard(card)
     );
+    if (!this.isAskUserYield(msg) || cards.some((card) => card.type === 'ask_user')) {
+      return cards;
+    }
+
+    const fallbackCard = this.buildAskUserCardForMessage(msg);
+    return fallbackCard ? [...cards, fallbackCard] : cards;
   }
 
   /**
-   * Filter parts rendered inline in bubbles. Same rationale as
-   * `messageCardsForBubble` for ask_user: parts.length > 0 forces the bubble
-   * onto the interleaved render path and skips `content`, so we must keep
-   * ask_user out of parts to preserve the streamed prose.
+   * Filter parts rendered inline in bubbles.
    */
   protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
     const suppressedToolIds = this.suppressedToolStepIdsForMessage(msg);
@@ -4274,7 +4283,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         (part): part is AgentXMessagePart =>
           part !== null &&
           !(part.type === 'card' && part.card.type === 'planner') &&
-          !(part.type === 'card' && part.card.type === 'ask_user') &&
           !(part.type === 'card' && this.isApprovalConfirmationCard(part.card)) &&
           !(
             (part.type === 'image' || part.type === 'video') &&
@@ -4283,6 +4291,32 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       );
 
     return filtered;
+  }
+
+  private buildAskUserCardForMessage(msg: OperationMessage): AgentXRichCard | null {
+    const yieldState = msg.yieldState;
+    if (!yieldState || !this.isAskUserYield(msg)) return null;
+
+    const toolInput = yieldState.pendingToolCall?.toolInput ?? {};
+    const question =
+      typeof toolInput['question'] === 'string' && toolInput['question'].trim().length > 0
+        ? toolInput['question'].trim()
+        : yieldState.promptToUser.trim();
+    if (!question) return null;
+
+    const context = typeof toolInput['context'] === 'string' ? toolInput['context'].trim() : '';
+    const operationId = msg.operationId || this.resolveYieldOperationId(yieldState) || undefined;
+
+    return {
+      type: 'ask_user',
+      agentId: yieldState.agentId,
+      title: 'Requesting your input',
+      payload: {
+        question,
+        ...(context ? { context } : {}),
+        ...(operationId ? { operationId } : {}),
+      },
+    };
   }
 
   private textRenderedMediaUrlsForMessage(msg: OperationMessage): Set<string> {
@@ -4428,9 +4462,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    *      not in a separate signal — so it survives history reloads automatically.
    */
   private isExpiredApprovalYield(msg: OperationMessage): boolean {
-    const approvalYield = this.approvalYieldForMessage(msg);
-    if (!approvalYield?.expiresAt) return false;
-    const expiresAtMs = new Date(approvalYield.expiresAt).getTime();
+    return this.isExpiredApprovalYieldState(this.approvalYieldForMessage(msg));
+  }
+
+  private isExpiredApprovalYieldState(yieldState: AgentYieldState | null | undefined): boolean {
+    if (yieldState?.reason !== 'needs_approval' || !yieldState.expiresAt) {
+      return false;
+    }
+
+    const expiresAtMs = new Date(yieldState.expiresAt).getTime();
     return Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now();
   }
 
@@ -4574,6 +4614,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     }
   }
 
+  /** Handle output format choices from inline output-selection cards. */
+  protected async onOutputSelectionSubmitted(
+    event: OutputSelectionSubmitEvent,
+    msg: OperationMessage
+  ): Promise<void> {
+    await this.yieldFacade.onOutputSelectionSubmitted({
+      ...event,
+      messageId: event.messageId ?? msg.id,
+      operationId: event.operationId ?? msg.operationId ?? this.yieldFacade.yieldOperationId(),
+    });
+  }
+
   /** Remove dismissed pause-yield rows and legacy approval resolution artifacts from the timeline. */
   protected shouldHideMessage(msg: OperationMessage): boolean {
     if (msg.id === 'typing' && this.hasPendingAskUserYieldMessage()) {
@@ -4635,6 +4687,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     const yieldState = this.activeYieldState();
     if (!yieldState || this.yieldResolved()) return null;
+    if (this.isExpiredApprovalYieldState(yieldState)) return null;
 
     if (yieldState.reason === 'needs_input') {
       const toolName = yieldState.pendingToolCall?.toolName;
@@ -4717,8 +4770,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected isAskUserYield(msg: OperationMessage): boolean {
     return (
       msg.yieldState?.reason === 'needs_input' &&
+      !this.isOutputSelectionYield(msg) &&
       msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME &&
       msg.yieldState?.pendingToolCall?.toolName !== 'execute_saved_plan'
+    );
+  }
+
+  private isOutputSelectionYield(msg: OperationMessage): boolean {
+    const pendingToolCall = msg.yieldState?.pendingToolCall;
+    return (
+      msg.yieldState?.reason === 'needs_input' &&
+      (pendingToolCall?.toolName === 'ask_user' ||
+        pendingToolCall?.toolName === 'prompt_output_selection') &&
+      (Array.isArray(pendingToolCall.toolInput?.['options']) ||
+        Array.isArray(pendingToolCall.toolInput?.['steps']))
     );
   }
 

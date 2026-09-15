@@ -265,7 +265,7 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
   }
 
   const mentionsFilesBackedArtifact =
-    /\b(files?|team files?|playbook|our plays?|install sheet|callsheet|call sheet|call menu|game plan|scout report|opponent report|practice script|weekly plan|template|sample layout|saved strategy|document|pdf)\b/i.test(
+    /\b(files?|team files?|playbook|our plays?|install sheet|callsheet|call sheet|call menu|game plan|matchup plan|scout report|opponent report|practice script|weekly plan|template|sample layout|saved strategy|document|pdf|pressbox|cheat\s+sheet|quick\s+reference|quick-reference|tendency\s+report)\b/i.test(
       normalizedIntent
     );
 
@@ -283,17 +283,23 @@ export function computeForcedToolInclusions(taskIntent: string): readonly string
     /\b(xlsx|excel|spreadsheet|workbook|editable\s+(?:sheet|matrix|file)|editable)\b/i.test(
       normalizedIntent
     );
+  const asksForGammaRoute =
+    /\b(gamma|pptx|powerpoint|slides?|slide\s+deck|presentation\s+deck|flash\s*cards?|card\s+deck)\b/i.test(
+      normalizedIntent
+    );
   const asksForPrintableCoachSheet =
-    /\b(callsheet|call\s+sheet|call\s+menu|practice\s+script|wristband|depth\s+chart|sideline\s+sheet|one-pager|printable|share-ready)\b/i.test(
+    /\b(callsheet|call\s+sheet|call\s+menu|practice\s+script|wristband|depth\s+chart|sideline\s+sheet|one-pager|printable|share-ready|pressbox|cheat\s+sheet|quick\s+reference|quick-reference|tendency\s+report|scout\s+report|opponent\s+report|game\s+plan|matchup\s+plan)\b/i.test(
       normalizedIntent
     );
 
   if (asksToCreateStrategyArtifact) {
     forced.add('create_universal_team_document');
-    if (asksForPrintableCoachSheet && !asksForEditableSheet) {
-      forced.add('render_html_pdf');
-    } else if (asksForEditableSheet) {
+    if (asksForEditableSheet) {
       forced.add('execute_python_code');
+    } else if (asksForGammaRoute) {
+      forced.add('dynamic_export');
+    } else if (asksForPrintableCoachSheet) {
+      forced.add('render_html_pdf');
     } else {
       forced.add('dynamic_export');
     }

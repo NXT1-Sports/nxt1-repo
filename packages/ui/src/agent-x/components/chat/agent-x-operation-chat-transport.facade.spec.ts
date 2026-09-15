@@ -37,6 +37,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     register: vi.fn(),
     linkOperation: vi.fn(),
     markError: vi.fn(),
+    appendThinking: vi.fn(),
     upsertStep: vi.fn(),
     appendCard: vi.fn(),
     appendMedia: vi.fn(),
@@ -229,6 +230,30 @@ describe('AgentXOperationChatTransportFacade', () => {
     expect(host.applyYieldState).not.toHaveBeenCalled();
     expect(host.setOperationStatus).not.toHaveBeenCalledWith('awaiting_input');
     expect(host.setActivityPhase).not.toHaveBeenCalledWith('awaiting_input', 'Need more info');
+  });
+
+  it('merges interleaved thinking chunks into the existing typing reasoning part', () => {
+    facade.sendViaStream({ message: 'Analyze the film' } as AgentXChatRequest, 'token-123');
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'Got it - self scout. ',
+        timestamp: new Date('2026-05-19T00:00:00.000Z'),
+        isTyping: true,
+        parts: [
+          { type: 'thinking', content: 'Need tendency scope. ', done: true },
+          { type: 'text', content: 'Got it - self scout. ' },
+        ],
+      },
+    ]);
+
+    callbacks.onThinking?.({ content: 'Need final format. ' });
+
+    expect(messageFacadeMock.messages()[0]?.parts).toEqual([
+      { type: 'thinking', content: 'Need tendency scope. Need final format. ', done: true },
+      { type: 'text', content: 'Got it - self scout. ' },
+    ]);
   });
 
   it('ignores stale ask-user cards after the user has paused locally', async () => {

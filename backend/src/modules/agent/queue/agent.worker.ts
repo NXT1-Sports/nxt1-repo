@@ -35,6 +35,7 @@ import type {
   AgentJobPayload,
   AgentToolCallRecord,
   AgentJobUpdate,
+  AgentXMessagePart,
   AgentOperationResult,
   AgentYieldState,
   AgentXRichCard,
@@ -100,7 +101,10 @@ import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
-import { attachExportAssetToUniversalDocument } from '../../../services/team/team-files-index.service.js';
+import {
+  attachExportAssetToUniversalDocument,
+  upsertTeamFileFromAttachment,
+} from '../../../services/team/team-files-index.service.js';
 import crypto from 'node:crypto';
 
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
@@ -457,7 +461,9 @@ function collectDynamicExportDocumentTargets(
     }
 
     if (
-      (record.toolName !== 'dynamic_export' && record.toolName !== 'execute_python_code') ||
+      (record.toolName !== 'dynamic_export' &&
+        record.toolName !== 'execute_python_code' &&
+        record.toolName !== 'render_html_pdf') ||
       record.status !== 'success'
     ) {
       continue;
@@ -473,6 +479,42 @@ function collectDynamicExportDocumentTargets(
   }
 
   return targets;
+}
+
+function collectCurrentOperationArtifactAttachmentKeys(
+  toolCalls: readonly AgentToolCallRecord[] | undefined
+): ReadonlySet<string> {
+  const keys = new Set<string>();
+
+  for (const record of flattenToolCallTimeline(toolCalls)) {
+    if (
+      (record.toolName !== 'dynamic_export' &&
+        record.toolName !== 'execute_python_code' &&
+        record.toolName !== 'render_html_pdf') ||
+      record.status !== 'success'
+    ) {
+      continue;
+    }
+
+    for (const key of collectExportAttachmentKeys(record.output)) {
+      keys.add(key);
+    }
+  }
+
+  return keys;
+}
+
+function matchesCollectedAttachmentKeys(
+  attachment: GeneratedResultAttachment | AgentXAttachment,
+  keys: ReadonlySet<string>
+): boolean {
+  if (keys.size === 0) return true;
+
+  return [
+    attachment.storagePath ? `storage:${attachment.storagePath}` : undefined,
+    attachment.url ? `url:${attachment.url}` : undefined,
+    attachment.name ? `name:${attachment.name}` : undefined,
+  ].some((key) => !!key && keys.has(key));
 }
 
 function collectSelectedSourceDocumentIds(payload: AgentJobPayload): readonly string[] | undefined {
@@ -520,6 +562,61 @@ function isGeneratedExportAttachment(
   if (attachment.storagePath?.includes('/exports/')) return true;
   const lowerName = attachment.name.toLowerCase();
   return /\.(?:xlsx|csv|pdf|pptx)$/i.test(lowerName) && attachment.type !== 'image';
+}
+
+function isPrimaryGeneratedFileDeliverableAttachment(
+  attachment: GeneratedResultAttachment | AgentXAttachment
+): boolean {
+  if (attachment.artifactRole && attachment.artifactRole !== 'export') {
+    return false;
+  }
+
+  return isGeneratedExportAttachment(attachment) && attachment.type !== 'image';
+}
+
+function buildMissingGeneratedFileLinks(
+  content: string,
+  attachments: readonly AgentXAttachment[]
+): readonly string[] {
+  return attachments
+    .filter((attachment) => isPrimaryGeneratedFileDeliverableAttachment(attachment))
+    .filter((attachment) => {
+      const url = attachment.url?.trim();
+      return !!url && !content.includes(url);
+    })
+    .map(
+      (attachment) => `- [${attachment.name?.trim() || 'Download file'}](${attachment.url.trim()})`
+    );
+}
+
+function appendGeneratedFileLinksToContent(content: string, links: readonly string[]): string {
+  if (links.length === 0) return content;
+  const prefix = content.trim().length > 0 ? `${content}\n\n` : '';
+  return `${prefix}Download:\n${links.join('\n')}`;
+}
+
+function appendGeneratedFileLinksToParts(
+  parts: readonly AgentXMessagePart[],
+  links: readonly string[]
+): readonly AgentXMessagePart[] {
+  if (parts.length === 0 || links.length === 0) return parts;
+
+  const nextParts = [...parts];
+  const linksBlock = `Download:\n${links.join('\n')}`;
+
+  for (let index = nextParts.length - 1; index >= 0; index -= 1) {
+    const part = nextParts[index];
+    if (part.type !== 'text') continue;
+    const prefix = part.content.trimEnd().length > 0 ? `${part.content.trimEnd()}\n\n` : '';
+    nextParts[index] = {
+      type: 'text',
+      content: `${prefix}${linksBlock}`,
+    };
+    return nextParts;
+  }
+
+  nextParts.push({ type: 'text', content: linksBlock });
+  return nextParts;
 }
 
 function inferGeneratedArtifactRelationships(params: {
@@ -933,6 +1030,30 @@ function buildGenericApprovalTitle(toolName: string): string {
   if (AUTOMATION_TOOLS.has(toolName)) return 'Review Automation';
   if (toolName.startsWith('write_') || toolName.startsWith('update_')) return 'Review Data Write';
   return 'Approval Required';
+}
+
+function resolveStructuredInputCardTitle(params: {
+  readonly toolName: string;
+  readonly toolInput: Record<string, unknown>;
+  readonly promptToUser: string;
+  readonly options: readonly unknown[];
+}): string {
+  if (params.toolName === 'prompt_output_selection') return 'Choose Output Format';
+
+  const formatOnly =
+    params.options.length > 0 &&
+    params.options.every((option) => {
+      if (!option || typeof option !== 'object') return false;
+      const record = option as Record<string, unknown>;
+      return typeof record['formatTag'] === 'string' || typeof record['icon'] === 'string';
+    });
+  if (formatOnly) return 'Choose Output Format';
+
+  const prompt =
+    typeof params.toolInput['prompt'] === 'string'
+      ? params.toolInput['prompt'].trim()
+      : params.promptToUser.trim();
+  return prompt.length > 0 && prompt.length <= 90 ? prompt : 'Answer Required';
 }
 
 function extractTimelinePostDraft(
@@ -1365,6 +1486,47 @@ export function buildInlineYieldCard(params: {
     };
   }
 
+  // ── Output selection cards ─────────────────────────────────────────────
+  if (
+    reason === 'needs_input' &&
+    pendingToolCall &&
+    (pendingToolCall.toolName === 'ask_user' ||
+      pendingToolCall.toolName === 'prompt_output_selection')
+  ) {
+    const toolInput = pendingToolCall.toolInput;
+    const options = Array.isArray(toolInput['options']) ? toolInput['options'] : [];
+    const steps = Array.isArray(toolInput['steps']) ? toolInput['steps'] : [];
+    if (options.length > 0 || steps.length > 0) {
+      return {
+        type: 'output-selection',
+        agentId,
+        title: resolveStructuredInputCardTitle({
+          toolName: pendingToolCall.toolName,
+          toolInput,
+          promptToUser,
+          options,
+        }),
+        payload: {
+          prompt: typeof toolInput['prompt'] === 'string' ? toolInput['prompt'] : promptToUser,
+          ...(typeof toolInput['context'] === 'string' ? { context: toolInput['context'] } : {}),
+          ...(typeof toolInput['category'] === 'string'
+            ? { category: toolInput['category'] as never }
+            : {}),
+          multiSelect: toolInput['multiSelect'] === true,
+          allowCustomOption: toolInput['allowCustomOption'] !== false,
+          options: options as never,
+          ...(steps.length > 0 ? { steps: steps as never } : {}),
+          ...(Array.isArray(toolInput['defaultSelectedIds'])
+            ? { defaultSelectedIds: toolInput['defaultSelectedIds'] as readonly string[] }
+            : {}),
+          submitLabel: 'Continue',
+          ...(threadId ? { threadId } : {}),
+          operationId,
+        },
+      };
+    }
+  }
+
   // ── Ask-user / paused cards ────────────────────────────────────────────
   if (reason === 'needs_input') {
     // Saved-plan review is handled conversationally: keep the planner card
@@ -1378,7 +1540,7 @@ export function buildInlineYieldCard(params: {
     return {
       type: 'ask_user',
       agentId,
-      title: 'Agent X has a question',
+      title: 'Requesting your input',
       payload: {
         question: promptToUser,
         ...(threadId ? { threadId } : {}),
@@ -3018,6 +3180,7 @@ export class AgentWorker {
           pendingToolCall: yieldPayload.pendingToolCall,
           approvalId: yieldPayload.approvalId,
           planContext: yieldPayload.planContext,
+          selectedContexts: yieldPayload.selectedContexts,
           yieldedAt: now.toISOString(),
           expiresAt: expiresAt.toISOString(),
         };
@@ -3956,6 +4119,7 @@ export class AgentWorker {
       typeof result.data === 'object' && result.data !== null
         ? (result.data as Record<string, unknown>)
         : undefined;
+    const currentArtifactAttachmentKeys = collectCurrentOperationArtifactAttachmentKeys(toolCalls);
     const generatedAttachments = resultDataRecord
       ? inferGeneratedArtifactRelationships({
           attachments: extractMediaAttachmentsFromResultData(resultDataRecord).filter(
@@ -3963,7 +4127,11 @@ export class AgentWorker {
           ),
           toolCalls,
           payload,
-        })
+        }).filter(
+          (attachment) =>
+            !isGeneratedExportAttachment(attachment) ||
+            matchesCollectedAttachmentKeys(attachment, currentArtifactAttachmentKeys)
+        )
       : [];
 
     logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
@@ -4106,20 +4274,14 @@ export class AgentWorker {
           );
         }
         // assistant message even if the LLM forgets to include them in prose.
-        const missingDocLinks = attachmentsFromResultData
-          .filter((attachment) => attachment.type === 'doc')
-          .filter((attachment) => {
-            const url = attachment.url?.trim();
-            return !!url && !baseAssistantContent.includes(url);
-          })
-          .map(
-            (attachment) => `- [${attachment.name || 'Download file'}](${attachment.url.trim()})`
-          );
-
-        const persistedAssistantContentWithDocs =
-          missingDocLinks.length > 0
-            ? `${baseAssistantContent}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
-            : baseAssistantContent;
+        const missingGeneratedFileLinks = buildMissingGeneratedFileLinks(
+          baseAssistantContent,
+          attachmentsFromResultData
+        );
+        const persistedAssistantContentWithDocs = appendGeneratedFileLinksToContent(
+          baseAssistantContent,
+          missingGeneratedFileLinks
+        );
         const persistedAssistantContentWithImages = appendGeneratedImageMarkdown(
           persistedAssistantContentWithDocs,
           attachmentsFromResultData
@@ -4127,6 +4289,10 @@ export class AgentWorker {
         const persistedAssistantContentForStorage = appendGeneratedVideoLinks(
           persistedAssistantContentWithImages,
           attachmentsFromResultData
+        );
+        const persistedAssistantPartsForStorage = appendGeneratedFileLinksToParts(
+          persistedStreamSnapshot.parts,
+          missingGeneratedFileLinks
         );
 
         const addMessageParams = {
@@ -4150,8 +4316,8 @@ export class AgentWorker {
           ...(persistedStreamSnapshot.steps.length > 0
             ? { steps: persistedStreamSnapshot.steps }
             : {}),
-          ...(persistedStreamSnapshot.parts.length > 0
-            ? { parts: persistedStreamSnapshot.parts }
+          ...(persistedAssistantPartsForStorage.length > 0
+            ? { parts: persistedAssistantPartsForStorage }
             : {}),
           ...(attachmentsFromResultData.length > 0
             ? { attachments: attachmentsFromResultData }
@@ -4204,11 +4370,17 @@ export class AgentWorker {
             });
           }
 
-          const relatedExportAttachments = attachmentsFromResultData.filter(
-            (attachment) => attachment.artifactRole === 'export' && !!attachment.relatedDocumentId
+          const exportFileAttachments = attachmentsFromResultData.filter((attachment) =>
+            isPrimaryGeneratedFileDeliverableAttachment(attachment)
+          );
+          const relatedExportAttachments = exportFileAttachments.filter(
+            (attachment) => !!attachment.relatedDocumentId
+          );
+          const standaloneExportAttachments = exportFileAttachments.filter(
+            (attachment) => !attachment.relatedDocumentId
           );
 
-          if (relatedExportAttachments.length > 0) {
+          if (relatedExportAttachments.length > 0 || standaloneExportAttachments.length > 0) {
             try {
               const filesDb = await this.getActivityFirestore(job);
               for (const attachment of relatedExportAttachments) {
@@ -4231,18 +4403,27 @@ export class AgentWorker {
                   });
                 }
               }
-              logger.info(
-                'Related Agent X export attachments applied to UniversalFiles documents',
-                {
-                  threadId,
-                  operationId: payload.operationId,
-                  messageId: persistedAssistantMessageId,
-                  attachmentCount: relatedExportAttachments.length,
-                }
-              );
+              for (const attachment of standaloneExportAttachments) {
+                await upsertTeamFileFromAttachment({
+                  db: filesDb,
+                  userId: payload.userId,
+                  attachment,
+                  origin: 'agent_chat_output',
+                  sourceThreadId: threadId,
+                  sourceMessageId: persistedAssistantMessageId,
+                  sourceOperationId: payload.operationId,
+                });
+              }
+              logger.info('Agent X generated export attachments persisted to UniversalFiles', {
+                threadId,
+                operationId: payload.operationId,
+                messageId: persistedAssistantMessageId,
+                relatedAttachmentCount: relatedExportAttachments.length,
+                standaloneAttachmentCount: standaloneExportAttachments.length,
+              });
             } catch (indexErr) {
               logger.error(
-                'Failed to apply related Agent X export attachments to UniversalFiles documents',
+                'Failed to persist Agent X generated export attachments to UniversalFiles',
                 {
                   threadId,
                   operationId: payload.operationId,

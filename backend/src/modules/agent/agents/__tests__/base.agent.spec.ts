@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   AgentIdentifier,
+  AgentOutputIntent,
   AgentSessionContext,
   AgentToolDefinition,
   ModelRoutingConfig,
@@ -275,7 +276,9 @@ class FakeAgent extends BaseAgent {
       allowedToolNames?: readonly string[];
       attachments?: AgentSessionContext['attachments'];
       videoAttachments?: AgentSessionContext['videoAttachments'];
-    }
+      outputIntent?: AgentOutputIntent;
+    },
+    currentMessages?: readonly LLMMessage[]
   ): Promise<string> {
     return this.executeTool(
       toolCall,
@@ -283,7 +286,8 @@ class FakeAgent extends BaseAgent {
       userId,
       undefined,
       undefined,
-      sessionContext as never
+      sessionContext as never,
+      currentMessages
     );
   }
 
@@ -973,6 +977,243 @@ describe('BaseAgent identifier scrubbing', () => {
         data: expect.objectContaining({
           likelyTruncated: true,
         }),
+      })
+    );
+  });
+
+  it('blocks dynamic_export PDF when Printable PDF output guard requires render_html_pdf', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_wrong_pdf_lane',
+        type: 'function',
+        function: {
+          name: 'dynamic_export',
+          arguments: JSON.stringify({
+            format: 'pdf',
+            fileName: 'NXT1_Self_Scout_Wk2_Tendencies.pdf',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-printable-pdf-guard',
+        sessionId: 'session-printable-pdf-guard',
+        allowedToolNames: ['dynamic_export', 'render_html_pdf'],
+      },
+      [
+        {
+          role: 'system',
+          content:
+            'OUTPUT SELECTION GUARD: The user just answered an ask_user delivery/output-format step.\nSelected output(s): Printable PDF (PDF).\nGenerate a printable/share-ready PDF only. You MUST call `render_html_pdf` with complete HTML/CSS. Do not call `dynamic_export` (which generates Gamma presentations/reports) and do not create PPTX, XLSX, or CSV outputs.',
+        },
+      ]
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        errorCode: 'AGENT_WRONG_EXPORT_LANE',
+        guidance: expect.stringContaining('Call render_html_pdf'),
+        data: expect.objectContaining({ requiredTool: 'render_html_pdf' }),
+      })
+    );
+  });
+
+  it('exposes only render_html_pdf when typed output intent selects Printable PDF', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    let capturedMessages: readonly LLMMessage[] = [];
+    let capturedTools: readonly { function: { name: string } }[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages, options) => {
+        capturedMessages = messages;
+        capturedTools = options.tools ?? [];
+        return {
+          content: 'Ready to render the printable PDF.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'render_html_pdf',
+        description: 'Render a printable PDF.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'dynamic_export',
+        description: 'Generate a Gamma/data export.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'execute_python_code',
+        description: 'Generate a workbook.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    await agent.execute(
+      'Create a printable tendency report',
+      {
+        ...createMockContext(),
+        outputIntent: {
+          lanes: ['printable_pdf'],
+          source: 'ask_user_reply',
+        },
+      },
+      toolDefinitions,
+      llm as never,
+      registry
+    );
+
+    expect(capturedTools.map((tool) => tool.function.name)).toEqual(['render_html_pdf']);
+    expect(String(capturedMessages[0]?.content)).toContain('DETERMINISTIC OUTPUT CONTRACT');
+    expect(String(capturedMessages[0]?.content)).toContain(
+      'The only allowed artifact generator is `render_html_pdf`'
+    );
+  });
+
+  it('restores the Printable PDF tool contract during resumeExecution replay', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    let capturedMessages: readonly LLMMessage[] = [];
+    let capturedTools: readonly { function: { name: string } }[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages, options) => {
+        capturedMessages = messages;
+        capturedTools = options.tools ?? [];
+        return {
+          content: 'I will render the printable PDF.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+    const toolDefinitions: AgentToolDefinition[] = [
+      {
+        name: 'render_html_pdf',
+        description: 'Render a printable PDF.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'dynamic_export',
+        description: 'Generate a Gamma/data export.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'execute_python_code',
+        description: 'Generate a workbook.',
+        parameters: { type: 'object', properties: {} },
+        allowedAgents: ['strategy_coordinator'],
+        isMutation: true,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    await agent.resumeExecution(
+      {
+        reason: 'needs_input',
+        messages: [
+          {
+            role: 'user',
+            content:
+              'ODK is keyed to our team. Self-scout our tendencies. Deliver as Printable PDF.',
+          },
+        ],
+      },
+      {
+        ...createMockContext(),
+        outputIntent: {
+          lanes: ['printable_pdf'],
+          source: 'ask_user_reply',
+        },
+      },
+      toolDefinitions,
+      llm as never,
+      registry
+    );
+
+    expect(capturedTools.map((tool) => tool.function.name)).toEqual(['render_html_pdf']);
+    expect(
+      capturedMessages.some(
+        (message) =>
+          message.role === 'system' &&
+          String(message.content).includes('DETERMINISTIC OUTPUT CONTRACT')
+      )
+    ).toBe(true);
+  });
+
+  it('blocks dynamic_export from typed Printable PDF intent without relying on message guards', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_wrong_typed_pdf_lane',
+        type: 'function',
+        function: {
+          name: 'dynamic_export',
+          arguments: JSON.stringify({
+            format: 'pdf',
+            fileName: 'NXT1_Self_Scout_Wk2_Tendencies.pdf',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-typed-printable-pdf',
+        sessionId: 'session-typed-printable-pdf',
+        allowedToolNames: ['dynamic_export', 'render_html_pdf'],
+        outputIntent: {
+          lanes: ['printable_pdf'],
+          source: 'ask_user_reply',
+        },
+      }
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        errorCode: 'AGENT_WRONG_EXPORT_LANE',
+        data: {
+          selectedLanes: ['printable_pdf'],
+          allowedArtifactTools: ['render_html_pdf'],
+        },
       })
     );
   });

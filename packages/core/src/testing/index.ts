@@ -728,6 +728,20 @@ export const AGENT_X_ACTION_CARD_TEST_IDS = {
 } as const;
 
 /**
+ * Agent X Output Selection Card test IDs.
+ */
+export const AGENT_X_OUTPUT_SELECTION_TEST_IDS = {
+  CARD: 'agent-output-selection-card',
+  PROMPT: 'agent-output-selection-prompt',
+  OPTION_TILE: 'agent-output-selection-option',
+  OPTION_RADIO: 'agent-output-selection-radio',
+  OPTION_CHECKBOX: 'agent-output-selection-checkbox',
+  CUSTOM_INPUT: 'agent-output-selection-custom-input',
+  SUBMIT_BTN: 'agent-output-selection-submit',
+  RESOLVED_BADGE: 'agent-output-selection-resolved',
+} as const;
+
+/**
  * Agent X Billing Action Card test IDs.
  */
 export const AGENT_X_BILLING_CARD_TEST_IDS = {
@@ -1552,6 +1566,7 @@ export const TEST_IDS = {
   ACTIVITY: ACTIVITY_TEST_IDS,
   USAGE: USAGE_TEST_IDS,
   AGENT_X_ACTION_CARD: AGENT_X_ACTION_CARD_TEST_IDS,
+  AGENT_X_OUTPUT_SELECTION: AGENT_X_OUTPUT_SELECTION_TEST_IDS,
   AGENT_X_BILLING_CARD: AGENT_X_BILLING_CARD_TEST_IDS,
   AGENT_X_OPERATION_CHAT: AGENT_X_OPERATION_CHAT_TEST_IDS,
   AGENT_X_CHAT_BUBBLE_ACTIONS: AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS,

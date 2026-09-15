@@ -152,4 +152,35 @@ describe('ChartMcpBridgeService', () => {
     );
     expect(result.storagePath).toBe('Users/user-1/threads/thread-1/media/staged/image/chart.png');
   });
+
+  it('infers column chart for multi-metric categorical tendency datasets instead of broken scatter plot', async () => {
+    const bridge = new ChartMcpBridgeService();
+    const executeTool = vi.spyOn(bridge, 'executeTool').mockResolvedValue({
+      content: [{ type: 'text', text: 'https://example.com/tendency-chart.png' }],
+    });
+
+    const result = await bridge.generateChart({
+      chartType: 'auto',
+      title: 'NXT1 Seed Team Self-Scout — Offensive Tendencies (Georgetown Film)',
+      data: [
+        { playType: 'Run', plays: 6, percentage: 60, yards: 28 },
+        { playType: 'Pass', plays: 4, percentage: 40, yards: 42 },
+      ],
+    });
+
+    expect(executeTool).toHaveBeenCalledWith(
+      'generate_column_chart',
+      expect.objectContaining({
+        title: 'NXT1 Seed Team Self-Scout — Offensive Tendencies (Georgetown Film)',
+        axisXTitle: 'Play Type',
+        axisYTitle: 'Plays',
+        data: [
+          { category: 'Run', value: 6 },
+          { category: 'Pass', value: 4 },
+        ],
+      }),
+      { timeoutMs: 90_000 }
+    );
+    expect(result.chartType).toBe('column');
+  });
 });
