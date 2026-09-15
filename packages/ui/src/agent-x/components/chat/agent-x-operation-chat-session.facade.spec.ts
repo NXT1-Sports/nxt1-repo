@@ -1619,6 +1619,66 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(coerced).toBeNull();
   });
 
+  it('reconstructs structured output-selection yields from persisted cards before falling back to plain assistant_yield prose', () => {
+    const structuredCard: AgentXRichCard = {
+      type: 'output-selection',
+      agentId: 'router',
+      title: 'Choose the output format',
+      payload: {
+        prompt: 'Choose the output format',
+        context: 'Pick how you want this delivered.',
+        operationId: 'op-output-refresh-1',
+        threadId: 'thread-output-refresh-1',
+        options: [
+          {
+            id: 'pdf',
+            title: 'Printable PDF',
+            description: 'Best for printing.',
+            formatTag: 'PDF',
+            icon: 'pdf',
+          },
+        ],
+        steps: [
+          {
+            id: 'format',
+            prompt: 'Choose the output format',
+            inputMode: 'single_select',
+            options: [
+              {
+                id: 'pdf',
+                title: 'Printable PDF',
+                description: 'Best for printing.',
+                formatTag: 'PDF',
+                icon: 'pdf',
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const yieldRow = assistantMessage('yield-output-1', 'assistant_yield', {
+      operationId: 'op-output-refresh-1',
+      content: 'Choose the output format',
+      parts: [{ type: 'card', card: structuredCard }],
+    });
+
+    const coerced = facade.coercePersistedYieldStateFromMessage(yieldRow, [structuredCard]);
+
+    expect(coerced).toMatchObject({
+      reason: 'needs_input',
+      promptToUser: 'Choose the output format\n\nPick how you want this delivered.',
+      pendingToolCall: {
+        toolName: 'prompt_output_selection',
+        toolInput: {
+          operationId: 'op-output-refresh-1',
+          threadId: 'thread-output-refresh-1',
+          steps: [expect.objectContaining({ id: 'format' })],
+        },
+      },
+    });
+  });
+
   it('detects yielded assistant rows so live typing replay can be suppressed', () => {
     const yielded = facade.hasYieldedAssistantRowForOperation(
       [

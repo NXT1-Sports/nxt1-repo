@@ -275,6 +275,56 @@ describe('AgentXOperationChatComponent Ask User card rendering', () => {
 
     expect(component.messageCardsForBubble(message)).toEqual([structuredCard]);
   });
+
+  it('rebuilds a structured output-selection card from yieldState when refresh restored the yield but not the card payload', () => {
+    component.resolveYieldOperationId = vi.fn().mockReturnValue('op-output-refresh-1');
+    const yieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser:
+        'Which opponent should I build this for?\n\nPick one opponent before I continue.',
+      agentId: 'router',
+      pendingToolCall: {
+        toolName: 'prompt_output_selection',
+        toolCallId: 'output_selection:op-output-refresh-1',
+        toolInput: {
+          prompt: 'Which opponent should I build this for?',
+          context: 'Pick one opponent before I continue.',
+          operationId: 'op-output-refresh-1',
+          steps: [
+            {
+              id: 'response',
+              prompt: 'Which opponent should I build this for?',
+              inputMode: 'text',
+              allowCustomOption: true,
+            },
+          ],
+          options: [],
+        },
+      },
+      messages: [],
+    };
+    const message: OperationMessage = {
+      id: 'yield-output-refresh-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-09-15T12:05:00.000Z'),
+      operationId: 'op-output-refresh-1',
+      yieldState,
+    };
+
+    expect(component.messageContentForBubble(message)).toBe('');
+    expect(component.messageCardsForBubble(message)).toEqual([
+      expect.objectContaining({
+        type: 'output-selection',
+        payload: expect.objectContaining({
+          prompt: 'Which opponent should I build this for?',
+          context: 'Pick one opponent before I continue.',
+          operationId: 'op-output-refresh-1',
+          steps: [expect.objectContaining({ id: 'response' })],
+        }),
+      }),
+    ]);
+  });
 });
 
 describe('AgentXOperationChatComponent timestamp seek routing', () => {

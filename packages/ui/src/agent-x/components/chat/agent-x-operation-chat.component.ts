@@ -51,6 +51,7 @@ import type {
   AgentXPlannerItem,
   AgentXEffortLevel,
   AgentXExecutionMode,
+  AgentXOutputSelectionPayload,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
@@ -4209,13 +4210,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   /**
-   * Bubble text for an ask_user yield checkpoint.
+   * Bubble text for an input-yield checkpoint.
    *
-   * Questions render through the Ask User card. The surrounding bubble content
-   * stays empty so the card does not compete with a duplicate waiting label.
+   * Structured questions render through the inline card. The surrounding bubble
+   * content stays empty so the card does not compete with a duplicate label.
    */
   protected messageContentForBubble(msg: OperationMessage): string {
-    if (!this.isAskUserYield(msg)) return this.visibleMessageContent(msg);
+    if (!this.isAskUserYield(msg) && !this.isOutputSelectionYield(msg)) {
+      return this.visibleMessageContent(msg);
+    }
     return '';
   }
 
@@ -4257,11 +4260,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const cards = (msg.cards ?? []).filter(
       (card) => card.type !== 'planner' && !this.isApprovalConfirmationCard(card)
     );
-    if (!this.isAskUserYield(msg) || cards.some((card) => card.type === 'ask_user')) {
+    const isInputYield = this.isAskUserYield(msg) || this.isOutputSelectionYield(msg);
+    if (
+      !isInputYield ||
+      cards.some((card) => card.type === 'ask_user' || card.type === 'output-selection')
+    ) {
       return cards;
     }
 
-    const fallbackCard = this.buildAskUserCardForMessage(msg);
+    const fallbackCard = this.buildStructuredInputCardForMessage(msg);
     return fallbackCard ? [...cards, fallbackCard] : cards;
   }
 
@@ -4293,9 +4300,65 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return filtered;
   }
 
-  private buildAskUserCardForMessage(msg: OperationMessage): AgentXRichCard | null {
+  private buildStructuredInputCardForMessage(msg: OperationMessage): AgentXRichCard | null {
     const yieldState = msg.yieldState;
-    if (!yieldState || !this.isAskUserYield(msg)) return null;
+    if (!yieldState || (!this.isAskUserYield(msg) && !this.isOutputSelectionYield(msg))) {
+      return null;
+    }
+
+    const operationId = msg.operationId || this.resolveYieldOperationId(yieldState) || undefined;
+
+    if (this.isOutputSelectionYield(msg)) {
+      const toolInput = yieldState.pendingToolCall?.toolInput ?? {};
+      const prompt =
+        typeof toolInput['prompt'] === 'string' && toolInput['prompt'].trim().length > 0
+          ? toolInput['prompt'].trim()
+          : yieldState.promptToUser.trim();
+      if (!prompt) return null;
+
+      const context = typeof toolInput['context'] === 'string' ? toolInput['context'].trim() : '';
+      const threadId =
+        typeof toolInput['threadId'] === 'string' ? toolInput['threadId'].trim() : '';
+      const payload: AgentXOutputSelectionPayload = {
+        prompt,
+        ...(context ? { context } : {}),
+        options: Array.isArray(toolInput['options'])
+          ? (toolInput['options'] as AgentXOutputSelectionPayload['options'])
+          : [],
+        ...(typeof toolInput['category'] === 'string'
+          ? { category: toolInput['category'] as AgentXOutputSelectionPayload['category'] }
+          : {}),
+        ...(typeof toolInput['multiSelect'] === 'boolean'
+          ? { multiSelect: toolInput['multiSelect'] }
+          : {}),
+        ...(typeof toolInput['allowCustomOption'] === 'boolean'
+          ? { allowCustomOption: toolInput['allowCustomOption'] }
+          : {}),
+        ...(Array.isArray(toolInput['steps'])
+          ? { steps: toolInput['steps'] as AgentXOutputSelectionPayload['steps'] }
+          : {}),
+        ...(Array.isArray(toolInput['defaultSelectedIds'])
+          ? {
+              defaultSelectedIds: toolInput[
+                'defaultSelectedIds'
+              ] as AgentXOutputSelectionPayload['defaultSelectedIds'],
+            }
+          : {}),
+        ...(typeof toolInput['submitLabel'] === 'string' &&
+        toolInput['submitLabel'].trim().length > 0
+          ? { submitLabel: toolInput['submitLabel'].trim() }
+          : {}),
+        ...(threadId ? { threadId } : {}),
+        ...(operationId ? { operationId } : {}),
+      };
+
+      return {
+        type: 'output-selection',
+        agentId: yieldState.agentId,
+        title: prompt,
+        payload,
+      };
+    }
 
     const toolInput = yieldState.pendingToolCall?.toolInput ?? {};
     const question =
@@ -4305,7 +4368,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (!question) return null;
 
     const context = typeof toolInput['context'] === 'string' ? toolInput['context'].trim() : '';
-    const operationId = msg.operationId || this.resolveYieldOperationId(yieldState) || undefined;
 
     return {
       type: 'ask_user',
