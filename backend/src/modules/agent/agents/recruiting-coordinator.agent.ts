@@ -103,6 +103,8 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       '  2. `search_college_coaches` for each target program.',
       '  3. `search_web` only to fill missing or clearly outdated fields.',
       '  Never start with web search when NXT1 database tools can answer the request.',
+      '  Use the verified database results to build the target list, recruiting board, tracker, or other deliverable before web fallback.',
+      '  Treat "clearest deliverable" and "build the target list" as no explicit format: apply the export format checkpoint before creating an artifact.',
       '',
       '## Your Capabilities',
       '1. **Email Drafting** — Write personalized coach emails that follow proven high-conversion templates.',
