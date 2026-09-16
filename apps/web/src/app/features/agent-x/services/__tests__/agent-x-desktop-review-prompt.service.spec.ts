@@ -10,6 +10,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 import { PerformanceService } from '../../../../core/services/infrastructure/performance.service';
+import { AuthFlowService } from '../../../../core/services/auth/auth-flow.service';
 import {
   __agentXDesktopReviewPromptServiceTestUtils,
   AgentXDesktopReviewPromptService,
@@ -60,6 +61,10 @@ function createService() {
     isDesktop: vi.fn().mockReturnValue(true),
   };
 
+  const authFlowMock = {
+    getIdToken: vi.fn().mockResolvedValue('test-id-token'),
+  };
+
   const injector = Injector.create({
     providers: [
       { provide: HttpClient, useValue: httpMock },
@@ -69,6 +74,7 @@ function createService() {
       { provide: NxtLoggingService, useValue: loggerMock },
       { provide: NxtPlatformService, useValue: platformMock },
       { provide: PerformanceService, useValue: performanceMock },
+      { provide: AuthFlowService, useValue: authFlowMock },
       { provide: PLATFORM_ID, useValue: 'browser' },
     ],
   });
@@ -84,6 +90,7 @@ function createService() {
     loggerChild: loggerMock._child,
     performanceMock,
     platformMock,
+    authFlowMock,
   };
 }
 
@@ -110,7 +117,7 @@ describe('AgentXDesktopReviewPromptService', () => {
     expect(overlayMock.open).toHaveBeenCalledTimes(1);
     expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
       APP_EVENTS.AGENT_X_DESKTOP_REVIEW_PROMPT_VIEWED,
-      expect.objectContaining({ promptVersion: 'agent-x-desktop-review-v1' })
+      expect.objectContaining({ promptVersion: 'agent-x-desktop-review-v2' })
     );
 
     resolveClosed({ reason: 'close', data: { action: 'dismissed' } });
@@ -159,7 +166,7 @@ describe('AgentXDesktopReviewPromptService', () => {
       expect.objectContaining({
         rating: 5,
         surface: 'desktop_web',
-        promptVersion: 'agent-x-desktop-review-v1',
+        promptVersion: 'agent-x-desktop-review-v2',
       })
     );
     expect(analyticsMock.trackEvent).toHaveBeenCalledWith(

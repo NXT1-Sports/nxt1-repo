@@ -118,6 +118,12 @@ export {
 } from './app-error';
 
 // ============================================
+// IGNORABLE RUNTIME ERROR CLASSIFIER
+// ============================================
+export type { IgnorableErrorInput } from './ignorable-errors';
+export { isIgnorableRuntimeError } from './ignorable-errors';
+
+// ============================================
 // PII SCRUBBER (GDPR/CCPA COMPLIANCE)
 // ============================================
 export {

@@ -36,6 +36,8 @@ import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/
 import { NxtSiteFooterCompactComponent } from '@nxt1/ui/components/site-footer-compact';
 import { IMAGE_PATHS, PRODUCT_IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { SPORTS } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { SeoService } from '../../core/services/web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
 import { FoundationFiftyBannerComponent } from './foundation-fifty-banner';
@@ -138,6 +140,9 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
             [visualSrc]="productImageSrc"
             visualAlt="Desktop preview of the Agent X product for sports programs"
             visualFrameLabel="Agent X Command Center"
+            secondaryCtaLabel="Request a Demo"
+            secondaryCtaRoute="/request-demo"
+            (secondaryCtaClicked)="onRequestDemoClicked()"
           />
         </section>
 
@@ -220,8 +225,8 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
               badgeLabel="Join The Revolution"
               title="Stop Competing. Start Dominating."
               subtitle="Join the secure AI platform built for coaches, directors, and program leaders. Agent X understands your terminology and your program, collaborates within your team, and helps your staff find more ways to win, develop, coach, plan, and lead."
-              ctaLabel="Create Your NXT1 Account"
-              ctaRoute="/auth"
+              ctaLabel="Request a Demo"
+              ctaRoute="/request-demo"
               titleId="landing-final-cta-title"
               [avatarImages]="ctaAvatars"
             />
@@ -292,9 +297,14 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 })
 export class LandingComponent implements OnInit {
   private readonly seoService = inject(SeoService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   protected readonly faqs = LANDING_FAQS;
   protected readonly ctaAvatars = CTA_AVATARS;
   protected readonly productImageSrc = `/${PRODUCT_IMAGE_PATHS.agentXDesktop}`;
+
+  protected onRequestDemoClicked(): void {
+    this.analytics?.trackEvent(APP_EVENTS.DEMO_REQUEST_CTA_CLICKED, { source: 'landing_hero' });
+  }
 
   ngOnInit(): void {
     // Build FAQ structured data from component items

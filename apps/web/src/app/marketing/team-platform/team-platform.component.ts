@@ -326,7 +326,7 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
               Hire the digital staff. Command the work. Let Agent X turn your program's raw activity
               into visible, organized, measurable execution.
             </p>
-            <a class="program-final__cta" routerLink="/auth">Start with Agent X</a>
+            <a class="program-final__cta" routerLink="/request-demo">Start with Agent X</a>
           </div>
         </section>
 

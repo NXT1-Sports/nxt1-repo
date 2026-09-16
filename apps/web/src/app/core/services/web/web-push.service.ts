@@ -41,6 +41,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { isIgnorableRuntimeError } from '@nxt1/core/crashlytics';
 import { AgentXService } from '@nxt1/ui/agent-x';
 import { AgentXFabService } from '@nxt1/ui/agent-x/fab';
 import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
@@ -350,26 +351,12 @@ export class WebPushService {
     if (!err || typeof err !== 'object') return false;
 
     const errorLike = err as { code?: string; message?: string; name?: string; stack?: string };
-    const message = (errorLike.message ?? '').toLowerCase();
-    const stack = (errorLike.stack ?? '').toLowerCase();
-    const installationsFetchFailed =
-      message.includes('failed to fetch') &&
-      message.includes('firebaseinstallations.googleapis.com');
-    const installationsIndexedDbClosing =
-      errorLike.name === 'InvalidStateError' &&
-      message.includes("failed to execute 'transaction' on 'idbdatabase'") &&
-      message.includes('database connection is closing') &&
-      (stack.includes('firebase-installations-database') ||
-        stack.includes('firebaseinstallations') ||
-        stack.includes('gettoken'));
-
-    return (
-      errorLike.code === 'installations/app-offline' ||
-      message.includes('installations/app-offline') ||
-      message.includes('application offline') ||
-      installationsFetchFailed ||
-      installationsIndexedDbClosing
-    );
+    return isIgnorableRuntimeError({
+      message: errorLike.message,
+      name: errorLike.name,
+      code: errorLike.code,
+      stack: errorLike.stack,
+    });
   }
 
   /**

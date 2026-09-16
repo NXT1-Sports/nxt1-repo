@@ -77,6 +77,7 @@ import { OnboardingService } from '../../../../core/services/auth/onboarding.ser
         [isLastStep]="onboarding.isLastStep()"
         [loading]="onboarding.isLoading()"
         [disabled]="
+          !onboarding.machineReady() ||
           (!onboarding.isCurrentStepValid() && !onboarding.isCurrentStepOptional()) ||
           !onboarding.contentReady()
         "

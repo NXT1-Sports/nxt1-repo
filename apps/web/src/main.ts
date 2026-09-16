@@ -15,54 +15,25 @@ if (typeof window !== 'undefined') {
 import { enableProdMode } from '@angular/core';
 import { bootstrapApplication } from '@angular/platform-browser';
 import * as Sentry from '@sentry/angular';
+import { isIgnorableRuntimeError } from '@nxt1/core/crashlytics';
 import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 
-function isNativeWebkitBridgeNoise(event: Sentry.ErrorEvent): boolean {
+function isIgnorableSentryEvent(event: Sentry.ErrorEvent): boolean {
   const exceptionValues = event.exception?.values ?? [];
 
   return exceptionValues.some((value) => {
-    const message = value.value ?? '';
     const frames = value.stacktrace?.frames ?? [];
-
-    if (!message.includes('window.webkit.messageHandlers')) {
-      return false;
-    }
-
-    return frames.some((frame) => {
-      const functionName = frame.function ?? '';
-      return (
-        functionName === 'sendDataToNative' ||
-        functionName === 'sendPageHideMessage' ||
-        functionName === 'setupIosCallbackHandler'
-      );
-    });
-  });
-}
-
-function isFirebaseInstallationsNoise(event: Sentry.ErrorEvent): boolean {
-  const exceptionValues = event.exception?.values ?? [];
-
-  return exceptionValues.some((value) => {
-    const message = (value.value ?? '').toLowerCase();
-    const frames = value.stacktrace?.frames ?? [];
-    const stackText = frames
-      .map((frame) => `${frame.filename ?? ''} ${frame.function ?? ''}`.toLowerCase())
+    const stack = frames
+      .map((frame) => `${frame.filename ?? ''} ${frame.function ?? ''}`)
       .join(' ');
 
-    const installationsFetchNoise =
-      message.includes('failed to fetch') &&
-      message.includes('firebaseinstallations.googleapis.com');
-
-    const installationsIndexedDbNoise =
-      message.includes("failed to execute 'transaction' on 'idbdatabase'") &&
-      message.includes('database connection is closing') &&
-      (stackText.includes('firebase-installations-database') ||
-        stackText.includes('firebaseinstallations') ||
-        stackText.includes('gettoken'));
-
-    return installationsFetchNoise || installationsIndexedDbNoise;
+    return isIgnorableRuntimeError({
+      message: value.value,
+      name: value.type,
+      stack,
+    });
   });
 }
 
@@ -73,6 +44,10 @@ const isLocalDevHost =
 if (environment.production && !isLocalDevHost) {
   Sentry.init({
     dsn: 'https://909f2af54678f48dce1d03035e1e93ff@o4510767487385600.ingest.us.sentry.io/4510767490859008',
+    // Must match the release name used by the sourcemaps:upload script so
+    // Sentry can symbolicate minified stack traces back to TypeScript.
+    release: `nxt1-web@${environment.version}`,
+    dist: environment.version,
     sendDefaultPii: true,
     beforeSend(event) {
       const url = event.request?.url ?? '';
@@ -80,11 +55,7 @@ if (environment.production && !isLocalDevHost) {
         return null;
       }
 
-      if (isNativeWebkitBridgeNoise(event)) {
-        return null;
-      }
-
-      if (isFirebaseInstallationsNoise(event)) {
+      if (isIgnorableSentryEvent(event)) {
         return null;
       }
 

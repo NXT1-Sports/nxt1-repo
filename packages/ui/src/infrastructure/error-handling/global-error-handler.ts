@@ -28,6 +28,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import { parseApiError, isNxtApiError, API_ERROR_CODES } from '@nxt1/core/errors';
 import type { ILogger } from '@nxt1/core/logging';
 import type { CrashlyticsAdapter, CrashSeverity, CrashCategory } from '@nxt1/core/crashlytics';
+import { isIgnorableRuntimeError } from '@nxt1/core/crashlytics';
 import { scrubString, scrubStackTrace } from '@nxt1/core/crashlytics';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtToastService } from '../../services/toast';
@@ -355,23 +356,13 @@ export class GlobalErrorHandler implements ErrorHandler {
    * user-facing alerts or crash reporting.
    */
   private shouldIgnoreError(details: ErrorDetails): boolean {
-    const message = details.message.toLowerCase();
-    const userAgent = (details.userAgent ?? '').toLowerCase();
-
-    if (
-      message.includes('illegal access') ||
-      message.includes('java object is gone') ||
-      message.includes('enabledidusertypeonkeyboardlogging') ||
-      message.includes('script error')
-    ) {
-      return true;
-    }
-
-    if (userAgent.includes('instagram') && message.includes('navigation_performance_logger')) {
-      return true;
-    }
-
-    return false;
+    return isIgnorableRuntimeError({
+      message: details.message,
+      name: details.name,
+      code: details.code,
+      stack: details.stack,
+      userAgent: details.userAgent,
+    });
   }
 
   /**

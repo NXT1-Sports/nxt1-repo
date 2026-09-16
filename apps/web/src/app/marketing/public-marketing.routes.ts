@@ -19,6 +19,12 @@ export const PUBLIC_MARKETING_ROUTES: Routes = [
           import('./team-platform/team-platform.routes').then((m) => m.TEAM_PLATFORM_ROUTES),
       },
       {
+        path: 'request-demo',
+        title: 'Request a Demo | NXT1 Sports',
+        loadComponent: () =>
+          import('./request-demo/request-demo.component').then((m) => m.RequestDemoComponent),
+      },
+      {
         path: 'agent-x',
         canMatch: [matchLoggedOutAgentXLayout],
         title: 'NXT1 Agent X | AI Command Center for Sports',

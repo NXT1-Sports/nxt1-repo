@@ -28,7 +28,16 @@ export type BrowserStorageType = 'local' | 'session';
 export function createBrowserStorageAdapter(type: BrowserStorageType = 'local'): StorageAdapter {
   const getStorage = (): Storage | null => {
     if (typeof window === 'undefined') return null;
-    return type === 'local' ? window.localStorage : window.sessionStorage;
+
+    try {
+      // Accessing localStorage/sessionStorage itself can throw
+      // (SecurityError/InvalidAccessError) in private browsing modes,
+      // sandboxed iframes, or when the user has blocked site storage.
+      return type === 'local' ? window.localStorage : window.sessionStorage;
+    } catch {
+      console.warn('[BrowserStorage] Storage unavailable in this browsing context');
+      return null;
+    }
   };
 
   return {

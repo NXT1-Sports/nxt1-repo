@@ -1,6 +1,6 @@
 import { Injectable, PLATFORM_ID, inject } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
@@ -9,6 +9,7 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { AuthFlowService } from '../../../core/services/auth/auth-flow.service';
 import { PerformanceService } from '../../../core/services/infrastructure/performance.service';
 import { environment } from '../../../../environments/environment';
 import {
@@ -16,7 +17,9 @@ import {
   type AgentXDesktopReviewPromptCloseEvent,
 } from '../components/agent-x-desktop-review-prompt.component';
 
-const PROMPT_VERSION = 'agent-x-desktop-review-v1';
+const PROMPT_VERSION = 'agent-x-desktop-review-v2';
+/** Earlier versions are re-read so prior submitters are never asked twice. */
+const LEGACY_PROMPT_VERSIONS = ['agent-x-desktop-review-v1'] as const;
 const PROMPT_DELAY_MS = 1800;
 const PROMPT_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 const LOCAL_STORAGE_PREFIX = 'nxt1:agent-x:desktop-review';
@@ -50,6 +53,7 @@ export class AgentXDesktopReviewPromptService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly performance = inject(PerformanceService);
+  private readonly authFlow = inject(AuthFlowService);
 
   async maybePrompt(
     user:
@@ -84,12 +88,16 @@ export class AgentXDesktopReviewPromptService {
 
     await new Promise<void>((resolve) => setTimeout(resolve, PROMPT_DELAY_MS));
 
-    if (!this.platform.isDesktop() || this.overlay.isOpen()) {
+    // SSR-hydrated auth can be stale; without a live token the submit would 401.
+    const hasLiveSession = Boolean(await this.authFlow.getIdToken().catch(() => null));
+
+    if (!this.platform.isDesktop() || this.overlay.isOpen() || !hasLiveSession) {
       this.logger.info('Skipping desktop Agent X review prompt open', {
         userId: user.uid,
         promptVersion: PROMPT_VERSION,
         desktop: this.platform.isDesktop(),
         overlayOpen: this.overlay.isOpen(),
+        hasLiveSession,
       });
       return;
     }
@@ -193,12 +201,13 @@ export class AgentXDesktopReviewPromptService {
         textLength: normalizedText.length,
       });
     } catch (error) {
-      const err = error instanceof Error ? error : new Error('Failed to send review');
+      const err = this.toSubmissionError(error);
       this.logger.error('Agent X desktop review submission failed', err, {
         userId,
         rating,
         promptVersion: PROMPT_VERSION,
         textLength: normalizedText.length,
+        status: error instanceof HttpErrorResponse ? error.status : undefined,
       });
       this.breadcrumb.trackStateChange('agent-x-desktop-review:submission_failed', {
         rating,
@@ -209,6 +218,17 @@ export class AgentXDesktopReviewPromptService {
     }
   }
 
+  private toSubmissionError(error: unknown): Error {
+    if (error instanceof HttpErrorResponse) {
+      if (error.status === 401) {
+        return new Error('Your session expired. Sign in again to send your review.');
+      }
+      return new Error('Review could not be delivered right now. Please try again.');
+    }
+
+    return error instanceof Error ? error : new Error('Failed to send review');
+  }
+
   private readPromptState(userId: string): ReviewPromptState | null {
     if (!isPlatformBrowser(this.platformId)) {
       return null;
@@ -217,7 +237,7 @@ export class AgentXDesktopReviewPromptService {
     try {
       const raw = localStorage.getItem(this.buildStorageKey(userId));
       if (!raw) {
-        return null;
+        return this.readLegacyPromptState(userId);
       }
 
       const parsed = JSON.parse(raw) as ReviewPromptState;
@@ -225,6 +245,27 @@ export class AgentXDesktopReviewPromptService {
     } catch {
       return null;
     }
+  }
+
+  /** Carries forward a prior submission only — an old snooze should not suppress the new version. */
+  private readLegacyPromptState(userId: string): ReviewPromptState | null {
+    for (const legacyVersion of LEGACY_PROMPT_VERSIONS) {
+      try {
+        const raw = localStorage.getItem(`${LOCAL_STORAGE_PREFIX}:${legacyVersion}:${userId}`);
+        if (!raw) {
+          continue;
+        }
+
+        const parsed = JSON.parse(raw) as ReviewPromptState;
+        if (typeof parsed === 'object' && parsed !== null && parsed.submittedAt) {
+          return { submittedAt: parsed.submittedAt };
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
   }
 
   private writePromptState(userId: string, state: ReviewPromptState): void {

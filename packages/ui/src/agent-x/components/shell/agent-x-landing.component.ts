@@ -202,7 +202,7 @@ const AGENT_X_FAQS: FaqItem[] = [
       subtitle="From film and creative to communications and intelligence, Agent X turns one prompt into finished operations."
       [workflowSteps]="demoWorkflowSteps"
       primaryCtaLabel="Start with Agent X"
-      primaryCtaRoute="/auth"
+      primaryCtaRoute="/request-demo"
       [secondaryCtaLabel]="''"
     />
 
@@ -230,7 +230,7 @@ const AGENT_X_FAQS: FaqItem[] = [
       title="Put Agent X On The Clock."
       subtitle="Deploy Agent X across film, creative, communications, and intelligence so your athletes, staff, directors, and programs move faster from one command center."
       ctaLabel="Start with Agent X"
-      ctaRoute="/auth"
+      ctaRoute="/request-demo"
       titleId="agent-x-final-cta-title"
       [avatarImages]="ctaAvatars"
     />

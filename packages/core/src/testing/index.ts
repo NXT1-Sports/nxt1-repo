@@ -1552,6 +1552,24 @@ export const RELEASE_NOTES_TEST_IDS = {
   LOADING_SKELETON: 'release-notes-loading-skeleton',
 } as const;
 
+// ============================================
+// DEMO REQUEST TEST IDS
+// ============================================
+export const DEMO_REQUEST_TEST_IDS = {
+  HERO_CTA: 'demo-request-hero-cta',
+  FORM: 'demo-request-form',
+  INPUT_NAME: 'demo-request-input-name',
+  INPUT_EMAIL: 'demo-request-input-email',
+  INPUT_ORGANIZATION: 'demo-request-input-organization',
+  INPUT_SPORT: 'demo-request-input-sport',
+  INPUT_PREFERRED_DATE: 'demo-request-input-preferred-date',
+  INPUT_PREFERRED_TIME: 'demo-request-input-preferred-time',
+  INPUT_NOTES: 'demo-request-input-notes',
+  SUBMIT_BUTTON: 'demo-request-submit-button',
+  SUCCESS_STATE: 'demo-request-success-state',
+  ERROR_STATE: 'demo-request-error-state',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1594,6 +1612,7 @@ export const TEST_IDS = {
   FILM_REVIEW: FILM_REVIEW_TEST_IDS,
   DIAGRAMS_LAB: DIAGRAMS_LAB_TEST_IDS,
   RELEASE_NOTES: RELEASE_NOTES_TEST_IDS,
+  DEMO_REQUEST: DEMO_REQUEST_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

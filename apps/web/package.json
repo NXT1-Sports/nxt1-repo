@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.118.1",
+  "version": "1.120.1",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
@@ -22,6 +22,7 @@
     "lint:fix": "ng lint --fix",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist .angular",
+    "sourcemaps:upload": "sentry-cli sourcemaps inject --org \"${SENTRY_ORG:-nxt-1}\" --project \"${SENTRY_PROJECT:-javascript-angular}\" ./dist/nxt1-web/browser && sentry-cli sourcemaps upload --org \"${SENTRY_ORG:-nxt-1}\" --project \"${SENTRY_PROJECT:-javascript-angular}\" --release \"nxt1-web@$npm_package_version\" ./dist/nxt1-web/browser",
     "deploy:staging": "npm run build:staging && firebase deploy --only hosting -P staging",
     "deploy:staging:no-test": "npm run build:staging && firebase deploy --only hosting -P staging",
     "deploy:prod": "npm run build && firebase deploy --only hosting -P production",
@@ -59,6 +60,7 @@
     "@ionic/angular-toolkit": "^12.1.0",
     "@nxt1/config": "*",
     "@playwright/test": "^1.62.0",
+    "@sentry/cli": "^2.58.0",
     "@types/jasmine": "^6.0.0",
     "@types/node": "^25.2.3",
     "autoprefixer": "^10.5.4",

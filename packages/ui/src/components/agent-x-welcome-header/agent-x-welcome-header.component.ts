@@ -12,12 +12,13 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { Router } from '@angular/router';
+import { NxtCtaButtonComponent } from '../cta-button';
 import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
 
 @Component({
   selector: 'nxt1-agent-x-welcome-header',
   standalone: true,
-  imports: [CommonModule, NxtMarketingInputBarComponent],
+  imports: [CommonModule, NxtCtaButtonComponent, NxtMarketingInputBarComponent],
   template: `
     <section class="agentx-hero" aria-labelledby="agentx-title">
       <div class="agentx-header__bg" aria-hidden="true">
@@ -43,16 +44,28 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
           </div>
 
           <div class="agentx-command-zone">
-            <nxt1-marketing-input-bar
-              [placeholder]="commandPlaceholder()"
-              [value]="commandInput()"
-              ariaLabel="Command Agent X"
-              buttonLabel="Ask NXT1"
-              [active]="true"
-              (valueChange)="commandInput.set($event)"
-              (submitCommand)="onCommandSubmit($event)"
-              (submitButtonClick)="navigateToAuth()"
-            />
+            <div class="agentx-command-row">
+              <nxt1-marketing-input-bar
+                class="agentx-command-input"
+                [placeholder]="commandPlaceholder()"
+                [value]="commandInput()"
+                ariaLabel="Command Agent X"
+                buttonLabel="Ask NXT1"
+                [active]="true"
+                (valueChange)="commandInput.set($event)"
+                (submitCommand)="onCommandSubmit($event)"
+                (submitButtonClick)="navigateToAuth()"
+              />
+
+              @if (secondaryCtaLabel()) {
+                <nxt1-cta-button
+                  class="agentx-command-demo"
+                  [label]="secondaryCtaLabel()"
+                  [route]="secondaryCtaRoute()"
+                  variant="ghost"
+                />
+              }
+            </div>
           </div>
         </div>
       </div>
@@ -209,6 +222,27 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
         margin-bottom: var(--nxt1-spacing-5);
       }
 
+      .agentx-command-row {
+        display: flex;
+        align-items: stretch;
+        gap: var(--nxt1-spacing-3);
+        width: 100%;
+      }
+
+      .agentx-command-input {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .agentx-command-demo {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
+      .agentx-command-demo ::ng-deep .nxt1-cta-btn {
+        height: 100%;
+      }
+
       .agentx-cursor {
         display: inline-block;
         width: 2px;
@@ -230,6 +264,18 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
 
         .agentx-title {
           font-size: clamp(2.5rem, 9vw, 3.5rem);
+        }
+
+        .agentx-command-row {
+          flex-direction: column;
+        }
+
+        .agentx-command-demo {
+          width: 100%;
+        }
+
+        .agentx-command-demo ::ng-deep .nxt1-cta-btn {
+          width: 100%;
         }
       }
 
@@ -285,6 +331,8 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
   );
   readonly typingSpeedMs = input(24);
   readonly animateOnLoad = input(true);
+  readonly secondaryCtaLabel = input<string>('');
+  readonly secondaryCtaRoute = input<string>('');
   protected readonly commandInput = signal('');
   private readonly _commandPlaceholder = signal<string>(this.commandPlaceholderPhrases[0]);
   protected readonly commandPlaceholder = computed(() => this._commandPlaceholder());

@@ -84,6 +84,14 @@ jobs:
         working-directory: apps/web
         run: npm run build:staging
 
+      - name: Upload source maps to Sentry
+        # Requires SENTRY_AUTH_TOKEN secret; no-ops safely until it is configured.
+        working-directory: apps/web
+        continue-on-error: true
+        run: npm run sourcemaps:upload
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
       - name: Authenticate to Google Cloud
         id: auth
         uses: google-github-actions/auth@v3

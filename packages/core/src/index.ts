@@ -1298,6 +1298,15 @@ export {
   formatArticleDate,
 } from './help-center';
 
+export {
+  type DemoRequestRole,
+  type DemoRequestSubmission,
+  type DemoRequestRecord,
+  type DemoRequestResponse,
+  createDemoRequestApi,
+  type DemoRequestApi,
+} from './demo-request';
+
 // ============================================
 // EDIT PROFILE (Profile Editing)
 // ============================================
