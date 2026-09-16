@@ -33,9 +33,32 @@ import { NxtIconComponent } from '../icon';
       :host {
         display: block;
         width: 100%;
-        --marketing-input-bg: var(--agent-input-bg, rgba(18, 18, 18, 0.8));
-        --marketing-input-border: var(--agent-input-border, rgba(255, 255, 255, 0.08));
-        --marketing-input-shadow: var(--agent-input-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+        --marketing-input-bg: var(
+          --agent-input-bg,
+          color-mix(in srgb, var(--nxt1-color-surface-100) 86%, transparent)
+        );
+        --marketing-input-border: var(--agent-input-border, var(--nxt1-color-border-default));
+        --marketing-input-shadow: var(--agent-input-shadow, var(--nxt1-shadow-md));
+        --marketing-input-button-bg: var(
+          --agent-input-button-bg,
+          color-mix(in srgb, var(--nxt1-color-surface-200) 88%, transparent)
+        );
+        --marketing-input-button-hover-bg: var(
+          --agent-input-button-hover-bg,
+          color-mix(in srgb, var(--nxt1-color-surface-300) 90%, transparent)
+        );
+        --marketing-input-button-active-bg: var(
+          --agent-input-button-active-bg,
+          var(--nxt1-color-primary)
+        );
+        --marketing-input-button-active-color: var(
+          --agent-input-button-active-color,
+          var(--nxt1-color-text-onPrimary)
+        );
+        --marketing-input-button-active-shadow: var(
+          --agent-input-button-active-shadow,
+          var(--nxt1-glow-sm)
+        );
       }
 
       .marketing-input-bar {
@@ -117,8 +140,8 @@ import { NxtIconComponent } from '../icon';
         border-color: var(--nxt1-color-primary);
         box-shadow:
           var(--marketing-input-shadow),
-          0 0 0 2px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1)),
-          0 0 28px var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.1));
+          0 0 0 2px var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15)),
+          0 0 28px var(--nxt1-color-alpha-primary20, var(--nxt1-color-alpha-primary15));
         transform: translateY(-1px);
       }
 
@@ -146,8 +169,8 @@ import { NxtIconComponent } from '../icon';
         align-items: center;
         justify-content: center;
         gap: var(--nxt1-spacing-2);
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1));
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+        background: var(--marketing-input-button-bg);
+        color: var(--nxt1-color-text-secondary);
         border: 1px solid var(--marketing-input-border);
         border-radius: var(--nxt1-borderRadius-md);
         padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
@@ -159,14 +182,19 @@ import { NxtIconComponent } from '../icon';
       }
 
       .marketing-input-bar__button--active {
-        background: var(--nxt1-color-primary-glow, var(--nxt1-color-alpha-primary10));
-        color: var(--nxt1-color-primary);
+        background: var(--marketing-input-button-active-bg);
+        color: var(--marketing-input-button-active-color);
         border-color: var(--nxt1-color-primary);
-        box-shadow: 0 4px 12px rgba(204, 255, 0, 0.15);
+        box-shadow: var(--marketing-input-button-active-shadow);
       }
 
       .marketing-input-bar__button:hover:not(:disabled) {
+        background: var(--marketing-input-button-hover-bg);
         transform: translateY(-2px);
+      }
+
+      .marketing-input-bar__button--active:hover:not(:disabled) {
+        background: var(--marketing-input-button-active-bg);
       }
 
       .marketing-input-bar__button-text {

@@ -12,12 +12,19 @@ import { Router, RouterLink } from '@angular/router';
 import { DEFAULT_SOCIAL_LINKS, type SocialLink } from '@nxt1/core';
 import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
+import { NxtCtaButtonComponent } from '../cta-button';
 import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
 
 @Component({
   selector: 'nxt1-site-footer-compact',
   standalone: true,
-  imports: [RouterLink, NxtLogoComponent, NxtIconComponent, NxtMarketingInputBarComponent],
+  imports: [
+    RouterLink,
+    NxtLogoComponent,
+    NxtIconComponent,
+    NxtCtaButtonComponent,
+    NxtMarketingInputBarComponent,
+  ],
   template: `
     <footer class="site-footer-compact" role="contentinfo" aria-label="Site footer">
       <div class="site-footer-compact__inner">
@@ -27,17 +34,26 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
           </div>
 
           <div class="site-footer-compact__command-slot">
-            <nxt1-marketing-input-bar
-              class="site-footer-compact__input"
-              [value]="commandText"
-              [placeholder]="footerCommandPlaceholder()"
-              ariaLabel="Ask Agent X"
-              buttonLabel="Ask NXT1"
-              [active]="true"
-              (valueChange)="commandText = $event"
-              (submitCommand)="onSubmitCommand($event)"
-              (submitButtonClick)="onSubmitButtonClick()"
-            />
+            <div class="site-footer-compact__command-row">
+              <nxt1-marketing-input-bar
+                class="site-footer-compact__input"
+                [value]="commandText"
+                [placeholder]="footerCommandPlaceholder()"
+                ariaLabel="Ask Agent X"
+                buttonLabel="Ask NXT1"
+                [active]="true"
+                (valueChange)="commandText = $event"
+                (submitCommand)="onSubmitCommand($event)"
+                (submitButtonClick)="onSubmitButtonClick()"
+              />
+
+              <nxt1-cta-button
+                class="site-footer-compact__demo-cta"
+                label="Request Demo"
+                route="/request-demo"
+                variant="ghost"
+              />
+            </div>
           </div>
 
           <nav class="site-footer-compact__links" aria-label="Footer links">
@@ -118,8 +134,26 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
         grid-area: command;
       }
 
-      .site-footer-compact__input {
+      .site-footer-compact__command-row {
+        display: flex;
+        align-items: stretch;
+        gap: var(--nxt1-spacing-3, 12px);
         width: 100%;
+      }
+
+      .site-footer-compact__input {
+        flex: 1;
+        min-width: 0;
+        width: 100%;
+      }
+
+      .site-footer-compact__demo-cta {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
+      .site-footer-compact__demo-cta ::ng-deep .nxt1-cta-btn {
+        height: 100%;
       }
 
       @media (min-width: 1024px) {
@@ -213,6 +247,18 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
         .site-footer-compact__inner {
           padding-left: var(--nxt1-spacing-3, 12px);
           padding-right: var(--nxt1-spacing-3, 12px);
+        }
+
+        .site-footer-compact__command-row {
+          flex-direction: column;
+        }
+
+        .site-footer-compact__demo-cta {
+          width: 100%;
+        }
+
+        .site-footer-compact__demo-cta ::ng-deep .nxt1-cta-btn {
+          width: 100%;
         }
       }
 

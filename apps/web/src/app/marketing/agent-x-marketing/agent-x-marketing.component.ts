@@ -84,7 +84,11 @@ const AGENT_X_MARKETING_STRUCTURED_DATA = {
   template: `
     <main class="agent-x-marketing" role="main">
       <section class="agent-x-marketing__hero" aria-label="Agent X hero">
-        <nxt1-agent-x-welcome-header [animateOnLoad]="false" />
+        <nxt1-agent-x-welcome-header
+          [animateOnLoad]="false"
+          secondaryCtaLabel="Request Demo"
+          secondaryCtaRoute="/request-demo"
+        />
       </section>
 
       @defer (on timer(2s); on interaction) {

@@ -94,7 +94,7 @@ export interface B2BOutboundLeadInput {
   readonly email?: string | null;
   readonly primaryContact?: string | null;
   readonly partnerType?: 'School/University' | 'Club/Academy' | 'Facility/Complex';
-  readonly stage?: 'Lead' | 'Contacted' | 'Phone Call Due' | 'Replied' | 'Bounced';
+  readonly stage?: 'Lead' | 'Contacted' | 'Demo' | 'Phone Call Due' | 'Replied' | 'Bounced';
   readonly leadSource?:
     | 'Outbound'
     | 'Outbound Discovery'

@@ -1091,6 +1091,18 @@ export const APP_EVENTS = {
   RELEASE_NOTES_CTA_CLICKED: 'release_notes_cta_clicked',
   /** User viewed the release notes archive / history page */
   RELEASE_NOTES_HISTORY_VIEWED: 'release_notes_history_viewed',
+
+  // ============================================
+  // DEMO REQUEST EVENTS
+  // ============================================
+  /** User clicked the Request Demo CTA on the landing hero */
+  DEMO_REQUEST_CTA_CLICKED: 'demo_request_cta_clicked',
+  /** Public request-demo page viewed */
+  DEMO_REQUEST_VIEWED: 'demo_request_viewed',
+  /** Demo request form submitted successfully */
+  DEMO_REQUEST_SUBMITTED: 'demo_request_submitted',
+  /** Demo request form submission failed */
+  DEMO_REQUEST_ERROR: 'demo_request_error',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

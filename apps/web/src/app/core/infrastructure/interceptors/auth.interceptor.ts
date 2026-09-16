@@ -45,6 +45,7 @@ const PUBLIC_ENDPOINTS = [
   '/programs/search', // Onboarding program search — no auth on backend
   '/help-center', // Help Center is publicly accessible (backend uses optionalAuth)
   '/agent-x/health', // Intentionally unauthenticated — used by health checks / load balancers
+  '/marketing/demo-request', // Public "Request a Demo" lead capture — no auth on backend
 ];
 
 function isPublicTeamEndpoint(apiPath: string): boolean {

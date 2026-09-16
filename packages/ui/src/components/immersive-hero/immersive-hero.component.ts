@@ -14,6 +14,7 @@ import { Router } from '@angular/router';
 import { NxtHeaderCardComponent } from '../header-card';
 import { NxtIconComponent } from '../icon';
 import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
+import { NxtCtaButtonComponent } from '../cta-button';
 
 export interface ImmersiveHeroShot {
   readonly id: 'upload' | 'processing' | 'polished' | 'offer';
@@ -25,7 +26,13 @@ export interface ImmersiveHeroShot {
 @Component({
   selector: 'nxt1-immersive-hero',
   standalone: true,
-  imports: [CommonModule, NxtHeaderCardComponent, NxtIconComponent, NxtMarketingInputBarComponent],
+  imports: [
+    CommonModule,
+    NxtHeaderCardComponent,
+    NxtIconComponent,
+    NxtMarketingInputBarComponent,
+    NxtCtaButtonComponent,
+  ],
   template: `
     @if (variant() === 'sleek') {
       <!-- SLEEK FULL-WIDTH VARIANT: Sports Intelligence Style -->
@@ -143,16 +150,29 @@ export interface ImmersiveHeroShot {
 
             <!-- Command Interface -->
             <div class="hero-sleek__command-zone">
-              <nxt1-marketing-input-bar
-                [placeholder]="commandPlaceholder()"
-                [value]="commandInput()"
-                ariaLabel="Command Agent X"
-                buttonLabel="Ask NXT1"
-                [active]="true"
-                (valueChange)="commandInput.set($event)"
-                (submitCommand)="onCommandSubmit($event)"
-                (submitButtonClick)="navigateToAuth()"
-              />
+              <div class="hero-sleek__input-row">
+                <nxt1-marketing-input-bar
+                  class="hero-sleek__input-bar"
+                  [placeholder]="commandPlaceholder()"
+                  [value]="commandInput()"
+                  ariaLabel="Command Agent X"
+                  buttonLabel="Ask NXT1"
+                  [active]="true"
+                  (valueChange)="commandInput.set($event)"
+                  (submitCommand)="onCommandSubmit($event)"
+                  (submitButtonClick)="navigateToAuth()"
+                />
+
+                @if (secondaryCtaLabel()) {
+                  <nxt1-cta-button
+                    class="hero-sleek__secondary-cta"
+                    [label]="secondaryCtaLabel()"
+                    [route]="secondaryCtaRoute()"
+                    variant="ghost"
+                    (click)="onSecondaryCtaClick()"
+                  />
+                }
+              </div>
 
               <!-- Quick Action Tabs -->
               <div
@@ -256,16 +276,29 @@ export interface ImmersiveHeroShot {
 
         <!-- Command Interface -->
         <div class="hook__command-zone" nxtHeaderActions>
-          <nxt1-marketing-input-bar
-            [placeholder]="commandPlaceholder()"
-            [value]="commandInput()"
-            ariaLabel="Command Agent X"
-            buttonLabel="Ask NXT1"
-            [active]="true"
-            (valueChange)="commandInput.set($event)"
-            (submitCommand)="onCommandSubmit($event)"
-            (submitButtonClick)="navigateToAuth()"
-          />
+          <div class="hook__input-row">
+            <nxt1-marketing-input-bar
+              class="hook__input-bar"
+              [placeholder]="commandPlaceholder()"
+              [value]="commandInput()"
+              ariaLabel="Command Agent X"
+              buttonLabel="Ask NXT1"
+              [active]="true"
+              (valueChange)="commandInput.set($event)"
+              (submitCommand)="onCommandSubmit($event)"
+              (submitButtonClick)="navigateToAuth()"
+            />
+
+            @if (secondaryCtaLabel()) {
+              <nxt1-cta-button
+                class="hook__secondary-cta"
+                [label]="secondaryCtaLabel()"
+                [route]="secondaryCtaRoute()"
+                variant="ghost"
+                (click)="onSecondaryCtaClick()"
+              />
+            }
+          </div>
 
           <!-- Quick Action Tabs -->
           <div class="hook__quick-actions" role="tablist" aria-label="Quick Agent X commands">
@@ -856,6 +889,41 @@ export interface ImmersiveHeroShot {
 
         .hero-sleek__command-button-text {
           display: none;
+        }
+      }
+
+      .hero-sleek__input-row {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: var(--nxt1-spacing-3);
+      }
+
+      .hero-sleek__input-bar {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .hero-sleek__secondary-cta {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
+      .hero-sleek__secondary-cta ::ng-deep .nxt1-cta-btn {
+        height: 100%;
+      }
+
+      @media (max-width: 768px) {
+        .hero-sleek__input-row {
+          flex-direction: column;
+        }
+
+        .hero-sleek__secondary-cta {
+          width: 100%;
+        }
+
+        .hero-sleek__secondary-cta ::ng-deep .nxt1-cta-btn {
+          width: 100%;
         }
       }
 
@@ -1500,6 +1568,41 @@ export interface ImmersiveHeroShot {
         }
       }
 
+      .hook__input-row {
+        display: flex;
+        flex-direction: row;
+        align-items: stretch;
+        gap: var(--nxt1-spacing-3);
+      }
+
+      .hook__input-bar {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .hook__secondary-cta {
+        flex: 0 0 auto;
+        white-space: nowrap;
+      }
+
+      .hook__secondary-cta ::ng-deep .nxt1-cta-btn {
+        height: 100%;
+      }
+
+      @media (max-width: 768px) {
+        .hook__input-row {
+          flex-direction: column;
+        }
+
+        .hook__secondary-cta {
+          width: 100%;
+        }
+
+        .hook__secondary-cta ::ng-deep .nxt1-cta-btn {
+          width: 100%;
+        }
+      }
+
       .hook__quick-actions {
         display: flex;
         gap: var(--nxt1-spacing-2);
@@ -1756,10 +1859,13 @@ export class NxtImmersiveHeroComponent {
   readonly visualAlt = input('Desktop preview of the NXT1 product experience');
   readonly visualFrameLabel = input('Agent X Command Center');
   readonly shots = input<readonly ImmersiveHeroShot[]>([]);
+  readonly secondaryCtaLabel = input<string>('');
+  readonly secondaryCtaRoute = input<string>('');
 
   readonly exploreRequested = output<void>();
   readonly commandSubmitted = output<string>();
   readonly quickActionSelected = output<string>();
+  readonly secondaryCtaClicked = output<void>();
 
   protected readonly commandInput = signal('');
 
@@ -1864,6 +1970,10 @@ export class NxtImmersiveHeroComponent {
 
   protected navigateToAuth(): void {
     this.router.navigate(['/auth']);
+  }
+
+  protected onSecondaryCtaClick(): void {
+    this.secondaryCtaClicked.emit();
   }
 
   @HostListener('document:keydown.escape')

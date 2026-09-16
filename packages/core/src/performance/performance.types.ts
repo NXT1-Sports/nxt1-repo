@@ -449,6 +449,9 @@ export const TRACE_NAMES = {
   PLAYBOOK_PLAY_CREATE: 'playbook_play_create',
   PLAYBOOK_PLAY_UPDATE: 'playbook_play_update',
   PLAYBOOK_PLAY_DELETE: 'playbook_play_delete',
+
+  // Marketing demo request traces
+  DEMO_REQUEST_SUBMIT: 'demo_request_submit',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];
