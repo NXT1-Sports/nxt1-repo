@@ -178,6 +178,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     src: PARTNER_TEAM_LOGO_PATHS.keyserHs,
   },
   {
+    id: 'keller-central-hs',
+    name: 'Keller Central High School',
+    location: 'Keller, TX',
+    src: PARTNER_TEAM_LOGO_PATHS.kellerCentralHs,
+  },
+  {
     id: 'lake-hs',
     name: 'Lake High School',
     location: 'Uniontown, OH',
@@ -254,6 +260,12 @@ const PARTNER_TEAM_LOGOS: readonly FoundationPartnerTeamLogo[] = [
     name: 'Rouse High School',
     location: 'Leander, TX',
     src: PARTNER_TEAM_LOGO_PATHS.rouseHs,
+  },
+  {
+    id: 'tri-prep-org',
+    name: 'Tri Prep',
+    location: 'Texas',
+    src: PARTNER_TEAM_LOGO_PATHS.triPrepOrg,
   },
   {
     id: 'salem-hs',
@@ -997,7 +1009,7 @@ export class FoundationFiftyBannerComponent {
   protected readonly partnerLogos = PARTNER_TEAM_LOGOS;
   protected readonly partnerLogoRows = FOUNDATION_PARTNER_ROWS;
   protected readonly visibleLogosPerRow = FOUNDATION_VISIBLE_LOGO_COUNT / FOUNDATION_LOGO_ROW_COUNT;
-  protected readonly partnerProgressLabel = '41/50';
+  protected readonly partnerProgressLabel = '46/50';
   protected readonly partnerProgressPercent =
     (this.partnerLogos.length / FOUNDATION_TEAM_LIMIT) * 100;
 
