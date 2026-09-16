@@ -115,7 +115,7 @@ import {
 } from '@nxt1/core/api';
 import { AUTH_ROUTES, AUTH_REDIRECTS as _AUTH_REDIRECTS, USER_ROLES } from '@nxt1/core/constants';
 import { normalizeName } from '@nxt1/core/helpers';
-import { createBrowserStorageAdapter, STORAGE_KEYS as _STORAGE_KEYS } from '@nxt1/core/storage';
+import { safeWebStorageGet, safeWebStorageSet, safeWebStorageRemove } from '@nxt1/core/storage';
 
 // Geolocation - Cross-platform location detection
 import {
@@ -231,7 +231,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
             @if (currentStep().id === 'role') {
               <nxt1-onboarding-role-selection
                 [selectedRole]="selectedRole()"
-                [disabled]="isLoading()"
+                [disabled]="isLoading() || !machineReady()"
                 [excludeRoles]="isTeamInvite() ? EXCLUDED_TEAM_ROLES : []"
                 [variant]="isMobile() ? 'list-row' : 'cards'"
                 (roleSelected)="onRoleSelect($event)"
@@ -365,7 +365,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
           [showBack]="false"
           [isLastStep]="isLastStep()"
           [loading]="isLoading()"
-          [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
+          [disabled]="!machineReady() || (!isCurrentStepValid() && !isCurrentStepOptional())"
           (skipClick)="onSkip()"
           (backClick)="onBack()"
           (continueClick)="onContinue()"
@@ -382,7 +382,7 @@ const SESSION_EXPIRY_MS = 24 * 60 * 60 * 1000;
       [showSkip]="isCurrentStepOptional()"
       [isLastStep]="isLastStep()"
       [loading]="isLoading()"
-      [disabled]="!isCurrentStepValid() && !isCurrentStepOptional()"
+      [disabled]="!machineReady() || (!isCurrentStepValid() && !isCurrentStepOptional())"
       (skipClick)="onSkip()"
       (continueClick)="onContinue()"
     />
@@ -497,13 +497,6 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   @ViewChild('linkSourcesStep') linkSourcesStepRef?: OnboardingLinkDropStepComponent;
 
   // ============================================
-  // SESSION PERSISTENCE (Platform-specific)
-  // ============================================
-
-  /** Browser storage adapter for session persistence */
-  private readonly storage = createBrowserStorageAdapter('local');
-
-  // ============================================
   // ⭐ SHARED STATE MACHINE (from @nxt1/core) ⭐
   // All business logic is delegated to this machine
   // ============================================
@@ -513,6 +506,19 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
   /** Cleanup function for state machine event listener */
   private machineUnsubscribe?: () => void;
+
+  /** True once `machine` has been assigned — guards against calls that race async init */
+  private readonly _machineReady = signal(false);
+  readonly machineReady = computed(() => this._machineReady());
+
+  /** Returns the machine if ready, otherwise logs and returns null (no-op for the caller) */
+  private requireMachine(): OnboardingStateMachine | null {
+    if (!this._machineReady()) {
+      this.logger.warn('Onboarding action ignored — state machine not ready yet');
+      return null;
+    }
+    return this.machine;
+  }
 
   // ============================================
   // UI SIGNALS (Mirror state machine for Angular reactivity)
@@ -731,17 +737,20 @@ export class OnboardingComponent implements OnInit, OnDestroy {
     if (isPlatformBrowser(this.platformId)) {
       // Debug: dump all relevant sessionStorage keys
       this.logger.info('DEBUG: Checking sessionStorage for invite data', {
-        hasPendingReferral: !!sessionStorage.getItem('nxt1:pending_referral'),
-        hasInviteSport: !!sessionStorage.getItem('nxt1:invite_sport'),
-        inviteSport: sessionStorage.getItem('nxt1:invite_sport'),
-        pendingReferralPreview: sessionStorage.getItem('nxt1:pending_referral')?.substring(0, 300),
+        hasPendingReferral: !!safeWebStorageGet('session', 'nxt1:pending_referral'),
+        hasInviteSport: !!safeWebStorageGet('session', 'nxt1:invite_sport'),
+        inviteSport: safeWebStorageGet('session', 'nxt1:invite_sport'),
+        pendingReferralPreview: safeWebStorageGet('session', 'nxt1:pending_referral')?.substring(
+          0,
+          300
+        ),
       });
 
-      const joinedViaInvite = sessionStorage.getItem(INVITE_TEAM_JOINED_KEY) === 'true';
+      const joinedViaInvite = safeWebStorageGet('session', INVITE_TEAM_JOINED_KEY) === 'true';
 
       // 1. Try sessionStorage first
       try {
-        const raw = sessionStorage.getItem('nxt1:pending_referral');
+        const raw = safeWebStorageGet('session', 'nxt1:pending_referral');
         this.logger.info('Reading pending referral from sessionStorage', {
           hasRawData: !!raw,
           rawPreview: raw ? raw.substring(0, 200) : null,
@@ -788,7 +797,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
               });
 
               // Save to sessionStorage for future use
-              sessionStorage.setItem(
+              safeWebStorageSet(
+                'session',
                 'nxt1:pending_referral',
                 JSON.stringify({
                   code: invite,
@@ -863,7 +873,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         }
 
         if (joinedViaInvite) {
-          sessionStorage.removeItem(INVITE_TEAM_JOINED_KEY);
+          safeWebStorageRemove('session', INVITE_TEAM_JOINED_KEY);
         }
       }
     }
@@ -885,6 +895,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         await this.handleCompletion(formData);
       },
     });
+
+    this._machineReady.set(true);
 
     // Subscribe to state machine events and sync Angular signals
     this.machineUnsubscribe = this.machine.addEventListener((event) => {
@@ -1225,7 +1237,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Navigate to specific step
    */
   goToStep(index: number): void {
-    this.machine.goToStep(index);
+    this.requireMachine()?.goToStep(index);
   }
 
   // ============================================
@@ -1236,7 +1248,9 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle role selection (optional last step)
    */
   onRoleSelect(type: OnboardingUserType): void {
-    this.machine.selectRole(type);
+    const machine = this.requireMachine();
+    if (!machine) return;
+    machine.selectRole(type);
     this.logger.info('Role selected', { role: type });
   }
 
@@ -1244,7 +1258,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle profile data change (Step 1)
    */
   onProfileChange(profileData: ProfileFormData): void {
-    this.machine.updateProfile(profileData);
+    this.requireMachine()?.updateProfile(profileData);
   }
 
   /**
@@ -1299,7 +1313,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
 
         // Update form data via machine
         const currentProfile = this._formData().profile;
-        this.machine.updateProfile({
+        this.requireMachine()?.updateProfile({
           ...currentProfile,
           firstName: currentProfile?.firstName || '',
           lastName: currentProfile?.lastName || '',
@@ -1347,28 +1361,28 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle team data change (Step 2)
    */
   onTeamChange(teamData: TeamFormData): void {
-    this.machine.updateTeam(teamData);
+    this.requireMachine()?.updateTeam(teamData);
   }
 
   /**
    * Handle create team profile data change
    */
   onCreateTeamProfileChange(data: CreateTeamProfileFormData): void {
-    this.machine.updateCreateTeamProfile(data);
+    this.requireMachine()?.updateCreateTeamProfile(data);
   }
 
   /**
    * Handle sport data change (Step 4)
    */
   onSportChange(sportData: SportFormData): void {
-    this.machine.updateSport(sportData);
+    this.requireMachine()?.updateSport(sportData);
   }
 
   /**
    * Handle team selection data change (Select Teams step)
    */
   onTeamSelectionChange(data: TeamSelectionFormData): void {
-    this.machine.updateTeamSelection(data);
+    this.requireMachine()?.updateTeamSelection(data);
   }
 
   /**
@@ -1441,7 +1455,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle link sources data change (Link Data Sources step)
    */
   onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
-    this.machine.updateLinkSources(linkSourcesData);
+    this.requireMachine()?.updateLinkSources(linkSourcesData);
   }
 
   /**
@@ -1510,7 +1524,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle referral source data change (Step 7 - Final)
    */
   onReferralChange(referralData: ReferralSourceData): void {
-    this.machine.updateReferral(referralData);
+    this.requireMachine()?.updateReferral(referralData);
   }
 
   /**
@@ -1558,7 +1572,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
           (url) => !url.startsWith('blob:')
         );
 
-        this.machine.updateProfile({
+        this.requireMachine()?.updateProfile({
           firstName: currentProfile?.firstName || '',
           lastName: currentProfile?.lastName || '',
           ...(currentProfile || {}),
@@ -1586,21 +1600,21 @@ export class OnboardingComponent implements OnInit, OnDestroy {
    * Handle continue button click (Delegates to machine)
    */
   onContinue(): void {
-    this.machine.continue();
+    this.requireMachine()?.continue();
   }
 
   /**
    * Handle skip button click (Delegates to machine)
    */
   onSkip(): void {
-    this.machine.skip();
+    this.requireMachine()?.skip();
   }
 
   /**
    * Handle back button click (Delegates to machine)
    */
   onBack(): void {
-    this.machine.back();
+    this.requireMachine()?.back();
   }
 
   /**

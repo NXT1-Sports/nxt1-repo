@@ -155,6 +155,19 @@ export class OnboardingService {
   private machineUnsubscribe?: () => void;
   private hasInitialized = false;
 
+  /** True once `machine` has been assigned — guards against calls that race async init */
+  private readonly _machineReady = signal(false);
+  readonly machineReady = computed(() => this._machineReady());
+
+  /** Returns the machine if ready, otherwise logs and returns null (no-op for the caller) */
+  private requireMachine(): OnboardingStateMachine | null {
+    if (!this._machineReady()) {
+      this.logger.warn('Onboarding action ignored — state machine not ready yet');
+      return null;
+    }
+    return this.machine;
+  }
+
   // ============================================
   // WRITABLE SIGNALS (private)
   // ============================================
@@ -328,6 +341,7 @@ export class OnboardingService {
     this.machineUnsubscribe?.();
     this.analytics.cleanup();
     this.hasInitialized = false;
+    this._machineReady.set(false);
     this.linkSourcesStepRef = null;
 
     // Reset all signals to prevent stale state on re-entry
@@ -361,12 +375,14 @@ export class OnboardingService {
 
   async onRoleSelect(type: OnboardingUserType): Promise<void> {
     await this.haptics.selection();
-    this.machine.selectRole(type);
+    const machine = this.requireMachine();
+    if (!machine) return;
+    machine.selectRole(type);
     this.logger.info('Role selected', { role: type });
   }
 
   onProfileChange(profileData: ProfileFormData): void {
-    this.machine.updateProfile(profileData);
+    this.requireMachine()?.updateProfile(profileData);
   }
 
   /**
@@ -375,7 +391,7 @@ export class OnboardingService {
    */
   updateProfileWithLocation(locationData: ProfileLocationData): void {
     const currentProfile = this._formData().profile;
-    this.machine.updateProfile({
+    this.requireMachine()?.updateProfile({
       ...currentProfile,
       firstName: currentProfile?.firstName || '',
       lastName: currentProfile?.lastName || '',
@@ -388,42 +404,42 @@ export class OnboardingService {
   }
 
   onTeamChange(teamData: TeamFormData): void {
-    this.machine.updateTeam(teamData);
+    this.requireMachine()?.updateTeam(teamData);
   }
 
   onCreateTeamProfileChange(data: CreateTeamProfileFormData): void {
-    this.machine.updateCreateTeamProfile(data);
+    this.requireMachine()?.updateCreateTeamProfile(data);
   }
 
   onSportChange(sportData: SportFormData): void {
-    this.machine.updateSport(sportData);
+    this.requireMachine()?.updateSport(sportData);
   }
 
   onTeamSelectionChange(data: TeamSelectionFormData): void {
-    this.machine.updateTeamSelection(data);
+    this.requireMachine()?.updateTeamSelection(data);
   }
 
   onLinkSourcesChange(linkSourcesData: LinkSourcesFormData): void {
-    this.machine.updateLinkSources(linkSourcesData);
+    this.requireMachine()?.updateLinkSources(linkSourcesData);
   }
 
   onReferralChange(referralData: ReferralSourceData): void {
-    this.machine.updateReferral(referralData);
+    this.requireMachine()?.updateReferral(referralData);
   }
 
   async onContinue(): Promise<void> {
     await this.haptics.impact('medium');
-    this.machine.continue();
+    this.requireMachine()?.continue();
   }
 
   async onSkip(): Promise<void> {
     await this.haptics.impact('light');
-    this.machine.skip();
+    this.requireMachine()?.skip();
   }
 
   async onBack(): Promise<void> {
     await this.haptics.impact('light');
-    this.machine.back();
+    this.requireMachine()?.back();
   }
 
   async onSignOut(): Promise<void> {
@@ -487,7 +503,7 @@ export class OnboardingService {
           (url) => !url.startsWith('blob:')
         );
 
-        this.machine.updateProfile({
+        this.requireMachine()?.updateProfile({
           firstName: currentProfile?.firstName || '',
           lastName: currentProfile?.lastName || '',
           ...(currentProfile || {}),
@@ -662,6 +678,8 @@ export class OnboardingService {
         }
       },
     });
+
+    this._machineReady.set(true);
 
     this.machineUnsubscribe = this.machine.addEventListener((event) => {
       this.handleMachineEvent(event);

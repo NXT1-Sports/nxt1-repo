@@ -21,6 +21,7 @@ import { isPlatformBrowser, isPlatformServer } from '@angular/common';
 import type { FirebaseApp } from 'firebase/app';
 import type { FirebasePerformance, PerformanceTrace } from 'firebase/performance';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { isIgnorableRuntimeError } from '@nxt1/core/crashlytics';
 import { environment } from '../../../../environments/environment';
 
 import type {
@@ -638,18 +639,13 @@ export class PerformanceService implements PerformanceAdapter {
       return false;
     }
 
-    const errorLike = error as { code?: string; message?: string };
-    const message = (errorLike.message ?? '').toLowerCase();
-    const installationsFetchFailed =
-      message.includes('failed to fetch') &&
-      message.includes('firebaseinstallations.googleapis.com');
-
-    return (
-      errorLike.code === 'installations/app-offline' ||
-      message.includes('installations/app-offline') ||
-      message.includes('application offline') ||
-      installationsFetchFailed
-    );
+    const errorLike = error as { code?: string; message?: string; name?: string; stack?: string };
+    return isIgnorableRuntimeError({
+      message: errorLike.message,
+      name: errorLike.name,
+      code: errorLike.code,
+      stack: errorLike.stack,
+    });
   }
 
   // ==========================================
