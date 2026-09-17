@@ -46,7 +46,7 @@
 
 import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';
 import { logger } from 'firebase-functions/v2';
-import { db } from '../firebase-admin';
+import { db, FieldValue } from '../firebase-admin';
 import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
 
 // ─── Inlined from @nxt1/core/auth (workspace packages are not available in Cloud Run) ───
@@ -96,15 +96,14 @@ function buildV3User(
   email: string,
   nameFields?: { firstName?: string; lastName?: string; displayName?: string }
 ): Record<string, unknown> {
-  const now = new Date().toISOString();
   return {
     email,
     ...(nameFields?.firstName ? { firstName: nameFields.firstName } : {}),
     ...(nameFields?.lastName ? { lastName: nameFields.lastName } : {}),
     ...(nameFields?.displayName ? { displayName: nameFields.displayName } : {}),
     onboardingCompleted: false,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
     _schemaVersion: USER_SCHEMA_VERSION,
   };
 }
@@ -163,7 +162,7 @@ export const beforeUserCreate = beforeUserCreated({ timeoutSeconds: 7 }, async (
         const hasGoogleWorkspacePermission = hasGrantedGoogleWorkspaceScopes(grantedScopes);
 
         if (hasGoogleWorkspacePermission && refreshToken) {
-          const now = new Date().toISOString();
+          const now = FieldValue.serverTimestamp();
 
           // ✅ SECURITY: Only metadata goes on the user document.
           // Token is written to the oauthTokens subcollection, which Firestore
@@ -217,7 +216,7 @@ export const beforeUserCreate = beforeUserCreated({ timeoutSeconds: 7 }, async (
         const refreshToken = credential.refreshToken;
 
         if (refreshToken) {
-          const now = new Date().toISOString();
+          const now = FieldValue.serverTimestamp();
 
           // ✅ SECURITY: Metadata on user doc, token in oauthTokens subcollection.
           const connectedEmailMeta = {
