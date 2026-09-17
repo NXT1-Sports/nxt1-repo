@@ -25,7 +25,10 @@ import { NxtIconComponent } from '../components/icon/icon.component';
 import { NxtFormFieldComponent } from '../components/form-field';
 import {
   CREDIT_PACKAGES_USD,
+  INVOICE_PACKAGES_USD,
+  INVOICE_NET_TERMS_DAYS,
   MIN_CUSTOM_CREDIT_PURCHASE_CENTS,
+  MIN_INVOICE_PURCHASE_CENTS,
   THRESHOLD_PRESETS_CENTS,
   TOPUP_AMOUNT_PRESETS_CENTS,
   normalizeUsdInput,
@@ -33,13 +36,19 @@ import {
   type BuyCreditsAutoTopupResult,
   type BuyCreditsTab,
   type CreditPackageUsd,
+  type InvoicePackageUsd,
 } from './buy-credits-flow.shared';
 import { UsageService } from './usage.service';
+import {
+  CustomSubscriptionRequestComponent,
+  type CustomSubscriptionProfile,
+} from './custom-subscription-request.component';
 
 @Component({
   selector: 'nxt1-buy-credits-autotopup-sheet',
   standalone: true,
   imports: [
+    CustomSubscriptionRequestComponent,
     IonInput,
     NxtSheetHeaderComponent,
     NxtSheetFooterComponent,
@@ -49,8 +58,8 @@ import { UsageService } from './usage.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <nxt1-sheet-header
-      title="Add Credits"
-      icon="card"
+      [title]="headerTitle()"
+      [icon]="headerIcon()"
       [showIcon]="true"
       iconShape="circle"
       (closeSheet)="dismiss(null, 'cancel')"
@@ -70,6 +79,32 @@ import { UsageService } from './usage.service';
           <nxt1-icon name="card" [size]="14" aria-hidden="true" />
           Add Credits
         </button>
+        @if (organizationId) {
+          <button
+            type="button"
+            class="bc-tab"
+            [class.bc-tab--active]="activeTab() === 'subscription'"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'subscription'"
+            [attr.data-testid]="testIds.BUY_CREDITS_TAB_SUBSCRIPTION"
+            (click)="activeTab.set('subscription')"
+          >
+            <nxt1-icon name="person-outline" [size]="14" aria-hidden="true" />
+            Subscription
+          </button>
+          <button
+            type="button"
+            class="bc-tab"
+            [class.bc-tab--active]="activeTab() === 'invoice'"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'invoice'"
+            [attr.data-testid]="testIds.BUY_CREDITS_TAB_INVOICE"
+            (click)="activeTab.set('invoice')"
+          >
+            <nxt1-icon name="document-text-outline" [size]="14" aria-hidden="true" />
+            Pay by Invoice
+          </button>
+        }
         <button
           type="button"
           class="bc-tab"
@@ -141,7 +176,7 @@ import { UsageService } from './usage.service';
               </button>
             }
           </section>
-        } @else {
+        } @else if (activeTab() === 'auto-topup') {
           <section class="bc-panel" role="tabpanel" aria-label="Auto Top-Up">
             <p class="bc-subtitle">
               Automatically refill your wallet when your balance drops below a threshold. Charges
@@ -216,6 +251,104 @@ import { UsageService } from './usage.service';
               <p class="bc-note">Auto top-up is currently off.</p>
             }
           </section>
+        } @else if (activeTab() === 'invoice') {
+          <section class="bc-panel" role="tabpanel" aria-label="Pay by Invoice">
+            <p class="bc-subtitle">
+              Request a formal Stripe invoice with net payment terms for your school or
+              organization. Credits are added to your team wallet as soon as the invoice is paid.
+            </p>
+
+            <div class="bc-packages-grid">
+              @for (usd of invoicePackages; track usd) {
+                <button
+                  type="button"
+                  class="bc-package"
+                  [class.bc-package--selected]="selectedInvoicePackageUsd() === usd"
+                  [attr.data-testid]="testIds.BUY_CREDITS_PACKAGE"
+                  (click)="selectInvoicePackage(usd)"
+                >
+                  <span class="bc-package-amount">\${{ usd }}</span>
+                  <span class="bc-package-label">{{ usd * 100 }} credits</span>
+                </button>
+              }
+            </div>
+
+            <div class="bc-custom-amount">
+              <nxt1-form-field
+                label="Custom amount"
+                inputId="buy-credits-custom-invoice-amount"
+                [error]="customInvoiceAmountError()"
+                [hint]="customInvoiceAmountError() ? null : customInvoiceAmountHint()"
+              >
+                <ion-input
+                  #customInvoiceInput
+                  id="buy-credits-custom-invoice-amount"
+                  type="text"
+                  fill="outline"
+                  inputmode="decimal"
+                  class="bc-custom-amount-input"
+                  placeholder="Enter amount"
+                  [value]="customInvoiceAmountUsd()"
+                  [attr.data-testid]="testIds.BUY_CREDITS_CUSTOM_AMOUNT_INPUT"
+                  (ionInput)="
+                    onCustomInvoiceAmountInput((customInvoiceInput.value ?? '').toString())
+                  "
+                >
+                  <span slot="start" class="bc-custom-input-prefix">$</span>
+                </ion-input>
+              </nxt1-form-field>
+            </div>
+
+            <div class="bc-setting-group">
+              <nxt1-form-field
+                label="Purchase Order (PO) number (optional)"
+                inputId="buy-credits-po-number"
+                hint="For school / district procurement"
+              >
+                <ion-input
+                  #poInput
+                  id="buy-credits-po-number"
+                  type="text"
+                  fill="outline"
+                  class="bc-custom-amount-input"
+                  placeholder="e.g. PO-2026-9481"
+                  [value]="poNumber()"
+                  [attr.data-testid]="testIds.BUY_CREDITS_PO_INPUT"
+                  (ionInput)="poNumber.set((poInput.value ?? '').toString())"
+                />
+              </nxt1-form-field>
+            </div>
+
+            <div class="bc-setting-group">
+              <label class="bc-setting-label">Payment terms</label>
+              <div class="bc-preset-row">
+                @for (days of netTermsOptions; track days) {
+                  <button
+                    type="button"
+                    class="bc-preset-btn"
+                    [class.bc-preset-btn--active]="selectedNetDays() === days"
+                    [attr.data-testid]="testIds.BUY_CREDITS_NET_TERMS_SELECT"
+                    (click)="selectedNetDays.set(days)"
+                  >
+                    Net {{ days }}
+                  </button>
+                }
+              </div>
+            </div>
+
+            <div class="bc-topup-summary">
+              A Stripe invoice for
+              <strong>{{ selectedInvoiceAmountLabel() ?? '$0.00' }}</strong> (Net
+              {{ selectedNetDays() }}) will be sent to your billing email.
+            </div>
+          </section>
+        } @else if (activeTab() === 'subscription') {
+          <section class="bc-panel" role="tabpanel" aria-label="Subscription">
+            <nxt1-custom-subscription-request
+              [profile]="profile"
+              (close)="dismiss(null, 'subscription-done')"
+            />
+          </section>
         }
       </div>
     </div>
@@ -240,7 +373,7 @@ import { UsageService } from './usage.service';
           Apple Pay
         </button>
       </div>
-    } @else {
+    } @else if (activeTab() !== 'subscription') {
       <nxt1-sheet-footer
         [label]="footerLabel()"
         [icon]="footerIcon()"
@@ -644,6 +777,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   @Input() showIapPayButton = false;
   @Input() organizationId: string | null = null;
   @Input() hasSavedDefaultMethod = false;
+  @Input() profile: CustomSubscriptionProfile | null = null;
 
   private readonly modalCtrl = inject(ModalController);
   private readonly usage = inject(UsageService);
@@ -651,13 +785,52 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
 
   protected readonly testIds = TEST_IDS.USAGE;
   protected readonly packages = CREDIT_PACKAGES_USD;
+  protected readonly invoicePackages = INVOICE_PACKAGES_USD;
   protected readonly thresholdPresets = THRESHOLD_PRESETS_CENTS;
   protected readonly amountPresets = TOPUP_AMOUNT_PRESETS_CENTS;
+  protected readonly netTermsOptions = INVOICE_NET_TERMS_DAYS;
   protected readonly minimumCustomAmountLabel = formatPrice(MIN_CUSTOM_CREDIT_PURCHASE_CENTS);
+  protected readonly minimumInvoiceAmountLabel = formatPrice(MIN_INVOICE_PURCHASE_CENTS);
 
   protected readonly activeTab = signal<BuyCreditsTab>('buy');
+
+  /** Dynamic sheet header title based on the active tab */
+  protected readonly headerTitle = computed(() => {
+    switch (this.activeTab()) {
+      case 'auto-topup':
+        return 'Auto Top-Up';
+      case 'invoice':
+        return 'Pay by Invoice';
+      case 'subscription':
+        return 'Subscription';
+      case 'buy':
+      default:
+        return 'Add Credits';
+    }
+  });
+
+  /** Dynamic sheet header icon based on the active tab */
+  protected readonly headerIcon = computed(() => {
+    switch (this.activeTab()) {
+      case 'auto-topup':
+        return 'refresh';
+      case 'invoice':
+        return 'document-text-outline';
+      case 'subscription':
+        return 'person-outline';
+      case 'buy':
+      default:
+        return 'card';
+    }
+  });
+
   protected readonly selectedPackageUsd = signal<CreditPackageUsd | null>(null);
   protected readonly customAmountUsd = signal('');
+
+  protected readonly selectedInvoicePackageUsd = signal<InvoicePackageUsd | null>(500);
+  protected readonly customInvoiceAmountUsd = signal('');
+  protected readonly poNumber = signal('');
+  protected readonly selectedNetDays = signal<30 | 45 | 60>(30);
 
   protected readonly enabledLocal = signal(false);
   protected readonly thresholdCentsLocal = signal(500);
@@ -702,6 +875,49 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
 
     return `Minimum custom purchase is ${this.minimumCustomAmountLabel}.`;
   });
+
+  protected readonly customInvoiceAmountCents = computed(() =>
+    parseUsdToCents(this.customInvoiceAmountUsd())
+  );
+  protected readonly customInvoiceAmountError = computed(() => {
+    const value = this.customInvoiceAmountUsd();
+    if (value.length === 0) return null;
+
+    const cents = parseUsdToCents(value);
+    if (cents === null) return 'Enter a valid dollar amount with up to two decimals.';
+    if (cents < MIN_INVOICE_PURCHASE_CENTS) {
+      return `Enter at least ${this.minimumInvoiceAmountLabel}.`;
+    }
+
+    return null;
+  });
+  protected readonly selectedInvoiceAmountCents = computed<number | null>(() => {
+    const selectedPackageUsd = this.selectedInvoicePackageUsd();
+    if (selectedPackageUsd !== null) return selectedPackageUsd * 100;
+
+    const cents = this.customInvoiceAmountCents();
+    if (
+      cents === null ||
+      cents < MIN_INVOICE_PURCHASE_CENTS ||
+      this.customInvoiceAmountError() !== null
+    ) {
+      return null;
+    }
+
+    return cents;
+  });
+  protected readonly selectedInvoiceAmountLabel = computed(() => {
+    const cents = this.selectedInvoiceAmountCents();
+    return cents === null ? null : formatPrice(cents);
+  });
+  protected readonly customInvoiceAmountHint = computed(() => {
+    if (this.selectedInvoicePackageUsd() === null && this.selectedInvoiceAmountCents() !== null) {
+      return `${formatPrice(this.selectedInvoiceAmountCents() ?? 0)} invoice · ${this.selectedInvoiceAmountCents() ?? 0} credits`;
+    }
+
+    return `Minimum invoice request is ${this.minimumInvoiceAmountLabel}.`;
+  });
+
   protected readonly isAutoTopupDirty = computed(
     () =>
       this.enabledLocal() !== this.initialAutoTopupEnabled ||
@@ -714,14 +930,22 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
         ? `Buy ${this.selectedBuyAmountLabel()} of Credits`
         : 'Select a package or enter an amount';
     }
+    if (this.activeTab() === 'invoice') {
+      return this.selectedInvoiceAmountLabel()
+        ? `Request Invoice for ${this.selectedInvoiceAmountLabel()} (Net ${this.selectedNetDays()})`
+        : 'Select an invoice amount';
+    }
 
     return this.enabledLocal() ? 'Save Auto Top-Up Settings' : 'Disable Auto Top-Up';
   });
-  protected readonly footerDisabled = computed(() =>
-    this.activeTab() === 'buy' ? this.selectedBuyAmountCents() === null : !this.isAutoTopupDirty()
-  );
+  protected readonly footerDisabled = computed(() => {
+    if (this.activeTab() === 'buy') return this.selectedBuyAmountCents() === null;
+    if (this.activeTab() === 'invoice') return this.selectedInvoiceAmountCents() === null;
+    return !this.isAutoTopupDirty();
+  });
   protected readonly footerIcon = computed(() => {
     if (this.activeTab() === 'buy') return 'card';
+    if (this.activeTab() === 'invoice') return 'document-text-outline';
     return this.enabledLocal() ? 'refresh' : 'close';
   });
 
@@ -755,9 +979,41 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
     }
   }
 
+  protected selectInvoicePackage(usd: InvoicePackageUsd): void {
+    this.selectedInvoicePackageUsd.update((previous) => {
+      const nextValue = previous === usd ? null : usd;
+      if (nextValue !== null) {
+        this.customInvoiceAmountUsd.set('');
+      }
+      return nextValue;
+    });
+  }
+
+  protected onCustomInvoiceAmountInput(value: string): void {
+    const normalized = normalizeUsdInput(value);
+    this.customInvoiceAmountUsd.set(normalized);
+    if (normalized.length > 0) {
+      this.selectedInvoicePackageUsd.set(null);
+    }
+  }
+
   protected async onPrimaryAction(): Promise<void> {
     if (this.activeTab() === 'buy') {
       await this.onBuyWithStripe();
+      return;
+    }
+    if (this.activeTab() === 'invoice') {
+      const amountCents = this.selectedInvoiceAmountCents();
+      if (amountCents === null) return;
+      await this.dismiss(
+        {
+          type: 'invoice',
+          amountCents,
+          poNumber: this.poNumber().trim() || undefined,
+          netDays: this.selectedNetDays(),
+        },
+        'invoice'
+      );
       return;
     }
 

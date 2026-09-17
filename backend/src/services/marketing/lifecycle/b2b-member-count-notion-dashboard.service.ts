@@ -17,7 +17,9 @@ import {
   getNotionSignupDashboardDisabledReason,
   getNotionSignupDashboardPage,
   queryNotionDatabaseByEmail,
+  queryNotionDatabaseByRichTextContains,
   updateNotionSignupDashboardPage,
+  type NotionProperties,
 } from '../integrations/notion/notion-client.service.js';
 
 const MEMBER_COUNT_NOTION_ENVIRONMENT = 'production';
@@ -38,8 +40,8 @@ const LIFETIME_DEAL_VALUE_PROPERTY_CANDIDATES = [
   'Lifetime Deal Value ($)',
   'Lifetime Value',
 ] as const;
+const WALLET_BALANCE_PROPERTY = 'Wallet Balance ($)';
 const REVENUE_WINDOW_DAYS = 30;
-const CENTS_PER_DOLLAR = 100;
 const REVENUE_ELIGIBLE_STATUSES = new Set(['created', 'processing', 'queued']);
 const REVENUE_PAYMENT_TYPES = ['wallet_topup', 'org_wallet_topup', 'org_invoice_topup'];
 const OUTBOUND_PRE_CUSTOMER_STAGES = new Set([
@@ -93,6 +95,7 @@ export interface B2BMemberCountNotionDashboardProcessingResult {
   readonly relatedMemberCount?: number;
   readonly usageRevenueMonthly?: number;
   readonly lifetimeDealValue?: number;
+  readonly walletBalance?: number;
 }
 
 export interface RunB2BMemberCountNotionDashboardSyncResult {
@@ -361,12 +364,22 @@ async function resolveLifetimeDealValueDollars(organizationId: string): Promise<
     .lean<Array<{ amountPaid?: number }>>()
     .exec();
 
-  const totalCents = payments.reduce((sum, payment) => {
+  const totalDollars = payments.reduce((sum, payment) => {
     const amount = typeof payment.amountPaid === 'number' ? payment.amountPaid : 0;
     return sum + amount;
   }, 0);
 
-  return roundToCents(totalCents / CENTS_PER_DOLLAR);
+  return roundToCents(totalDollars);
+}
+
+async function resolvePaidOrganizationPaymentCount(organizationId: string): Promise<number> {
+  await ensureMongoDBConnected();
+  return PaymentLogModel.countDocuments({
+    organizationId,
+    status: 'PAID',
+    amountPaid: { $gt: 0 },
+    type: { $in: REVENUE_PAYMENT_TYPES },
+  });
 }
 
 async function resolveMonthlyUsageRevenueDollars(
@@ -388,12 +401,12 @@ async function resolveMonthlyUsageRevenueDollars(
     .lean<Array<{ amountPaid?: number }>>()
     .exec();
 
-  const totalCents = payments.reduce((sum, payment) => {
+  const totalDollars = payments.reduce((sum, payment) => {
     const amount = typeof payment.amountPaid === 'number' ? payment.amountPaid : 0;
     return sum + amount;
   }, 0);
 
-  return roundToCents(totalCents / 100);
+  return roundToCents(totalDollars);
 }
 
 export async function runB2BMemberCountNotionDashboardSync(
@@ -443,13 +456,23 @@ export async function runB2BMemberCountNotionDashboardSync(
         continue;
       }
 
-      const existing = await queryNotionDatabaseByEmail({
+      const organizationPages = await queryNotionDatabaseByRichTextContains({
         config,
-        property: 'Email',
-        email: context.email,
+        property: 'Notes',
+        value: `Organization ID: ${organizationId}`,
       });
+      const legacyPage =
+        organizationPages.length === 0
+          ? await queryNotionDatabaseByEmail({
+              config,
+              property: 'Email',
+              email: context.email,
+            })
+          : null;
+      const existingPages =
+        organizationPages.length > 0 ? organizationPages : legacyPage ? [legacyPage] : [];
 
-      if (!existing) {
+      if (existingPages.length === 0) {
         results.push({
           organizationId,
           userId: context.userId,
@@ -459,103 +482,141 @@ export async function runB2BMemberCountNotionDashboardSync(
         continue;
       }
 
-      const page = await getNotionSignupDashboardPage({
-        config,
-        pageId: existing.id,
-      });
+      for (const existing of existingPages) {
+        const page = await getNotionSignupDashboardPage({
+          config,
+          pageId: existing.id,
+        });
 
-      const memberPropertyName = resolveMemberCountPropertyName(page.properties);
-      const memberRelationPropertyName = resolveMemberRelationPropertyName(page.properties);
-      const revenuePropertyName = resolveUsageRevenuePropertyName(page.properties);
-      const lifetimeDealValuePropertyName = resolveLifetimeDealValuePropertyName(page.properties);
-      const stageName = resolveStageName(page.properties);
-      const stageEligibleForUsageSync = !stageName || !OUTBOUND_PRE_CUSTOMER_STAGES.has(stageName);
+        const memberPropertyName = resolveMemberCountPropertyName(page.properties);
+        const memberRelationPropertyName = resolveMemberRelationPropertyName(page.properties);
+        const revenuePropertyName = resolveUsageRevenuePropertyName(page.properties);
+        const lifetimeDealValuePropertyName = resolveLifetimeDealValuePropertyName(page.properties);
+        const shouldSyncWalletBalance = Boolean(
+          page.properties && WALLET_BALANCE_PROPERTY in page.properties
+        );
+        const stageName = resolveStageName(page.properties);
+        const paidOrganizationPaymentCount =
+          await resolvePaidOrganizationPaymentCount(organizationId);
+        const paidStage = paidOrganizationPaymentCount > 1 ? 'Expansion / Pricing' : 'Closed Won';
+        const stageEligibleForUsageSync =
+          paidOrganizationPaymentCount > 0 ||
+          !stageName ||
+          !OUTBOUND_PRE_CUSTOMER_STAGES.has(stageName);
 
-      if (!stageEligibleForUsageSync) {
+        if (!stageEligibleForUsageSync) {
+          results.push({
+            organizationId,
+            userId: context.userId,
+            outcome: 'skipped',
+            reason: 'stage-not-eligible',
+            pageId: existing.id,
+            pageUrl: existing.url,
+          });
+          continue;
+        }
+
+        const userSnap = await input.db.collection('Users').doc(context.userId).get();
+        const user = userSnap.exists ? (userSnap.data() as UserV2Document) : null;
+        const shouldSyncRevenue = Boolean(
+          user && isRevenueEligibleUser(user) && revenuePropertyName
+        );
+        const shouldSyncLifetimeDealValue = Boolean(lifetimeDealValuePropertyName);
+
+        if (
+          !memberPropertyName &&
+          !memberRelationPropertyName &&
+          !shouldSyncRevenue &&
+          !shouldSyncLifetimeDealValue &&
+          !shouldSyncWalletBalance
+        ) {
+          results.push({
+            organizationId,
+            userId: context.userId,
+            outcome: 'skipped',
+            reason: 'missing-sync-properties',
+            pageId: existing.id,
+            pageUrl: existing.url,
+          });
+          continue;
+        }
+
+        const counts = await resolveOrganizationMemberCounts(input.db, organizationId);
+        const properties: NotionProperties = {};
+        if (memberPropertyName) {
+          properties[memberPropertyName] = { number: counts.totalMembers };
+        }
+        if (paidOrganizationPaymentCount > 0) {
+          properties['Stage'] = { status: { name: paidStage } };
+          properties['Next Action'] = {
+            rich_text: [
+              {
+                type: 'text',
+                text: {
+                  content:
+                    paidStage === 'Closed Won'
+                      ? 'Welcome the account and expand usage with the team.'
+                      : 'Review the expanded package and align pricing for the larger commitment.',
+                },
+              },
+            ],
+          };
+        }
+
+        let relatedMemberCount: number | undefined;
+        if (memberRelationPropertyName) {
+          const relationIds = await resolveOrganizationMemberRelationIds({
+            db: input.db,
+            organizationId,
+            fallbackUserId: context.userId,
+          });
+          properties[memberRelationPropertyName] = {
+            relation: relationIds.map((id) => ({ id })),
+          };
+          relatedMemberCount = relationIds.length;
+        }
+
+        let usageRevenueMonthly: number | undefined;
+        if (shouldSyncRevenue) {
+          usageRevenueMonthly = await resolveMonthlyUsageRevenueDollars(organizationId, now);
+          properties[revenuePropertyName!] = { number: usageRevenueMonthly };
+        }
+
+        let lifetimeDealValue: number | undefined;
+        if (shouldSyncLifetimeDealValue) {
+          lifetimeDealValue = await resolveLifetimeDealValueDollars(organizationId);
+          properties[lifetimeDealValuePropertyName!] = { number: lifetimeDealValue };
+        }
+
+        let walletBalance: number | undefined;
+        if (shouldSyncWalletBalance) {
+          const walletSnap = await input.db
+            .collection('Wallets')
+            .doc(`org:${organizationId}`)
+            .get();
+          walletBalance = Math.round(Number(walletSnap.data()?.['balanceCents'] ?? 0)) / 100;
+          properties[WALLET_BALANCE_PROPERTY] = { number: walletBalance };
+        }
+
+        const updated = await updateNotionSignupDashboardPage({
+          config,
+          pageId: existing.id,
+          properties,
+        });
+
         results.push({
           organizationId,
           userId: context.userId,
-          outcome: 'skipped',
-          reason: 'stage-not-eligible',
-          pageId: existing.id,
-          pageUrl: existing.url,
+          outcome: 'updated',
+          pageId: updated.id,
+          pageUrl: updated.url,
+          memberCount: counts.totalMembers,
+          relatedMemberCount,
+          usageRevenueMonthly,
+          lifetimeDealValue,
+          walletBalance,
         });
-        continue;
       }
-
-      const userSnap = await input.db.collection('Users').doc(context.userId).get();
-      const user = userSnap.exists ? (userSnap.data() as UserV2Document) : null;
-      const shouldSyncRevenue = Boolean(user && isRevenueEligibleUser(user) && revenuePropertyName);
-      const shouldSyncLifetimeDealValue = Boolean(lifetimeDealValuePropertyName);
-
-      if (
-        !memberPropertyName &&
-        !memberRelationPropertyName &&
-        !shouldSyncRevenue &&
-        !shouldSyncLifetimeDealValue
-      ) {
-        results.push({
-          organizationId,
-          userId: context.userId,
-          outcome: 'skipped',
-          reason: 'missing-sync-properties',
-          pageId: existing.id,
-          pageUrl: existing.url,
-        });
-        continue;
-      }
-
-      const counts = await resolveOrganizationMemberCounts(input.db, organizationId);
-      const properties: Record<
-        string,
-        { readonly number: number } | { readonly relation: readonly { readonly id: string }[] }
-      > = {};
-      if (memberPropertyName) {
-        properties[memberPropertyName] = { number: counts.totalMembers };
-      }
-
-      let relatedMemberCount: number | undefined;
-      if (memberRelationPropertyName) {
-        const relationIds = await resolveOrganizationMemberRelationIds({
-          db: input.db,
-          organizationId,
-          fallbackUserId: context.userId,
-        });
-        properties[memberRelationPropertyName] = {
-          relation: relationIds.map((id) => ({ id })),
-        };
-        relatedMemberCount = relationIds.length;
-      }
-
-      let usageRevenueMonthly: number | undefined;
-      if (shouldSyncRevenue) {
-        usageRevenueMonthly = await resolveMonthlyUsageRevenueDollars(organizationId, now);
-        properties[revenuePropertyName!] = { number: usageRevenueMonthly };
-      }
-
-      let lifetimeDealValue: number | undefined;
-      if (shouldSyncLifetimeDealValue) {
-        lifetimeDealValue = await resolveLifetimeDealValueDollars(organizationId);
-        properties[lifetimeDealValuePropertyName!] = { number: lifetimeDealValue };
-      }
-
-      const updated = await updateNotionSignupDashboardPage({
-        config,
-        pageId: existing.id,
-        properties,
-      });
-
-      results.push({
-        organizationId,
-        userId: context.userId,
-        outcome: 'updated',
-        pageId: updated.id,
-        pageUrl: updated.url,
-        memberCount: counts.totalMembers,
-        relatedMemberCount,
-        usageRevenueMonthly,
-        lifetimeDealValue,
-      });
     } catch (error) {
       logger.error('[B2BMemberCountNotionDashboard] Failed to sync member count', {
         organizationId,

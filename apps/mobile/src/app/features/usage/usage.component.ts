@@ -10,7 +10,7 @@
  * ⭐ THIS IS THE RECOMMENDED PATTERN FOR SHARED COMPONENTS ⭐
  */
 
-import { Component, ChangeDetectionStrategy, inject, DestroyRef } from '@angular/core';
+import { Component, ChangeDetectionStrategy, computed, inject, DestroyRef } from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { map, distinctUntilChanged } from 'rxjs';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -21,7 +21,8 @@ import {
   IonRouterOutlet,
   NavController,
 } from '@ionic/angular/standalone';
-import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
+import { UsageShellComponent, UsageService, type UsageSection, type UsageUser } from '@nxt1/ui';
+import { MobileAuthService } from '../../core/services/auth/mobile-auth.service';
 
 @Component({
   selector: 'app-usage',
@@ -32,7 +33,7 @@ import { UsageShellComponent, UsageService, type UsageSection } from '@nxt1/ui';
       <ion-toolbar></ion-toolbar>
     </ion-header>
     <ion-content [fullscreen]="true">
-      <nxt1-usage-shell [user]="null" [showPageHeader]="true" (back)="navigateBack()" />
+      <nxt1-usage-shell [user]="usageUser()" [showPageHeader]="true" (back)="navigateBack()" />
     </ion-content>
   `,
   styles: [
@@ -70,7 +71,19 @@ export class UsageComponent {
   private readonly routerOutlet = inject(IonRouterOutlet, { optional: true });
   private readonly route = inject(ActivatedRoute);
   private readonly usage = inject(UsageService);
+  private readonly auth = inject(MobileAuthService);
   private readonly destroyRef = inject(DestroyRef);
+  protected readonly usageUser = computed<UsageUser | null>(() => {
+    const user = this.auth.user();
+    if (!user) return null;
+    return {
+      displayName: user.displayName,
+      email: user.email,
+      organization: user.teamCode?.teamName,
+      role: user.role,
+      sport: user.primarySport ?? user.sports?.find((sport) => sport.isPrimary)?.sport,
+    };
+  });
 
   private readonly usageSections: readonly UsageSection[] = [
     'overview',

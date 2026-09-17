@@ -6,9 +6,17 @@ import { UsageService } from '../usage.service';
 import { BuyCreditsAutoTopupModalComponent } from './buy-credits-autotopup-modal.component';
 
 type BuyCreditsAutoTopupModalTestAccess = BuyCreditsAutoTopupModalComponent & {
+  activeTab: { set(tab: 'buy' | 'auto-topup' | 'invoice'): void };
+  headerTitle: () => string;
+  headerIcon: () => string;
   selectPackage(value: number): void;
   onCustomAmountInput(value: string): void;
   onBuyNow(): void;
+  selectInvoicePackage(value: number): void;
+  onCustomInvoiceAmountInput(value: string): void;
+  onRequestInvoice(): void;
+  poNumber: { set(value: string): void };
+  selectedNetDays: { set(value: 30 | 45 | 60): void };
   close: { emit(payload: unknown): void };
 };
 
@@ -52,6 +60,40 @@ describe('BuyCreditsAutoTopupModalComponent analytics', () => {
       checkout_type: 'direct_charge',
     });
     expect(closeEmitSpy).toHaveBeenCalledWith({ type: 'buy', amountCents: 1250 });
+  });
+
+  it('emits invoice request result with PO number and net payment terms', () => {
+    const component = createComponent();
+    const testAccess = component as BuyCreditsAutoTopupModalTestAccess;
+    const closeEmitSpy = vi.spyOn(testAccess.close, 'emit');
+
+    testAccess.selectInvoicePackage(1000);
+    testAccess.poNumber.set('PO-2026-OHIO-01');
+    testAccess.selectedNetDays.set(45);
+    testAccess.onRequestInvoice();
+
+    expect(closeEmitSpy).toHaveBeenCalledWith({
+      type: 'invoice',
+      amountCents: 100_000,
+      poNumber: 'PO-2026-OHIO-01',
+      netDays: 45,
+    });
+  });
+
+  it('updates modal header title and icon dynamically based on active tab', () => {
+    const component = createComponent();
+    const testAccess = component as BuyCreditsAutoTopupModalTestAccess;
+
+    expect(testAccess.headerTitle()).toBe('Add Credits');
+    expect(testAccess.headerIcon()).toBe('card-outline');
+
+    testAccess.activeTab.set('auto-topup');
+    expect(testAccess.headerTitle()).toBe('Auto Top-Up');
+    expect(testAccess.headerIcon()).toBe('refresh-outline');
+
+    testAccess.activeTab.set('invoice');
+    expect(testAccess.headerTitle()).toBe('Pay by Invoice');
+    expect(testAccess.headerIcon()).toBe('document-text-outline');
   });
 
   function createComponent(): BuyCreditsAutoTopupModalComponent {

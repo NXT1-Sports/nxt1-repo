@@ -28,6 +28,7 @@ import {
 } from './b2b-partner-lookup.service.js';
 
 const TRIAL_CREDITS_FINISHED_NOTION_ENVIRONMENT = 'production';
+const TRIAL_CREDITS_FINISHED_THRESHOLD_CENTS = 300;
 
 export type TrialCreditsFinishedNotionDashboardStatus =
   | 'queued'
@@ -161,7 +162,7 @@ async function reserveTrialCreditsFinishedSignal(
   if (!Number.isFinite(input.baselineCents) || input.baselineCents <= 0) {
     return { status: 'skipped', reason: 'not-depleted' };
   }
-  if (input.newBalanceCents > 0) {
+  if (input.newBalanceCents > TRIAL_CREDITS_FINISHED_THRESHOLD_CENTS) {
     return { status: 'skipped', reason: 'not-depleted' };
   }
 
@@ -252,7 +253,7 @@ export async function recordTrialCreditsFinishedNotionDashboardEntry(
     return { status: 'skipped', reason: 'not-organization-billing' };
   }
 
-  if (input.newBalanceCents > 0) {
+  if (input.newBalanceCents > TRIAL_CREDITS_FINISHED_THRESHOLD_CENTS) {
     return { status: 'skipped', reason: 'not-depleted' };
   }
 

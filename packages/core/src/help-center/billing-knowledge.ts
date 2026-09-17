@@ -326,7 +326,7 @@ export const SHARED_BILLING_HELP_CENTER_ARTICLE: SharedBillingArticleDefinition 
     renderParagraphs(['<strong>To add funds:</strong>']),
     renderOrderedList([
       'Open Billing & Usage.',
-      'Choose Add Credits or the relevant funding action.',
+      'Choose Payment Options or the relevant funding action.',
       'Select the amount to add and confirm the payment method.',
       'The wallet balance updates when the top-up completes.',
     ]),

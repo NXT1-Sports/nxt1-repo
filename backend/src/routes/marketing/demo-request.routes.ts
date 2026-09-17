@@ -12,7 +12,7 @@ import {
   submitDemoRequest,
   DemoRequestValidationError,
 } from '../../services/marketing/demo-request.service.js';
-import type { DemoRequestRole, DemoRequestSubmission } from '@nxt1/core';
+import type { DemoRequestRole, DemoRequestSubmission, DemoRequestType } from '@nxt1/core';
 
 const router = Router();
 
@@ -24,6 +24,7 @@ router.post('/demo-request', async (req: Request, res: Response): Promise<void> 
   try {
     const environment = req.isStaging ? 'staging' : 'production';
     const body = req.body as {
+      requestType?: DemoRequestType;
       name?: string;
       email?: string;
       organization?: string;
@@ -35,6 +36,7 @@ router.post('/demo-request', async (req: Request, res: Response): Promise<void> 
     };
 
     const submission: DemoRequestSubmission = {
+      requestType: body.requestType,
       name: body.name ?? '',
       email: body.email ?? '',
       organization: body.organization ?? '',

@@ -448,6 +448,16 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       }
       return response.data;
     },
+
+    /** Cancel an unpaid organization invoice (org admins only). */
+    async cancelInvoice(transactionId: string): Promise<void> {
+      const response = await http.delete<ApiResponse<void>>(
+        `${baseUrl}${USAGE_API_ENDPOINTS.cancelInvoice}/${transactionId}`
+      );
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to cancel invoice');
+      }
+    },
   } as const;
 }
 

@@ -9,8 +9,11 @@
 /** Role of the person requesting a demo. */
 export type DemoRequestRole = 'coach' | 'director' | 'program-admin' | 'other';
 
+export type DemoRequestType = 'demo' | 'subscription';
+
 /** Submission payload sent from the public request-demo page. */
 export interface DemoRequestSubmission {
+  readonly requestType?: DemoRequestType;
   readonly name: string;
   readonly email: string;
   readonly organization: string;
@@ -24,6 +27,7 @@ export interface DemoRequestSubmission {
 /** Persisted demo request record returned by the API. */
 export interface DemoRequestRecord {
   readonly id: string;
+  readonly requestType?: DemoRequestType;
   readonly name: string;
   readonly email: string;
   readonly organization: string;

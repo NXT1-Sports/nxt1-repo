@@ -63,7 +63,12 @@ function validateDemoRequest(input: DemoRequestSubmission): string[] {
 }
 
 function buildNotionNotes(record: Omit<DemoRequestRecord, 'id'>): string {
-  const lines = ['Inbound demo request from the public /request-demo page.'];
+  const isSubscription = record.requestType === 'subscription';
+  const lines = [
+    isSubscription
+      ? 'Inbound custom subscription request from the authenticated Billing & Usage page.'
+      : 'Inbound demo request from the public /request-demo page.',
+  ];
 
   const role = compactText(record.role);
   const sport = compactText(record.sport);
@@ -81,6 +86,8 @@ function buildNotionNotes(record: Omit<DemoRequestRecord, 'id'>): string {
 }
 
 function buildSalesNotificationHtml(record: DemoRequestRecord): string {
+  const isSubscription = record.requestType === 'subscription';
+  const requestLabel = isSubscription ? 'Custom Subscription Request' : 'Demo Request';
   const rows: Array<[string, string]> = [
     ['Name', record.name],
     ['Email', record.email],
@@ -99,7 +106,7 @@ function buildSalesNotificationHtml(record: DemoRequestRecord): string {
     )
     .join('');
 
-  return `<div><h2>New Demo Request</h2><table>${rowsHtml}</table></div>`;
+  return `<div><h2>New ${requestLabel}</h2><table>${rowsHtml}</table></div>`;
 }
 
 /**
@@ -110,6 +117,7 @@ export async function submitDemoRequest(
   environment: RuntimeEnvironment
 ): Promise<DemoRequestRecord> {
   const normalized: DemoRequestSubmission = {
+    requestType: input.requestType === 'subscription' ? 'subscription' : 'demo',
     name: input.name?.trim() ?? '',
     email: input.email?.trim().toLowerCase() ?? '',
     organization: input.organization?.trim() ?? '',
@@ -144,7 +152,10 @@ export async function submitDemoRequest(
       primaryContact: draftRecord.name,
       stage: 'Demo',
       leadSource: 'Inbound',
-      nextAction: 'Reach out to schedule the requested demo with John or Ray.',
+      nextAction:
+        draftRecord.requestType === 'subscription'
+          ? 'Reach out to schedule a custom subscription conversation with John or Ray.'
+          : 'Reach out to schedule the requested demo with John or Ray.',
       notes: buildNotionNotes(draftRecord),
     });
 
@@ -169,9 +180,11 @@ export async function submitDemoRequest(
   };
 
   try {
+    const requestLabel =
+      record.requestType === 'subscription' ? 'Custom Subscription Request' : 'Demo Request';
     await sendPlatformEmail(
       DEMO_REQUEST_NOTIFICATION_RECIPIENTS.join(', '),
-      `New Demo Request — ${record.organization}`,
+      `New ${requestLabel} — ${record.organization}`,
       buildSalesNotificationHtml(record),
       record.email
     );

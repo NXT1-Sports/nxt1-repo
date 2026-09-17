@@ -12,7 +12,12 @@ import { getStripeClient } from './stripe.service.js';
 import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
+import {
+  addWalletTopUp,
+  addFundsToOrgWallet,
+  getBillingState,
+  setWalletTrialInvoiceMode,
+} from './budget.service.js';
 import { trackBillingPurchaseEvent, trackBillingRefundEvent } from './ga4-revenue.service.js';
 import { sendSalesBillingAlert } from './sales-alert.service.js';
 import {
@@ -238,6 +243,14 @@ export async function handleInvoicePaymentSucceeded(
       invoice.amount_paid > 0 &&
       invoice.metadata?.['type'] !== 'org_invoice_topup'
     ) {
+      // Mark org trial as converted in invoice billing mode
+      await setWalletTrialInvoiceMode(db, organizationId, 'organization').catch((err: unknown) =>
+        logger.warn(
+          '[handleInvoicePaymentSucceeded] Failed to convert org trial on invoice payment',
+          { err }
+        )
+      );
+
       try {
         await publishInvoicePaidDomainEvent({
           db,

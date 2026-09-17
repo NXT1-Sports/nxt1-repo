@@ -824,57 +824,39 @@ export async function executeBillingDeduction(
       }
     }
 
-    if (
-      walletBalanceTransition &&
-      chargeAmountCents > 0 &&
-      walletBalanceTransition.previousBalanceCents > 0 &&
-      walletBalanceTransition.newBalanceCents <= 0
-    ) {
+    if (walletBalanceTransition && chargeAmountCents > 0) {
       const isOrganizationOwner = walletBalanceTransition.ownerType === 'organization';
-      const organizationId = walletBalanceTransition.organizationId;
+      const trialCreditsFinishedThresholdCents = isOrganizationOwner ? 300 : 200;
 
       if (
-        isOrganizationOwner &&
-        (typeof organizationId !== 'string' || organizationId.trim().length === 0)
+        walletBalanceTransition.previousBalanceCents > trialCreditsFinishedThresholdCents &&
+        walletBalanceTransition.newBalanceCents <= trialCreditsFinishedThresholdCents
       ) {
-        logger.warn('[billing] Trial credits depletion skipped: missing organizationId', {
-          operationId,
-          ownerType: walletBalanceTransition.ownerType,
-        });
-      } else {
-        try {
-          const trialCreditsFinishedResult = await publishTrialCreditsDepletedDomainEvent({
-            db,
-            userId: walletBalanceTransition.ownerUserId,
-            billingOwnerType: isOrganizationOwner ? 'organization' : 'individual',
-            organizationId,
-            operationId,
-            feature: primaryFeature,
-            baselineCents: walletBalanceTransition.previousBalanceCents,
-            newBalanceCents: walletBalanceTransition.newBalanceCents,
-            environment: environment ?? 'production',
-          });
+        const organizationId = walletBalanceTransition.organizationId;
 
-          logger.info('[billing] Published trial credits depleted domain event', {
+        if (
+          isOrganizationOwner &&
+          (typeof organizationId !== 'string' || organizationId.trim().length === 0)
+        ) {
+          logger.warn('[billing] Trial credits depletion skipped: missing organizationId', {
             operationId,
-            userId,
-            lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
             ownerType: walletBalanceTransition.ownerType,
-            organizationId: walletBalanceTransition.organizationId,
-            feature: primaryFeature,
-            chargeAmountCents,
-            previousBalanceCents: walletBalanceTransition.previousBalanceCents,
-            newBalanceCents: walletBalanceTransition.newBalanceCents,
-            domainEventType: trialCreditsFinishedResult.domainEventType,
-            projectionCount: trialCreditsFinishedResult.projections.length,
-            projectionKeys: trialCreditsFinishedResult.projections.map(
-              (projection) => projection.eventKey
-            ),
           });
-        } catch (trialCreditsFinishedErr) {
-          logger.warn(
-            '[billing] Trial credits depleted domain event publish failed (non-blocking)',
-            {
+        } else {
+          try {
+            const trialCreditsFinishedResult = await publishTrialCreditsDepletedDomainEvent({
+              db,
+              userId: walletBalanceTransition.ownerUserId,
+              billingOwnerType: isOrganizationOwner ? 'organization' : 'individual',
+              organizationId,
+              operationId,
+              feature: primaryFeature,
+              baselineCents: walletBalanceTransition.previousBalanceCents,
+              newBalanceCents: walletBalanceTransition.newBalanceCents,
+              environment: environment ?? 'production',
+            });
+
+            logger.info('[billing] Published trial credits depleted domain event', {
               operationId,
               userId,
               lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
@@ -884,12 +866,32 @@ export async function executeBillingDeduction(
               chargeAmountCents,
               previousBalanceCents: walletBalanceTransition.previousBalanceCents,
               newBalanceCents: walletBalanceTransition.newBalanceCents,
-              error:
-                trialCreditsFinishedErr instanceof Error
-                  ? trialCreditsFinishedErr.message
-                  : String(trialCreditsFinishedErr),
-            }
-          );
+              domainEventType: trialCreditsFinishedResult.domainEventType,
+              projectionCount: trialCreditsFinishedResult.projections.length,
+              projectionKeys: trialCreditsFinishedResult.projections.map(
+                (projection) => projection.eventKey
+              ),
+            });
+          } catch (trialCreditsFinishedErr) {
+            logger.warn(
+              '[billing] Trial credits depleted domain event publish failed (non-blocking)',
+              {
+                operationId,
+                userId,
+                lifecycleOwnerUserId: walletBalanceTransition.ownerUserId,
+                ownerType: walletBalanceTransition.ownerType,
+                organizationId: walletBalanceTransition.organizationId,
+                feature: primaryFeature,
+                chargeAmountCents,
+                previousBalanceCents: walletBalanceTransition.previousBalanceCents,
+                newBalanceCents: walletBalanceTransition.newBalanceCents,
+                error:
+                  trialCreditsFinishedErr instanceof Error
+                    ? trialCreditsFinishedErr.message
+                    : String(trialCreditsFinishedErr),
+              }
+            );
+          }
         }
       }
     }

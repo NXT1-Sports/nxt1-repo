@@ -9,6 +9,10 @@ export type {
   BillingTargetSource,
   BillingTargetReference,
   Wallet,
+  WalletTrialStatus,
+  WalletTrialConversionSource,
+  WalletTrialDisplayMode,
+  WalletTrialState,
   BillingPreference,
   PeriodLedger,
 } from './billing-domain.types';
@@ -42,9 +46,21 @@ export type {
   BillingEntity,
   BillingStateSummary,
   PaymentProviderType,
+  UsageTrialStatus,
+  UsageTrialConversionSource,
+  UsageTrialDisplayMode,
+  UsageTrialState,
 } from './usage.types';
 
-export { DEFAULT_INDIVIDUAL_BUDGET, DEFAULT_TEAM_BUDGET } from './usage.types';
+export {
+  DEFAULT_INDIVIDUAL_BUDGET,
+  DEFAULT_TEAM_BUDGET,
+  DEFAULT_INDIVIDUAL_STARTER_BALANCE,
+  DEFAULT_ORGANIZATION_STARTER_BALANCE,
+  TRIAL_DURATION_DAYS,
+  TRIAL_EXPIRING_SOON_DAYS,
+  TRIAL_EXPIRING_CRITICAL_DAYS,
+} from './usage.types';
 
 // Constants
 export {

@@ -125,7 +125,7 @@ export type { UsageUser };
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              <span>Add Credits</span>
+              <span>Payment Options</span>
             </button>
           } @else if (svc.isOrg() && svc.isOrgAdmin()) {
             <button type="button" class="header-portal-buy-btn" (click)="onBuyCredits()">
@@ -144,7 +144,7 @@ export type { UsageUser };
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              <span>Add Credits</span>
+              <span>Payment Options</span>
             </button>
           }
         </div>
@@ -267,6 +267,7 @@ export type { UsageUser };
                       (switchToBillingMode)="onSwitchBillingMode($event)"
                       (downloadReceipt)="onDownloadReceipt($event)"
                       (downloadInvoice)="onDownloadInvoice($event)"
+                      (cancelInvoice)="onCancelInvoice($event)"
                       (loadMore)="svc.loadMoreHistory()"
                     />
                   }
@@ -740,6 +741,12 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     await this.svc.openInvoice(recordId);
   }
 
+  protected async onCancelInvoice(recordId: string): Promise<void> {
+    if (typeof window !== 'undefined' && !window.confirm('Cancel this unpaid invoice?')) return;
+    await this.haptics.impact('medium');
+    await this.svc.cancelInvoice(recordId);
+  }
+
   protected async onCreateBudget(): Promise<void> {
     await this.haptics.impact('light');
     await this.openBudgetControlPanel(undefined, 'new');
@@ -802,13 +809,25 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
       size: 'lg',
       backdropDismiss: true,
       escDismiss: true,
-      ariaLabel: 'Add Credits',
+      ariaLabel: 'Payment Options',
       inputs: {
         initialAutoTopupEnabled: this.svc.autoTopUpEnabled(),
         initialThresholdCents: this.svc.autoTopUpThresholdCents(),
         initialAutoTopupAmountCents: this.svc.autoTopUpAmountCents(),
         organizationId,
         hasSavedDefaultMethod: this.svc.defaultPaymentMethod() !== null,
+        profile: this.user()
+          ? {
+              name: this.user()?.displayName,
+              email: this.user()?.email,
+              organization: this.user()?.organization,
+              role:
+                this.user()?.role === 'coach' || this.user()?.role === 'director'
+                  ? this.user()?.role
+                  : 'other',
+              sport: this.user()?.sport,
+            }
+          : null,
       },
     });
     const result = await ref.closed;
@@ -823,6 +842,8 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
         thresholdCents: data.thresholdCents,
         amountCents: data.amountCents,
       });
+    } else if (data.type === 'invoice') {
+      await this.svc.requestInvoiceTopUp(data.amountCents, data.poNumber, data.netDays);
     }
   }
 

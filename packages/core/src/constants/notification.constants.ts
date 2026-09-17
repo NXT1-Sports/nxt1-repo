@@ -101,6 +101,9 @@ export const NOTIFICATION_TYPES = {
   CREDITS_ADDED: 'credits_added',
   BUDGET_WARNING: 'budget_warning',
   BUDGET_REACHED: 'budget_reached',
+  TRIAL_EXPIRING: 'trial_expiring',
+  TRIAL_CRITICAL: 'trial_critical',
+  TRIAL_EXPIRED: 'trial_expired',
   /** Org wallet was refilled — roster members on personal billing override can switch back */
   ORG_WALLET_REFILLED: 'org_wallet_refilled',
 
@@ -197,6 +200,9 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   credits_added: 'billing',
   budget_warning: 'billing',
   budget_reached: 'billing',
+  trial_expiring: 'billing',
+  trial_critical: 'billing',
+  trial_expired: 'billing',
   org_wallet_refilled: 'billing',
 
   // Marketing
@@ -312,6 +318,9 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   credits_added: 'alerts',
   budget_warning: 'alerts',
   budget_reached: 'alerts',
+  trial_expiring: 'alerts',
+  trial_critical: 'alerts',
+  trial_expired: 'alerts',
   org_wallet_refilled: 'alerts',
 
   // Marketing → alerts
@@ -380,6 +389,9 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   wallet_empty: '/usage?section=overview',
   org_wallet_empty: '/usage?section=overview',
   credits_added: '/usage?section=overview',
+  trial_expiring: '/usage?section=overview',
+  trial_critical: '/usage?section=overview',
+  trial_expired: '/usage?section=overview',
   org_wallet_refilled: '/usage?section=overview',
 
   // Marketing
@@ -458,6 +470,8 @@ export function isHighPriorityNotification(type: NotificationType): boolean {
     'payment_failed',
     'wallet_empty',
     'org_wallet_empty',
+    'trial_critical',
+    'trial_expired',
   ];
   return highPriorityTypes.includes(type);
 }

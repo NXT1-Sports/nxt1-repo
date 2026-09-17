@@ -4,7 +4,7 @@
  */
 
 import 'reflect-metadata';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { expectExpressRouter } from './route-test.utils.js';
 import app, {
@@ -13,6 +13,10 @@ import app, {
   __seedMockFirestoreDocument,
 } from '../../test-app.js';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
+
+// Imported statically so the (large) route dependency graph loads during
+// collection instead of inside a timeout-bounded hook.
+import router from '../../routes/core/settings.routes.js';
 
 vi.mock('../../services/core/cache.service.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../services/core/cache.service.js')>();
@@ -34,13 +38,6 @@ vi.mock('../../routes/profile/shared.js', () => ({
 const AUTH_HEADER = 'Bearer test-token';
 
 describe('Settings Routes', () => {
-  let router: unknown;
-
-  beforeAll(async () => {
-    const module = await import('../../routes/core/settings.routes.js');
-    router = module.default;
-  }, 15_000);
-
   beforeEach(() => {
     __resetMockFirestore();
     vi.restoreAllMocks();

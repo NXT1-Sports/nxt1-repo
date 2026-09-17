@@ -339,16 +339,25 @@ function resolveSignUpDate(user: UserV2Document): Date | null {
 }
 
 function resolveLastActiveAt(user: UserV2Document): Date | null {
-  return (
-    toDate(user.lastLoginAt) ??
-    toDate((user as unknown as Record<string, unknown>)['updatedAt']) ??
-    toDate(user.onboardingCompletedAt)
+  const candidates = [
+    toDate(user.lastLoginAt),
+    toDate((user as unknown as Record<string, unknown>)['updatedAt']),
+    toDate(user.onboardingCompletedAt),
+  ].filter((value): value is Date => Boolean(value));
+
+  return candidates.reduce<Date | null>(
+    (latest, candidate) => (!latest || candidate.getTime() > latest.getTime() ? candidate : latest),
+    null
   );
 }
 
-async function resolveMonetizationMetrics(userId: string): Promise<{
+async function resolveMonetizationMetrics(
+  db: Firestore,
+  userId: string
+): Promise<{
   readonly ltvDollars: number;
   readonly usageRevenueMonthlyDollars: number;
+  readonly walletBalanceDollars: number;
 }> {
   try {
     await ensureMongoDBConnected();
@@ -372,18 +381,24 @@ async function resolveMonetizationMetrics(userId: string): Promise<{
         const amountPaid = typeof payment.amountPaid === 'number' ? payment.amountPaid : 0;
         const refunded = typeof payment.amountRefunded === 'number' ? payment.amountRefunded : 0;
         const net = Math.max(0, amountPaid - refunded);
-        acc.totalCents += net;
+        acc.totalDollars += net;
         if (payment.createdAt instanceof Date && payment.createdAt >= monthlyWindowStart) {
-          acc.monthlyCents += net;
+          acc.monthlyDollars += net;
         }
         return acc;
       },
-      { totalCents: 0, monthlyCents: 0 }
+      { totalDollars: 0, monthlyDollars: 0 }
     );
 
+    const walletSnap = await db.collection('Wallets').doc(userId).get();
+    const walletBalanceCents = walletSnap.exists
+      ? Number(walletSnap.data()?.['balanceCents'] ?? 0)
+      : 0;
+
     return {
-      ltvDollars: Math.round(totals.totalCents) / 100,
-      usageRevenueMonthlyDollars: Math.round(totals.monthlyCents) / 100,
+      ltvDollars: Math.round(totals.totalDollars * 100) / 100,
+      usageRevenueMonthlyDollars: Math.round(totals.monthlyDollars * 100) / 100,
+      walletBalanceDollars: Math.round(walletBalanceCents) / 100,
     };
   } catch (error) {
     logger.warn('[B2CUsers] Falling back to zero monetization metrics', {
@@ -394,6 +409,7 @@ async function resolveMonetizationMetrics(userId: string): Promise<{
     return {
       ltvDollars: 0,
       usageRevenueMonthlyDollars: 0,
+      walletBalanceDollars: 0,
     };
   }
 }
@@ -447,7 +463,7 @@ async function syncB2CUsersStage(input: {
   });
 
   try {
-    const metrics = await resolveMonetizationMetrics(input.userId);
+    const metrics = await resolveMonetizationMetrics(input.db, input.userId);
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
@@ -468,6 +484,7 @@ async function syncB2CUsersStage(input: {
       stage: input.stage,
       ltvDollars: metrics.ltvDollars,
       usageRevenueMonthlyDollars: metrics.usageRevenueMonthlyDollars,
+      walletBalanceDollars: metrics.walletBalanceDollars,
       organizationId: input.organizationId,
       notes: input.notes,
     });
@@ -597,7 +614,7 @@ async function reupsertExistingB2CUsersStage(input: {
   let notionResult: UpsertB2CUsersEntryResult;
 
   try {
-    const metrics = await resolveMonetizationMetrics(input.userId);
+    const metrics = await resolveMonetizationMetrics(input.db, input.userId);
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
@@ -618,6 +635,7 @@ async function reupsertExistingB2CUsersStage(input: {
       stage: input.stage,
       ltvDollars: metrics.ltvDollars,
       usageRevenueMonthlyDollars: metrics.usageRevenueMonthlyDollars,
+      walletBalanceDollars: metrics.walletBalanceDollars,
       organizationId: input.organizationId,
       notes: input.notes,
     });
@@ -748,7 +766,7 @@ export async function reupsertB2CUsersAccountStartedEntry(input: {
   let notionResult: UpsertB2CUsersEntryResult;
 
   try {
-    const metrics = await resolveMonetizationMetrics(input.userId);
+    const metrics = await resolveMonetizationMetrics(input.db, input.userId);
     notionResult = await upsertB2CUsersEntry({
       userId: input.userId,
       environment: input.environment,
@@ -769,6 +787,7 @@ export async function reupsertB2CUsersAccountStartedEntry(input: {
       stage: 'Onboarding Completed',
       ltvDollars: metrics.ltvDollars,
       usageRevenueMonthlyDollars: metrics.usageRevenueMonthlyDollars,
+      walletBalanceDollars: metrics.walletBalanceDollars,
     });
   } catch (error) {
     logger.error('[B2CUsers] Failed to re-upsert Account Started Notion page', {

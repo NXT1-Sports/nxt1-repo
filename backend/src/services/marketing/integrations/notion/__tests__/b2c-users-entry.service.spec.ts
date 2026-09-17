@@ -59,7 +59,7 @@ describe('B2C Users Notion entry service', () => {
     });
     expect(properties['Email']).toEqual({ email: 'ava@example.com' });
     expect(properties['Stage']).toEqual({ status: { name: 'Usage Started' } });
-    expect(properties['Engagement']).toEqual({ select: { name: 'Medium' } });
+    expect(properties['Engagement']).toEqual({ select: { name: 'High' } });
     expect(properties['Sport']).toEqual({ select: { name: 'Track & Field' } });
     expect(properties['State']).toEqual({
       rich_text: [{ type: 'text', text: { content: 'TX' } }],
@@ -82,6 +82,27 @@ describe('B2C Users Notion entry service', () => {
     });
 
     expect(properties['Referral Source']).toEqual({ select: { name: 'Partner Program' } });
+  });
+
+  it('includes organization ID in organization-mode notes', () => {
+    const properties = buildB2CUsersNotionProperties({
+      userId: 'athlete-org',
+      environment: 'production',
+      email: 'athlete@org.com',
+      stage: 'Organization Mode',
+      organizationId: 'org_123',
+    });
+
+    expect(properties['Notes']).toEqual({
+      rich_text: [
+        {
+          type: 'text',
+          text: {
+            content: expect.stringContaining('Organization ID: org_123'),
+          },
+        },
+      ],
+    });
   });
 
   it('maps onboarding completion to the Onboarding Completed stage', () => {
@@ -109,6 +130,26 @@ describe('B2C Users Notion entry service', () => {
 
     expect(properties['Engagement']).toEqual({ select: { name: 'At Risk' } });
   });
+
+  it.each([
+    ['Account Started', 0, 'High'],
+    ['Usage Started', 8, 'Medium'],
+    ['Organization Mode', 15, 'Low'],
+    ['Closed Won', 31, 'At Risk'],
+  ] as const)(
+    'uses the same engagement ladder for %s at %s inactive days',
+    (stage, days, engagement) => {
+      const properties = buildB2CUsersNotionProperties({
+        userId: `athlete-org-${days}`,
+        environment: 'production',
+        email: `athlete-org-${days}@example.com`,
+        stage,
+        lastActiveAt: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
+      });
+
+      expect(properties['Engagement']).toEqual({ select: { name: engagement } });
+    }
+  );
 
   it('skips without calling Notion when the B2C Growth Hub integration is disabled', async () => {
     process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'false';

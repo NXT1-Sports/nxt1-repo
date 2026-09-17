@@ -64,6 +64,34 @@ export type UsageTimeframe =
   | 'custom';
 
 // ============================================
+// TRIAL CREDITS
+// ============================================
+
+/** Lifecycle status of a wallet's introductory trial credit grant. */
+export type UsageTrialStatus = 'active' | 'expired' | 'converted';
+
+/** How a trial was converted out of its introductory state. */
+export type UsageTrialConversionSource = 'credit_purchase' | 'invoice';
+
+/** Which billing surface the owner should see: prepaid credits or invoice-backed. */
+export type UsageTrialDisplayMode = 'credits' | 'invoice';
+
+/**
+ * API-facing projection of a wallet's introductory trial state.
+ * `daysRemaining` is always server-computed — never derive it on the frontend.
+ */
+export interface UsageTrialState {
+  readonly grantCents: number;
+  readonly startedAt: string;
+  readonly expiresAt: string;
+  readonly daysRemaining: number;
+  readonly status: UsageTrialStatus;
+  readonly convertedAt: string | null;
+  readonly conversionSource: UsageTrialConversionSource | null;
+  readonly displayMode: UsageTrialDisplayMode;
+}
+
+// ============================================
 // OVERVIEW CARDS
 // ============================================
 
@@ -89,6 +117,8 @@ export interface UsageOverview {
   readonly pendingHoldsCents: number;
   /** Wallet balance threshold in cents at which low-balance UI warnings should appear */
   readonly lowBalanceThresholdCents: number;
+  /** Introductory trial credit state, or null when not on a trial (e.g. org billing). */
+  readonly trial?: UsageTrialState | null;
 }
 
 // ============================================
@@ -260,6 +290,8 @@ export interface UsagePaymentHistoryRecord {
   readonly receiptUrl: string | null;
   /** Invoice download URL or null */
   readonly invoiceUrl: string | null;
+  /** True when an unpaid organization invoice can be canceled by an org admin */
+  readonly canCancelInvoice?: boolean;
 }
 
 // ============================================
@@ -381,6 +413,8 @@ export interface BillingStateSummary {
   readonly orgWalletEmpty?: boolean;
   /** Available org/team targets the current user can create budgets for */
   readonly availableBudgetTargets?: readonly BudgetTargetOption[];
+  /** Introductory trial credit state, or null when not on a trial (e.g. org billing). */
+  readonly trial?: UsageTrialState | null;
 }
 
 /** A team's sub-allocation within an organization budget */
@@ -401,12 +435,25 @@ export interface TeamBudgetAllocation {
 
 /** Default budgets (cents) */
 export const DEFAULT_INDIVIDUAL_BUDGET = 0;
-/** Fallback starter wallet balance used when backend AppConfig is unset. */
-export const DEFAULT_INDIVIDUAL_STARTER_BALANCE = 500; // $5
+/**
+ * Fallback starter wallet balance used when backend AppConfig is unset.
+ * This is also the introductory trial credit grant amount for individual users.
+ */
+export const DEFAULT_INDIVIDUAL_STARTER_BALANCE = 10_000; // $100
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
 export const DEFAULT_ORGANIZATION_BUDGET = 0;
-/** Fallback starter wallet balance used when backend AppConfig is unset. */
-export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 2000; // $20
+/**
+ * Fallback starter wallet balance for organizations used when backend AppConfig is unset.
+ * This is also the introductory trial credit grant amount for program/team accounts.
+ */
+export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 10_000; // $100
+
+/** Number of days an individual's introductory trial credit grant remains valid. */
+export const TRIAL_DURATION_DAYS = 30;
+/** Days remaining threshold at which a calmer "trial ending soon" warning appears. */
+export const TRIAL_EXPIRING_SOON_DAYS = 7;
+/** Days remaining threshold at which a stronger "add credits now" warning appears. */
+export const TRIAL_EXPIRING_CRITICAL_DAYS = 3;
 
 /** A product budget configuration */
 export interface UsageBudget {

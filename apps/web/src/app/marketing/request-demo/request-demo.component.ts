@@ -17,6 +17,7 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { RouterModule } from '@angular/router';
+import { ActivatedRoute } from '@angular/router';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES } from '@nxt1/core/performance';
@@ -55,10 +56,20 @@ const DEMO_REQUEST_ROLES: ReadonlyArray<{
             <a routerLink="/" class="request-demo__back-link">Back to NXT1</a>
           </div>
         } @else {
-          <h1 id="request-demo-title" class="request-demo__title">Request a Demo</h1>
-          <p class="request-demo__subtitle">
-            Tell us about your program and we'll set up a personalized walkthrough of NXT1.
-          </p>
+          @if (subscriptionRequest()) {
+            <h1 id="request-demo-title" class="request-demo__title">
+              Build Your NXT1 Subscription
+            </h1>
+            <p class="request-demo__subtitle">
+              Tell us about your organization, usage, and goals. We'll set up a conversation about a
+              custom subscription built around what you need.
+            </p>
+          } @else {
+            <h1 id="request-demo-title" class="request-demo__title">Request a Demo</h1>
+            <p class="request-demo__subtitle">
+              Tell us about your program and we'll set up a personalized walkthrough of NXT1.
+            </p>
+          }
 
           <form
             [attr.data-testid]="testIds.FORM"
@@ -140,12 +151,23 @@ const DEMO_REQUEST_ROLES: ReadonlyArray<{
             </label>
 
             <label class="request-demo__field">
-              <span class="request-demo__label">Notes (optional)</span>
+              <span class="request-demo__label">
+                {{
+                  subscriptionRequest()
+                    ? 'What would you like your subscription to include?'
+                    : 'Notes (optional)'
+                }}
+              </span>
               <textarea
                 rows="3"
                 [attr.data-testid]="testIds.INPUT_NOTES"
                 [value]="notes()"
                 (input)="notes.set(inputValue($event))"
+                [placeholder]="
+                  subscriptionRequest()
+                    ? 'Tell us about your team size, workflows, usage, and goals.'
+                    : ''
+                "
               ></textarea>
             </label>
 
@@ -161,7 +183,13 @@ const DEMO_REQUEST_ROLES: ReadonlyArray<{
               [attr.data-testid]="testIds.SUBMIT_BUTTON"
               [disabled]="submitting() || !isFormValid()"
             >
-              {{ submitting() ? 'Submitting…' : 'Request Demo' }}
+              {{
+                submitting()
+                  ? 'Submitting…'
+                  : subscriptionRequest()
+                    ? 'Request a Subscription Conversation'
+                    : 'Request Demo'
+              }}
             </button>
           </form>
         }
@@ -260,6 +288,7 @@ const DEMO_REQUEST_ROLES: ReadonlyArray<{
 })
 export class RequestDemoComponent implements OnInit {
   private readonly demoRequestApi = inject(DemoRequestApiService);
+  private readonly route = inject(ActivatedRoute);
   private readonly seoService = inject(SeoService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
@@ -278,6 +307,7 @@ export class RequestDemoComponent implements OnInit {
   protected readonly preferredDemoDate = signal('');
   protected readonly preferredDemoTime = signal('');
   protected readonly notes = signal('');
+  protected readonly subscriptionRequest = signal(false);
 
   protected readonly submitting = signal(false);
   protected readonly submitted = signal(false);
@@ -291,11 +321,17 @@ export class RequestDemoComponent implements OnInit {
   );
 
   ngOnInit(): void {
+    this.subscriptionRequest.set(
+      this.route.snapshot.queryParamMap.get('interest') === 'subscription'
+    );
     this.seoService.applySeoConfig({
       page: {
-        title: 'Request a Demo | NXT1 Sports',
-        description:
-          'Request a personalized demo of Agent X, the AI command center for sports programs.',
+        title: this.subscriptionRequest()
+          ? 'Custom Subscription | NXT1 Sports'
+          : 'Request a Demo | NXT1 Sports',
+        description: this.subscriptionRequest()
+          ? 'Talk with NXT1 about a custom subscription built around your organization and usage.'
+          : 'Request a personalized demo of Agent X, the AI command center for sports programs.',
         canonicalUrl: 'https://nxt1sports.com/request-demo',
       },
     });
@@ -328,7 +364,9 @@ export class RequestDemoComponent implements OnInit {
           sport: this.sport().trim() || undefined,
           preferredDemoDate: this.preferredDemoDate() || undefined,
           preferredDemoTime: this.preferredDemoTime().trim() || undefined,
-          notes: this.notes().trim() || undefined,
+          notes: this.subscriptionRequest()
+            ? `[Custom subscription inquiry] ${this.notes().trim() || 'Customer requested a custom subscription conversation.'}`
+            : this.notes().trim() || undefined,
         })
       );
 

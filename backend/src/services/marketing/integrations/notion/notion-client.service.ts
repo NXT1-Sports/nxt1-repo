@@ -75,7 +75,8 @@ export type NotionQueryFilter =
   | {
       readonly property: string;
       readonly rich_text: {
-        readonly equals: string;
+        readonly equals?: string;
+        readonly contains?: string;
       };
     }
   | {
@@ -431,6 +432,21 @@ export async function queryNotionDatabaseByEmail(input: {
       property: input.property,
       email: { equals: input.email },
     },
+  });
+}
+
+export async function queryNotionDatabaseByRichTextContains(input: {
+  readonly config: NotionSignupDashboardConfig;
+  readonly property: string;
+  readonly value: string;
+}): Promise<readonly NotionPageSummary[]> {
+  return queryNotionDatabasePages({
+    config: input.config,
+    filter: {
+      property: input.property,
+      rich_text: { contains: input.value },
+    },
+    pageSize: 100,
   });
 }
 

@@ -19,6 +19,7 @@ import type {
   BottomSheetResult,
 } from '../components/bottom-sheet/bottom-sheet.types';
 import { BuyCreditsAutoTopupSheetComponent } from './buy-credits-autotopup-sheet.component';
+import type { CustomSubscriptionProfile } from './custom-subscription-request.component';
 import type { BuyCreditsAutoTopupResult } from './buy-credits-flow.shared';
 
 export interface UsageBottomSheetResult {
@@ -150,19 +151,21 @@ export class UsageBottomSheetService {
     allowIap: boolean;
     organizationId?: string;
     hasSavedDefaultMethod?: boolean;
+    profile?: CustomSubscriptionProfile | null;
   }): Promise<{
     amountCents: number | null;
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
+    invoice: { amountCents: number; poNumber?: string; netDays: 30 | 45 | 60 } | null;
   }> {
     const result = await this.openBuyCreditsSheet(opts);
 
     if (result?.type === 'buy-iap') {
       await this._buyCreditsIapHandler?.();
-      return { amountCents: null, autoTopup: null };
+      return { amountCents: null, autoTopup: null, invoice: null };
     }
 
     if (result?.type === 'buy') {
-      return { amountCents: result.amountCents, autoTopup: null };
+      return { amountCents: result.amountCents, autoTopup: null, invoice: null };
     }
 
     if (result?.type === 'auto-topup') {
@@ -173,10 +176,23 @@ export class UsageBottomSheetService {
           thresholdCents: result.thresholdCents,
           amountCents: result.amountCents,
         },
+        invoice: null,
       };
     }
 
-    return { amountCents: null, autoTopup: null };
+    if (result?.type === 'invoice') {
+      return {
+        amountCents: null,
+        autoTopup: null,
+        invoice: {
+          amountCents: result.amountCents,
+          poNumber: result.poNumber,
+          netDays: result.netDays,
+        },
+      };
+    }
+
+    return { amountCents: null, autoTopup: null, invoice: null };
   }
 
   private async openBuyCreditsSheet(opts: {
@@ -186,6 +202,7 @@ export class UsageBottomSheetService {
     allowIap: boolean;
     organizationId?: string;
     hasSavedDefaultMethod?: boolean;
+    profile?: CustomSubscriptionProfile | null;
   }): Promise<BuyCreditsAutoTopupResult> {
     const result = await this.bottomSheet.openSheet<BuyCreditsAutoTopupResult>({
       component: BuyCreditsAutoTopupSheetComponent,
@@ -196,6 +213,7 @@ export class UsageBottomSheetService {
         showIapPayButton: opts.allowIap && this._buyCreditsIapHandler !== null,
         organizationId: opts.organizationId ?? null,
         hasSavedDefaultMethod: opts.hasSavedDefaultMethod ?? false,
+        profile: opts.profile ?? null,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

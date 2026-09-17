@@ -6,7 +6,7 @@
  */
 
 import type { Timestamp } from 'firebase-admin/firestore';
-import type { BillingMode, BudgetInterval } from '@nxt1/core/usage';
+import type { BillingMode, BudgetInterval, WalletTrialState } from '@nxt1/core/usage';
 
 // NOTE: UsageEvent and PaymentLog use plain Date (MongoDB). All other interfaces
 // (BillingState, StripeCustomer, WalletHold, etc.) keep Firestore Timestamp.
@@ -327,12 +327,14 @@ export interface BillingState {
    */
   walletBalanceCents: number;
 
-  /**
-   * Pending hold amount in cents.
+  /** Pending hold amount in cents.
    * Represents funds reserved by in-flight AI operations but not yet captured.
    * Prevents race conditions where parallel requests all pass the balance check simultaneously.
    */
   pendingHoldsCents: number;
+
+  /** Introductory trial credit state for individual owners, or undefined when not applicable. */
+  trial?: WalletTrialState;
 
   /**
    * Optional custom name for the primary budget.
@@ -514,7 +516,7 @@ export interface WalletHoldResult {
 export const DEFAULT_INDIVIDUAL_BUDGET = 0;
 
 /** Fallback starter wallet balance for individual accounts (in cents) when AppConfig is unset */
-export const DEFAULT_INDIVIDUAL_STARTER_BALANCE = 500; // $5
+export const DEFAULT_INDIVIDUAL_STARTER_BALANCE = 10_000; // $100 — also the trial credit grant amount
 
 /** Default monthly budget for team/organization accounts (in cents) */
 export const DEFAULT_TEAM_BUDGET = 20000; // $200
@@ -523,7 +525,7 @@ export const DEFAULT_TEAM_BUDGET = 20000; // $200
 export const DEFAULT_ORGANIZATION_BUDGET = 0;
 
 /** Fallback starter wallet balance for organization accounts (in cents) when AppConfig is unset */
-export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 2000; // $20
+export const DEFAULT_ORGANIZATION_STARTER_BALANCE = 10_000; // $100 — also the trial credit grant amount for teams/programs
 
 /** Budget alert thresholds as percentages */
 export const BUDGET_ALERT_THRESHOLDS = [50, 80, 100] as const;

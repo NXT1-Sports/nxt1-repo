@@ -15,6 +15,34 @@ export type BillingOwnerType = 'individual' | 'organization';
 /** Why the active billing target resolved to the selected wallet. */
 export type BillingTargetSource = 'default' | 'personal' | 'organization';
 
+/** Lifecycle status of a wallet's introductory trial credit grant. */
+export type WalletTrialStatus = 'active' | 'expired' | 'converted';
+
+/** How a trial was converted out of its introductory state. */
+export type WalletTrialConversionSource = 'credit_purchase' | 'invoice';
+
+/** Which billing surface the owner should see: prepaid credits or invoice-backed. */
+export type WalletTrialDisplayMode = 'credits' | 'invoice';
+
+/**
+ * Introductory trial credit metadata attached to a wallet.
+ * The wallet's `balanceCents` remains the single spendable/visible balance —
+ * this block only tracks the trial's lifecycle so the wallet can be safely
+ * expired to $0 once the grant window lapses without a paid conversion.
+ */
+export interface WalletTrialState {
+  readonly grantCents: number;
+  readonly startedAt: string;
+  readonly expiresAt: string;
+  readonly status: WalletTrialStatus;
+  readonly convertedAt?: string | null;
+  readonly conversionSource?: WalletTrialConversionSource | null;
+  readonly displayMode: WalletTrialDisplayMode;
+  readonly notifiedExpiringAt?: string | null;
+  readonly notifiedCriticalAt?: string | null;
+  readonly notifiedExpiredAt?: string | null;
+}
+
 /**
  * Active billing target stored on the user profile.
  * This is the runtime routing source of truth for wallet deductions.
@@ -44,6 +72,8 @@ export interface Wallet {
   readonly creditsNotified25?: boolean;
   readonly iapLowBalanceNotified?: boolean;
   readonly totalReferralRewardsCents?: number;
+  /** Introductory trial credit metadata (individual wallets only). */
+  readonly trial?: WalletTrialState;
 }
 
 /**

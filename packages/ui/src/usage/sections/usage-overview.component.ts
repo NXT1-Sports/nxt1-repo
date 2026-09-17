@@ -9,12 +9,14 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
+import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 
 import type { BillingMode, UsageOverview, UsagePaymentHistoryRecord } from '@nxt1/core';
-import { formatPrice } from '@nxt1/core';
+import { formatPrice, TRIAL_EXPIRING_SOON_DAYS, TRIAL_EXPIRING_CRITICAL_DAYS } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
+import { NxtModalService } from '../../services/modal';
+import { HapticsService } from '../../services/haptics';
 import { UsagePaymentHistoryComponent } from './usage-payment-history.component';
 
 @Component({
@@ -92,6 +94,73 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
         </div>
       }
 
+      <!-- ── Trial credit conversion banners ────────────────────────────── -->
+      @if (isTrialExpired()) {
+        <div
+          class="billing-banner billing-banner--warning"
+          [attr.data-testid]="testIds.OVERVIEW_TRIAL_ENDED_BANNER"
+        >
+          <div class="banner-body">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>Your intro credits have ended. Add credits to continue using Agent X.</span>
+          </div>
+          <button type="button" class="banner-btn" (click)="buyCredit.emit()">
+            Payment options
+          </button>
+        </div>
+      } @else if (isTrialExpiringCritical() || isTrialExpiringSoon()) {
+        <div
+          class="billing-banner billing-banner--warning"
+          [attr.data-testid]="testIds.OVERVIEW_TRIAL_EXPIRING_BANNER"
+        >
+          <div class="banner-body">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            <span>
+              @if (isTrialExpiringCritical()) {
+                Your intro credits expire in {{ trialDaysRemaining() }}
+                {{ trialDaysRemaining() === 1 ? 'day' : 'days' }}. Add credits to keep Agent X
+                running.
+              } @else {
+                Your intro credits expire in {{ trialDaysRemaining() }} days.
+              }
+            </span>
+          </div>
+          <button type="button" class="banner-btn" (click)="buyCredit.emit()">
+            Payment options
+          </button>
+        </div>
+      }
+
       <!-- ── Billing mode pill (when on personal override) ────────────── -->
       @if (billingMode() === 'personal' && canSwitchToOrganizationBilling()) {
         <div class="mode-pill" [attr.data-testid]="testIds.OVERVIEW_PERSONAL_BILLING_PILL">
@@ -122,75 +191,152 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
       }
 
       <!-- ── Wallet cards (all entities) ──────────────────────────────── -->
-      <div class="overview-cards">
-        <!-- Wallet Balance -->
-        <div
-          class="overview-card wallet-card"
-          [class.overview-card--low]="isLowBalance() || isWalletEmpty()"
-          [attr.data-testid]="testIds.OVERVIEW_WALLET_BALANCE"
-        >
-          <ion-ripple-effect></ion-ripple-effect>
-          <div class="card-header">
-            <span class="card-label">
-              @if (isOrg() && billingMode() === 'organization') {
-                Organization Credits
-              } @else {
-                Personal Credits
-              }
-            </span>
-            <button
-              type="button"
-              class="wallet-buy-btn"
-              [attr.data-testid]="testIds.OVERVIEW_BUY_CREDITS"
-              (click)="buyCredit.emit()"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="12"
-                height="12"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="12" y1="5" x2="12" y2="19" />
-                <line x1="5" y1="12" x2="19" y2="12" />
-              </svg>
-              Add Credits
-            </button>
-          </div>
+      @if (isInvoiceBillingMode()) {
+        <div class="overview-cards">
           <div
-            class="card-value"
-            [class.card-value--low]="isLowBalance() || hasNoAvailableBalance()"
+            class="overview-card invoice-card"
+            [attr.data-testid]="testIds.OVERVIEW_INVOICE_BILLING_CARD"
           >
-            {{ walletBalance() }}
+            <ion-ripple-effect></ion-ripple-effect>
+            <div class="card-header">
+              <span class="card-label">Invoice billing active</span>
+            </div>
+            <span class="card-caption">
+              Your account is covered by invoice billing. Usage is tracked for billing and
+              reporting.
+            </span>
           </div>
-          <span class="card-caption">
-            @if (isWalletEmpty()) {
-              Wallet is empty — add credits to keep Agent X running.
-            } @else if (isLowBalance()) {
-              Balance is low — add credits to keep Agent X running.
-            } @else if ((data()?.pendingHoldsCents ?? 0) > 0) {
-              {{ pendingHoldsDisplay() }} is reserved for in-flight requests.
+        </div>
+      } @else {
+        <div class="overview-cards">
+          <!-- Wallet Balance -->
+          <div
+            class="overview-card wallet-card"
+            [class.overview-card--low]="isLowBalance() || isWalletEmpty()"
+            [attr.data-testid]="testIds.OVERVIEW_WALLET_BALANCE"
+          >
+            <ion-ripple-effect></ion-ripple-effect>
+            <div class="card-header">
+              <span class="card-label">
+                @if (isTrialActive()) {
+                  Intro credits
+                } @else if (isOrg() && billingMode() === 'organization') {
+                  Organization Credits
+                } @else {
+                  Personal Credits
+                }
+              </span>
+              <button
+                type="button"
+                class="wallet-buy-btn"
+                [attr.data-testid]="testIds.OVERVIEW_BUY_CREDITS"
+                (click)="buyCredit.emit()"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                Payment Options
+              </button>
+            </div>
+            <div
+              class="card-value"
+              [class.card-value--low]="isLowBalance() || hasNoAvailableBalance()"
+            >
+              {{ walletBalance() }}
+            </div>
+            @if (isTrialActive()) {
+              <div class="trial-caption" [attr.data-testid]="testIds.OVERVIEW_TRIAL_CARD">
+                <span class="trial-caption__text">
+                  <strong class="trial-caption__grant">{{ trialGrantDisplay() }}</strong> included
+                  for your first 30 days
+                </span>
+                <button
+                  type="button"
+                  class="trial-caption__badge"
+                  [class.trial-caption__badge--warning]="
+                    isTrialExpiringCritical() || isTrialExpiringSoon()
+                  "
+                  aria-label="How intro credits work"
+                  (click)="showTrialInfo($event)"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  <span
+                    >{{ trialDaysRemaining() }}
+                    {{ trialDaysRemaining() === 1 ? 'day' : 'days' }} left</span
+                  >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                    class="trial-caption__badge-info"
+                  >
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                </button>
+              </div>
             } @else {
-              Pre-paid credits for Agent X operations.
+              <span class="card-caption">
+                @if (isTrialExpired()) {
+                  Intro credits ended — add credits to continue using Agent X.
+                } @else if (isWalletEmpty()) {
+                  Wallet is empty — add credits to keep Agent X running.
+                } @else if (isLowBalance()) {
+                  Balance is low — add credits to keep Agent X running.
+                } @else if ((data()?.pendingHoldsCents ?? 0) > 0) {
+                  {{ pendingHoldsDisplay() }} is reserved for in-flight requests.
+                } @else {
+                  Pre-paid credits for Agent X operations.
+                }
+              </span>
             }
-          </span>
-        </div>
-
-        <!-- Credits Used -->
-        <div class="overview-card" [attr.data-testid]="testIds.OVERVIEW_SPENT_THIS_MONTH">
-          <ion-ripple-effect></ion-ripple-effect>
-          <div class="card-header">
-            <span class="card-label">Credits used</span>
           </div>
-          <div class="card-value">{{ currentUsage() }}</div>
-          <span class="card-caption">Deducted from your wallet this month.</span>
+
+          <!-- Credits Used -->
+          <div class="overview-card" [attr.data-testid]="testIds.OVERVIEW_SPENT_THIS_MONTH">
+            <ion-ripple-effect></ion-ripple-effect>
+            <div class="card-header">
+              <span class="card-label">Credits used</span>
+            </div>
+            <div class="card-value">{{ currentUsage() }}</div>
+            <span class="card-caption">Deducted from your wallet this month.</span>
+          </div>
         </div>
-      </div>
+      }
 
       <!-- ── Payment History ────────────────────────────────────────────── -->
       <div class="payment-history-section">
@@ -200,6 +346,7 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
           [hasMore]="historyHasMore()"
           (downloadReceipt)="downloadReceipt.emit($event)"
           (downloadInvoice)="downloadInvoice.emit($event)"
+          (cancelInvoice)="cancelInvoice.emit($event)"
           (loadMore)="loadMore.emit()"
         />
       </div>
@@ -376,6 +523,83 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
         line-height: var(--nxt1-lineHeight-normal);
       }
 
+      /* ── Prominent Trial Status ──────────────────── */
+      .trial-caption {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--nxt1-spacing-2);
+        flex-wrap: wrap;
+        margin-top: var(--nxt1-spacing-1);
+        padding-top: var(--nxt1-spacing-2);
+        border-top: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .trial-caption__text {
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-normal);
+        color: var(--nxt1-color-text-secondary);
+        line-height: var(--nxt1-lineHeight-normal);
+      }
+
+      .trial-caption__grant {
+        font-size: var(--nxt1-fontSize-base);
+        font-weight: var(--nxt1-fontWeight-bold);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .trial-caption__badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-semibold);
+        color: var(--nxt1-color-primary, #6366f1);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 25%, transparent);
+        border-radius: 999px;
+        padding: 3px var(--nxt1-spacing-2-5, 10px);
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
+        transition:
+          background var(--nxt1-transition-fast, 0.15s ease),
+          border-color var(--nxt1-transition-fast, 0.15s ease),
+          transform var(--nxt1-transition-fast, 0.15s ease);
+
+        &:hover {
+          background: color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 22%, transparent);
+          border-color: color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 45%, transparent);
+          transform: translateY(-1px);
+        }
+
+        &:active {
+          transform: translateY(0);
+          opacity: 0.85;
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--nxt1-color-primary, #6366f1);
+          outline-offset: 2px;
+        }
+      }
+
+      .trial-caption__badge--warning {
+        color: var(--nxt1-color-warning, #f59e0b);
+        background: color-mix(in srgb, var(--nxt1-color-warning, #f59e0b) 12%, transparent);
+        border-color: color-mix(in srgb, var(--nxt1-color-warning, #f59e0b) 30%, transparent);
+
+        &:hover {
+          background: color-mix(in srgb, var(--nxt1-color-warning, #f59e0b) 22%, transparent);
+          border-color: color-mix(in srgb, var(--nxt1-color-warning, #f59e0b) 45%, transparent);
+        }
+      }
+
+      .trial-caption__badge-info {
+        opacity: 0.75;
+        margin-left: 2px;
+      }
+
       .wallet-buy-btn {
         display: inline-flex;
         align-items: center;
@@ -450,7 +674,7 @@ export class UsageOverviewComponent {
   /** Current backend-resolved billing mode */
   readonly billingMode = input<BillingMode>('personal');
 
-  /** Hide the Add Credits button (e.g. on desktop web where it lives in the top nav) */
+  /** Hide the Payment Options button (e.g. on desktop web where it lives in the top nav) */
   readonly hideBuyCredits = input<boolean>(false);
 
   /** Payment history records (shown inline below cards) */
@@ -459,7 +683,7 @@ export class UsageOverviewComponent {
   /** Whether there are more history records to load */
   readonly historyHasMore = input<boolean>(false);
 
-  /** Emitted when "Add Credits" button is clicked */
+  /** Emitted when "Payment Options" button is clicked */
   readonly buyCredit = output<void>();
 
   /** Emitted when a billing mode banner button is clicked */
@@ -470,6 +694,7 @@ export class UsageOverviewComponent {
 
   /** Emitted when an invoice download is requested */
   readonly downloadInvoice = output<string>();
+  readonly cancelInvoice = output<string>();
 
   /** Emitted when "Load more" is clicked in the payment history table */
   readonly loadMore = output<void>();
@@ -512,4 +737,49 @@ export class UsageOverviewComponent {
     const threshold = this.data()?.lowBalanceThresholdCents ?? 200;
     return bal > 0 && bal < threshold;
   });
+
+  // ============================================
+  // TRIAL CREDIT CONVERSION STATE
+  // ============================================
+
+  protected readonly trial = computed(() => this.data()?.trial ?? null);
+
+  protected readonly isTrialActive = computed(() => this.trial()?.status === 'active');
+
+  protected readonly isTrialExpired = computed(() => this.trial()?.status === 'expired');
+
+  protected readonly isInvoiceBillingMode = computed(() => this.trial()?.displayMode === 'invoice');
+
+  protected readonly trialDaysRemaining = computed(() => this.trial()?.daysRemaining ?? 0);
+
+  protected readonly trialGrantDisplay = computed(() => formatPrice(this.trial()?.grantCents ?? 0));
+
+  protected readonly isTrialExpiringCritical = computed(
+    () => this.isTrialActive() && this.trialDaysRemaining() <= TRIAL_EXPIRING_CRITICAL_DAYS
+  );
+
+  protected readonly isTrialExpiringSoon = computed(
+    () =>
+      this.isTrialActive() &&
+      !this.isTrialExpiringCritical() &&
+      this.trialDaysRemaining() <= TRIAL_EXPIRING_SOON_DAYS
+  );
+
+  private readonly modal = inject(NxtModalService);
+  private readonly haptics = inject(HapticsService);
+
+  /** Open a quick explainer alert for the introductory trial credits. */
+  protected async showTrialInfo(event?: Event): Promise<void> {
+    event?.stopPropagation();
+    await this.haptics.impact('light');
+    await this.modal.alert({
+      title: 'How Intro Credits Work',
+      message:
+        `You received ${this.trialGrantDisplay()} in complimentary credits for your first 30 days.\n\n` +
+        `• Explore all Agent X features (graphic creation, film analysis, scouting reports, and outreach).\n\n` +
+        `• Your trial is valid for 30 days from signup. If you haven't added credits or activated invoice billing by then, your wallet resets to $0.00.\n\n` +
+        `• Adding credits at any time converts your account to standard billing and preserves your remaining balance.`,
+      buttonText: 'Got it',
+    });
+  }
 }

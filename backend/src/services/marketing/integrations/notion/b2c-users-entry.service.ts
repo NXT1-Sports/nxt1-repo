@@ -68,6 +68,7 @@ export interface B2CUsersEntryInput {
   readonly stage: B2CUsersStage;
   readonly ltvDollars?: number | null;
   readonly usageRevenueMonthlyDollars?: number | null;
+  readonly walletBalanceDollars?: number | null;
   readonly notes?: string | null;
   readonly organizationId?: string | null;
 }
@@ -181,23 +182,9 @@ function resolveEngagement(input: B2CUsersEntryInput): B2CUsersEngagement {
     return 'At Risk';
   }
 
-  if (
-    input.stage === 'Closed Won' ||
-    input.stage === 'Expansion / Pricing' ||
-    input.stage === 'Organization Mode'
-  ) {
-    return inactiveDays !== null && inactiveDays > 14 ? 'Medium' : 'High';
-  }
-
-  if (input.stage === 'Usage Started') {
-    return inactiveDays !== null && inactiveDays > 14 ? 'Low' : 'Medium';
-  }
-
-  if (input.stage === 'Trial Credits Finished') {
-    return inactiveDays !== null && inactiveDays > 14 ? 'At Risk' : 'Low';
-  }
-
-  return inactiveDays !== null && inactiveDays > 14 ? 'Low' : 'Medium';
+  if (inactiveDays === null || inactiveDays <= 7) return 'High';
+  if (inactiveDays <= 14) return 'Medium';
+  return 'Low';
 }
 
 function buildAutoNotes(input: B2CUsersEntryInput): string {
@@ -270,6 +257,11 @@ export function buildB2CUsersNotionProperties(input: B2CUsersEntryInput): Notion
 
   if (usageRevenueMonthlyDollars !== null) {
     properties['Usage Revenue ($/mo)'] = { number: usageRevenueMonthlyDollars };
+  }
+
+  const walletBalanceDollars = roundCurrency(input.walletBalanceDollars);
+  if (walletBalanceDollars !== null) {
+    properties['Wallet Balance ($)'] = { number: walletBalanceDollars };
   }
 
   return properties;
