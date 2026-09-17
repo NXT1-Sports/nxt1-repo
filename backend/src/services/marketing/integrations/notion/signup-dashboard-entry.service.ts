@@ -15,6 +15,7 @@ import {
   getNotionSignupDashboardDisabledReason,
   queryNotionDatabase,
   queryNotionDatabaseByEmail,
+  queryNotionDatabaseByRichTextContains,
   readNotionStatusProperty,
   type NotionPageSummary,
   type NotionProperties,
@@ -900,11 +901,22 @@ async function tryAssertSignupDashboardStage(input: {
 async function queryExistingB2BPartnerPage(input: {
   readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
   readonly email?: string | null;
+  readonly organizationId?: string | null;
   readonly organization?: string | null;
   readonly organizationType?: string | null;
   readonly primaryContact?: string | null;
   readonly useOrganizationVariants?: boolean;
 }): Promise<NotionPageSummary | null> {
+  const organizationId = compactText(input.organizationId);
+  if (organizationId) {
+    const byOrganizationId = await queryNotionDatabaseByRichTextContains({
+      config: input.config,
+      property: 'Notes',
+      value: `Organization ID: ${organizationId}`,
+    });
+    if (byOrganizationId[0]) return byOrganizationId[0];
+  }
+
   const email = compactText(input.email);
   if (email) {
     const byEmail = await queryNotionDatabaseByEmail({
@@ -975,6 +987,7 @@ export async function upsertSignupDashboardEntry(
   const existing = await queryExistingB2BPartnerPage({
     config,
     email: input.email,
+    organizationId: input.organizationId,
     organization: input.teamName,
     organizationType: input.organizationType ?? input.teamType,
     primaryContact: resolveKnownDisplayName(input),

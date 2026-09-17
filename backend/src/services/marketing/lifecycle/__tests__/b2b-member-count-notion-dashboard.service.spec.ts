@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockFindPayments = vi.fn();
+const mockCountDocuments = vi.fn();
 
 vi.mock('../../../../models/billing/payment-log.model.js', () => ({
   PaymentLogModel: {
     find: mockFindPayments,
+    countDocuments: mockCountDocuments,
   },
 }));
 
@@ -110,6 +112,7 @@ describe('b2b-member-count-notion-dashboard.service', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockCountDocuments.mockResolvedValue(0);
     vi.stubGlobal('fetch', fetchMock);
     process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
     process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
@@ -127,6 +130,7 @@ describe('b2b-member-count-notion-dashboard.service', () => {
 
   it('reconciles the Members relation with all linked B2C users for an organization', async () => {
     fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
       .mockResolvedValueOnce(
         jsonResponse({ results: [{ id: 'page-b2b', url: 'https://notion.so/page-b2b' }] })
       )
@@ -167,5 +171,40 @@ describe('b2b-member-count-notion-dashboard.service', () => {
     });
 
     expect(patchCall).toBeTruthy();
+  });
+
+  it('writes PaymentLog dollar amounts directly to Lifetime Deal Value', async () => {
+    mockFindPayments.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        lean: vi.fn().mockReturnValue({
+          exec: vi.fn().mockResolvedValue([{ amountPaid: 5 }]),
+        }),
+      }),
+    });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ results: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ results: [{ id: 'page-b2b', url: 'https://notion.so/page-b2b' }] })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          id: 'page-b2b',
+          properties: { 'Lifetime Deal Value': { type: 'number', number: 0 } },
+        })
+      )
+      .mockResolvedValueOnce(jsonResponse({ results: [{ id: 'page-b2b' }] }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'page-b2b', url: 'https://notion.so/page-b2b' }));
+
+    const { runB2BMemberCountNotionDashboardSync } =
+      await import('../b2b-member-count-notion-dashboard.service.js');
+    await runB2BMemberCountNotionDashboardSync({
+      db: createFirestoreMock() as never,
+      limit: 1,
+    });
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+    expect(JSON.parse(String(patchCall?.[1]?.body)).properties['Lifetime Deal Value']).toEqual({
+      number: 5,
+    });
   });
 });

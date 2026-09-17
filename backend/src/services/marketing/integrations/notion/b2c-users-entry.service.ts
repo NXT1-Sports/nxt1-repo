@@ -68,6 +68,7 @@ export interface B2CUsersEntryInput {
   readonly stage: B2CUsersStage;
   readonly ltvDollars?: number | null;
   readonly usageRevenueMonthlyDollars?: number | null;
+  readonly walletBalanceDollars?: number | null;
   readonly notes?: string | null;
   readonly organizationId?: string | null;
 }
@@ -270,6 +271,11 @@ export function buildB2CUsersNotionProperties(input: B2CUsersEntryInput): Notion
 
   if (usageRevenueMonthlyDollars !== null) {
     properties['Usage Revenue ($/mo)'] = { number: usageRevenueMonthlyDollars };
+  }
+
+  const walletBalanceDollars = roundCurrency(input.walletBalanceDollars);
+  if (walletBalanceDollars !== null) {
+    properties['Wallet Balance ($)'] = { number: walletBalanceDollars };
   }
 
   return properties;

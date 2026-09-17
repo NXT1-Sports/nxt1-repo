@@ -162,12 +162,12 @@ async function resolveLifetimeDealValueDollars(
       .lean<Array<{ amountPaid?: number }>>()
       .exec();
 
-    const totalCents = payments.reduce((sum, payment) => {
+    const totalDollars = payments.reduce((sum, payment) => {
       const amount = typeof payment.amountPaid === 'number' ? payment.amountPaid : 0;
       return sum + amount;
     }, 0);
 
-    return roundToCents(totalCents / CENTS_PER_DOLLAR);
+    return roundToCents(totalDollars);
   } catch (error) {
     logger.warn('[ClosedWonNotionDashboard] Failed to resolve lifetime deal value', {
       organizationId,

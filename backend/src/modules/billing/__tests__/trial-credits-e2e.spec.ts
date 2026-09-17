@@ -26,7 +26,10 @@ vi.mock('../../../utils/logger.js', () => ({
 
 vi.mock('../../../services/domain-events/domain-events.service.js', () => ({
   publishWalletFundedDomainEvent: vi.fn(),
-  publishTrialCreditsDepletedDomainEvent: vi.fn(),
+  publishTrialCreditsDepletedDomainEvent: vi.fn().mockResolvedValue({
+    domainEventType: 'billing.trial_credits_depleted',
+    projections: [],
+  }),
   publishIndividualWalletFundingDomainEvent: vi.fn(),
   publishOrganizationWalletFundingDomainEvent: vi.fn(),
 }));

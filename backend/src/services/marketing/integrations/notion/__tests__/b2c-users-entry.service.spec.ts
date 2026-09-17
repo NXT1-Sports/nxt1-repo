@@ -84,6 +84,27 @@ describe('B2C Users Notion entry service', () => {
     expect(properties['Referral Source']).toEqual({ select: { name: 'Partner Program' } });
   });
 
+  it('includes organization ID in organization-mode notes', () => {
+    const properties = buildB2CUsersNotionProperties({
+      userId: 'athlete-org',
+      environment: 'production',
+      email: 'athlete@org.com',
+      stage: 'Organization Mode',
+      organizationId: 'org_123',
+    });
+
+    expect(properties['Notes']).toEqual({
+      rich_text: [
+        {
+          type: 'text',
+          text: {
+            content: expect.stringContaining('Organization ID: org_123'),
+          },
+        },
+      ],
+    });
+  });
+
   it('maps onboarding completion to the Onboarding Completed stage', () => {
     const properties = buildB2CUsersNotionProperties({
       userId: 'athlete-completed',

@@ -613,26 +613,25 @@ async function maybeExpireTrial(
       ownerId: target.ownerId,
     });
 
-    if (target.ownerType === 'organization' && target.organizationId) {
-      const expiresAt = updatedWallet.trial?.expiresAt ?? 'unknown';
-      await publishTrialCreditsDepletedDomainEvent({
-        db,
-        environment: getRuntimeEnvironment(),
+    const expiresAt = updatedWallet.trial?.expiresAt ?? 'unknown';
+    await publishTrialCreditsDepletedDomainEvent({
+      db,
+      environment: getRuntimeEnvironment(),
+      userId,
+      billingOwnerType: target.ownerType === 'organization' ? 'organization' : 'individual',
+      ...(target.organizationId ? { organizationId: target.organizationId } : {}),
+      operationId: `trial-expiry:${target.ownerType}:${target.ownerId}:${expiresAt}`,
+      feature: 'trial_expiry',
+      baselineCents: updatedWallet.balanceCents === 0 ? documents.wallet.balanceCents : 0,
+      newBalanceCents: 0,
+    }).catch((error: unknown) => {
+      logger.warn('[maybeExpireTrial] Failed to publish trial expiry lifecycle event', {
         userId,
-        billingOwnerType: 'organization',
+        ownerType: target.ownerType,
         organizationId: target.organizationId,
-        operationId: `trial-expiry:${target.organizationId}:${expiresAt}`,
-        feature: 'trial_expiry',
-        baselineCents: updatedWallet.balanceCents === 0 ? documents.wallet.balanceCents : 0,
-        newBalanceCents: 0,
-      }).catch((error: unknown) => {
-        logger.warn('[maybeExpireTrial] Failed to publish trial expiry lifecycle event', {
-          userId,
-          organizationId: target.organizationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+        error: error instanceof Error ? error.message : String(error),
       });
-    }
+    });
 
     return { ...documents, wallet: updatedWallet };
   } catch (error) {

@@ -28,7 +28,7 @@ import {
 } from './b2b-partner-lookup.service.js';
 
 const TRIAL_CREDITS_FINISHED_NOTION_ENVIRONMENT = 'production';
-const TRIAL_CREDITS_FINISHED_THRESHOLD_CENTS = 100;
+const TRIAL_CREDITS_FINISHED_THRESHOLD_CENTS = 300;
 
 export type TrialCreditsFinishedNotionDashboardStatus =
   | 'queued'
