@@ -61,10 +61,6 @@ function normalizeDistinctStringIds(values: readonly unknown[]): string[] {
     .filter((value) => value.length > 0);
 }
 
-function intersectUserIds(left: readonly string[], right: ReadonlySet<string>): string[] {
-  return left.filter((userId) => right.has(userId));
-}
-
 function getEngagementEligibilityAccountStartDate(
   record: Record<string, unknown>
 ): Date | undefined {
@@ -151,15 +147,28 @@ async function fetchDistinctEngagedUserIds(
   return normalizeDistinctStringIds(engagedUserIds);
 }
 
-async function fetchDistinctPayingUserIds(periodEnd: Date): Promise<string[]> {
+interface PayingIdentitySet {
+  readonly individualUserIds: readonly string[];
+  readonly organizationIds: readonly string[];
+}
+
+async function fetchPayingIdentities(periodEnd: Date): Promise<PayingIdentitySet> {
   const thirtyDaysAgo = new Date(periodEnd.getTime() - 30 * 24 * 60 * 60 * 1000);
-  const payingUserIds = await PaymentLogModel.distinct('userId', {
+  const payments = await PaymentLogModel.find({
     createdAt: { $gte: thirtyDaysAgo, $lte: periodEnd },
     status: 'PAID',
-    userId: { $exists: true, $ne: null },
-  });
+    amountPaid: { $gt: 0 },
+  })
+    .select({ userId: 1, organizationId: 1 })
+    .lean<Array<{ userId?: string; organizationId?: string }>>()
+    .exec();
 
-  return normalizeDistinctStringIds(payingUserIds);
+  return {
+    individualUserIds: normalizeDistinctStringIds(
+      payments.filter((payment) => !payment.organizationId).map((payment) => payment.userId)
+    ),
+    organizationIds: normalizeDistinctStringIds(payments.map((payment) => payment.organizationId)),
+  };
 }
 
 export async function countEngagedUsers(
@@ -192,10 +201,19 @@ export async function countPayingAccounts(
   logPrefix: string
 ): Promise<SegmentCounts> {
   try {
-    const payingUserIds = await fetchDistinctPayingUserIds(periodEnd);
-    return summarizeUserIdsBySegment(db, payingUserIds, classifySegment, logPrefix, {
-      periodEnd: periodEnd.toISOString(),
-    });
+    const payingIdentities = await fetchPayingIdentities(periodEnd);
+    const personal = await summarizeUserIdsBySegment(
+      db,
+      payingIdentities.individualUserIds,
+      classifySegment,
+      logPrefix,
+      { periodEnd: periodEnd.toISOString() }
+    );
+    return {
+      b2b: payingIdentities.organizationIds.length,
+      b2c: personal.b2c,
+      total: payingIdentities.organizationIds.length + personal.b2c,
+    };
   } catch (err) {
     logger.error(`${logPrefix} Failed to count paying accounts`, {
       error: err instanceof Error ? err.message : String(err),
@@ -214,13 +232,32 @@ export async function countPayingEngagedUsers(
   logPrefix: string
 ): Promise<SegmentCounts> {
   try {
-    const [engagedUserIds, payingUserIds] = await Promise.all([
+    const [engagedUserIds, payingIdentities] = await Promise.all([
       fetchDistinctEngagedUserIds(periodStart, periodEndExclusive),
-      fetchDistinctPayingUserIds(payingPeriodEnd),
+      fetchPayingIdentities(payingPeriodEnd),
     ]);
 
-    const payingUserSet = new Set(payingUserIds);
-    const payingEngagedUserIds = intersectUserIds(engagedUserIds, payingUserSet);
+    const payingPersonalUserSet = new Set(payingIdentities.individualUserIds);
+    const payingOrganizationSet = new Set(payingIdentities.organizationIds);
+    const userRefs = engagedUserIds.map((userId) => db.collection('Users').doc(userId));
+    const userSnapshots = await db.getAll(...userRefs);
+    const payingEngagedUserIds = userSnapshots
+      .filter((snapshot) => {
+        if (!snapshot.exists) return false;
+        const user = snapshot.data() as Record<string, unknown>;
+        const segment = classifySegment(user);
+        if (segment === 'b2c') return payingPersonalUserSet.has(snapshot.id);
+
+        const activeTarget = user['activeBillingTarget'] as Record<string, unknown> | undefined;
+        const organizationId =
+          typeof activeTarget?.['organizationId'] === 'string'
+            ? activeTarget['organizationId']
+            : typeof user['organizationId'] === 'string'
+              ? user['organizationId']
+              : undefined;
+        return Boolean(organizationId && payingOrganizationSet.has(organizationId));
+      })
+      .map((snapshot) => snapshot.id);
 
     return summarizeUserIdsBySegment(db, payingEngagedUserIds, classifySegment, logPrefix, {
       periodStart: periodStart.toISOString(),

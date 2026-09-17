@@ -182,23 +182,9 @@ function resolveEngagement(input: B2CUsersEntryInput): B2CUsersEngagement {
     return 'At Risk';
   }
 
-  if (
-    input.stage === 'Closed Won' ||
-    input.stage === 'Expansion / Pricing' ||
-    input.stage === 'Organization Mode'
-  ) {
-    return inactiveDays !== null && inactiveDays > 14 ? 'Medium' : 'High';
-  }
-
-  if (input.stage === 'Usage Started') {
-    return inactiveDays !== null && inactiveDays > 14 ? 'Low' : 'Medium';
-  }
-
-  if (input.stage === 'Trial Credits Finished') {
-    return inactiveDays !== null && inactiveDays > 14 ? 'At Risk' : 'Low';
-  }
-
-  return inactiveDays !== null && inactiveDays > 14 ? 'Low' : 'Medium';
+  if (inactiveDays === null || inactiveDays <= 7) return 'High';
+  if (inactiveDays <= 14) return 'Medium';
+  return 'Low';
 }
 
 function buildAutoNotes(input: B2CUsersEntryInput): string {

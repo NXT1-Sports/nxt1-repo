@@ -339,10 +339,15 @@ function resolveSignUpDate(user: UserV2Document): Date | null {
 }
 
 function resolveLastActiveAt(user: UserV2Document): Date | null {
-  return (
-    toDate(user.lastLoginAt) ??
-    toDate((user as unknown as Record<string, unknown>)['updatedAt']) ??
-    toDate(user.onboardingCompletedAt)
+  const candidates = [
+    toDate(user.lastLoginAt),
+    toDate((user as unknown as Record<string, unknown>)['updatedAt']),
+    toDate(user.onboardingCompletedAt),
+  ].filter((value): value is Date => Boolean(value));
+
+  return candidates.reduce<Date | null>(
+    (latest, candidate) => (!latest || candidate.getTime() > latest.getTime() ? candidate : latest),
+    null
   );
 }
 
