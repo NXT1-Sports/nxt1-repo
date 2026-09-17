@@ -12,6 +12,7 @@ export { weeklyCleanup } from './weeklyCleanup';
 export { dailyBriefings } from './dailyBriefings';
 export { pushDrip } from './pushDrip';
 export { signupDrip } from './signupDrip';
+export { trialCreditNotifications } from './trialCreditNotifications';
 export { marketingOutbox } from './marketingOutbox';
 export { signupNotionDashboard } from './signupNotionDashboard';
 export { churnedNotionDashboard } from './churnedNotionDashboard';

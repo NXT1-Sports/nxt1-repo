@@ -827,8 +827,8 @@ export async function executeBillingDeduction(
     if (
       walletBalanceTransition &&
       chargeAmountCents > 0 &&
-      walletBalanceTransition.previousBalanceCents > 0 &&
-      walletBalanceTransition.newBalanceCents <= 0
+      walletBalanceTransition.previousBalanceCents > 100 &&
+      walletBalanceTransition.newBalanceCents <= 100
     ) {
       const isOrganizationOwner = walletBalanceTransition.ownerType === 'organization';
       const organizationId = walletBalanceTransition.organizationId;

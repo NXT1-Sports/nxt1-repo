@@ -50,7 +50,7 @@ describe('UsageShellWebComponent analytics', () => {
     vi.restoreAllMocks();
   });
 
-  it('tracks view_item and view_item_list when add credits is opened', async () => {
+  it('tracks view_item and view_item_list when payment options is opened', async () => {
     const component = createComponent();
     const testAccess = component as UsageShellWebTestAccess;
 

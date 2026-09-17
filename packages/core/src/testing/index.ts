@@ -579,6 +579,12 @@ export const USAGE_TEST_IDS = {
   OVERVIEW_BUY_CREDITS: 'usage-overview-buy-credits',
   OVERVIEW_VIEW_HISTORY: 'usage-overview-view-history',
 
+  // Trial credit conversion states
+  OVERVIEW_TRIAL_CARD: 'usage-overview-trial-card',
+  OVERVIEW_TRIAL_EXPIRING_BANNER: 'usage-overview-trial-expiring-banner',
+  OVERVIEW_TRIAL_ENDED_BANNER: 'usage-overview-trial-ended-banner',
+  OVERVIEW_INVOICE_BILLING_CARD: 'usage-overview-invoice-billing-card',
+
   // Timeframe filter
   TIMEFRAME_SELECT: 'usage-timeframe-select',
 
@@ -603,6 +609,7 @@ export const USAGE_TEST_IDS = {
   HISTORY_LOAD_MORE: 'usage-history-load-more',
   HISTORY_RECEIPT_BTN: 'usage-history-receipt-btn',
   HISTORY_INVOICE_BTN: 'usage-history-invoice-btn',
+  HISTORY_CANCEL_INVOICE_BTN: 'usage-history-cancel-invoice-btn',
 
   // Budget section
   BUDGET_SECTION: 'usage-budget-section',
@@ -658,10 +665,16 @@ export const USAGE_TEST_IDS = {
   BUY_CREDITS_MODAL: 'usage-buy-credits-modal',
   BUY_CREDITS_TAB_BUY: 'usage-buy-credits-tab-buy',
   BUY_CREDITS_TAB_TOPUP: 'usage-buy-credits-tab-topup',
+  BUY_CREDITS_TAB_INVOICE: 'usage-buy-credits-tab-invoice',
+  BUY_CREDITS_TAB_SUBSCRIPTION: 'usage-buy-credits-tab-subscription',
   BUY_CREDITS_PACKAGE: 'usage-buy-credits-package',
   BUY_CREDITS_CUSTOM_AMOUNT_INPUT: 'usage-buy-credits-custom-amount-input',
   BUY_CREDITS_BUY_BTN: 'usage-buy-credits-buy-btn',
   BUY_CREDITS_IAP_BTN: 'usage-buy-credits-iap-btn',
+  BUY_CREDITS_PO_INPUT: 'usage-buy-credits-po-input',
+  BUY_CREDITS_NET_TERMS_SELECT: 'usage-buy-credits-net-terms-select',
+  BUY_CREDITS_INVOICE_BTN: 'usage-buy-credits-invoice-btn',
+  BUY_CREDITS_SUBSCRIPTION_BTN: 'usage-buy-credits-subscription-btn',
   BUY_CREDITS_TOPUP_TOGGLE: 'usage-buy-credits-topup-toggle',
   BUY_CREDITS_TOPUP_THRESHOLD: 'usage-buy-credits-topup-threshold',
   BUY_CREDITS_TOPUP_AMOUNT: 'usage-buy-credits-topup-amount',

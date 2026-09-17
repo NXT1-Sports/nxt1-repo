@@ -325,6 +325,7 @@ export const USAGE_API_ENDPOINTS = {
   autoTopUp: '/usage/auto-topup',
   billingMode: '/usage/billing-mode',
   invoiceTopUp: '/usage/invoice-topup',
+  cancelInvoice: '/usage/invoice',
 } as const;
 
 // ============================================

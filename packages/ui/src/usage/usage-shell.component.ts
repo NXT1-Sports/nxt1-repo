@@ -60,6 +60,7 @@ import { UsageSkeletonComponent } from './usage-skeleton.component';
 import { UsageHelpContentComponent } from './usage-help-content.component';
 import { UsageErrorStateComponent } from './usage-error-state.component';
 import { UsageBottomSheetService } from './usage-bottom-sheet.service';
+import type { CustomSubscriptionProfile } from './custom-subscription-request.component';
 import { AgentXControlPanelComponent } from '../agent-x';
 import { UsageOrgMemberStubComponent } from './usage-org-member-stub.component';
 import {
@@ -77,6 +78,10 @@ import {
 export interface UsageUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
+  readonly email?: string | null;
+  readonly organization?: string | null;
+  readonly role?: string | null;
+  readonly sport?: string | null;
 }
 
 @Component({
@@ -257,6 +262,7 @@ export interface UsageUser {
                         (switchToBillingMode)="onSwitchBillingMode($event)"
                         (downloadReceipt)="onDownloadReceipt($event)"
                         (downloadInvoice)="onDownloadInvoice($event)"
+                        (cancelInvoice)="onCancelInvoice($event)"
                         (loadMore)="svc.loadMoreHistory()"
                       />
                     }
@@ -869,20 +875,40 @@ export class UsageShellComponent implements OnInit, OnDestroy {
 
     this.svc.trackCreditPackageListViewed(organizationId);
 
-    const { amountCents, autoTopup } = await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
-      autoTopupEnabled: this.svc.autoTopUpEnabled(),
-      autoTopupThresholdCents: this.svc.autoTopUpThresholdCents(),
-      autoTopupAmountCents: this.svc.autoTopUpAmountCents(),
-      allowIap: this.svc.isPersonalBillingMode(),
-      organizationId,
-      hasSavedDefaultMethod: this.svc.defaultPaymentMethod() !== null,
-    });
+    const { amountCents, autoTopup, invoice } =
+      await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
+        autoTopupEnabled: this.svc.autoTopUpEnabled(),
+        autoTopupThresholdCents: this.svc.autoTopUpThresholdCents(),
+        autoTopupAmountCents: this.svc.autoTopUpAmountCents(),
+        allowIap: this.svc.isPersonalBillingMode(),
+        organizationId,
+        hasSavedDefaultMethod: this.svc.defaultPaymentMethod() !== null,
+        profile: this.subscriptionProfile(),
+      });
     if (amountCents !== null) {
       await this.svc.buyCredits(amountCents, organizationId);
     }
     if (autoTopup !== null) {
       await this.svc.configureAutoTopUp(autoTopup);
     }
+    if (invoice !== null) {
+      await this.svc.requestInvoiceTopUp(invoice.amountCents, invoice.poNumber, invoice.netDays);
+    }
+  }
+
+  private subscriptionProfile(): CustomSubscriptionProfile | null {
+    const user = this.user();
+    if (!user) return null;
+
+    const role = user.role === 'coach' || user.role === 'director' ? user.role : 'other';
+
+    return {
+      name: user.displayName,
+      email: user.email,
+      organization: user.organization,
+      role,
+      sport: user.sport,
+    };
   }
 
   protected async onSwitchBillingMode(billingMode: 'personal' | 'organization'): Promise<void> {
@@ -907,6 +933,12 @@ export class UsageShellComponent implements OnInit, OnDestroy {
   protected async onDownloadInvoice(recordId: string): Promise<void> {
     await this.haptics.impact('light');
     await this.svc.openInvoice(recordId);
+  }
+
+  protected async onCancelInvoice(recordId: string): Promise<void> {
+    if (typeof window !== 'undefined' && !window.confirm('Cancel this unpaid invoice?')) return;
+    await this.haptics.impact('medium');
+    await this.svc.cancelInvoice(recordId);
   }
 
   protected async onCreateBudget(): Promise<void> {

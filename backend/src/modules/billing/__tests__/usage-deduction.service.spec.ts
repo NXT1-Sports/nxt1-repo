@@ -100,7 +100,7 @@ describe('executeBillingDeduction', () => {
       teamIds: [],
     });
     mockRecordSpend.mockResolvedValueOnce({
-      previousBalanceCents: 95,
+      previousBalanceCents: 195,
       newBalanceCents: 0,
       ownerUserId: 'user_personal',
       ownerType: 'individual',
@@ -133,7 +133,7 @@ describe('executeBillingDeduction', () => {
       organizationId: undefined,
       operationId: 'op_personal_guardrail',
       feature: 'write-intel',
-      baselineCents: 95,
+      baselineCents: 195,
       newBalanceCents: 0,
       environment: 'production',
     });

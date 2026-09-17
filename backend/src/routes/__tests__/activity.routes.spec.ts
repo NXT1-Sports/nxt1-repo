@@ -7,16 +7,13 @@
  * and are exercised in the CI/staging environment.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect } from 'vitest';
+
+// Imported statically so the (large) route dependency graph loads during
+// collection instead of inside a timeout-bounded hook.
+import router from '../../routes/feed/activity.routes.js';
 
 describe('Activity Routes', () => {
-  let router: ReturnType<typeof import('express').Router>;
-
-  beforeAll(async () => {
-    const module = await import('../../routes/feed/activity.routes.js');
-    router = module.default;
-  }, 15_000);
-
   it('should export a valid Express router', () => {
     expect(router).toBeDefined();
     expect(typeof router).toBe('function');

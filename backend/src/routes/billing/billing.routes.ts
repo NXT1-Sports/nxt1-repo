@@ -7,6 +7,9 @@
 
 import { Router, type Request, type Response } from 'express';
 import { Types } from 'mongoose';
+import type { UsageTrialState } from '@nxt1/core';
+import type { WalletTrialState } from '@nxt1/core/usage';
+import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
 import { appGuard, cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { getCacheService } from '../../services/core/cache.service.js';
@@ -35,6 +38,7 @@ import {
   getPersonalBillingSummary,
   hasConfiguredOrganizationBilling,
   expireStaleHolds,
+  sendTrialCreditNotifications,
   UsageEventStatus,
   type UsageEvent,
 } from '../../modules/billing/index.js';
@@ -574,6 +578,32 @@ router.get('/usage/features', async (_req: Request, res: Response) => {
 // BUDGET MANAGEMENT
 // ============================================
 
+/** Project a wallet's raw trial metadata into the API-facing shape (adds server-computed daysRemaining). */
+function toUsageTrialState(
+  trial: WalletTrialState | undefined | null,
+  hasPaidHistory = false
+): UsageTrialState | null {
+  if (!trial) return null;
+
+  const isConverted = trial.status === 'converted' || hasPaidHistory;
+
+  const daysRemaining = Math.max(
+    0,
+    Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / 86_400_000)
+  );
+
+  return {
+    grantCents: trial.grantCents,
+    startedAt: trial.startedAt,
+    expiresAt: trial.expiresAt,
+    daysRemaining,
+    status: isConverted ? 'converted' : trial.status,
+    convertedAt: isConverted ? (trial.convertedAt ?? new Date().toISOString()) : null,
+    conversionSource: isConverted ? (trial.conversionSource ?? 'credit_purchase') : null,
+    displayMode: trial.displayMode,
+  };
+}
+
 /**
  * GET /api/v1/billing/budget
  * Get the current user's billing context (budget, spend, etc.)
@@ -654,6 +684,12 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         ? await buildAvailableBudgetTargets(db, target.organizationId)
         : undefined;
 
+    const hasPaidPaymentHistory =
+      (await PaymentLogModel.exists({
+        userId: target.billingUserId,
+        status: 'PAID',
+      })) !== null;
+
     return res.json({
       success: true,
       data: {
@@ -683,6 +719,7 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         hasOrganizationBilling,
         orgWalletEmpty: ctx.billingEntity !== 'individual' && walletBalance <= 0,
         availableBudgetTargets,
+        trial: toUsageTrialState(ctx.trial, hasPaidPaymentHistory),
       },
     });
   } catch (error) {
@@ -1344,6 +1381,27 @@ router.post('/cron/expire-stale-holds', cronGuard, async (req: Request, res: Res
     logger.error('[POST /cron/expire-stale-holds] Failed', { error });
     return res.status(500).json({
       error: 'Failed to expire stale holds',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+router.post('/cron/trial-credit-notifications', cronGuard, async (req: Request, res: Response) => {
+  try {
+    const db = req.firebase?.db;
+    if (!db) {
+      return res.status(503).json({ error: 'Firebase context unavailable' });
+    }
+
+    const limit = typeof req.body?.limit === 'number' ? req.body.limit : undefined;
+    const result = await sendTrialCreditNotifications(db, { limit });
+
+    logger.info('[POST /cron/trial-credit-notifications] Completed', { result: { ...result } });
+    return res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('[POST /cron/trial-credit-notifications] Failed', { error });
+    return res.status(500).json({
+      error: 'Failed to send trial credit notifications',
       message: error instanceof Error ? error.message : 'Unknown error',
     });
   }

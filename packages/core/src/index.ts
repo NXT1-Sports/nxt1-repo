@@ -1300,6 +1300,7 @@ export {
 
 export {
   type DemoRequestRole,
+  type DemoRequestType,
   type DemoRequestSubmission,
   type DemoRequestRecord,
   type DemoRequestResponse,

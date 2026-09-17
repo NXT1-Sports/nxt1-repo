@@ -3,17 +3,14 @@
  * @module @nxt1/backend/routes/__tests__/help-center
  */
 
-import { beforeAll, describe, it } from 'vitest';
+import { describe, it } from 'vitest';
 import { expectExpressRouter } from './route-test.utils.js';
 
+// Imported statically so the (large) route dependency graph loads during
+// collection instead of inside a timeout-bounded hook.
+import router from '../../routes/platform/help-center.routes.js';
+
 describe('Help Center Routes', () => {
-  let router: unknown;
-
-  beforeAll(async () => {
-    const module = await import('../../routes/platform/help-center.routes.js');
-    router = module.default;
-  }, 15_000);
-
   it('should register the help center endpoints', () => {
     expectExpressRouter(
       router,

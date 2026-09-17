@@ -17,6 +17,7 @@ export { BuyCreditsModalComponent } from './web/buy-credits-modal.component';
 export { BuyCreditsAutoTopupModalComponent } from './web/buy-credits-autotopup-modal.component';
 export type { BuyCreditsAutoTopupResult, AutoTopupSettings } from './buy-credits-flow.shared';
 export { BuyCreditsAutoTopupSheetComponent } from './buy-credits-autotopup-sheet.component';
+export { CustomSubscriptionRequestComponent } from './custom-subscription-request.component';
 
 // Landing Page (public marketing)
 export { NxtUsageLandingComponent } from './usage-landing.component';

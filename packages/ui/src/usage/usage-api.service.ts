@@ -12,11 +12,13 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
   createUsageApi,
+  createDemoRequestApi,
   type UsageApi,
   type UsageDashboardData,
   type BillingStateSummary,
   type UsageTimeframe,
 } from '@nxt1/core';
+import type { DemoRequestSubmission } from '@nxt1/core';
 
 /**
  * Injection token for Usage API base URL.
@@ -59,6 +61,20 @@ export class UsageApiService {
     },
     this.baseUrl
   );
+
+  private readonly demoRequestApi = createDemoRequestApi(
+    {
+      get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
+      post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
+      put: <T>(url: string) => firstValueFrom(this.http.put<T>(url, {})),
+      patch: <T>(url: string) => firstValueFrom(this.http.patch<T>(url, {})),
+      delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
+    },
+    this.baseUrl
+  );
+
+  readonly submitCustomSubscriptionRequest = (input: DemoRequestSubmission) =>
+    this.demoRequestApi.submit(input);
 
   // ── Dashboard ────────────────────────────────
 
@@ -195,6 +211,7 @@ export class UsageApiService {
 
   readonly getReceiptUrl: UsageApi['getReceiptUrl'] = this.api.getReceiptUrl;
   readonly getInvoiceUrl: UsageApi['getInvoiceUrl'] = this.api.getInvoiceUrl;
+  readonly cancelInvoice: UsageApi['cancelInvoice'] = this.api.cancelInvoice;
   readonly redeemCoupon: UsageApi['redeemCoupon'] = this.api.redeemCoupon;
 
   // ── Budget Management ────────────────────────

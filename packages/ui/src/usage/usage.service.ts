@@ -31,6 +31,9 @@ import {
   type UsageBillingInfo,
   type UsageCoupon,
   type UsageBudget,
+  type UsageTrialState,
+  TRIAL_EXPIRING_SOON_DAYS,
+  TRIAL_EXPIRING_CRITICAL_DAYS,
 } from '@nxt1/core';
 import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
@@ -638,6 +641,43 @@ export class UsageService implements OnDestroy {
     () => this._billingContext()?.pendingHoldsCents ?? this._overview()?.pendingHoldsCents ?? 0
   );
 
+  // ============================================
+  // TRIAL CREDIT SIGNALS
+  // ============================================
+
+  /** Introductory trial credit state, or null when not on a trial (e.g. org billing). */
+  readonly trial = computed<UsageTrialState | null>(
+    () => this._overview()?.trial ?? this._billingContext()?.trial ?? null
+  );
+
+  /** True while the trial is active and has not expired or converted. */
+  readonly isTrialActive = computed(() => this.trial()?.status === 'active');
+
+  /** True once the trial has lapsed with no conversion — wallet balance is $0. */
+  readonly isTrialExpired = computed(() => this.trial()?.status === 'expired');
+
+  /** True once the user has converted via credit purchase or invoice billing. */
+  readonly isTrialConverted = computed(() => this.trial()?.status === 'converted');
+
+  /** True when the account is billed by invoice and should hide credit depletion UI. */
+  readonly isInvoiceBillingMode = computed(() => this.trial()?.displayMode === 'invoice');
+
+  /** Days remaining in the trial window (server-computed). */
+  readonly trialDaysRemaining = computed(() => this.trial()?.daysRemaining ?? 0);
+
+  /** True when the trial is active and within the "expiring soon" warning window. */
+  readonly isTrialExpiringSoon = computed(
+    () => this.isTrialActive() && this.trialDaysRemaining() <= TRIAL_EXPIRING_SOON_DAYS
+  );
+
+  /** True when the trial is active and within the stronger "expiring critical" warning window. */
+  readonly isTrialExpiringCritical = computed(
+    () => this.isTrialActive() && this.trialDaysRemaining() <= TRIAL_EXPIRING_CRITICAL_DAYS
+  );
+
+  /** True when the trial is active and the wallet balance has been fully spent. */
+  readonly isTrialDepleted = computed(() => this.isTrialActive() && this.walletBalanceCents() <= 0);
+
   /** Whether auto top-up is configured */
   readonly autoTopUpEnabled = computed(() => this._autoTopUpEnabled());
   readonly autoTopUpThresholdCents = computed(() => this._autoTopUpThresholdCents());
@@ -1168,6 +1208,21 @@ export class UsageService implements OnDestroy {
     }
   }
 
+  /** Cancel an unpaid organization invoice and refresh payment history. */
+  async cancelInvoice(recordId: string): Promise<void> {
+    this.logger.info('Canceling invoice', { recordId });
+    try {
+      await this.api.cancelInvoice(recordId);
+      this.analytics?.trackEvent(APP_EVENTS.USAGE_INVOICE_CANCELED, { recordId });
+      this.toast.success('Invoice canceled');
+      await this.loadDashboard(true);
+    } catch (err) {
+      this.logger.error('Failed to cancel invoice', err, { recordId });
+      this.toast.error(err instanceof Error ? err.message : 'Unable to cancel invoice');
+      await this.haptics.notification('error');
+    }
+  }
+
   // ============================================
   // BUDGET MANAGEMENT
   // ============================================
@@ -1319,6 +1374,61 @@ export class UsageService implements OnDestroy {
   }
 
   /**
+   * Request an invoice-based credit top-up for organizations (PO / Net terms).
+   * Generates a Stripe invoice with net payment terms sent to the billing contact.
+   */
+  async requestInvoiceTopUp(
+    amountCents: number,
+    poNumber?: string,
+    netDays: 30 | 45 | 60 = 30
+  ): Promise<boolean> {
+    this.logger.info('Requesting invoice top-up', { amountCents, poNumber, netDays });
+    this.breadcrumb.trackStateChange('usage:requesting-invoice-topup', {
+      amountCents,
+      poNumber,
+      netDays,
+    });
+
+    const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
+
+    try {
+      const result = await this.runWithSharedLoader({ message: 'Creating invoice...' }, () =>
+        this.api.requestInvoiceTopUp({ amountCents, poNumber, netDays })
+      );
+
+      this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_REQUESTED, {
+        amountCents,
+        poNumber: poNumber ?? null,
+        netDays,
+        invoiceId: result.invoiceId,
+        billingEntity: 'organization',
+      });
+
+      await this.haptics.notification('success');
+      this.toast.success('Invoice created and sent to your billing email.');
+
+      const viewUrl = result.hostedInvoiceUrl || result.invoiceUrl;
+      if (viewUrl) {
+        if (isNativePlatform) {
+          await this.browser.open({ url: viewUrl, presentationStyle: 'fullscreen' });
+        } else if (typeof window !== 'undefined') {
+          window.open(viewUrl, '_blank', 'noopener,noreferrer');
+        }
+      }
+
+      // Reload dashboard so payment history includes the new PENDING invoice.
+      await this.loadDashboard(true);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to request invoice';
+      this.logger.error('Failed to request invoice top-up', err, { amountCents, poNumber });
+      this.toast.error(message);
+      await this.haptics.notification('error');
+      return false;
+    }
+  }
+
+  /**
    * Toggle between org wallet billing and personal wallet billing.
    * Used by org roster members when the org wallet is empty.
    */
@@ -1405,37 +1515,6 @@ export class UsageService implements OnDestroy {
       this.toast.error(message);
       await this.haptics.notification('error');
       return false;
-    }
-  }
-
-  /**
-   * Request an invoice-based wallet top-up for school districts / large orgs.
-   * Creates and sends a Stripe Invoice with net payment terms.
-   */
-  async requestInvoiceTopUp(request: {
-    amountCents: number;
-    poNumber?: string;
-    netDays: 30 | 45 | 60;
-  }): Promise<{
-    invoiceId: string;
-    invoiceUrl: string | null;
-    hostedInvoiceUrl: string | null;
-  } | null> {
-    this.logger.info('Requesting invoice top-up', request);
-    this.breadcrumb.trackStateChange('usage:invoice-topup', request);
-    try {
-      const result = (await this.runWithSharedLoader({ message: 'Creating invoice...' }, () =>
-        this.api.requestInvoiceTopUp(request)
-      )) as { invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string };
-      await this.haptics.notification('success');
-      this.toast.success('Invoice sent — funds will be credited when payment is received');
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create invoice';
-      this.logger.error('Failed to request invoice top-up', err, request);
-      this.toast.error(message);
-      await this.haptics.notification('error');
-      return null;
     }
   }
 

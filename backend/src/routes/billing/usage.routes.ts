@@ -168,7 +168,9 @@ import type {
   UsageProductCategory,
   UsagePaymentMethod,
   UsageBillingInfo,
+  UsageTrialState,
 } from '@nxt1/core';
+import type { WalletTrialState } from '@nxt1/core/usage';
 
 const router = Router();
 
@@ -273,6 +275,32 @@ function formatPeriodLabel(start: Date, end: Date): string {
 
 function getUsageEventCost(doc: UsageEventDocument): number {
   return doc.unitCostSnapshot * doc.quantity;
+}
+
+/** Project a wallet's raw trial metadata into the API-facing shape (adds server-computed daysRemaining). */
+function toUsageTrialState(
+  trial: WalletTrialState | undefined | null,
+  hasPaidHistory = false
+): UsageTrialState | null {
+  if (!trial) return null;
+
+  const isConverted = trial.status === 'converted' || hasPaidHistory;
+
+  const daysRemaining = Math.max(
+    0,
+    Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / 86_400_000)
+  );
+
+  return {
+    grantCents: trial.grantCents,
+    startedAt: trial.startedAt,
+    expiresAt: trial.expiresAt,
+    daysRemaining,
+    status: isConverted ? 'converted' : trial.status,
+    convertedAt: isConverted ? (trial.convertedAt ?? new Date().toISOString()) : null,
+    conversionSource: isConverted ? (trial.conversionSource ?? 'credit_purchase') : null,
+    displayMode: trial.displayMode,
+  };
 }
 
 function isCurrentMonthTimeframe(timeframe: string): boolean {
@@ -1528,6 +1556,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const platformConfig = await getPlatformConfig(db);
 
+    const hasPaidPaymentHistory = (paymentLogsSnap as PaymentLogDocument[]).some(
+      (doc) => normalizePaymentStatus(doc.status) === 'completed' && (doc.amountPaid ?? 0) > 0
+    );
+
     // Build overview (includes wallet fields for B2C UI fork)
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
@@ -1544,6 +1576,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
       lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
+      trial: toUsageTrialState(billingCtx.trial, hasPaidPaymentHistory),
     };
 
     // Build chart data — stop at today so the line doesn't extend into future days
@@ -1624,6 +1657,8 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
         dateLabel: toISOString(doc.createdAt).slice(0, 10),
         receiptUrl: doc.receiptUrl ?? null,
         invoiceUrl: doc.invoiceUrl ?? null,
+        canCancelInvoice:
+          isOrgAdmin && doc.status === 'PENDING' && doc.type === 'org_invoice_topup',
       };
     });
 
@@ -1829,6 +1864,13 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const platformConfig = await getPlatformConfig(db);
     timing.platformConfigMs = Date.now() - platformConfigStartedAt;
 
+    const resolvedTargetForOverview = target ?? (await resolveBillingTarget(db, userId));
+    const hasPaidPaymentHistory =
+      (await PaymentLogModel.exists({
+        userId: resolvedTargetForOverview.billingUserId,
+        status: 'PAID',
+      })) !== null;
+
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
       nextPaymentDueDate: end.toISOString(),
@@ -1844,6 +1886,7 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
       lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
+      trial: toUsageTrialState(billingCtx.trial, hasPaidPaymentHistory),
     };
 
     timing.totalMs = Date.now() - startedAt;
@@ -2017,6 +2060,20 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
+    let canCancelOrgInvoices = false;
+    if (target.type === 'organization' && target.organizationId) {
+      const [userDoc, orgDoc] = await Promise.all([
+        db.collection('Users').doc(userId).get(),
+        db.collection('Organizations').doc(target.organizationId).get(),
+      ]);
+      const role = userDoc.data()?.['role'] as string | undefined;
+      const orgData = orgDoc.data() ?? {};
+      const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+      canCancelOrgInvoices =
+        role === 'director' ||
+        orgData['ownerId'] === userId ||
+        admins.some((admin) => admin.userId === userId);
+    }
 
     // Get total count + paginated results in parallel
     const [total, paginatedDocs] = await Promise.all([
@@ -2044,6 +2101,8 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
           dateLabel: toISOString(doc.createdAt).slice(0, 10),
           receiptUrl: doc.receiptUrl ?? null,
           invoiceUrl: doc.invoiceUrl ?? null,
+          canCancelInvoice:
+            canCancelOrgInvoices && doc.status === 'PENDING' && doc.type === 'org_invoice_topup',
         };
       }
     );
@@ -2985,6 +3044,8 @@ router.post(
         customer: customerId,
         collection_method: 'send_invoice',
         days_until_due: netDays,
+        pending_invoice_items_behavior: 'include',
+        custom_fields: poNumber ? [{ name: 'PO Number', value: poNumber }] : undefined,
         metadata: {
           userId,
           organizationId,
@@ -2998,6 +3059,28 @@ router.post(
 
       const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
       await stripe.invoices.sendInvoice(finalizedInvoice.id);
+
+      await PaymentLogModel.findOneAndUpdate(
+        { invoiceId: finalizedInvoice.id },
+        {
+          $setOnInsert: {
+            invoiceId: finalizedInvoice.id,
+            customerId,
+            userId: `org:${organizationId}`,
+            organizationId,
+            amountDue: amountCents / 100,
+            amountPaid: 0,
+            currency: 'usd',
+            status: 'PENDING',
+            paymentMethodLabel: poNumber ? `Invoice (PO #${poNumber})` : `Invoice (Net ${netDays})`,
+            type: 'org_invoice_topup',
+            invoiceUrl: finalizedInvoice.invoice_pdf ?? finalizedInvoice.hosted_invoice_url ?? null,
+            rawEvent: finalizedInvoice as unknown as Record<string, unknown>,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
 
       logger.info('[POST /invoice-topup] Invoice created and sent', {
         userId,
@@ -3024,6 +3107,68 @@ router.post(
     }
   }
 );
+
+/**
+ * DELETE /api/v1/usage/invoice/:transactionId
+ * Void an unpaid organization invoice requested by the current org admin.
+ */
+router.delete('/invoice/:transactionId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const userId = req.user!.uid;
+    const db = req.firebase?.db;
+    if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+    const billingCtx = await getBillingSummary(db, userId);
+    if (billingCtx?.billingEntity !== 'organization' || !billingCtx.organizationId) {
+      return res
+        .status(403)
+        .json({ error: 'Invoice cancellation is only available for organization accounts' });
+    }
+
+    const organizationId = billingCtx.organizationId;
+    const orgDoc = await db.collection('Organizations').doc(organizationId).get();
+    const orgData = orgDoc.data() ?? {};
+    const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+    const isAdmin =
+      orgData['ownerId'] === userId || admins.some((admin) => admin.userId === userId);
+    if (!isAdmin) {
+      return res.status(403).json({ error: 'Only org admins can cancel invoices' });
+    }
+
+    const paymentLog = await PaymentLogModel.findById(req.params['transactionId']);
+    if (!paymentLog || paymentLog.organizationId !== organizationId) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    if (paymentLog.type !== 'org_invoice_topup' || paymentLog.status !== 'PENDING') {
+      return res.status(409).json({ error: 'Only pending organization invoices can be canceled' });
+    }
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const stripe = getStripeClient(environment);
+    await stripe.invoices.voidInvoice(paymentLog.invoiceId);
+    await PaymentLogModel.findByIdAndUpdate(paymentLog._id, {
+      $set: {
+        status: 'VOID',
+        updatedAt: new Date(),
+      },
+    });
+
+    logger.info('[DELETE /invoice/:transactionId] Invoice voided', {
+      userId,
+      organizationId,
+      transactionId: req.params['transactionId'],
+      invoiceId: paymentLog.invoiceId,
+    });
+
+    return res.json({ success: true });
+  } catch (error) {
+    logger.error('[DELETE /invoice/:transactionId] Failed to void invoice', { error });
+    return res.status(500).json({
+      error: 'Failed to cancel invoice',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
 
 /**
  * GET /api/v1/usage/budgets

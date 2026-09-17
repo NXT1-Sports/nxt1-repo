@@ -40,7 +40,10 @@ import { formatPrice } from '@nxt1/core';
 import { TEST_IDS } from '@nxt1/core/testing';
 import {
   CREDIT_PACKAGES_USD,
+  INVOICE_PACKAGES_USD,
+  INVOICE_NET_TERMS_DAYS,
   MIN_CUSTOM_CREDIT_PURCHASE_CENTS,
+  MIN_INVOICE_PURCHASE_CENTS,
   THRESHOLD_PRESETS_CENTS,
   TOPUP_AMOUNT_PRESETS_CENTS,
   normalizeUsdInput,
@@ -48,8 +51,13 @@ import {
   type BuyCreditsAutoTopupResult,
   type BuyCreditsTab,
   type CreditPackageUsd,
+  type InvoicePackageUsd,
 } from '../buy-credits-flow.shared';
 import { UsageService } from '../usage.service';
+import {
+  CustomSubscriptionRequestComponent,
+  type CustomSubscriptionProfile,
+} from '../custom-subscription-request.component';
 
 // ============================================
 // COMPONENT
@@ -58,14 +66,14 @@ import { UsageService } from '../usage.service';
 @Component({
   selector: 'nxt1-buy-credits-autotopup-modal',
   standalone: true,
-  imports: [NxtModalHeaderComponent],
+  imports: [NxtModalHeaderComponent, CustomSubscriptionRequestComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bc-modal" [attr.data-testid]="testIds.BUY_CREDITS_MODAL">
       <!-- Header -->
       <nxt1-modal-header
-        title="Add Credits"
-        icon="card-outline"
+        [title]="headerTitle()"
+        [icon]="headerIcon()"
         [showIcon]="true"
         iconShape="circle"
         (closeModal)="close.emit(null)"
@@ -99,6 +107,63 @@ import { UsageService } from '../usage.service';
           </svg>
           Add Credits
         </button>
+        @if (organizationId()) {
+          <button
+            type="button"
+            class="bc-tab"
+            [class.bc-tab--active]="activeTab() === 'subscription'"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'subscription'"
+            [attr.data-testid]="testIds.BUY_CREDITS_TAB_SUBSCRIPTION"
+            (click)="activeTab.set('subscription')"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 21a8 8 0 0 0-16 0" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Subscription
+          </button>
+          <button
+            type="button"
+            class="bc-tab"
+            [class.bc-tab--active]="activeTab() === 'invoice'"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'invoice'"
+            [attr.data-testid]="testIds.BUY_CREDITS_TAB_INVOICE"
+            (click)="activeTab.set('invoice')"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+              <polyline points="10 9 9 9 8 9" />
+            </svg>
+            Pay by Invoice
+          </button>
+        }
         <button
           type="button"
           class="bc-tab"
@@ -318,6 +383,138 @@ import { UsageService } from '../usage.service';
           }
         </div>
       }
+
+      <!-- ==================== PAY BY INVOICE TAB ==================== -->
+      @if (activeTab() === 'invoice') {
+        <div class="bc-body" role="tabpanel" aria-label="Pay by Invoice">
+          <p class="bc-subtitle">
+            Request a formal Stripe invoice with net payment terms for your school or organization.
+            Credits are added to your team wallet as soon as the invoice is paid.
+          </p>
+
+          <div class="bc-packages-grid">
+            @for (usd of invoicePackages; track usd) {
+              <button
+                type="button"
+                class="bc-package"
+                [class.bc-package--selected]="selectedInvoicePackageUsd() === usd"
+                [attr.data-testid]="testIds.BUY_CREDITS_PACKAGE"
+                (click)="selectInvoicePackage(usd)"
+              >
+                <span class="bc-package-amount">\${{ usd }}</span>
+                <span class="bc-package-label">{{ usd * 100 }} credits</span>
+              </button>
+            }
+          </div>
+
+          <div class="bc-custom-amount">
+            <div class="bc-custom-amount-header">
+              <span class="bc-setting-label">Custom amount</span>
+              <span class="bc-custom-amount-hint"> Minimum {{ minimumInvoiceAmountLabel }} </span>
+            </div>
+
+            <label
+              class="bc-custom-input-shell"
+              [class.bc-custom-input-shell--active]="customInvoiceAmountUsd().length > 0"
+              [class.bc-custom-input-shell--invalid]="customInvoiceAmountError() !== null"
+            >
+              <span class="bc-custom-input-prefix">$</span>
+              <input
+                #customInvoiceInput
+                type="text"
+                inputmode="decimal"
+                class="bc-custom-input"
+                placeholder="Enter amount"
+                [value]="customInvoiceAmountUsd()"
+                [attr.data-testid]="testIds.BUY_CREDITS_CUSTOM_AMOUNT_INPUT"
+                (input)="onCustomInvoiceAmountInput(customInvoiceInput.value)"
+              />
+            </label>
+
+            @if (customInvoiceAmountError()) {
+              <p class="bc-custom-amount-feedback bc-custom-amount-feedback--error">
+                {{ customInvoiceAmountError() }}
+              </p>
+            } @else if (
+              selectedInvoicePackageUsd() === null && selectedInvoiceAmountCents() !== null
+            ) {
+              <p class="bc-custom-amount-feedback">
+                {{ formatCents(selectedInvoiceAmountCents() ?? 0) }} invoice ·
+                {{ selectedInvoiceAmountCents() ?? 0 }} credits
+              </p>
+            } @else {
+              <p class="bc-custom-amount-feedback">
+                Minimum invoice request is {{ minimumInvoiceAmountLabel }}.
+              </p>
+            }
+          </div>
+
+          <!-- Purchase Order number -->
+          <div class="bc-setting-group">
+            <div class="bc-setting-header">
+              <label class="bc-setting-label">Purchase Order (PO) number (optional)</label>
+              <span class="bc-custom-amount-hint">For school / district procurement</span>
+            </div>
+            <label class="bc-text-input-shell">
+              <input
+                #poInput
+                type="text"
+                class="bc-text-input"
+                placeholder="e.g. PO-2026-9481"
+                [value]="poNumber()"
+                [attr.data-testid]="testIds.BUY_CREDITS_PO_INPUT"
+                (input)="poNumber.set(poInput.value)"
+              />
+            </label>
+          </div>
+
+          <!-- Net Terms -->
+          <div class="bc-setting-group">
+            <label class="bc-setting-label">Payment terms</label>
+            <div class="bc-preset-row">
+              @for (days of netTermsOptions; track days) {
+                <button
+                  type="button"
+                  class="bc-preset-btn"
+                  [class.bc-preset-btn--active]="selectedNetDays() === days"
+                  [attr.data-testid]="testIds.BUY_CREDITS_NET_TERMS_SELECT"
+                  (click)="selectedNetDays.set(days)"
+                >
+                  Net {{ days }}
+                </button>
+              }
+            </div>
+          </div>
+
+          <div class="bc-topup-summary">
+            A Stripe invoice for
+            <strong>{{ selectedInvoiceAmountLabel() ?? '$0.00' }}</strong> (Net
+            {{ selectedNetDays() }}) will be sent to your billing email. You can pay via ACH, wire
+            transfer, corporate card, or check.
+          </div>
+
+          <!-- Submit invoice button -->
+          <button
+            type="button"
+            class="bc-primary-btn"
+            [disabled]="selectedInvoiceAmountCents() === null"
+            [attr.data-testid]="testIds.BUY_CREDITS_INVOICE_BTN"
+            (click)="onRequestInvoice()"
+          >
+            @if (selectedInvoiceAmountLabel()) {
+              Request Invoice for {{ selectedInvoiceAmountLabel() }} (Net {{ selectedNetDays() }})
+            } @else {
+              Select an invoice amount
+            }
+          </button>
+        </div>
+      }
+
+      @if (activeTab() === 'subscription') {
+        <div class="bc-body" role="tabpanel" aria-label="Subscription">
+          <nxt1-custom-subscription-request [profile]="profile()" (close)="close.emit(null)" />
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -330,6 +527,7 @@ import { UsageService } from '../usage.service';
       .bc-modal {
         display: flex;
         flex-direction: column;
+        height: 640px;
         max-height: 85vh;
         overflow: hidden;
         width: min(100%, 680px);
@@ -685,10 +883,52 @@ import { UsageService } from '../usage.service';
         gap: 8px;
       }
 
+      .bc-setting-header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+
       .bc-setting-label {
         font-size: 13px;
         font-weight: 500;
         color: var(--nxt1-color-text-secondary, #94a3b8);
+      }
+
+      .bc-text-input-shell {
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        min-height: 44px;
+        border-radius: 10px;
+        border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+        background: var(--nxt1-color-surface-base, rgba(255, 255, 255, 0.02));
+        transition:
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .bc-text-input-shell:focus-within {
+        border-color: var(--nxt1-color-primary, currentColor);
+        background: var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+        box-shadow: 0 0 0 3px var(--nxt1-color-alpha-primary20, rgba(255, 255, 255, 0.08));
+      }
+
+      .bc-text-input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        outline: none;
+        background: transparent;
+        color: var(--nxt1-color-text-primary, #f1f5f9);
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .bc-text-input::placeholder {
+        color: var(--nxt1-color-text-tertiary, #64748b);
       }
 
       .bc-preset-row {
@@ -766,6 +1006,7 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   readonly organizationId = input<string | null>(null);
   /** Whether a saved payment method allows direct card charging. */
   readonly hasSavedDefaultMethod = input(false);
+  readonly profile = input<CustomSubscriptionProfile | null>(null);
 
   // ----------------------------------------
   // Output
@@ -780,9 +1021,12 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
 
   protected readonly testIds = TEST_IDS.USAGE;
   protected readonly packages = CREDIT_PACKAGES_USD;
+  protected readonly invoicePackages = INVOICE_PACKAGES_USD;
   protected readonly thresholdPresets = THRESHOLD_PRESETS_CENTS;
   protected readonly amountPresets = TOPUP_AMOUNT_PRESETS_CENTS;
+  protected readonly netTermsOptions = INVOICE_NET_TERMS_DAYS;
   protected readonly minimumCustomAmountLabel = formatPrice(MIN_CUSTOM_CREDIT_PURCHASE_CENTS);
+  protected readonly minimumInvoiceAmountLabel = formatPrice(MIN_INVOICE_PURCHASE_CENTS);
 
   // ----------------------------------------
   // UI state
@@ -791,6 +1035,36 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   protected readonly activeTab = signal<BuyCreditsTab>('buy');
   private readonly usage = inject(UsageService);
   private lastTrackedCartSelectionKey: string | null = null;
+
+  /** Dynamic modal header title based on the active tab */
+  protected readonly headerTitle = computed(() => {
+    switch (this.activeTab()) {
+      case 'auto-topup':
+        return 'Auto Top-Up';
+      case 'invoice':
+        return 'Pay by Invoice';
+      case 'subscription':
+        return 'Subscription';
+      case 'buy':
+      default:
+        return 'Add Credits';
+    }
+  });
+
+  /** Dynamic modal header icon based on the active tab */
+  protected readonly headerIcon = computed(() => {
+    switch (this.activeTab()) {
+      case 'auto-topup':
+        return 'refresh-outline';
+      case 'invoice':
+        return 'document-text-outline';
+      case 'subscription':
+        return 'person-outline';
+      case 'buy':
+      default:
+        return 'card-outline';
+    }
+  });
 
   /** Selected credit package dollar amount (null = nothing picked yet). */
   protected readonly selectedPackageUsd = signal<CreditPackageUsd | null>(null);
@@ -827,6 +1101,47 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
     const cents = this.selectedBuyAmountCents();
     return cents === null ? null : formatPrice(cents);
   });
+
+  /** Selected invoice package dollar amount. Defaults to $500. */
+  protected readonly selectedInvoicePackageUsd = signal<InvoicePackageUsd | null>(500);
+  protected readonly customInvoiceAmountUsd = signal('');
+  protected readonly customInvoiceAmountCents = computed(() =>
+    parseUsdToCents(this.customInvoiceAmountUsd())
+  );
+  protected readonly customInvoiceAmountError = computed(() => {
+    const value = this.customInvoiceAmountUsd();
+    if (value.length === 0) return null;
+
+    const cents = parseUsdToCents(value);
+    if (cents === null) return 'Enter a valid dollar amount with up to two decimals.';
+    if (cents < MIN_INVOICE_PURCHASE_CENTS) {
+      return `Enter at least ${this.minimumInvoiceAmountLabel}.`;
+    }
+
+    return null;
+  });
+  protected readonly selectedInvoiceAmountCents = computed<number | null>(() => {
+    const selectedPackageUsd = this.selectedInvoicePackageUsd();
+    if (selectedPackageUsd !== null) return selectedPackageUsd * 100;
+
+    const cents = this.customInvoiceAmountCents();
+    if (
+      cents === null ||
+      cents < MIN_INVOICE_PURCHASE_CENTS ||
+      this.customInvoiceAmountError() !== null
+    ) {
+      return null;
+    }
+
+    return cents;
+  });
+  protected readonly selectedInvoiceAmountLabel = computed(() => {
+    const cents = this.selectedInvoiceAmountCents();
+    return cents === null ? null : formatPrice(cents);
+  });
+
+  protected readonly poNumber = signal('');
+  protected readonly selectedNetDays = signal<30 | 45 | 60>(30);
 
   /** Auto top-up local editable state */
   protected readonly enabledLocal = signal(false);
@@ -892,6 +1207,36 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
     if (normalized.length > 0) {
       this.selectedPackageUsd.set(null);
     }
+  }
+
+  protected selectInvoicePackage(usd: InvoicePackageUsd): void {
+    this.selectedInvoicePackageUsd.update((prev) => {
+      const nextValue = prev === usd ? null : usd;
+      if (nextValue !== null) {
+        this.customInvoiceAmountUsd.set('');
+      }
+      return nextValue;
+    });
+  }
+
+  protected onCustomInvoiceAmountInput(value: string): void {
+    const normalized = normalizeUsdInput(value);
+    this.customInvoiceAmountUsd.set(normalized);
+    if (normalized.length > 0) {
+      this.selectedInvoicePackageUsd.set(null);
+    }
+  }
+
+  protected onRequestInvoice(): void {
+    const amountCents = this.selectedInvoiceAmountCents();
+    if (amountCents === null) return;
+
+    this.close.emit({
+      type: 'invoice',
+      amountCents,
+      poNumber: this.poNumber().trim() || undefined,
+      netDays: this.selectedNetDays(),
+    });
   }
 
   protected onSaveAutoTopup(): void {

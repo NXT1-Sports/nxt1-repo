@@ -79,6 +79,18 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                         <nxt1-icon name="document-text-outline" size="16" />
                       </button>
                     }
+                    @if (record.canCancelInvoice) {
+                      <button
+                        type="button"
+                        class="icon-btn icon-btn--danger"
+                        title="Cancel invoice"
+                        aria-label="Cancel invoice"
+                        [attr.data-testid]="testIds.HISTORY_CANCEL_INVOICE_BTN"
+                        (click)="cancelInvoice.emit(record.id)"
+                      >
+                        <nxt1-icon name="trash-outline" size="16" />
+                      </button>
+                    }
                   </div>
                 </td>
               </tr>
@@ -254,6 +266,15 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         }
       }
 
+      .icon-btn--danger {
+        color: var(--nxt1-color-error);
+
+        &:hover {
+          color: var(--nxt1-color-error);
+          background: var(--nxt1-color-errorBg);
+        }
+      }
+
       .load-more {
         display: flex;
         justify-content: center;
@@ -305,6 +326,7 @@ export class UsagePaymentHistoryComponent {
 
   readonly downloadReceipt = output<string>();
   readonly downloadInvoice = output<string>();
+  readonly cancelInvoice = output<string>();
   readonly loadMore = output<void>();
 
   protected formatAmount(cents: number): string {

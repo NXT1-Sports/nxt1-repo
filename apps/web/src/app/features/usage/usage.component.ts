@@ -28,6 +28,7 @@ import {
   UsageSkeletonComponent,
   UsageService,
   type UsageSection,
+  type UsageUser,
 } from '@nxt1/ui/usage';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { SeoService } from '../../core/services';
@@ -44,7 +45,7 @@ import { SeoService } from '../../core/services';
 
     <!-- Authenticated: Show actual billing & usage dashboard -->
     @else if (isAuthenticated()) {
-      <nxt1-usage-shell-web />
+      <nxt1-usage-shell-web [user]="usageUser()" />
     }
 
     <!-- Unauthenticated: keep a lightweight state (landing removed) -->
@@ -75,6 +76,21 @@ export class UsageComponent implements OnInit {
   protected readonly isAuthLoading = computed(
     () => !this.authService.isInitialized() || this.authService.isLoading()
   );
+  protected readonly usageUser = computed<UsageUser | null>(() => {
+    const user = this.authService.user();
+    if (!user) return null;
+
+    const role = user.role === 'coach' ? 'coach' : user.role === 'director' ? 'director' : 'other';
+
+    return {
+      displayName: user.displayName,
+      email: user.email,
+      organization:
+        user.sports?.find((sport) => sport.isPrimary)?.team?.name ?? user.sports?.[0]?.team?.name,
+      role,
+      sport: user.selectedSports?.[0] ?? user.sports?.find((sport) => sport.isPrimary)?.sport,
+    };
+  });
 
   private readonly usageSections: readonly UsageSection[] = [
     'overview',

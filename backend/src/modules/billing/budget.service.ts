@@ -26,7 +26,10 @@ import { COLLECTIONS } from './config.js';
 import { getPlatformConfig } from './platform-config.service.js';
 import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
-import { publishWalletFundedDomainEvent } from '../../services/domain-events/domain-events.service.js';
+import {
+  publishTrialCreditsDepletedDomainEvent,
+  publishWalletFundedDomainEvent,
+} from '../../services/domain-events/domain-events.service.js';
 import {
   createBillingOwnerKey,
   createBillingPreferenceDocumentId,
@@ -49,12 +52,13 @@ import {
   DEFAULT_ORGANIZATION_BUDGET,
   DEFAULT_ORGANIZATION_STARTER_BALANCE,
 } from './types/index.js';
-import { NOTIFICATION_TYPES, type NotificationType } from '@nxt1/core';
+import { NOTIFICATION_TYPES, TRIAL_DURATION_DAYS, type NotificationType } from '@nxt1/core';
 import type {
   BudgetInterval,
   BillingMode,
   BillingOwnerType,
   BillingTargetReference,
+  WalletTrialState,
 } from '@nxt1/core/usage';
 
 interface NormalizedBillingDocuments {
@@ -123,6 +127,15 @@ interface AutoTopUpTriggerResult {
 
 export type WalletBalanceAlertKind = 'none' | 'wallet_empty' | 'credits_threshold' | 'low_balance';
 
+type TrialCreditNotificationKind = 'expiring' | 'critical' | 'expired';
+
+export interface TrialCreditNotificationSweepResult {
+  readonly scanned: number;
+  readonly dispatched: number;
+  readonly skipped: number;
+  readonly failed: number;
+}
+
 const DEFAULT_BUDGET_INTERVAL: BudgetInterval = 'monthly';
 
 const BUDGET_INTERVAL_PRIORITY: Record<BudgetInterval, number> = {
@@ -172,6 +185,28 @@ function buildPersonalBillingTarget(
     teamId,
     source,
     ...(userSelected ? { userSelected: true } : {}),
+  };
+}
+
+function buildConvertedWalletTrialState(
+  trial: WalletTrialState | undefined,
+  conversionSource: NonNullable<WalletTrialState['conversionSource']>,
+  displayMode: WalletTrialState['displayMode'],
+  fallbackGrantCents: number
+): WalletTrialState {
+  const nowIso = new Date().toISOString();
+  const startedAt = trial?.startedAt ?? nowIso;
+  const expiresAt =
+    trial?.expiresAt ?? new Date(Date.now() + TRIAL_DURATION_DAYS * 86_400_000).toISOString();
+
+  return {
+    grantCents: typeof trial?.grantCents === 'number' ? trial.grantCents : fallbackGrantCents,
+    startedAt,
+    expiresAt,
+    status: 'converted',
+    convertedAt: trial?.convertedAt ?? nowIso,
+    conversionSource,
+    displayMode,
   };
 }
 
@@ -255,6 +290,18 @@ async function ensureNormalizedBillingOwner(
     target.ownerType === 'organization' ? DEFAULT_ORGANIZATION_BUDGET : DEFAULT_INDIVIDUAL_BUDGET;
 
   if (!walletSnap.exists) {
+    const startedAt = new Date();
+    const expiresAt = new Date(startedAt.getTime() + TRIAL_DURATION_DAYS * 86_400_000);
+    const trial: WalletTrialState = {
+      grantCents: defaultWalletBalance,
+      startedAt: startedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      status: 'active',
+      convertedAt: null,
+      conversionSource: null,
+      displayMode: 'credits',
+    };
+
     writes.push(
       refs.walletRef.set(
         {
@@ -269,6 +316,7 @@ async function ensureNormalizedBillingOwner(
           creditsNotified25: false,
           iapLowBalanceNotified: false,
           totalReferralRewardsCents: 0,
+          trial,
           schemaVersion: 1,
           createdAt: now,
           updatedAt: now,
@@ -450,6 +498,7 @@ function projectBillingState(
     paymentProvider: documents.billingPreference.paymentProvider,
     walletBalanceCents: documents.wallet.balanceCents ?? 0,
     pendingHoldsCents: documents.wallet.pendingHoldsCents ?? 0,
+    trial: documents.wallet.trial,
     budgetName: documents.billingPreference.budgetName,
     autoTopUpEnabled: documents.billingPreference.autoTopUpEnabled ?? false,
     autoTopUpThresholdCents: documents.billingPreference.autoTopUpThresholdCents,
@@ -494,7 +543,105 @@ async function getBillingStateForTarget(
     return null;
   }
 
-  return projectBillingState(userId, target, documents);
+  const expiredDocuments = await maybeExpireTrial(db, userId, target, documents);
+  return projectBillingState(userId, target, expiredDocuments ?? documents);
+}
+
+/**
+ * Safely expire an individual owner's introductory trial credit grant.
+ *
+ * Cheap in-memory check first (no transaction) so this stays a no-op on the
+ * hot path once a trial has converted or expired. Only re-verifies inside a
+ * transaction — and only then writes — when the trial genuinely looks due,
+ * which prevents a blind scheduled job from ever clobbering a balance that a
+ * concurrent purchase or invoice conversion just updated.
+ */
+async function maybeExpireTrial(
+  db: Firestore,
+  userId: string,
+  target: BillingTargetReference,
+  documents: NormalizedBillingDocuments
+): Promise<NormalizedBillingDocuments | null> {
+  const trial = documents.wallet.trial;
+  if (!trial || trial.status !== 'active' || trial.convertedAt || trial.displayMode === 'invoice') {
+    return null;
+  }
+
+  if (new Date(trial.expiresAt).getTime() > Date.now()) {
+    return null;
+  }
+
+  const walletRef = db
+    .collection(COLLECTIONS.WALLETS)
+    .doc(createWalletDocumentId(target.ownerType, target.ownerId));
+
+  try {
+    const updatedWallet = await db.runTransaction(async (txn) => {
+      const snap = await txn.get(walletRef);
+      if (!snap.exists) {
+        return null;
+      }
+
+      const current = snap.data() as WalletDocument;
+      const currentTrial = current.trial;
+      const stillEligible =
+        !!currentTrial &&
+        currentTrial.status === 'active' &&
+        !currentTrial.convertedAt &&
+        currentTrial.displayMode !== 'invoice' &&
+        new Date(currentTrial.expiresAt).getTime() <= Date.now();
+
+      if (!stillEligible || !currentTrial) {
+        return current;
+      }
+
+      const nextTrial: WalletTrialState = { ...currentTrial, status: 'expired' };
+      txn.update(walletRef, {
+        balanceCents: 0,
+        trial: nextTrial,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return { ...current, balanceCents: 0, trial: nextTrial };
+    });
+
+    if (!updatedWallet) {
+      return null;
+    }
+
+    logger.info('[maybeExpireTrial] Introductory trial expired; wallet reset to $0', {
+      ownerId: target.ownerId,
+    });
+
+    if (target.ownerType === 'organization' && target.organizationId) {
+      const expiresAt = updatedWallet.trial?.expiresAt ?? 'unknown';
+      await publishTrialCreditsDepletedDomainEvent({
+        db,
+        environment: getRuntimeEnvironment(),
+        userId,
+        billingOwnerType: 'organization',
+        organizationId: target.organizationId,
+        operationId: `trial-expiry:${target.organizationId}:${expiresAt}`,
+        feature: 'trial_expiry',
+        baselineCents: updatedWallet.balanceCents === 0 ? documents.wallet.balanceCents : 0,
+        newBalanceCents: 0,
+      }).catch((error: unknown) => {
+        logger.warn('[maybeExpireTrial] Failed to publish trial expiry lifecycle event', {
+          userId,
+          organizationId: target.organizationId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+
+    return { ...documents, wallet: updatedWallet };
+  } catch (error) {
+    logger.warn('[maybeExpireTrial] Failed to evaluate trial expiry', {
+      ownerId: target.ownerId,
+      error,
+    });
+    return null;
+  }
 }
 
 export async function getPersonalBillingSummary(
@@ -1298,6 +1445,159 @@ async function getOrganizationAdminIds(
 
   const ownerId = orgData?.['ownerId'];
   return typeof ownerId === 'string' && ownerId.length > 0 ? [ownerId] : [];
+}
+
+function getTrialNotificationKind(trial: WalletTrialState): TrialCreditNotificationKind | null {
+  if (trial.status !== 'active' || trial.convertedAt || trial.displayMode === 'invoice') {
+    return null;
+  }
+
+  const daysRemaining = Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / 86_400_000);
+  if (daysRemaining <= 0 && !trial.notifiedExpiredAt) return 'expired';
+  if (daysRemaining <= 3 && !trial.notifiedCriticalAt) return 'critical';
+  if (daysRemaining <= 7 && !trial.notifiedExpiringAt) return 'expiring';
+  return null;
+}
+
+function buildTrialNotificationContent(params: {
+  readonly kind: TrialCreditNotificationKind;
+  readonly ownerType: BillingOwnerType;
+  readonly daysRemaining: number;
+}): {
+  readonly type: NotificationType;
+  readonly title: string;
+  readonly body: string;
+  readonly priority: 'normal' | 'high';
+} {
+  const accountLabel = params.ownerType === 'organization' ? 'team' : 'account';
+
+  if (params.kind === 'expired') {
+    return {
+      type: NOTIFICATION_TYPES.TRIAL_EXPIRED,
+      title: 'Intro Credits Ended',
+      body: `Your ${accountLabel} intro credits have ended. Add credits to keep using Agent X.`,
+      priority: 'high',
+    };
+  }
+
+  if (params.kind === 'critical') {
+    return {
+      type: NOTIFICATION_TYPES.TRIAL_CRITICAL,
+      title: 'Intro Credits Expire Soon',
+      body: `Your ${accountLabel} intro credits expire in ${params.daysRemaining} ${params.daysRemaining === 1 ? 'day' : 'days'}. Add credits to keep Agent X running.`,
+      priority: 'high',
+    };
+  }
+
+  return {
+    type: NOTIFICATION_TYPES.TRIAL_EXPIRING,
+    title: 'Intro Credits Expire Soon',
+    body: `Your ${accountLabel} intro credits expire in ${params.daysRemaining} days.`,
+    priority: 'normal',
+  };
+}
+
+async function getTrialNotificationRecipients(
+  db: Firestore,
+  wallet: WalletDocument
+): Promise<readonly string[]> {
+  if (wallet.ownerType === 'organization') {
+    return getOrganizationAdminIds(db, wallet.ownerId);
+  }
+
+  return [wallet.ownerId];
+}
+
+/** Dispatch proactive push/activity notifications for active trial wallets. */
+export async function sendTrialCreditNotifications(
+  db: Firestore,
+  options?: { readonly limit?: number }
+): Promise<TrialCreditNotificationSweepResult> {
+  const limit = Math.max(1, Math.min(options?.limit ?? 500, 500));
+  const snapshot = await db
+    .collection(COLLECTIONS.WALLETS)
+    .where('trial.status', '==', 'active')
+    .limit(limit)
+    .get();
+
+  const result = { scanned: snapshot.docs.length, dispatched: 0, skipped: 0, failed: 0 };
+  const { dispatch } = await import('../../services/communications/notification.service.js');
+
+  for (const doc of snapshot.docs) {
+    const wallet = doc.data() as WalletDocument;
+    const trial = wallet.trial;
+    if (!trial) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const kind = getTrialNotificationKind(trial);
+    if (!kind) {
+      result.skipped += 1;
+      continue;
+    }
+
+    const daysRemaining = Math.max(
+      0,
+      Math.ceil((new Date(trial.expiresAt).getTime() - Date.now()) / 86_400_000)
+    );
+    const content = buildTrialNotificationContent({
+      kind,
+      ownerType: wallet.ownerType,
+      daysRemaining,
+    });
+    const recipients = await getTrialNotificationRecipients(db, wallet);
+    const idempotencyKey = `trial_${kind}_${doc.id}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    if (recipients.length === 0) {
+      result.skipped += 1;
+      continue;
+    }
+
+    try {
+      await Promise.all(
+        recipients.map((userId) =>
+          dispatch(db, {
+            userId,
+            type: content.type,
+            title: content.title,
+            body: content.body,
+            deepLink: '/usage?section=overview',
+            priority: content.priority,
+            source: { userName: 'NXT1 Billing' },
+            data: {
+              ownerId: wallet.ownerId,
+              ownerType: wallet.ownerType,
+              trialNotificationKind: kind,
+              daysRemaining: String(daysRemaining),
+            },
+            idempotencyKey,
+          })
+        )
+      );
+
+      const notifiedAt = new Date().toISOString();
+      const flagField =
+        kind === 'expired'
+          ? 'trial.notifiedExpiredAt'
+          : kind === 'critical'
+            ? 'trial.notifiedCriticalAt'
+            : 'trial.notifiedExpiringAt';
+      await doc.ref.update({ [flagField]: notifiedAt, updatedAt: FieldValue.serverTimestamp() });
+      result.dispatched += recipients.length;
+    } catch (error) {
+      result.failed += 1;
+      logger.error('[sendTrialCreditNotifications] Failed to dispatch trial notification', {
+        error,
+        ownerId: wallet.ownerId,
+        ownerType: wallet.ownerType,
+        kind,
+      });
+    }
+  }
+
+  logger.info('[sendTrialCreditNotifications] Completed sweep', result);
+  return result;
 }
 
 async function getOrganizationBillingOwnerUid(
@@ -2505,6 +2805,15 @@ export async function addFundsToOrgWallet(
     const currentBalance = owner.docs.wallet.balanceCents ?? 0;
     const nextBalance = currentBalance + amountCents;
 
+    // A paid credit purchase converts any active or expired trial into
+    // regular credit billing — trial countdown/expiry no longer applies.
+    const trial = buildConvertedWalletTrialState(
+      owner.docs.wallet.trial,
+      'credit_purchase',
+      'credits',
+      DEFAULT_ORGANIZATION_STARTER_BALANCE
+    );
+
     txn.update(owner.refs.walletRef, {
       balanceCents: FieldValue.increment(amountCents),
       iapLowBalanceNotified: false,
@@ -2512,6 +2821,7 @@ export async function addFundsToOrgWallet(
       creditsNotified80: false,
       creditsNotified50: false,
       creditsNotified25: false,
+      trial,
       updatedAt: FieldValue.serverTimestamp(),
     });
     txn.update(owner.refs.billingPreferenceRef, {
@@ -2776,12 +3086,24 @@ export async function addWalletTopUp(
       checkoutFinalizationRef ? txn.get(checkoutFinalizationRef) : Promise.resolve(null),
     ]);
 
-    const currentBalance = (walletSnap.data() as WalletDocument | undefined)?.balanceCents ?? 0;
+    const currentWallet = walletSnap.data() as WalletDocument | undefined;
+    const currentBalance = currentWallet?.balanceCents ?? 0;
     if (finalizationSnap?.exists) {
       return { newBalance: currentBalance, alreadyFinalized: true };
     }
 
     const nextBalance = currentBalance + amountCents;
+
+    // A paid credit purchase converts any active or expired trial into
+    // regular credit billing — trial countdown/expiry no longer applies.
+    const trialConversionUpdates: Record<string, unknown> = {
+      trial: buildConvertedWalletTrialState(
+        currentWallet?.trial,
+        'credit_purchase',
+        'credits',
+        DEFAULT_INDIVIDUAL_STARTER_BALANCE
+      ),
+    };
 
     txn.update(refs.walletRef, {
       balanceCents: FieldValue.increment(amountCents),
@@ -2790,6 +3112,7 @@ export async function addWalletTopUp(
       creditsNotified80: false,
       creditsNotified50: false,
       creditsNotified25: false,
+      ...trialConversionUpdates,
       updatedAt: FieldValue.serverTimestamp(),
     });
     txn.update(refs.billingPreferenceRef, {
@@ -2849,8 +3172,59 @@ export async function addWalletTopUp(
 }
 
 /**
- * Increment current period spend for an organization master budget and check thresholds.
+ * Convert an individual owner's introductory trial into invoice-backed billing.
+ *
+ * Called by internal/admin tooling once NXT1 approves invoice or PO billing for
+ * an account. Marks the trial converted so `maybeExpireTrial` never zeroes the
+ * wallet, and switches `displayMode` to `invoice` so the customer-facing `/usage`
+ * dashboard stops showing credit balance/depletion and shows invoice billing status
+ * instead. Backend usage metering continues unaffected for internal reporting.
  */
+export async function setWalletTrialInvoiceMode(
+  db: Firestore,
+  ownerId: string,
+  ownerType: BillingOwnerType = 'individual'
+): Promise<void> {
+  const target: BillingTargetReference =
+    ownerType === 'organization'
+      ? buildOrganizationBillingTarget(ownerId)
+      : buildPersonalBillingTarget(ownerId);
+  await ensureNormalizedBillingOwner(db, target);
+
+  const walletRef = db
+    .collection(COLLECTIONS.WALLETS)
+    .doc(createWalletDocumentId(target.ownerType, target.ownerId));
+
+  await db.runTransaction(async (txn) => {
+    const walletSnap = await txn.get(walletRef);
+    if (!walletSnap.exists) {
+      throw new Error(`Wallet not found for ${ownerType}:${ownerId}`);
+    }
+
+    const wallet = walletSnap.data() as WalletDocument;
+    const fallbackGrantCents =
+      ownerType === 'organization'
+        ? DEFAULT_ORGANIZATION_STARTER_BALANCE
+        : DEFAULT_INDIVIDUAL_STARTER_BALANCE;
+    const trial = buildConvertedWalletTrialState(
+      wallet.trial,
+      'invoice',
+      'invoice',
+      fallbackGrantCents
+    );
+
+    txn.update(walletRef, {
+      trial,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  logger.info('[setWalletTrialInvoiceMode] Converted trial to invoice billing', {
+    ownerId,
+    ownerType,
+  });
+}
+
 async function updateOrgSpend(
   db: Firestore,
   organizationId: string,
@@ -3324,6 +3698,7 @@ export async function initOrganizationBillingTargetForUser(
   organizationId: string
 ): Promise<void> {
   const orgTarget = buildOrganizationBillingTarget(organizationId, undefined, 'organization');
+  await ensureNormalizedBillingOwner(db, orgTarget);
   await setActiveBillingTarget(db, userId, orgTarget);
   evictBillingResolutionCache(userId);
 }
