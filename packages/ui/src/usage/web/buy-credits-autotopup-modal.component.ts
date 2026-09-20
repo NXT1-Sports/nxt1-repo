@@ -213,7 +213,6 @@ import {
                 (click)="selectPackage(usd)"
               >
                 <span class="bc-package-amount">\${{ usd }}</span>
-                <span class="bc-package-label">{{ usd * 100 }} credits</span>
               </button>
             }
           </div>
