@@ -85,6 +85,7 @@ import {
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtStateViewComponent } from '../../../components/state-view';
 import { ActivityService } from '../../../activity/activity.service';
+import { UsageService } from '../../../usage/usage.service';
 import { buildLinkSourcesFormData, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
@@ -294,6 +295,31 @@ function sortCoordinatorCategories(
               ></span>
             </button>
 
+            @if (trialDaysLeftLabel(); as trialLabel) {
+              <button
+                type="button"
+                class="trial-badge"
+                aria-label="View trial status in billing"
+                (click)="onTrialBadgeClick()"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span>{{ trialLabel }}</span>
+              </button>
+            }
             <h2 class="briefing-greeting">{{ greeting() }}</h2>
 
             <div class="briefing-content">
@@ -1091,6 +1117,23 @@ function sortCoordinatorCategories(
         box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
       }
 
+      .trial-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+        font-size: var(--nxt1-fontSize-xs, 12px);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-color-primary, #6366f1);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 25%, transparent);
+        border-radius: 999px;
+        padding: 3px 10px;
+        margin: 0 0 8px;
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
+      }
+
       .briefing-greeting {
         font-size: 22px;
         font-weight: 700;
@@ -1843,6 +1886,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   private readonly navController = inject(NavController);
   private readonly injector = inject(EnvironmentInjector);
   private readonly activityService = inject(ActivityService);
+  private readonly usageService = inject(UsageService);
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   private readonly sidenavService = inject(NxtSidenavService, { optional: true });
   private readonly hostElement = inject(ElementRef<HTMLElement>);
@@ -1916,6 +1960,14 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const hour = new Date().getHours();
     const timeGreeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
     return name ? `${timeGreeting}, ${name}.` : `${timeGreeting}.`;
+  });
+
+  /** "N days left" shown above the greeting while on trial, or null off-trial. */
+  protected readonly trialDaysLeftLabel = computed(() => {
+    const trial = this.usageService.trial();
+    if (!trial || trial.status !== 'active') return null;
+    const days = trial.daysRemaining;
+    return `${days} ${days === 1 ? 'day' : 'days'} left`;
   });
 
   // ============================================
@@ -2011,6 +2063,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+
+      if (!this.usageService.overview()) {
+        void this.usageService.loadDashboard(false);
+      }
 
       const startupMessage = this.agentX.consumeStartupMessage();
       if (startupMessage) {
@@ -2109,6 +2165,11 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   }
 
   protected async onBillingActionClick(): Promise<void> {
+    await this.haptics.impact('light');
+    await this.navController.navigateForward('/usage');
+  }
+
+  protected async onTrialBadgeClick(): Promise<void> {
     await this.haptics.impact('light');
     await this.navController.navigateForward('/usage');
   }

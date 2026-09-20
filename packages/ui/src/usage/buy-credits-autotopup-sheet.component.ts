@@ -830,7 +830,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   protected readonly selectedInvoicePackageUsd = signal<InvoicePackageUsd | null>(500);
   protected readonly customInvoiceAmountUsd = signal('');
   protected readonly poNumber = signal('');
-  protected readonly selectedNetDays = signal<30 | 45 | 60>(30);
+  protected readonly selectedNetDays = signal<30>(30);
 
   protected readonly enabledLocal = signal(false);
   protected readonly thresholdCentsLocal = signal(500);

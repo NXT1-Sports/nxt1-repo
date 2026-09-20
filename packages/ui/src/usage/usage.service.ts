@@ -1380,7 +1380,7 @@ export class UsageService implements OnDestroy {
   async requestInvoiceTopUp(
     amountCents: number,
     poNumber?: string,
-    netDays: 30 | 45 | 60 = 30
+    netDays: 30 = 30
   ): Promise<boolean> {
     this.logger.info('Requesting invoice top-up', { amountCents, poNumber, netDays });
     this.breadcrumb.trackStateChange('usage:requesting-invoice-topup', {

@@ -155,7 +155,7 @@ export class UsageBottomSheetService {
   }): Promise<{
     amountCents: number | null;
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
-    invoice: { amountCents: number; poNumber?: string; netDays: 30 | 45 | 60 } | null;
+    invoice: { amountCents: number; poNumber?: string; netDays: 30 } | null;
   }> {
     const result = await this.openBuyCreditsSheet(opts);
 
