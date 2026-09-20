@@ -438,7 +438,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     async requestInvoiceTopUp(request: {
       amountCents: number;
       poNumber?: string;
-      netDays: 30 | 45 | 60;
+      netDays: 30;
     }): Promise<{ invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string }> {
       const response = await http.post<
         ApiResponse<{ invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string }>

@@ -16,7 +16,7 @@ type BuyCreditsAutoTopupModalTestAccess = BuyCreditsAutoTopupModalComponent & {
   onCustomInvoiceAmountInput(value: string): void;
   onRequestInvoice(): void;
   poNumber: { set(value: string): void };
-  selectedNetDays: { set(value: 30 | 45 | 60): void };
+  selectedNetDays: { set(value: 30): void };
   close: { emit(payload: unknown): void };
 };
 
@@ -69,14 +69,13 @@ describe('BuyCreditsAutoTopupModalComponent analytics', () => {
 
     testAccess.selectInvoicePackage(1000);
     testAccess.poNumber.set('PO-2026-OHIO-01');
-    testAccess.selectedNetDays.set(45);
     testAccess.onRequestInvoice();
 
     expect(closeEmitSpy).toHaveBeenCalledWith({
       type: 'invoice',
       amountCents: 100_000,
       poNumber: 'PO-2026-OHIO-01',
-      netDays: 45,
+      netDays: 30,
     });
   });
 

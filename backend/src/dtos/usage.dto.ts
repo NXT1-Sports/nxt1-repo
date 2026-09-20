@@ -12,6 +12,7 @@ import {
   IsEnum,
   IsBoolean,
   IsInt,
+  IsIn,
   IsEmail,
   Matches,
   Length,
@@ -406,5 +407,6 @@ export class InvoiceTopUpDto {
 
   /** Net payment terms in days */
   @IsInt()
+  @IsIn([30])
   netDays!: number;
 }

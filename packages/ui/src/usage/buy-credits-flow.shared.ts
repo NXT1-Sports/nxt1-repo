@@ -20,7 +20,7 @@ export type BuyCreditsAutoTopupResult =
       readonly type: 'invoice';
       readonly amountCents: number;
       readonly poNumber?: string;
-      readonly netDays: 30 | 45 | 60;
+      readonly netDays: 30;
     }
   | null;
 
@@ -36,8 +36,8 @@ export const MIN_CUSTOM_CREDIT_PURCHASE_CENTS = 500;
 /** Backend-enforced minimum invoice request amount (in cents, $50). */
 export const MIN_INVOICE_PURCHASE_CENTS = 5_000;
 
-/** Supported net payment terms for invoice billing. */
-export const INVOICE_NET_TERMS_DAYS = [30, 45, 60] as const;
+/** Fixed net payment terms for invoice billing. */
+export const INVOICE_NET_TERMS_DAYS = [30] as const;
 
 /** Preset threshold values at which auto top-up fires (in cents). */
 export const THRESHOLD_PRESETS_CENTS = [200, 500, 1_000, 2_500] as const;

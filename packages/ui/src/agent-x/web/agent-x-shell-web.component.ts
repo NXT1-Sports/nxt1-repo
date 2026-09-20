@@ -48,6 +48,7 @@ import {
   DestroyRef,
 } from '@angular/core';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
+import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { interval } from 'rxjs';
@@ -118,6 +119,7 @@ import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { AGENT_X_SHELL_TEST_IDS, TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtBrowserService } from '../../services/browser';
+import { UsageService } from '../../usage/usage.service';
 import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
 import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
@@ -626,6 +628,31 @@ const AGENT_X_GOOGLE_PLAY_URL =
             <!-- Briefing welcome block — only on default chat, hides after first message -->
             @if (showDesktopBriefing()) {
               <div class="chat-briefing">
+                @if (trialDaysLeftLabel(); as trialLabel) {
+                  <button
+                    type="button"
+                    class="trial-badge"
+                    aria-label="View trial status in billing"
+                    (click)="onTrialBadgeClick()"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    <span>{{ trialLabel }}</span>
+                  </button>
+                }
                 <h2 class="chat-briefing__greeting">{{ greeting() }}</h2>
                 <div class="chat-briefing__content">
                   @if (!isBriefingExpanded()) {
@@ -1821,6 +1848,31 @@ const AGENT_X_GOOGLE_PLAY_URL =
               ></span>
             </button>
 
+            @if (trialDaysLeftLabel(); as trialLabel) {
+              <button
+                type="button"
+                class="trial-badge"
+                aria-label="View trial status in billing"
+                (click)="onTrialBadgeClick()"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span>{{ trialLabel }}</span>
+              </button>
+            }
             <h2 class="m-greeting">{{ greeting() }}</h2>
             <p class="m-briefing-summary">{{ briefingPreview() }}</p>
 
@@ -2742,6 +2794,23 @@ const AGENT_X_GOOGLE_PLAY_URL =
         margin-left: auto;
         margin-right: auto;
         box-sizing: border-box;
+      }
+
+      .trial-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-1, 4px);
+        font-size: var(--nxt1-fontSize-xs, 12px);
+        font-weight: var(--nxt1-fontWeight-semibold, 600);
+        color: var(--nxt1-color-primary, #6366f1);
+        background: color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 12%, transparent);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary, #6366f1) 25%, transparent);
+        border-radius: 999px;
+        padding: 3px 10px;
+        margin: 0 0 10px;
+        white-space: nowrap;
+        cursor: pointer;
+        user-select: none;
       }
 
       .chat-briefing__greeting {
@@ -4774,6 +4843,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly usageService = inject(UsageService);
+  private readonly router = inject(Router);
 
   // Portal template refs
   private readonly desktopMain = viewChild<ElementRef<HTMLElement>>('desktopMain');
@@ -5921,6 +5992,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return name ? `${timeGreeting}, ${name}.` : `${timeGreeting}.`;
   });
 
+  /** "N days left" shown above the greeting while on trial, or null off-trial. */
+  protected readonly trialDaysLeftLabel = computed(() => {
+    const trial = this.usageService.trial();
+    if (!trial || trial.status !== 'active') return null;
+    const days = trial.daysRemaining;
+    return `${days} ${days === 1 ? 'day' : 'days'} left`;
+  });
+
+  protected onTrialBadgeClick(): void {
+    void this.router.navigate(['/usage']);
+  }
+
   // ============================================
   // ROLE-AWARE SHELL CONTENT
   // Uses live dashboard data from AgentXService only.
@@ -5983,6 +6066,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.agentX.startTitleAnimation();
       void this.agentX.warmContext();
       this.agentX.loadDashboard();
+
+      if (!this.usageService.overview()) {
+        void this.usageService.loadDashboard(false);
+      }
 
       void this.openFilesPanelFromDeepLinkIfRequested();
 
