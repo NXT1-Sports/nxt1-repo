@@ -282,7 +282,23 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Deploy to Firebase (Production)
-        run: npx --yes firebase-tools@15.22.0 deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-v2 --force
+        run: |
+          deploy_target="${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }}"
+
+          for attempt in 1 2 3; do
+            echo "Production Firebase deploy attempt ${attempt}/3"
+            if npx --yes firebase-tools@15.22.0 deploy --only "$deploy_target" --project nxt-1-v2 --force; then
+              exit 0
+            fi
+
+            if [[ "$attempt" -lt 3 ]]; then
+              echo "Production Firebase deploy failed; retrying in 20 seconds"
+              sleep 20
+            fi
+          done
+
+          echo "Production Firebase deploy failed after 3 attempts"
+          exit 1
 
       - name: Re-enable blocking function token forwarding (Production)
         run: |
