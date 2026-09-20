@@ -9,6 +9,7 @@
 import { isTeamRole } from '@nxt1/core';
 import type { UserRole } from '@nxt1/core';
 import { sendOutboundMarketingEmail } from '../../outbound-email.service.js';
+import { hasSentMarketingEmailCampaign } from '../../marketing-email-dispatch.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { toAbsoluteAppUrl } from '../../../../../utils/app-url.js';
 import type { RuntimeEnvironment } from '../../../../../config/runtime-environment.js';
@@ -39,7 +40,11 @@ export type TrialCreditsFinishedEmailResult =
     }
   | {
       readonly status: 'skipped';
-      readonly reason: 'missing-email' | 'marketing-disabled' | 'org-covered-athlete';
+      readonly reason:
+        | 'missing-email'
+        | 'marketing-disabled'
+        | 'org-covered-athlete'
+        | 'already-sent';
     };
 
 function escapeHtml(value: string): string {
@@ -196,6 +201,17 @@ export async function sendTrialCreditsFinishedEmail(
         environment: input.environment,
         primarySport: input.primarySport,
       });
+
+  // Idempotency guard: downstream Notion sync retries (e.g. repeated zero-balance
+  // domain events) must never cause this athlete/coach-facing email to resend.
+  if (
+    await hasSentMarketingEmailCampaign({
+      userId: input.userId,
+      campaignKey: variant.campaignKey,
+    })
+  ) {
+    return { status: 'skipped', reason: 'already-sent' };
+  }
 
   try {
     await sendOutboundMarketingEmail({

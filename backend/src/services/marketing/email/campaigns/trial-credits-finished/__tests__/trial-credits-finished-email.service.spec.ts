@@ -4,12 +4,18 @@ vi.mock('../../../outbound-email.service.js', () => ({
   sendOutboundMarketingEmail: vi.fn(),
 }));
 
+vi.mock('../../../marketing-email-dispatch.service.js', () => ({
+  hasSentMarketingEmailCampaign: vi.fn(),
+}));
+
 import { sendOutboundMarketingEmail } from '../../../outbound-email.service.js';
+import { hasSentMarketingEmailCampaign } from '../../../marketing-email-dispatch.service.js';
 import { sendTrialCreditsFinishedEmail } from '../trial-credits-finished-email.service.js';
 
 describe('sendTrialCreditsFinishedEmail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(hasSentMarketingEmailCampaign).mockResolvedValue(false);
     vi.mocked(sendOutboundMarketingEmail).mockResolvedValue({
       provider: 'platform_smtp',
       providerMessageId: 'msg_123',
@@ -85,5 +91,28 @@ describe('sendTrialCreditsFinishedEmail', () => {
         subject: "Program Trial Complete: Top Up Alcoa Football's Wallet 🏆",
       })
     );
+  });
+
+  it('skips resend when the campaign was already sent for this user', async () => {
+    vi.mocked(hasSentMarketingEmailCampaign).mockResolvedValueOnce(true);
+
+    const result = await sendTrialCreditsFinishedEmail({
+      userId: 'coach-1',
+      email: 'coach@example.com',
+      firstName: 'Jordan',
+      environment: 'production',
+      role: 'coach',
+      organizationName: 'Alcoa Football',
+      organizationId: 'org-123',
+      paymentState: 'unpaid',
+      marketingEnabled: true,
+    });
+
+    expect(result).toEqual({ status: 'skipped', reason: 'already-sent' });
+    expect(hasSentMarketingEmailCampaign).toHaveBeenCalledWith({
+      userId: 'coach-1',
+      campaignKey: 'trial_credits_finished_team',
+    });
+    expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
   });
 });
