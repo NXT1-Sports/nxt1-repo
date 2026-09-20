@@ -3040,6 +3040,10 @@ router.post(
         description: poNumber ? `NXT1 Team Credits (PO #${poNumber})` : 'NXT1 Team Credits',
       });
 
+      if (orgEmail) {
+        await stripe.customers.update(customerId, { email: orgEmail });
+      }
+
       const invoice = await stripe.invoices.create({
         customer: customerId,
         collection_method: 'send_invoice',
