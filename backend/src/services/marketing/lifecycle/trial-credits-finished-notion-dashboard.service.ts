@@ -2,7 +2,7 @@
  * @fileoverview Trial Credits Finished Notion Dashboard Lifecycle Service
  * @module @nxt1/backend/services/marketing/lifecycle/trial-credits-finished-notion-dashboard
  *
- * Promotes the matching B2B Partners row to `Trial Credits finished` once a
+ * Promotes the matching B2B Partners row to `Trial Credits Finished` once a
  * prepaid / trial wallet is fully depleted.
  *
  * This is a production-only lifecycle signal. It runs when settled credits
@@ -131,7 +131,7 @@ function getTrialState(
 
 function buildTrialCreditsFinishedPromotionProperties(): NotionProperties {
   return {
-    Stage: { status: { name: 'Trial Credits finished' } },
+    Stage: { status: { name: 'Trial Credits Finished' } },
     'Next Action': {
       rich_text: [
         {
@@ -373,7 +373,7 @@ export async function recordTrialCreditsFinishedNotionDashboardEntry(
     await assertNotionPageStatus({
       config,
       pageId: updated.id,
-      expectedStatus: 'Trial Credits finished',
+      expectedStatus: 'Trial Credits Finished',
     });
 
     await updateTrialCreditsFinishedState(input.db, input.userId, {
