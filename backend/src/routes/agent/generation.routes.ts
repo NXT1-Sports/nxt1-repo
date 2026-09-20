@@ -16,7 +16,6 @@ import { UpdatePlaybookItemStatusDto, GenerateBriefingDto } from '../../dtos/age
 import type { AgentJobPayload, ShellWeeklyPlaybookItem } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import {
-  executeBillingDeduction,
   resolveBillingTarget,
   checkBudgetFromContext,
   MIN_COST_CENTS,
@@ -457,43 +456,15 @@ router.post(
 
       const { force = false } = req.body as { force?: boolean };
 
-      if (req.firebase?.db) {
-        const estimatedGateCostCents = GENERATION_BILLING_GATE_MIN_COST_CENTS;
-        const briefingTarget = await resolveBillingTarget(req.firebase.db, user.uid);
-        const briefingCtx = briefingTarget.context;
-        const briefingBudgetCheck = checkBudgetFromContext(briefingCtx, estimatedGateCostCents);
-        if (!briefingBudgetCheck.allowed) {
-          const isWalletContext =
-            briefingCtx.billingEntity === 'individual' ||
-            briefingCtx.billingEntity === 'organization';
-          res.status(402).json({
-            success: false,
-            error: briefingBudgetCheck.reason,
-            code: isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
-          });
-          return;
-        }
-      }
-
+      // Daily Briefing is an included, ambient feature (same as the free
+      // cron-generated version) — not a billed on-demand AI product, so no
+      // budget gate or wallet deduction runs here.
       const result = await getGenerationService().generateBriefing(
         user.uid,
         force,
         req.firebase?.db,
         briefingOpId
       );
-
-      if (req.firebase?.db) {
-        void executeBillingDeduction({
-          db: req.firebase.db,
-          userId: user.uid,
-          operationId: briefingOpId,
-          feature: 'briefing-generation',
-          coordinatorId: 'strategy_coordinator',
-          environment: (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production') as
-            | 'production'
-            | 'staging',
-        });
-      }
 
       res.json({ success: true, data: result });
     } catch (err) {
