@@ -18,19 +18,20 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     });
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_initial');
-    expect(preview.subject).toBe('An Invite For Centennial High School');
-    expect(preview.html).toContain('Hello David,');
-    expect(preview.html).toContain("I hope you're doing well and having a great week.");
+    expect(preview.subject).toBe('Introducing NXT1 Sports Intelligence');
+    expect(preview.html).toContain('Hi David,');
+    expect(preview.html).toContain('Coach Keller here. I wanted to introduce you to NXT1.');
     expect(preview.html).toContain(
-      'the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate'
+      'help athletic programs get more done in a fraction of the time'
     );
     expect(preview.html).toContain(
-      'The feedback from coaches across the country has been incredible.'
+      'sports-specific and organizational intelligence for all sports'
     );
-    expect(preview.html).toContain('Foundation 50');
-    expect(preview.html).toContain('our <a href="https://calendar.app.google/LdFFYqWnFKKqVFn3A');
     expect(preview.html).toContain(
-      'our <a href="https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Partner-Deck'
+      'Schedule a demo here: <a href="https://calendar.app.google/LdFFYqWnFKKqVFn3A'
+    );
+    expect(preview.html).toContain(
+      'Review our slide deck: <a href="https://www.figma.com/deck/zkLPBJf9mttjgiIQLvyBXw/NXT1-Deck-NEW-Teams--Copy-'
     );
     expect(preview.html).toContain(
       'utm_source=email&utm_medium=outbound&utm_campaign=b2b_partner_program_invite_initial&utm_content=book_demo&utm_term=initial'
@@ -47,8 +48,8 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
       sequenceStep: 'initial',
     });
 
-    expect(preview.html).toContain('Hello David,');
-    expect(preview.html).not.toContain('Hello Coach David,');
+    expect(preview.html).toContain('Hi David,');
+    expect(preview.html).not.toContain('Hi Coach David,');
   });
 
   it('builds the follow-up variant', () => {
@@ -59,12 +60,17 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     });
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_follow_up');
-    expect(preview.subject).toBe('Quick Follow Up For Centennial High School');
-    expect(preview.html).toContain('Quick follow up from NXT1 Sports for Centennial High School.');
-    expect(preview.html).toContain('first AI digital coaching staff built for sports teams');
-    expect(preview.html).toContain('free access to our elite platform for a limited time');
+    expect(preview.subject).toBe('Circling Back On NXT1 Sports Intelligence');
+    expect(preview.html).toContain('Circling back on NXT1. We built what will be the future');
     expect(preview.html).toContain(
-      "I'd love to personally invite Centennial High School in before spots close so you don't miss out."
+      'sports-specific and organizational intelligence that actually goes to work'
+    );
+    expect(preview.html).toContain('We’re giving programs free access right now');
+    expect(preview.html).toContain(
+      'Set up demo: <a href="https://calendar.app.google/LdFFYqWnFKKqVFn3A'
+    );
+    expect(preview.html).toContain(
+      'Review our slide deck: <a href="https://www.figma.com/deck/zkLPBJf9mttjgiIQLvyBXw/NXT1-Deck-NEW-Teams--Copy-'
     );
     expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_follow_up');
     expect(preview.html).toContain('utm_content=book_demo');
@@ -80,12 +86,18 @@ describe('buildB2BPartnerBrandAwarenessEmail', () => {
     });
 
     expect(preview.campaignKey).toBe('b2b_partner_program_invite_final_follow_up');
-    expect(preview.subject).toBe('Final Note: Last Chance for Foundation 50 + Free $100');
+    expect(preview.subject).toBe('NXT1: An AI Digital Staff For Your Program');
     expect(preview.html).toContain(
-      'Final note for Centennial High School before we close this out.'
+      'If you’re looking for an opportunity to save time and find new ways to help your program win'
     );
     expect(preview.html).toContain(
-      'AI staff built for sports teams that saves coaches hours every week'
+      'NXT1 is built specifically around the way athletic programs actually work'
+    );
+    expect(preview.html).toContain(
+      'A quick 30-minute demo: <a href="https://calendar.app.google/LdFFYqWnFKKqVFn3A'
+    );
+    expect(preview.html).toContain(
+      'Review our slide deck: <a href="https://www.figma.com/deck/zkLPBJf9mttjgiIQLvyBXw/NXT1-Deck-NEW-Teams--Copy-'
     );
     expect(preview.html).toContain('utm_campaign=b2b_partner_program_invite_final_follow_up');
     expect(preview.html).toContain('utm_content=book_demo');

@@ -28,7 +28,7 @@ export const b2bOutboundInitialSend = onSchedule(
         endpointPath: '/api/v1/marketing/cron/b2b-outbound-initial-send',
         cronSecret: CRON_SECRET.value(),
         jobName: 'b2bOutboundInitialSend',
-        timeoutMs: 90_000,
+        timeoutMs: 480_000,
         maxAttempts: 3,
         body: {
           limit: 250,

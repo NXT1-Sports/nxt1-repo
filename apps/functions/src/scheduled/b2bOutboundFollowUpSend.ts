@@ -28,7 +28,7 @@ export const b2bOutboundFollowUpSend = onSchedule(
         endpointPath: '/api/v1/marketing/cron/b2b-outbound-follow-up',
         cronSecret: CRON_SECRET.value(),
         jobName: 'b2bOutboundFollowUpSend',
-        timeoutMs: 90_000,
+        timeoutMs: 480_000,
         maxAttempts: 3,
         body: {
           limit: 250,

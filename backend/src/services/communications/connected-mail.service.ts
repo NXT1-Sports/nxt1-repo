@@ -874,14 +874,24 @@ export function buildTrackedEmailHtmlWithRecipientHash(
     (_match, quote: string, href: string) => `href=${quote}${buildClickUrl(href)}${quote}`
   );
 
-  rewrittenHtml = rewrittenHtml.replace(/(?<!["'=])(https?:\/\/[^\s<]+)/gi, (href: string) => {
-    const trackedHref = buildClickUrl(href);
-    if (trackedHref === href) {
-      return href;
-    }
+  const linkOrTagRegex = /(<a\b[^>]*>[\s\S]*?<\/a>|<[^>]+>)/gi;
+  rewrittenHtml = rewrittenHtml
+    .split(linkOrTagRegex)
+    .map((chunk) => {
+      if (chunk.startsWith('<')) {
+        return chunk;
+      }
 
-    return `<a href="${trackedHref}" style="color:#0f62fe;text-decoration:underline;">${escapeEmailHtml(href)}</a>`;
-  });
+      return chunk.replace(/(https?:\/\/[^\s<]+)/gi, (href: string) => {
+        const trackedHref = buildClickUrl(href);
+        if (trackedHref === href) {
+          return href;
+        }
+
+        return `<a href="${trackedHref}" style="color:#0f62fe;text-decoration:underline;">${escapeEmailHtml(href)}</a>`;
+      });
+    })
+    .join('');
 
   const openUrl = new URL(`${baseUrl}/api/v1/analytics/track/open`);
   openUrl.searchParams.set('subjectId', subjectId);
