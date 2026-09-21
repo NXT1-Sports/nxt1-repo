@@ -4,6 +4,11 @@ vi.mock('../../../outbound-email.service.js', () => ({
   sendOutboundMarketingEmail: vi.fn(),
 }));
 
+vi.mock('../../../marketing-email-dispatch.service.js', () => ({
+  hasSentMarketingEmailCampaign: vi.fn(),
+}));
+
+import { hasSentMarketingEmailCampaign } from '../../../marketing-email-dispatch.service.js';
 import { sendOutboundMarketingEmail } from '../../../outbound-email.service.js';
 import { sendSignupDripEmail } from '../signup-drip-email.service.js';
 
@@ -14,6 +19,7 @@ describe('sendSignupDripEmail', () => {
       provider: 'platform_smtp',
       providerMessageId: 'msg_signup_drip',
     });
+    vi.mocked(hasSentMarketingEmailCampaign).mockResolvedValue(false);
   });
 
   it('builds the athlete setup variant with the centralized outbound email boundary', async () => {
@@ -103,6 +109,28 @@ describe('sendSignupDripEmail', () => {
     });
 
     expect(result).toEqual({ status: 'skipped', reason: 'marketing-disabled' });
+    expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips without resending when the campaign was already sent for this user', async () => {
+    vi.mocked(hasSentMarketingEmailCampaign).mockResolvedValue(true);
+
+    const result = await sendSignupDripEmail({
+      userId: 'athlete-3',
+      email: 'athlete-3@example.com',
+      firstName: 'Sam',
+      environment: 'production',
+      role: 'athlete',
+      stepKey: 'profile_setup',
+      paymentState: 'unpaid',
+      marketingEnabled: true,
+    });
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'already-sent',
+      campaignKey: 'signup_drip_profile_setup_athlete',
+    });
     expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
   });
 });
