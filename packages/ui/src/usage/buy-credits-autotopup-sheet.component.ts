@@ -167,8 +167,6 @@ import {
               </nxt1-form-field>
             </div>
 
-            <p class="bc-note">100 credits = $1.00 · Credits never expire</p>
-
             @if (!initialAutoTopupEnabled) {
               <button type="button" class="bc-secondary-link" (click)="activeTab.set('auto-topup')">
                 Set up Auto Top-Up to refill automatically →

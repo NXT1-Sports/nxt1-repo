@@ -152,6 +152,14 @@ export async function handleInvoiceFinalized(
       amountDue: invoice.amount_due,
     });
 
+    // Org invoices must be attributed to `org:{orgId}` — never the requester's personal
+    // uid — so this webhook (which typically lands before the route's own PaymentLog
+    // write) doesn't win the upsert race and strand the record under Personal Billing.
+    const organizationId = invoice.metadata?.['organizationId'] as string | undefined;
+    const attributedUserId = organizationId
+      ? `org:${organizationId}`
+      : invoice.metadata?.['userId'] || '';
+
     // Log payment (even if not paid yet) — upsert to handle duplicate webhook deliveries
     await PaymentLogModel.findOneAndUpdate(
       { invoiceId: invoice.id },
@@ -159,7 +167,8 @@ export async function handleInvoiceFinalized(
         $setOnInsert: {
           invoiceId: invoice.id,
           customerId: invoice.customer as string,
-          userId: invoice.metadata?.['userId'] || '',
+          userId: attributedUserId,
+          organizationId,
           teamId: invoice.metadata?.['teamId'],
           amountDue: invoice.amount_due / 100,
           amountPaid: invoice.amount_paid / 100,
@@ -204,6 +213,11 @@ export async function handleInvoicePaymentSucceeded(
     const existingPayment = await PaymentLogModel.findOne({ invoiceId: invoice.id });
     const wasNotPreviouslyPaid = !existingPayment || existingPayment.status !== 'PAID';
     const organizationId = invoice.metadata?.['organizationId'] as string | undefined;
+    // Org invoices must be attributed to `org:{orgId}` — never the requester's personal
+    // uid — to match the convention every other org billing write path relies on.
+    const attributedUserId = organizationId
+      ? `org:${organizationId}`
+      : invoice.metadata?.['userId'] || '';
 
     // Upsert payment log — update if exists, create if not
     const upsertResult = await PaymentLogModel.findOneAndUpdate(
@@ -218,7 +232,7 @@ export async function handleInvoicePaymentSucceeded(
         $setOnInsert: {
           invoiceId: invoice.id,
           customerId: invoice.customer as string,
-          userId: invoice.metadata?.['userId'] || '',
+          userId: attributedUserId,
           teamId: invoice.metadata?.['teamId'],
           organizationId,
           amountDue: invoice.amount_due / 100,
@@ -361,6 +375,13 @@ export async function handleInvoicePaymentFailed(
       amountDue: invoice.amount_due,
     });
 
+    // Org invoices must be attributed to `org:{orgId}` — never the requester's personal
+    // uid — matching the convention every other org billing write path relies on.
+    const organizationId = invoice.metadata?.['organizationId'] as string | undefined;
+    const attributedUserId = organizationId
+      ? `org:${organizationId}`
+      : invoice.metadata?.['userId'] || '';
+
     // Upsert payment log — update if exists, create if not
     await PaymentLogModel.findOneAndUpdate(
       { invoiceId: invoice.id },
@@ -373,7 +394,8 @@ export async function handleInvoicePaymentFailed(
         $setOnInsert: {
           invoiceId: invoice.id,
           customerId: invoice.customer as string,
-          userId: invoice.metadata?.['userId'] || '',
+          userId: attributedUserId,
+          organizationId,
           teamId: invoice.metadata?.['teamId'],
           amountDue: invoice.amount_due / 100,
           amountPaid: invoice.amount_paid / 100,

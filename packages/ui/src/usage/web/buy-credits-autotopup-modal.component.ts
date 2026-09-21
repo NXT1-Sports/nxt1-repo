@@ -257,9 +257,6 @@ import {
             }
           </div>
 
-          <!-- Note about credit rate -->
-          <p class="bc-note">100 credits = $1.00 &nbsp;·&nbsp; Credits never expire</p>
-
           <!-- Buy button -->
           <button
             type="button"
