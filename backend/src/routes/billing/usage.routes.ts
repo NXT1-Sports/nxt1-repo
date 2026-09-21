@@ -47,7 +47,12 @@ import {
   type ResolvedBillingTarget,
 } from '../../modules/billing/index.js';
 import { trackBillingPurchaseEvent } from '../../modules/billing/ga4-revenue.service.js';
-import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
+import {
+  USAGE_PRODUCT_CONFIGS,
+  USAGE_CATEGORY_CONFIGS,
+  USAGE_HISTORY_PAGE_SIZE,
+  NOTIFICATION_TYPES,
+} from '@nxt1/core';
 import {
   UsageEventModel,
   type UsageEventDocument,
@@ -69,6 +74,7 @@ import {
   sendSalesBillingAlert,
   sendSalesFunnelAlert,
 } from '../../modules/billing/sales-alert.service.js';
+import { sendPlatformEmail } from '../../services/communications/platform-email.service.js';
 
 const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
 const USAGE_OVERVIEW_SLOW_REQUEST_MS = 3_000;
@@ -1644,11 +1650,15 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogDocs.map((doc) => {
       const idStr = (doc._id as Types.ObjectId).toString();
+      const amountDollars =
+        typeof doc.amountPaid === 'number' && doc.amountPaid > 0
+          ? doc.amountPaid
+          : (doc.amountDue ?? 0);
       return {
         id: idStr,
         displayId: idStr.slice(0, 8).toUpperCase(),
-        // PaymentLog stores amountPaid in dollars; UsagePaymentHistoryRecord.amount is cents.
-        amount: Math.round((doc.amountPaid ?? 0) * 100),
+        // PaymentLog stores amountPaid / amountDue in dollars; UsagePaymentHistoryRecord.amount is cents.
+        amount: Math.round(amountDollars * 100),
         currency: (doc.currency ?? 'usd') as UsagePaymentHistoryRecord['currency'],
         status: normalizePaymentStatus(doc.status) as UsagePaymentHistoryRecord['status'],
         paymentMethodLabel: doc.paymentMethodLabel ?? 'Card',
@@ -1657,8 +1667,10 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
         dateLabel: toISOString(doc.createdAt).slice(0, 10),
         receiptUrl: doc.receiptUrl ?? null,
         invoiceUrl: doc.invoiceUrl ?? null,
-        canCancelInvoice:
-          isOrgAdmin && doc.status === 'PENDING' && doc.type === 'org_invoice_topup',
+        // Since Net 30 organization invoices provision wallet credits upfront,
+        // self-serve cancellation is disabled to prevent credit clawback loopholes.
+        // Schools or orgs needing to void or amend an invoice contact support.
+        canCancelInvoice: false,
       };
     });
 
@@ -2060,20 +2072,6 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
 
     // Resolve billing target (director → org, otherwise individual)
     const target = await resolveBillingTarget(db, userId);
-    let canCancelOrgInvoices = false;
-    if (target.type === 'organization' && target.organizationId) {
-      const [userDoc, orgDoc] = await Promise.all([
-        db.collection('Users').doc(userId).get(),
-        db.collection('Organizations').doc(target.organizationId).get(),
-      ]);
-      const role = userDoc.data()?.['role'] as string | undefined;
-      const orgData = orgDoc.data() ?? {};
-      const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
-      canCancelOrgInvoices =
-        role === 'director' ||
-        orgData['ownerId'] === userId ||
-        admins.some((admin) => admin.userId === userId);
-    }
 
     // Get total count + paginated results in parallel
     const [total, paginatedDocs] = await Promise.all([
@@ -2088,11 +2086,15 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
     const records: UsagePaymentHistoryRecord[] = (paginatedDocs as PaymentLogDocument[]).map(
       (doc) => {
         const idStr = (doc._id as Types.ObjectId).toString();
+        const amountDollars =
+          typeof doc.amountPaid === 'number' && doc.amountPaid > 0
+            ? doc.amountPaid
+            : (doc.amountDue ?? 0);
         return {
           id: idStr,
           displayId: idStr.slice(0, 8).toUpperCase(),
-          // PaymentLog stores amountPaid in dollars; UsagePaymentHistoryRecord.amount is cents.
-          amount: Math.round((doc.amountPaid ?? 0) * 100),
+          // PaymentLog stores amountPaid / amountDue in dollars; UsagePaymentHistoryRecord.amount is cents.
+          amount: Math.round(amountDollars * 100),
           currency: (doc.currency ?? 'usd') as UsagePaymentHistoryRecord['currency'],
           status: normalizePaymentStatus(doc.status) as UsagePaymentHistoryRecord['status'],
           paymentMethodLabel: doc.paymentMethodLabel ?? 'Card',
@@ -2101,8 +2103,10 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
           dateLabel: toISOString(doc.createdAt).slice(0, 10),
           receiptUrl: doc.receiptUrl ?? null,
           invoiceUrl: doc.invoiceUrl ?? null,
-          canCancelInvoice:
-            canCancelOrgInvoices && doc.status === 'PENDING' && doc.type === 'org_invoice_topup',
+          // Since Net 30 organization invoices provision wallet credits upfront,
+          // self-serve cancellation is disabled to prevent credit clawback loopholes.
+          // Schools or orgs needing to void or amend an invoice contact support.
+          canCancelInvoice: false,
         };
       }
     );
@@ -2997,7 +3001,7 @@ router.post(
     try {
       const userId = req.user!.uid;
       const email = req.user!.email ?? '';
-      const { amountCents, poNumber, netDays } = req.body as InvoiceTopUpDto;
+      const { amountCents, poNumber, netDays, billingEmail } = req.body as InvoiceTopUpDto;
       const db = req.firebase?.db;
       if (!db) return res.status(503).json({ error: 'Database unavailable' });
 
@@ -3021,11 +3025,16 @@ router.post(
       }
 
       const environment = req.isStaging ? 'staging' : 'production';
-      const orgEmail = (orgData['billingEmail'] as string) || (orgData['email'] as string) || email;
+      const resolvedBillingEmail =
+        billingEmail?.trim() ||
+        (orgData['billingEmail'] as string)?.trim() ||
+        (orgData['email'] as string)?.trim() ||
+        email;
+
       const { customerId } = await getOrCreateCustomer(
         db,
         `org:${organizationId}`,
-        orgEmail,
+        resolvedBillingEmail,
         undefined,
         environment
       );
@@ -3040,18 +3049,42 @@ router.post(
         description: poNumber ? `NXT1 Team Credits (PO #${poNumber})` : 'NXT1 Team Credits',
       });
 
+      if (resolvedBillingEmail) {
+        await stripe.customers.update(customerId, { email: resolvedBillingEmail });
+
+        if (billingEmail?.trim()) {
+          await db
+            .collection('Organizations')
+            .doc(organizationId)
+            .set({ billingEmail: resolvedBillingEmail }, { merge: true });
+        }
+      }
+
+      const invoiceFooter = [
+        'Payment Options: Pay online via ACH or Card using the invoice link above.',
+        poNumber
+          ? `Checks: Make payable to NXT1. Include Invoice # and PO #${poNumber} in the memo.`
+          : 'Checks: Make payable to NXT1. Include Invoice # in the check memo.',
+        'Vendor Info: For W-9 requests, vendor forms, or ACH remittance details, contact billing@nxt1sports.com.',
+      ].join('\n');
+
       const invoice = await stripe.invoices.create({
         customer: customerId,
         collection_method: 'send_invoice',
         days_until_due: netDays,
         pending_invoice_items_behavior: 'include',
         custom_fields: poNumber ? [{ name: 'PO Number', value: poNumber }] : undefined,
+        footer: invoiceFooter,
+        payment_settings: {
+          payment_method_types: ['card', 'us_bank_account'],
+        },
         metadata: {
           userId,
           organizationId,
           type: 'org_invoice_topup',
           billingEntity: 'organization',
           amountCents: String(amountCents),
+          recipientEmail: resolvedBillingEmail,
           ...(poNumber ? { poNumber } : {}),
         },
         description: poNumber ? `PO #${poNumber}` : undefined,
@@ -3059,6 +3092,21 @@ router.post(
 
       const finalizedInvoice = await stripe.invoices.finalizeInvoice(invoice.id);
       await stripe.invoices.sendInvoice(finalizedInvoice.id);
+
+      // Provision credits to the organization wallet immediately on Net 30 terms.
+      // School districts and athletics departments operate on 30-day PO/invoice cycles;
+      // crediting immediately lets the coach/team use features right away while the
+      // district processes payment.
+      const { newBalance } = await addFundsToOrgWallet(
+        db,
+        organizationId,
+        amountCents,
+        'invoice_payment',
+        {
+          initiatedByUserId: userId,
+          checkoutSessionId: `invoice:${finalizedInvoice.id}`,
+        }
+      );
 
       await PaymentLogModel.findOneAndUpdate(
         { invoiceId: finalizedInvoice.id },
@@ -3082,6 +3130,135 @@ router.post(
         { upsert: true }
       );
 
+      // Direct, reliable branded transactional email delivery from NXT1 platform.
+      // Guarantees delivery to the school's Accounts Payable department regardless
+      // of Stripe sandbox / test-mode email suppression.
+      if (resolvedBillingEmail) {
+        const orgName = (orgData['name'] as string) || 'Your Organization';
+        const formattedAmount = `$${(amountCents / 100).toFixed(2)}`;
+        const invoiceNumber = finalizedInvoice.number || finalizedInvoice.id;
+        const paymentLink = finalizedInvoice.hosted_invoice_url || '';
+        const pdfLink = finalizedInvoice.invoice_pdf || '';
+
+        const emailHtml = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; padding: 24px; margin: 0; }
+    .card { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+    .header { background: #0f172a; padding: 32px 24px; text-align: center; color: #ffffff; }
+    .header h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+    .header p { margin: 8px 0 0 0; color: #94a3b8; font-size: 14px; }
+    .body { padding: 32px 24px; }
+    .amount-box { background: #f1f5f9; border-radius: 8px; padding: 16px; margin: 24px 0; text-align: center; }
+    .amount-label { font-size: 12px; color: #64748b; text-transform: uppercase; font-weight: 600; }
+    .amount-val { font-size: 32px; color: #0f172a; font-weight: 700; margin-top: 4px; }
+    .details { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 14px; }
+    .details td { padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+    .details td.label { color: #64748b; width: 40%; }
+    .details td.val { color: #0f172a; font-weight: 600; text-align: right; }
+    .btn { display: block; width: fit-content; margin: 24px auto 16px auto; padding: 14px 28px; background-color: #0284c7; color: #ffffff !important; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px; text-align: center; }
+    .remittance { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; font-size: 13px; color: #475569; line-height: 1.6; margin-top: 24px; }
+    .remittance h4 { margin: 0 0 8px 0; color: #0f172a; font-size: 13px; text-transform: uppercase; }
+    .footer { padding: 24px; text-align: center; font-size: 12px; color: #94a3b8; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>NXT1</h1>
+      <p>Invoice #${invoiceNumber}</p>
+    </div>
+    <div class="body">
+      <p>Hello,</p>
+      <p>A new invoice has been issued for <strong>${orgName}</strong>.</p>
+      
+      <div class="amount-box">
+        <div class="amount-label">Amount Due (Net ${netDays})</div>
+        <div class="amount-val">${formattedAmount}</div>
+      </div>
+
+      <table class="details">
+        <tr>
+          <td class="label">Invoice Number</td>
+          <td class="val">${invoiceNumber}</td>
+        </tr>
+        ${poNumber ? `<tr><td class="label">Purchase Order (PO)</td><td class="val">${poNumber}</td></tr>` : ''}
+        <tr>
+          <td class="label">Payment Terms</td>
+          <td class="val">Net ${netDays} Days</td>
+        </tr>
+      </table>
+
+      ${
+        paymentLink
+          ? `<a href="${paymentLink}" class="btn" target="_blank" rel="noopener noreferrer">View & Pay Invoice Online (ACH / Card)</a>`
+          : ''
+      }
+      ${
+        pdfLink
+          ? `<p style="text-align: center; font-size: 13px;"><a href="${pdfLink}" style="color: #0284c7; text-decoration: underline;">Download PDF Invoice</a></p>`
+          : ''
+      }
+
+      <div class="remittance">
+        <h4>Payment & Remittance Instructions</h4>
+        <p style="margin: 0 0 8px 0;"><strong>• Online Payment:</strong> Pay securely using the link above via ACH Bank Transfer or Card.</p>
+        <p style="margin: 0 0 8px 0;"><strong>• Check Payment:</strong> Make checks payable to <strong>NXT1</strong>.<br>Please reference Invoice #${invoiceNumber}${poNumber ? ` and PO #${poNumber}` : ''} in the check memo line.</p>
+        <p style="margin: 0;"><strong>• Vendor Onboarding:</strong> For W-9 forms, EIN, or direct deposit banking details, please email <a href="mailto:billing@nxt1sports.com" style="color: #0284c7;">billing@nxt1sports.com</a>.</p>
+      </div>
+    </div>
+    <div class="footer">
+      &copy; ${new Date().getFullYear()} NXT1. All rights reserved.<br>
+      Questions? Contact <a href="mailto:billing@nxt1sports.com" style="color: #64748b;">billing@nxt1sports.com</a>
+    </div>
+  </div>
+</body>
+</html>
+        `.trim();
+
+        sendPlatformEmail(
+          resolvedBillingEmail,
+          `NXT1 Invoice #${invoiceNumber} for ${orgName} (${formattedAmount})`,
+          emailHtml,
+          'billing@nxt1sports.com'
+        ).catch((err) => {
+          logger.warn('[POST /invoice-topup] Failed to dispatch direct invoice email', {
+            error: err instanceof Error ? err.message : String(err),
+            resolvedBillingEmail,
+            invoiceId: finalizedInvoice.id,
+          });
+        });
+      }
+
+      // Dispatch push notification to the requester confirming the invoice was sent to their email
+      const { dispatch } = await import('../../services/communications/notification.service.js');
+      const invoiceNumber = finalizedInvoice.number || finalizedInvoice.id;
+      const formattedAmount = `$${(amountCents / 100).toFixed(2)}`;
+
+      await dispatch(db, {
+        userId,
+        type: NOTIFICATION_TYPES.INVOICE_SENT,
+        title: 'Invoice Sent to Email',
+        body: `Invoice #${invoiceNumber} for ${formattedAmount} has been sent to ${resolvedBillingEmail}.`,
+        deepLink: '/usage?section=payment-history',
+        source: { userName: 'NXT1 Billing' },
+        data: {
+          invoiceId: finalizedInvoice.id,
+          organizationId,
+          recipientEmail: resolvedBillingEmail,
+          amountCents: String(amountCents),
+        },
+      }).catch((notifyErr: unknown) => {
+        logger.warn('[POST /invoice-topup] Failed to dispatch invoice push notification', {
+          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          userId,
+          invoiceId: finalizedInvoice.id,
+        });
+      });
+
       logger.info('[POST /invoice-topup] Invoice created and sent', {
         userId,
         organizationId,
@@ -3096,6 +3273,8 @@ router.post(
           invoiceId: finalizedInvoice.id,
           invoiceUrl: finalizedInvoice.invoice_pdf,
           hostedInvoiceUrl: finalizedInvoice.hosted_invoice_url,
+          credited: true,
+          newBalance,
         },
       });
     } catch (error) {
@@ -3110,64 +3289,16 @@ router.post(
 
 /**
  * DELETE /api/v1/usage/invoice/:transactionId
- * Void an unpaid organization invoice requested by the current org admin.
+ * Void an unpaid organization invoice.
+ * Note: Net 30 organization invoices provision wallet credits upfront,
+ * so self-service cancellation is disabled. Users contact support (billing@nxt1sports.com).
  */
-router.delete('/invoice/:transactionId', appGuard, async (req: Request, res: Response) => {
-  try {
-    const userId = req.user!.uid;
-    const db = req.firebase?.db;
-    if (!db) return res.status(503).json({ error: 'Database unavailable' });
-
-    const billingCtx = await getBillingSummary(db, userId);
-    if (billingCtx?.billingEntity !== 'organization' || !billingCtx.organizationId) {
-      return res
-        .status(403)
-        .json({ error: 'Invoice cancellation is only available for organization accounts' });
-    }
-
-    const organizationId = billingCtx.organizationId;
-    const orgDoc = await db.collection('Organizations').doc(organizationId).get();
-    const orgData = orgDoc.data() ?? {};
-    const admins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
-    const isAdmin =
-      orgData['ownerId'] === userId || admins.some((admin) => admin.userId === userId);
-    if (!isAdmin) {
-      return res.status(403).json({ error: 'Only org admins can cancel invoices' });
-    }
-
-    const paymentLog = await PaymentLogModel.findById(req.params['transactionId']);
-    if (!paymentLog || paymentLog.organizationId !== organizationId) {
-      return res.status(404).json({ error: 'Invoice not found' });
-    }
-    if (paymentLog.type !== 'org_invoice_topup' || paymentLog.status !== 'PENDING') {
-      return res.status(409).json({ error: 'Only pending organization invoices can be canceled' });
-    }
-
-    const environment = req.isStaging ? 'staging' : 'production';
-    const stripe = getStripeClient(environment);
-    await stripe.invoices.voidInvoice(paymentLog.invoiceId);
-    await PaymentLogModel.findByIdAndUpdate(paymentLog._id, {
-      $set: {
-        status: 'VOID',
-        updatedAt: new Date(),
-      },
-    });
-
-    logger.info('[DELETE /invoice/:transactionId] Invoice voided', {
-      userId,
-      organizationId,
-      transactionId: req.params['transactionId'],
-      invoiceId: paymentLog.invoiceId,
-    });
-
-    return res.json({ success: true });
-  } catch (error) {
-    logger.error('[DELETE /invoice/:transactionId] Failed to void invoice', { error });
-    return res.status(500).json({
-      error: 'Failed to cancel invoice',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
+router.delete('/invoice/:transactionId', appGuard, async (_req: Request, res: Response) => {
+  return res.status(403).json({
+    error:
+      'Invoices with provisioned wallet credits cannot be self-canceled. Please contact billing@nxt1sports.com for invoice amendments or adjustments.',
+    code: 'INVOICE_CANCELLATION_DISABLED',
+  });
 });
 
 /**

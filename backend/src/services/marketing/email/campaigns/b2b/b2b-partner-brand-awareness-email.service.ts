@@ -17,9 +17,9 @@ const PRIMARY_CTA_HREF = 'https://calendar.app.google/LdFFYqWnFKKqVFn3A';
 const INTRO_PRIMARY_CTA_HREF = 'https://calendar.app.google/LdFFYqWnFKKqVFn3A';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
 const SLIDESHOW_CTA_HREF =
-  'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Customer-Deck?node-id=1-117&t=QrqUr4jTo9M8UVyS-1';
+  'https://www.figma.com/deck/zkLPBJf9mttjgiIQLvyBXw/NXT1-Deck-NEW-Teams--Copy-?node-id=2002-360&t=BM6jcq1ic6nb3n0D-1';
 const INTRO_SLIDESHOW_CTA_HREF =
-  'https://www.figma.com/deck/w5PtNO1546vAFIWd6Gy5YF/NXT1-Partner-Deck?node-id=1-1205&t=qvYzbBNu5RtKq6VY-1';
+  'https://www.figma.com/deck/zkLPBJf9mttjgiIQLvyBXw/NXT1-Deck-NEW-Teams--Copy-?node-id=2002-360&t=BM6jcq1ic6nb3n0D-1';
 
 function withUtm(
   url: string,
@@ -115,35 +115,25 @@ function formatProfessionalName(firstName?: string | null): string | null {
 
 function getGreeting(firstName?: string | null): string {
   const formatted = formatProfessionalName(firstName);
-  return formatted ? `Hello ${escapeHtml(formatted)},` : 'Hello,';
+  return formatted ? `Hi ${escapeHtml(formatted)},` : 'Hi,';
 }
 
-function getOrganizationLabel(organization?: string | null): string {
-  const normalized = organization?.trim();
-  return normalized && normalized.length > 0 ? normalized : 'your program';
-}
-
-function getSubject(
-  sequenceStep: B2BPartnerOutreachSequenceStep,
-  organization?: string | null
-): string {
+function getSubject(sequenceStep: B2BPartnerOutreachSequenceStep): string {
   if (sequenceStep === 'follow_up') {
-    return `Quick Follow Up For ${getOrganizationLabel(organization)}`;
+    return 'Circling Back On NXT1 Sports Intelligence';
   }
   if (sequenceStep === 'final_follow_up') {
-    return 'Final Note: Last Chance for Foundation 50 + Free $100';
+    return 'NXT1: An AI Digital Staff For Your Program';
   }
-  const label = getOrganizationLabel(organization);
-  return `An Invite For ${label}`;
+  return 'Introducing NXT1 Sports Intelligence';
 }
 
 function buildPlainFollowUpEmail(input: {
   readonly greeting: string;
-  readonly organizationLabel: string;
   readonly primaryCtaHref: string;
   readonly slideshowCtaHref: string;
 }): string {
-  const { greeting, organizationLabel, primaryCtaHref, slideshowCtaHref } = input;
+  const { greeting, primaryCtaHref, slideshowCtaHref } = input;
 
   return `<!doctype html>
 <html>
@@ -158,31 +148,29 @@ function buildPlainFollowUpEmail(input: {
         <td style="padding:24px;">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">${greeting}</p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Quick follow up from NXT1 Sports for ${organizationLabel}.
+            Circling back on NXT1. We built what will be the future of how sports organizations operate, and I want to get your program on board early as AI becomes the norm across athletics.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            NXT1 is the first AI digital coaching staff built for sports teams, saving coaching staffs hours every week on off-field work like film breakdowns, scout reports, player stats, and weekly game planning so your staff stays focused on players and game day.
+            NXT1 is an AI digital staff built with sports-specific and organizational intelligence that actually goes to work, analyzing film, building game plans, creating reports, handling admin, performance, content and much more.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Foundation 50 is open now, with free access to our elite platform for a limited time.
+            The goal is simple: get more done in a fraction of the time and give your staff more intelligence behind their decisions.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            I'd love to personally invite ${organizationLabel} in before spots close so you don't miss out.
+            We’re giving programs free access right now, and I’d like to get yours set up.
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            If you're open to it, book a quick time here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
+            Give me 30 minutes and I’ll show you how it works for you.
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            Or just reply with a day/time that works for you and I'll coordinate everything.
+            Set up demo: <a href="${primaryCtaHref}" style="color:#0f4aa3;">Schedule a Demo</a>
           </p>
           <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
-            You can also review our slide deck here: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
+            Review our slide deck: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
           </p>
           <p style="margin:0;font-size:16px;line-height:1.6;">
-            Best regards,<br />
-            John K<br />
-            NXT1 Sports<br />
-            nxt1sports.com
+            Thank you<br />
+            Coach Keller
           </p>
         </td>
       </tr>
@@ -193,12 +181,11 @@ function buildPlainFollowUpEmail(input: {
 
 function buildPlainFinalFollowUpEmail(input: {
   readonly greeting: string;
-  readonly organizationLabel: string;
   readonly primaryCtaHref: string;
   readonly secondaryCtaHref: string;
   readonly slideshowCtaHref: string;
 }): string {
-  const { greeting, organizationLabel, primaryCtaHref, secondaryCtaHref, slideshowCtaHref } = input;
+  const { greeting, primaryCtaHref, secondaryCtaHref, slideshowCtaHref } = input;
 
   return `<!doctype html>
 <html>
@@ -213,31 +200,28 @@ function buildPlainFinalFollowUpEmail(input: {
         <td style="padding:24px;">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">${greeting}</p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Final note for ${organizationLabel} before we close this out.
+            If you’re looking for an opportunity to save time and find new ways to help your program win, NXT1 is the answer.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            NXT1 is an AI staff built for sports teams that saves coaches hours every week by taking recurring prep, admin, and communication work off your plate.
+            NXT1 is built specifically around the way athletic programs actually work. Think of it as adding a digital staff that executes real work across your program, in a fraction of the time.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            This is our last note to invite ${organizationLabel} to join Foundation 50 early. If you join in this early window, you also receive a free $100 donated budget from us with no catch.
+            All sports. ADs, coaches and athletes. Sports-specific and organizational intelligence working together in one platform.
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            Reserve a time here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">book a time</a>
+            I’d like to show you what it can do for your program and get you free access to try it yourself.
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            View our slideshow here: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
+            A quick 30-minute demo: <a href="${primaryCtaHref}" style="color:#0f4aa3;">Schedule a Demo</a>
           </p>
           <p style="margin:0 0 8px 0;font-size:16px;line-height:1.6;">
-            Visit our website: <a href="${secondaryCtaHref}" style="color:#0f4aa3;">nxt1sports.com</a>
+            Review our slide deck: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
           </p>
           <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
-            You can also reply directly with a preferred day/time, and we will coordinate the invite.
+            Visit our website: <a href="${secondaryCtaHref}" style="color:#0f4aa3;">nxt1sports.com</a>
           </p>
           <p style="margin:0;font-size:16px;line-height:1.6;">
-            Best regards,<br />
-            John K<br />
-            NXT1 Sports<br />
-            nxt1sports.com
+            Coach Keller
           </p>
         </td>
       </tr>
@@ -266,37 +250,34 @@ function buildPlainInitialEmail(input: {
         <td style="padding:24px;">
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">${greeting}</p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            I hope you're doing well and having a great week.
+            Coach Keller here. I wanted to introduce you to NXT1.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            I’m reaching out to introduce you to NXT1 Sports.
+            We built NXT1 to help athletic programs get more done in a fraction of the time, while giving ADs, coaches and athletes more intelligence behind their decisions.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            We recently launched the first AI digital coaching staff designed to take the massive load of repetitive, off-field work off your plate.
+            NXT1 is an AI digital staff built with sports-specific and organizational intelligence for all sports, executing work such as film analysis, game planning, creating reports, recruiting, performance, media/content, admin work and much more.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            While your team is out on the field working, this can handle the backend work of breaking down film, pulling player stats, creating scout reports, building game plans, and much more.
+            Instead of spending hours doing the work yourself or jumping between different tools, NXT1 actually does the work for you.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            The feedback from coaches across the country has been incredible. Our team actually has over 20 years of coaching experience, so we know exactly what the daily grind looks like.
+            We’re giving schools across the country free access to try it, and I’d love to get your program set up.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            This season, we are rolling out a program called the Foundation 50, where we're giving full, free access to a select group of schools. We would love to hold one of those spots for your team to use this year.
+            Give me 30 minutes and I’ll show you what NXT1 can do for your program.
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            I've attached our <a href="${primaryCtaHref}" style="color:#0f4aa3;">schedule here</a>, where we can do a live demo to show you how it works.
+            Schedule a demo here: <a href="${primaryCtaHref}" style="color:#0f4aa3;">Schedule a Demo</a>
           </p>
           <p style="margin:0 0 16px 0;font-size:16px;line-height:1.6;">
-            Or just let me know a time that works for you.
+            Review our slide deck: <a href="${slideshowCtaHref}" style="color:#0f4aa3;">view slideshow</a>
           </p>
           <p style="margin:0 0 24px 0;font-size:16px;line-height:1.6;">
-            I've also included our <a href="${slideshowCtaHref}" style="color:#0f4aa3;">slide deck</a> if you want to take a look beforehand.
+            Thank you
           </p>
           <p style="margin:0;font-size:16px;line-height:1.6;">
-            Best regards,<br />
-            John K<br />
-            NXT1 Sports<br />
-            nxt1sports.com
+            Coach Keller
           </p>
         </td>
       </tr>
@@ -329,8 +310,7 @@ export function buildB2BPartnerBrandAwarenessEmail(
 ): B2BPartnerBrandAwarenessEmailPreview {
   const sequenceStep = input.sequenceStep ?? 'initial';
   const greeting = getGreeting(input.firstName);
-  const organizationLabel = escapeHtml(getOrganizationLabel(input.organization));
-  const subject = getSubject(sequenceStep, input.organization);
+  const subject = getSubject(sequenceStep);
   const campaignKey =
     sequenceStep === 'follow_up'
       ? FOLLOW_UP_CAMPAIGN_KEY
@@ -371,7 +351,6 @@ export function buildB2BPartnerBrandAwarenessEmail(
       sequenceStep,
       html: buildPlainFollowUpEmail({
         greeting,
-        organizationLabel,
         primaryCtaHref,
         slideshowCtaHref,
       }),
@@ -385,7 +364,6 @@ export function buildB2BPartnerBrandAwarenessEmail(
       sequenceStep,
       html: buildPlainFinalFollowUpEmail({
         greeting,
-        organizationLabel,
         primaryCtaHref,
         secondaryCtaHref,
         slideshowCtaHref,
@@ -438,19 +416,27 @@ export async function sendB2BPartnerBrandAwarenessEmail(
       metadata: input.metadata,
     });
 
-    const contactEvent = await recordB2BPartnerContactEvent({
-      environment: 'production',
-      email,
-      contactedAt,
-      nextFollowUpAt,
-      promoteStageToContacted: true,
-    });
+    try {
+      const contactEvent = await recordB2BPartnerContactEvent({
+        environment: 'production',
+        email,
+        contactedAt,
+        nextFollowUpAt,
+        promoteStageToContacted: true,
+      });
 
-    if (contactEvent.status === 'skipped') {
-      logger.info('[MarketingEmail] B2B partner contact event skipped', {
+      if (contactEvent.status === 'skipped') {
+        logger.info('[MarketingEmail] B2B partner contact event skipped', {
+          email,
+          sequenceStep,
+          reason: contactEvent.reason,
+        });
+      }
+    } catch (notionErr) {
+      logger.warn('[MarketingEmail] Failed to record B2B partner contact event in Notion', {
         email,
         sequenceStep,
-        reason: contactEvent.reason,
+        error: notionErr instanceof Error ? notionErr.message : String(notionErr),
       });
     }
 

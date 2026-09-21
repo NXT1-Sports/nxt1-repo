@@ -28,7 +28,7 @@ export const investorsPartnershipsOutboundInitialSend = onSchedule(
         endpointPath: '/api/v1/marketing/cron/investors-partnerships-outbound-initial-send',
         cronSecret: CRON_SECRET.value(),
         jobName: 'investorsPartnershipsOutboundInitialSend',
-        timeoutMs: 90_000,
+        timeoutMs: 480_000,
         maxAttempts: 3,
         body: {
           limit: 250,

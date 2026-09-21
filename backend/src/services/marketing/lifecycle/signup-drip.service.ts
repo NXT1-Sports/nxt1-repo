@@ -790,25 +790,36 @@ async function processSignupDripUser(input: {
     };
   }
 
-  if (emailResult.status === 'skipped') {
-    const nextState =
-      emailResult.reason === 'marketing-disabled'
-        ? buildPausedState(input.user.state, input.now, paymentState)
-        : {
-            ...input.user.state,
-            paymentState,
-            nextEligibleAt: addDays(input.now, 7),
-          };
-
-    await writeSignupDripState(input.db, input.user.id, nextState);
+  if (emailResult.status === 'skipped' && emailResult.reason === 'marketing-disabled') {
+    await writeSignupDripState(
+      input.db,
+      input.user.id,
+      buildPausedState(input.user.state, input.now, paymentState)
+    );
     return {
       userId: input.user.id,
-      outcome: emailResult.reason === 'marketing-disabled' ? 'paused' : 'skipped',
+      outcome: 'paused',
       stepKey: input.user.state.currentStepKey,
       reason: emailResult.reason,
     };
   }
 
+  if (emailResult.status === 'skipped' && emailResult.reason === 'missing-email') {
+    await writeSignupDripState(input.db, input.user.id, {
+      ...input.user.state,
+      paymentState,
+      nextEligibleAt: addDays(input.now, 7),
+    });
+    return {
+      userId: input.user.id,
+      outcome: 'skipped',
+      stepKey: input.user.state.currentStepKey,
+      reason: emailResult.reason,
+    };
+  }
+
+  // 'already-sent' means a prior run dispatched this step but crashed/retried
+  // before the drip state advanced; advance state now instead of resending.
   const sentState = buildSentState({
     state: input.user.state,
     now: input.now,

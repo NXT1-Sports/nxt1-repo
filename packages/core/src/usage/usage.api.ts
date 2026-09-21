@@ -439,6 +439,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       amountCents: number;
       poNumber?: string;
       netDays: 30;
+      billingEmail?: string;
     }): Promise<{ invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string }> {
       const response = await http.post<
         ApiResponse<{ invoiceId: string; invoiceUrl: string; hostedInvoiceUrl: string }>

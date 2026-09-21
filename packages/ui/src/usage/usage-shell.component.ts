@@ -892,7 +892,12 @@ export class UsageShellComponent implements OnInit, OnDestroy {
       await this.svc.configureAutoTopUp(autoTopup);
     }
     if (invoice !== null) {
-      await this.svc.requestInvoiceTopUp(invoice.amountCents, invoice.poNumber, invoice.netDays);
+      await this.svc.requestInvoiceTopUp(
+        invoice.amountCents,
+        invoice.poNumber,
+        invoice.netDays,
+        invoice.billingEmail
+      );
     }
   }
 

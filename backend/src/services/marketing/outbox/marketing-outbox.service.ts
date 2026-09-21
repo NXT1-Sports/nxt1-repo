@@ -224,7 +224,16 @@ function assertB2BNotionLifecycleCreated(
   eventType: MarketingOutboxEventType,
   eventKey: string
 ): void {
-  if (result.status === 'skipped' && result.reason === 'background-job') {
+  if (
+    result.status === 'skipped' &&
+    (result.reason === 'background-job' ||
+      result.reason === 'already-created' ||
+      result.reason === 'not-paid-source' ||
+      result.reason === 'not-repeat-purchase' ||
+      result.reason === 'below-threshold' ||
+      result.reason === 'disabled' ||
+      result.reason === 'missing-existing-row')
+  ) {
     return;
   }
 

@@ -83,7 +83,7 @@ describe('BuyCreditsAutoTopupModalComponent analytics', () => {
     const component = createComponent();
     const testAccess = component as BuyCreditsAutoTopupModalTestAccess;
 
-    expect(testAccess.headerTitle()).toBe('Add Credits');
+    expect(testAccess.headerTitle()).toBe('Pay by Card');
     expect(testAccess.headerIcon()).toBe('card-outline');
 
     testAccess.activeTab.set('auto-topup');

@@ -288,6 +288,7 @@ function mapNotificationTypeToActivityType(type: NotificationType): string {
     payment_failed: 'announcement',
     credits_low: 'announcement',
     credits_added: 'announcement',
+    invoice_sent: 'announcement',
     budget_warning: 'announcement',
     budget_reached: 'announcement',
     wallet_empty: 'announcement',

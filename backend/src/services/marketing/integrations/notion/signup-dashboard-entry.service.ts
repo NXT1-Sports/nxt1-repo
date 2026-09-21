@@ -564,19 +564,26 @@ function shouldPromoteExistingSignupStage(currentStage: string | null): boolean 
 function buildSignupDashboardExistingPageProperties(input: {
   readonly signup: SignupDashboardEntryInput;
   readonly promoteStage: boolean;
+  readonly isSameContact: boolean;
 }): NotionProperties {
-  const { signup, promoteStage } = input;
-  const email = compactText(signup.email) ?? null;
-  const referralDetails = resolveReferralDetails(signup);
-  const properties: NotionProperties = {
-    Organization: { title: [textFragment(resolveOrganizationName(signup))] },
-    Type: { select: { name: resolveAccountType(signup) } },
-    'Primary Contact': { rich_text: richText(resolveDisplayName(signup)) },
-    Email: { email },
-    'Lead Source': { select: { name: resolveLeadSource(signup) } },
-    'Referral Source': { rich_text: richText(signup.referralSource) },
-    'Referral Details': { rich_text: richText(referralDetails) },
-  };
+  const { signup, promoteStage, isSameContact } = input;
+  const properties: NotionProperties = {};
+
+  // The matched row can belong to a teammate signing up under a shared
+  // organization/team (not the same contact). Only overwrite identity
+  // fields when we know this signup is the row's existing contact —
+  // otherwise this would clobber the canonical partner's name/email.
+  if (isSameContact) {
+    const email = compactText(signup.email) ?? null;
+    const referralDetails = resolveReferralDetails(signup);
+    properties['Organization'] = { title: [textFragment(resolveOrganizationName(signup))] };
+    properties['Type'] = { select: { name: resolveAccountType(signup) } };
+    properties['Primary Contact'] = { rich_text: richText(resolveDisplayName(signup)) };
+    properties['Email'] = { email };
+    properties['Lead Source'] = { select: { name: resolveLeadSource(signup) } };
+    properties['Referral Source'] = { rich_text: richText(signup.referralSource) };
+    properties['Referral Details'] = { rich_text: richText(referralDetails) };
+  }
 
   if (promoteStage) {
     properties['Stage'] = { status: { name: 'Onboarding Completed' } };
@@ -902,6 +909,7 @@ async function queryExistingB2BPartnerPage(input: {
   readonly config: ReturnType<typeof getNotionSignupDashboardConfig>;
   readonly email?: string | null;
   readonly organizationId?: string | null;
+  readonly teamId?: string | null;
   readonly organization?: string | null;
   readonly organizationType?: string | null;
   readonly primaryContact?: string | null;
@@ -915,6 +923,20 @@ async function queryExistingB2BPartnerPage(input: {
       value: `Organization ID: ${organizationId}`,
     });
     if (byOrganizationId[0]) return byOrganizationId[0];
+  }
+
+  // Organization ID is only resolved for some signup paths (e.g. team-code
+  // invite joins can persist it after this snapshot is built), so also match
+  // on Team ID — it is always recorded — to catch teammates who already have
+  // a B2B Partners row before falling back to weaker per-user signals below.
+  const teamId = compactText(input.teamId);
+  if (teamId) {
+    const byTeamId = await queryNotionDatabaseByRichTextContains({
+      config: input.config,
+      property: 'Notes',
+      value: `Team ID: ${teamId}`,
+    });
+    if (byTeamId[0]) return byTeamId[0];
   }
 
   const email = compactText(input.email);
@@ -988,6 +1010,7 @@ export async function upsertSignupDashboardEntry(
     config,
     email: input.email,
     organizationId: input.organizationId,
+    teamId: input.teamId,
     organization: input.teamName,
     organizationType: input.organizationType ?? input.teamType,
     primaryContact: resolveKnownDisplayName(input),
@@ -1001,12 +1024,20 @@ export async function upsertSignupDashboardEntry(
     });
     const existingStage = readNotionStatusProperty(existingPage.properties, 'Stage');
     const promoteStage = shouldPromoteExistingSignupStage(existingStage);
+    const existingEmail = (
+      existingPage.properties?.['Email'] as { email?: string | null } | undefined
+    )?.email;
+    const isSameContact =
+      !compactText(existingEmail ?? undefined) ||
+      compactText(existingEmail ?? undefined)?.toLowerCase() ===
+        compactText(input.email)?.toLowerCase();
     const updated = await updateNotionSignupDashboardPage({
       config,
       pageId: existing.id,
       properties: buildSignupDashboardExistingPageProperties({
         signup: input,
         promoteStage,
+        isSameContact,
       }),
     });
     try {

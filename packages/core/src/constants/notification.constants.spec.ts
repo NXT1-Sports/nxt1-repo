@@ -21,13 +21,16 @@ describe('wallet-empty notification metadata', () => {
   it('maps personal and org wallet-empty alerts to billing and alerts', () => {
     expect(NOTIFICATION_TYPE_CATEGORY['wallet_empty']).toBe('billing');
     expect(NOTIFICATION_TYPE_CATEGORY['org_wallet_empty']).toBe('billing');
+    expect(NOTIFICATION_TYPE_CATEGORY['invoice_sent']).toBe('billing');
     expect(NOTIFICATION_TYPE_TAB['wallet_empty']).toBe('alerts');
     expect(NOTIFICATION_TYPE_TAB['org_wallet_empty']).toBe('alerts');
+    expect(NOTIFICATION_TYPE_TAB['invoice_sent']).toBe('alerts');
   });
 
-  it('routes wallet-empty alerts into the usage overview', () => {
+  it('routes wallet-empty alerts into the usage overview and invoice-sent into payment history', () => {
     expect(NOTIFICATION_DEEP_LINKS['wallet_empty']).toBe('/usage?section=overview');
     expect(NOTIFICATION_DEEP_LINKS['org_wallet_empty']).toBe('/usage?section=overview');
+    expect(NOTIFICATION_DEEP_LINKS['invoice_sent']).toBe('/usage?section=payment-history');
   });
 
   it('treats wallet-empty alerts as high priority', () => {

@@ -106,6 +106,8 @@ export const NOTIFICATION_TYPES = {
   TRIAL_EXPIRED: 'trial_expired',
   /** Org wallet was refilled — roster members on personal billing override can switch back */
   ORG_WALLET_REFILLED: 'org_wallet_refilled',
+  /** Invoice was created and sent to billing contact email */
+  INVOICE_SENT: 'invoice_sent',
 
   // Marketing
   MARKETING_CAMPAIGN: 'marketing_campaign',
@@ -204,6 +206,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   trial_critical: 'billing',
   trial_expired: 'billing',
   org_wallet_refilled: 'billing',
+  invoice_sent: 'billing',
 
   // Marketing
   marketing_campaign: 'marketing',
@@ -322,6 +325,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   trial_critical: 'alerts',
   trial_expired: 'alerts',
   org_wallet_refilled: 'alerts',
+  invoice_sent: 'alerts',
 
   // Marketing → alerts
   marketing_campaign: 'alerts',
@@ -393,6 +397,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   trial_critical: '/usage?section=overview',
   trial_expired: '/usage?section=overview',
   org_wallet_refilled: '/usage?section=overview',
+  invoice_sent: '/usage?section=payment-history',
 
   // Marketing
   marketing_campaign: '/activity?tab=alerts',

@@ -671,6 +671,7 @@ export const USAGE_TEST_IDS = {
   BUY_CREDITS_CUSTOM_AMOUNT_INPUT: 'usage-buy-credits-custom-amount-input',
   BUY_CREDITS_BUY_BTN: 'usage-buy-credits-buy-btn',
   BUY_CREDITS_IAP_BTN: 'usage-buy-credits-iap-btn',
+  BUY_CREDITS_BILLING_EMAIL_INPUT: 'usage-buy-credits-billing-email-input',
   BUY_CREDITS_PO_INPUT: 'usage-buy-credits-po-input',
   BUY_CREDITS_NET_TERMS_SELECT: 'usage-buy-credits-net-terms-select',
   BUY_CREDITS_INVOICE_BTN: 'usage-buy-credits-invoice-btn',

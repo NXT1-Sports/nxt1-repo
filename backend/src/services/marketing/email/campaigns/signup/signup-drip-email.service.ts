@@ -8,6 +8,7 @@ import type { UserRole } from '@nxt1/core';
 import type { RuntimeEnvironment } from '../../../../../config/runtime-environment.js';
 import { toAbsoluteAppUrl } from '../../../../../utils/app-url.js';
 import { logger } from '../../../../../utils/logger.js';
+import { hasSentMarketingEmailCampaign } from '../../marketing-email-dispatch.service.js';
 import { sendOutboundMarketingEmail } from '../../outbound-email.service.js';
 import { buildMarketingEmailShell } from '../../templates/marketing-email-shell.js';
 
@@ -50,7 +51,8 @@ export type SignupDripEmailResult =
     }
   | {
       readonly status: 'skipped';
-      readonly reason: 'missing-email' | 'marketing-disabled';
+      readonly reason: 'missing-email' | 'marketing-disabled' | 'already-sent';
+      readonly campaignKey?: string;
     };
 
 function escapeHtml(value: string): string {
@@ -950,6 +952,22 @@ export async function sendSignupDripEmail(
 
   const variant = buildSignupDripVariant(input);
 
+  // Guard against duplicate sends from retried/overlapping cron runs: the drip
+  // step is only advanced in Firestore *after* the send, so a crash or retry
+  // between send and state-write would otherwise resend the same step.
+  const alreadySent = await hasSentMarketingEmailCampaign({
+    userId: input.userId,
+    campaignKey: variant.campaignKey,
+  });
+  if (alreadySent) {
+    logger.warn('[MarketingEmail] Signup drip email skipped: already sent', {
+      userId: input.userId,
+      stepKey: input.stepKey,
+      campaignKey: variant.campaignKey,
+    });
+    return { status: 'skipped', reason: 'already-sent', campaignKey: variant.campaignKey };
+  }
+
   try {
     await sendOutboundMarketingEmail({
       to: email,
@@ -966,6 +984,15 @@ export async function sendSignupDripEmail(
       campaignKey: variant.campaignKey,
     };
   } catch (error) {
+    if (isDuplicateDispatchKeyError(error)) {
+      logger.warn('[MarketingEmail] Signup drip email race-skipped: duplicate dispatch key', {
+        userId: input.userId,
+        stepKey: input.stepKey,
+        campaignKey: variant.campaignKey,
+      });
+      return { status: 'skipped', reason: 'already-sent', campaignKey: variant.campaignKey };
+    }
+
     logger.error('[MarketingEmail] Signup drip email failed', {
       userId: input.userId,
       email,
@@ -976,4 +1003,8 @@ export async function sendSignupDripEmail(
     });
     throw error;
   }
+}
+
+function isDuplicateDispatchKeyError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && (error as { code?: unknown }).code === 11000;
 }

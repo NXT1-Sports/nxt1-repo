@@ -2935,6 +2935,63 @@ async function publishOrganizationWalletFundingDomainEvent(
   }
 }
 
+/**
+ * Revoke funds from an organization's prepaid wallet.
+ * Called when an unpaid Net 30 Stripe Invoice is voided or marked uncollectible.
+ *
+ * Capped at current balance so wallet balance cannot go negative.
+ */
+export async function revokeFundsFromOrgWallet(
+  db: Firestore,
+  organizationId: string,
+  amountCents: number,
+  reason: 'invoice_voided' | 'invoice_uncollectible' | 'manual_revocation' = 'invoice_voided'
+): Promise<{ previousBalance: number; newBalance: number; deductedCents: number }> {
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    throw new Error(
+      `[revokeFundsFromOrgWallet] amountCents must be a positive integer, got ${amountCents}`
+    );
+  }
+
+  const orgTarget = buildOrganizationBillingTarget(organizationId);
+  const defaultBillingOwnerUid = await getOrganizationBillingOwnerUid(db, organizationId);
+  await ensureNormalizedBillingOwner(db, orgTarget, {
+    billingOwnerUid: defaultBillingOwnerUid,
+  });
+
+  const result = await db.runTransaction(async (txn) => {
+    const owner = await getNormalizedBillingDocumentsForTransaction(txn, db, orgTarget);
+    if (!owner) {
+      throw new Error(`Org billing context not found for ${organizationId}`);
+    }
+
+    const currentBalance = owner.docs.wallet.balanceCents ?? 0;
+    // Cap deduction at current balance — wallet cannot go negative
+    const deduction = Math.min(amountCents, currentBalance);
+    const nextBalance = currentBalance - deduction;
+
+    txn.update(owner.refs.walletRef, {
+      balanceCents: FieldValue.increment(-deduction),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      previousBalance: currentBalance,
+      newBalance: nextBalance,
+      deductedCents: deduction,
+    };
+  });
+
+  logger.info('[revokeFundsFromOrgWallet] Org wallet funds revoked', {
+    organizationId,
+    amountCents,
+    reason,
+    ...result,
+  });
+
+  return result;
+}
+
 async function publishIndividualWalletFundingDomainEvent(
   db: Firestore,
   userId: string,

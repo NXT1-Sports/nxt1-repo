@@ -405,6 +405,11 @@ export class InvoiceTopUpDto {
   @Length(1, 100)
   poNumber?: string;
 
+  /** Optional Accounts Payable / Billing email to send the invoice to */
+  @IsOptional()
+  @IsEmail()
+  billingEmail?: string;
+
   /** Net payment terms in days */
   @IsInt()
   @IsIn([30])

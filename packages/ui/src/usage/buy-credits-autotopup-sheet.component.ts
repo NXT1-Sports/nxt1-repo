@@ -77,21 +77,9 @@ import {
           (click)="activeTab.set('buy')"
         >
           <nxt1-icon name="card" [size]="14" aria-hidden="true" />
-          Add Credits
+          {{ organizationId ? 'Pay by Card' : 'Add Credits' }}
         </button>
         @if (organizationId) {
-          <button
-            type="button"
-            class="bc-tab"
-            [class.bc-tab--active]="activeTab() === 'subscription'"
-            role="tab"
-            [attr.aria-selected]="activeTab() === 'subscription'"
-            [attr.data-testid]="testIds.BUY_CREDITS_TAB_SUBSCRIPTION"
-            (click)="activeTab.set('subscription')"
-          >
-            <nxt1-icon name="person-outline" [size]="14" aria-hidden="true" />
-            Subscription
-          </button>
           <button
             type="button"
             class="bc-tab"
@@ -103,6 +91,18 @@ import {
           >
             <nxt1-icon name="document-text-outline" [size]="14" aria-hidden="true" />
             Pay by Invoice
+          </button>
+          <button
+            type="button"
+            class="bc-tab"
+            [class.bc-tab--active]="activeTab() === 'subscription'"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'subscription'"
+            [attr.data-testid]="testIds.BUY_CREDITS_TAB_SUBSCRIPTION"
+            (click)="activeTab.set('subscription')"
+          >
+            <nxt1-icon name="person-outline" [size]="14" aria-hidden="true" />
+            Subscription
           </button>
         }
         <button
@@ -139,7 +139,6 @@ import {
                   (click)="selectPackage(usd)"
                 >
                   <span class="bc-package-amount">\${{ usd }}</span>
-                  <span class="bc-package-label">{{ usd * 100 }} credits</span>
                 </button>
               }
             </div>
@@ -167,8 +166,6 @@ import {
                 </ion-input>
               </nxt1-form-field>
             </div>
-
-            <p class="bc-note">100 credits = $1.00 · Credits never expire</p>
 
             @if (!initialAutoTopupEnabled) {
               <button type="button" class="bc-secondary-link" (click)="activeTab.set('auto-topup')">
@@ -254,8 +251,9 @@ import {
         } @else if (activeTab() === 'invoice') {
           <section class="bc-panel" role="tabpanel" aria-label="Pay by Invoice">
             <p class="bc-subtitle">
-              Request a formal Stripe invoice with net payment terms for your school or
-              organization. Credits are added to your team wallet as soon as the invoice is paid.
+              Request an official invoice with Net 30 payment terms for your school or organization.
+              Credits are added to your team wallet immediately so your program can start right
+              away.
             </p>
 
             <div class="bc-packages-grid">
@@ -268,7 +266,6 @@ import {
                   (click)="selectInvoicePackage(usd)"
                 >
                   <span class="bc-package-amount">\${{ usd }}</span>
-                  <span class="bc-package-label">{{ usd * 100 }} credits</span>
                 </button>
               }
             </div>
@@ -296,6 +293,27 @@ import {
                 >
                   <span slot="start" class="bc-custom-input-prefix">$</span>
                 </ion-input>
+              </nxt1-form-field>
+            </div>
+
+            <div class="bc-setting-group">
+              <nxt1-form-field
+                label="Accounts Payable / Billing Email"
+                inputId="buy-credits-billing-email"
+                hint="Where the invoice & W-9 instructions are sent"
+                [error]="billingEmailError()"
+              >
+                <ion-input
+                  #billingEmailInput
+                  id="buy-credits-billing-email"
+                  type="email"
+                  fill="outline"
+                  class="bc-custom-amount-input"
+                  placeholder="e.g. ap@school.org or bookkeeper@district.edu"
+                  [value]="billingEmail()"
+                  [attr.data-testid]="testIds.BUY_CREDITS_BILLING_EMAIL_INPUT"
+                  (ionInput)="onBillingEmailInput((billingEmailInput.value ?? '').toString())"
+                />
               </nxt1-form-field>
             </div>
 
@@ -339,8 +357,20 @@ import {
             <div class="bc-topup-summary">
               A Stripe invoice for
               <strong>{{ selectedInvoiceAmountLabel() ?? '$0.00' }}</strong> (Net
-              {{ selectedNetDays() }}) will be sent to your billing email.
+              {{ selectedNetDays() }}) will be sent to
+              <strong>{{ effectiveRecipientEmail() }}</strong> with ACH, Wire, Check, and P-Card
+              remittance instructions.
             </div>
+
+            <p class="bc-vendor-note">
+              Need our W-9, EIN, or direct deposit form for vendor onboarding?
+              <a
+                href="mailto:billing@nxt1sports.com?subject=Vendor%20Onboarding%20Packet%20Request"
+                class="bc-vendor-link"
+              >
+                Contact billing@nxt1sports.com
+              </a>
+            </p>
           </section>
         } @else if (activeTab() === 'subscription') {
           <section class="bc-panel" role="tabpanel" aria-label="Subscription">
@@ -535,6 +565,20 @@ import {
         margin: 0;
         font-size: 12px;
         color: var(--nxt1-color-text-tertiary, #64748b);
+      }
+
+      .bc-vendor-note {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary, #94a3b8);
+        text-align: center;
+      }
+
+      .bc-vendor-link {
+        color: var(--nxt1-color-primary, currentColor);
+        text-decoration: underline;
+        font-weight: 500;
       }
 
       .bc-custom-input-prefix {
@@ -805,7 +849,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
         return 'Subscription';
       case 'buy':
       default:
-        return 'Add Credits';
+        return this.organizationId ? 'Pay by Card' : 'Add Credits';
     }
   });
 
@@ -831,6 +875,25 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   protected readonly customInvoiceAmountUsd = signal('');
   protected readonly poNumber = signal('');
   protected readonly selectedNetDays = signal<30>(30);
+  protected readonly billingEmail = signal('');
+
+  protected readonly billingEmailError = computed(() => {
+    const raw = this.billingEmail().trim();
+    if (!raw) return null;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(raw)) {
+      return 'Enter a valid email address.';
+    }
+    return null;
+  });
+
+  protected readonly effectiveRecipientEmail = computed(() => {
+    const custom = this.billingEmail().trim();
+    if (custom && this.billingEmailError() === null) return custom;
+    const profileEmail = this.profile?.email?.trim();
+    if (profileEmail) return profileEmail;
+    return 'your billing email';
+  });
 
   protected readonly enabledLocal = signal(false);
   protected readonly thresholdCentsLocal = signal(500);
@@ -938,9 +1001,11 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
 
     return this.enabledLocal() ? 'Save Auto Top-Up Settings' : 'Disable Auto Top-Up';
   });
-  protected readonly footerDisabled = computed(() => {
+  protected footerDisabled = computed(() => {
     if (this.activeTab() === 'buy') return this.selectedBuyAmountCents() === null;
-    if (this.activeTab() === 'invoice') return this.selectedInvoiceAmountCents() === null;
+    if (this.activeTab() === 'invoice') {
+      return this.selectedInvoiceAmountCents() === null || this.billingEmailError() !== null;
+    }
     return !this.isAutoTopupDirty();
   });
   protected readonly footerIcon = computed(() => {
@@ -958,6 +1023,11 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
     this.topupAmountCentsLocal.set(
       this.initialAutoTopupAmountCents > 0 ? this.initialAutoTopupAmountCents : 1_000
     );
+
+    const defaultEmail = this.profile?.email?.trim();
+    if (defaultEmail) {
+      this.billingEmail.set(defaultEmail);
+    }
   }
 
   protected selectPackage(usd: CreditPackageUsd): void {
@@ -997,6 +1067,10 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
     }
   }
 
+  protected onBillingEmailInput(value: string): void {
+    this.billingEmail.set(value.trim());
+  }
+
   protected async onPrimaryAction(): Promise<void> {
     if (this.activeTab() === 'buy') {
       await this.onBuyWithStripe();
@@ -1004,13 +1078,14 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
     }
     if (this.activeTab() === 'invoice') {
       const amountCents = this.selectedInvoiceAmountCents();
-      if (amountCents === null) return;
+      if (amountCents === null || this.billingEmailError() !== null) return;
       await this.dismiss(
         {
           type: 'invoice',
           amountCents,
           poNumber: this.poNumber().trim() || undefined,
           netDays: this.selectedNetDays(),
+          billingEmail: this.billingEmail().trim() || undefined,
         },
         'invoice'
       );

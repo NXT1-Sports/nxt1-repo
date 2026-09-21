@@ -21,6 +21,7 @@ export type BuyCreditsAutoTopupResult =
       readonly amountCents: number;
       readonly poNumber?: string;
       readonly netDays: 30;
+      readonly billingEmail?: string;
     }
   | null;
 

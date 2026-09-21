@@ -182,6 +182,60 @@ describe('signup dashboard Notion entry service', () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/databases/database-1/query');
   });
 
+  it('reuses an existing B2B Partners page by Team ID before falling back to email', async () => {
+    process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
+    process.env['NOTION_API_TOKEN'] = 'secret-test';
+    process.env['NOTION_SIGNUP_DASHBOARD_DATABASE_ID'] = 'database-1';
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ results: [{ id: 'page-teammate', url: 'https://notion.so/teammate' }] })
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        id: 'page-teammate',
+        url: 'https://notion.so/teammate',
+        properties: {
+          Stage: { type: 'status', status: { name: 'Usage Started' } },
+          Email: { type: 'email', email: 'org-owner@example.com' },
+        },
+      })
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ id: 'page-teammate', url: 'https://notion.so/teammate' })
+    );
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        notionPageWithStage('page-teammate', 'Usage Started', 'https://notion.so/teammate')
+      )
+    );
+
+    const result = await upsertSignupDashboardEntry({
+      userId: 'user-teammate',
+      environment: 'production',
+      role: 'coach',
+      email: 'teammate@example.com',
+      teamId: 'team-shared-1',
+    });
+
+    expect(result).toEqual({
+      status: 'existing',
+      pageId: 'page-teammate',
+      pageUrl: 'https://notion.so/teammate',
+    });
+    const teamIdQueryBody = String(fetchMock.mock.calls[0]?.[1]?.body);
+    expect(teamIdQueryBody).toContain('"Team ID: team-shared-1"');
+
+    const updateCall = fetchMock.mock.calls.find(
+      ([, init]) => init?.method === 'PATCH' && String(init?.body).includes('"properties"')
+    );
+    const updateBody = JSON.parse(String(updateCall?.[1]?.body)) as {
+      readonly properties: Record<string, unknown>;
+    };
+    // Different contact than the row's owner: identity fields must be left untouched.
+    expect(updateBody.properties['Organization']).toBeUndefined();
+    expect(updateBody.properties['Primary Contact']).toBeUndefined();
+    expect(updateBody.properties['Email']).toBeUndefined();
+  });
+
   it('creates an Onboarding Completed row when no B2B Partners page exists for the signup email', async () => {
     process.env['NOTION_SIGNUP_DASHBOARD_ENABLED'] = 'true';
     process.env['NOTION_API_TOKEN'] = 'secret-test';
