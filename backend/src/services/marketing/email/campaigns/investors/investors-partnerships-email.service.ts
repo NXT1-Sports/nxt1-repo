@@ -18,8 +18,7 @@ const PRIMARY_CTA_HREF = 'https://calendar.app.google/LdFFYqWnFKKqVFn3A';
 const SECONDARY_CTA_HREF = 'https://nxt1sports.com';
 const PARTNER_SLIDESHOW_CTA_HREF =
   'https://www.figma.com/deck/8zc0HWvRlAWtRQt0OaxMr4/NXT1-Partner-Deck?node-id=1-366&t=Pso4bYrSVC8SXmPo-1';
-const INVESTOR_SLIDESHOW_CTA_HREF =
-  'https://www.figma.com/deck/uz7GK1G0mGvs64FptHfLqH/NXT1-Investor-Deck?node-id=1-947&t=DBvPXg8cWY98XqgQ-1';
+const INVESTOR_SLIDESHOW_CTA_HREF = 'https://www.figma.com/deck/kQXwPuciqorGMraOgh708P';
 
 function withUtm(
   url: string,
