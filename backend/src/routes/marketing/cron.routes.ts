@@ -14,6 +14,7 @@ import {
   runB2CChurnedNotionDashboardSync,
   runB2CClosedLostNotionDashboardSync,
 } from '../../services/marketing/lifecycle/b2c-billing-notion-dashboard.service.js';
+import { runB2CUsersActivityRefreshSync } from '../../services/marketing/lifecycle/b2c-users.service.js';
 import { runClosedLostNotionDashboardSync } from '../../services/marketing/lifecycle/closed-lost-notion-dashboard.service.js';
 import { runChurnedNotionDashboardSync } from '../../services/marketing/lifecycle/churned-notion-dashboard.service.js';
 import { runPushDripCampaign } from '../../services/marketing/lifecycle/push-drip.service.js';
@@ -305,6 +306,35 @@ router.post(
     }
   }
 );
+
+router.post('/cron/b2c-users-activity-refresh', cronGuard, async (req: Request, res: Response) => {
+  try {
+    if (!req.firebase?.db) {
+      res.status(500).json({ success: false, error: 'Firebase context unavailable' });
+      return;
+    }
+
+    const result = await runB2CUsersActivityRefreshSync({
+      db: req.firebase.db,
+      environment: req.isStaging ? 'staging' : 'production',
+      limit: parseLimit(req.body?.['limit']),
+      batchSize: parseLimit(req.body?.['batchSize']),
+      force: Boolean(req.body?.['force']),
+    });
+
+    res.json({
+      success: true,
+      message: 'B2C Users activity refresh completed',
+      result,
+    });
+  } catch (error) {
+    logger.error('CRON b2c-users-activity-refresh failed', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({ success: false, error: 'B2C Users activity refresh failed' });
+  }
+});
 
 router.post(
   '/cron/closed-lost-notion-dashboard',

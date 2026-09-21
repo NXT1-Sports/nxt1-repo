@@ -96,6 +96,31 @@ function stripLeadingGreeting(paragraph: string): string {
   );
 }
 
+/**
+ * `agentResultSummary` is the raw chat-formatted output of the weekly_recap
+ * agent job (markdown headings, tables, emoji image links, `---` rules). It
+ * is only meant as LLM prompt context — never as literal display copy. When
+ * structured content generation fails, strip that markdown down to plain,
+ * readable prose so the fallback bullet doesn't render as one jumbled blob.
+ */
+function sanitizeAgentSummaryForFallback(text: string, maxLength = 280): string {
+  const plain = text
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '') // emoji/image markdown
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // links -> label text
+    .replace(/^---+$/gm, '') // horizontal rules
+    .replace(/^#{1,6}\s*/gm, '') // heading markers
+    .replace(/\|/g, ' ') // table pipes
+    .replace(/^[-:]+$/gm, '') // table separator rows
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!plain) {
+    return 'Agent X completed your weekly recap.';
+  }
+
+  return plain.length > maxLength ? `${plain.slice(0, maxLength).trim()}…` : plain;
+}
+
 // ─── Firestore helpers ────────────────────────────────────────────────────────
 
 /**
@@ -377,7 +402,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
 
     const fallbackCompletedActions = [
       'Reviewed your Agent X activity from this week.',
-      agentResultSummary,
+      sanitizeAgentSummaryForFallback(agentResultSummary),
       'Prepared a focused recap for your next step forward.',
     ];
     const fallbackResultsHighlights = [
@@ -414,7 +439,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
     return {
       subject: `Your ${weekLabel} Agent X Recap`,
       introParagraph: `Here's a summary of what Agent X accomplished for you this week.`,
-      completedActions: [agentResultSummary],
+      completedActions: [sanitizeAgentSummaryForFallback(agentResultSummary)],
       resultsHighlights: ['Agent X completed your weekly recap.'],
       nextSteps: ['Check your dashboard for detailed insights.'],
       ctaText: 'Open Dashboard',

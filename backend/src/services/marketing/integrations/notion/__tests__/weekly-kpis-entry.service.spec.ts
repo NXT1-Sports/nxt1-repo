@@ -53,6 +53,21 @@ function createMetrics(overrides: Partial<WeeklyKpisMetrics> = {}): WeeklyKpisMe
     grossMarginPercentActual: 58,
     usageStartRatePercent: 80,
     timeToFirstUsageHoursActual: 6,
+    trialsStartedActual: 12,
+    personalTrialsStartedActual: 9,
+    organizationTrialsStartedActual: 3,
+    trialsConvertedActual: 4,
+    personalTrialsConvertedActual: 3,
+    organizationTrialsConvertedActual: 1,
+    trialsExpiredActual: 2,
+    personalTrialsExpiredActual: 1,
+    organizationTrialsExpiredActual: 1,
+    trialConversionRatePercent: 66.7,
+    personalTrialConversionRatePercent: 75,
+    organizationTrialConversionRatePercent: 50,
+    avgDaysToTrialConversionActual: 8.5,
+    personalAvgDaysToTrialConversionActual: 7.2,
+    organizationAvgDaysToTrialConversionActual: 11.4,
     ...overrides,
   };
 }
@@ -95,7 +110,7 @@ describe('buildWeeklyKpisProperties', () => {
     expect(properties['B2C Gross Margin (%) Actual']).toEqual({ number: 0.55 });
   });
 
-  it('omits optional time and visitor fields when undefined', () => {
+  it('clears optional time and visitor fields when undefined', () => {
     const properties = buildWeeklyKpisProperties(
       createMetrics({
         totalSiteVisitorsActual: undefined,
@@ -105,9 +120,31 @@ describe('buildWeeklyKpisProperties', () => {
       })
     );
 
-    expect(properties['Time to First Usage (hrs) Actual']).toBeUndefined();
-    expect(properties['Total Site Visitors (Actual)']).toBeUndefined();
-    expect(properties['B2B Time to First Usage (hrs) Actual']).toBeUndefined();
-    expect(properties['B2C Time to First Usage (hrs) Actual']).toBeUndefined();
+    expect(properties['Time to First Usage (hrs) Actual']).toEqual({ number: null });
+    expect(properties['Total Site Visitors (Actual)']).toEqual({ number: null });
+    expect(properties['B2B Time to First Usage (hrs) Actual']).toEqual({ number: null });
+    expect(properties['B2C Time to First Usage (hrs) Actual']).toEqual({ number: null });
+  });
+
+  it('maps trial lifecycle fields, excluding org-affiliated personal wallets from personal counts', () => {
+    const properties = buildWeeklyKpisProperties(createMetrics());
+
+    expect(properties['Trials Started (Actual)']).toEqual({ number: 12 });
+    expect(properties['Personal Trials Started (Actual)']).toEqual({ number: 9 });
+    expect(properties['Organization Trials Started (Actual)']).toEqual({ number: 3 });
+    expect(properties['Trials Converted (Actual)']).toEqual({ number: 4 });
+    expect(properties['Personal Trials Converted (Actual)']).toEqual({ number: 3 });
+    expect(properties['Organization Trials Converted (Actual)']).toEqual({ number: 1 });
+    expect(properties['Trials Expired (Actual)']).toEqual({ number: 2 });
+    expect(properties['Personal Trials Expired (Actual)']).toEqual({ number: 1 });
+    expect(properties['Organization Trials Expired (Actual)']).toEqual({ number: 1 });
+    expect(properties['Trial Conversion Rate (%)']).toEqual({ number: 0.667 });
+    expect(properties['Personal Trial Conversion Rate (%)']).toEqual({ number: 0.75 });
+    expect(properties['Organization Trial Conversion Rate (%)']).toEqual({ number: 0.5 });
+    expect(properties['Avg Days to Trial Conversion (Actual)']).toEqual({ number: 8.5 });
+    expect(properties['Personal Avg Days to Trial Conversion (Actual)']).toEqual({ number: 7.2 });
+    expect(properties['Organization Avg Days to Trial Conversion (Actual)']).toEqual({
+      number: 11.4,
+    });
   });
 });

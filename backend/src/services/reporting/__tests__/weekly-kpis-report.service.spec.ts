@@ -174,6 +174,19 @@ describe('summarizeExplicitSegmentedMatches', () => {
 });
 
 describe('resolveUsageEventCostCents', () => {
+  it('prefers raw provider spend over customer-facing charge breakdowns', () => {
+    const result = resolveUsageEventCostCents({
+      rawProviderCostUsd: 0.05247281783908497,
+      unitCostSnapshot: 999,
+      quantity: 9,
+      metadata: {
+        chargeBreakdown: [{ chargeAmountCents: 125 }, { chargeAmountCents: 75 }],
+      },
+    });
+
+    expect(result).toBeCloseTo(5.247281783908497);
+  });
+
   it('prefers metadata chargeBreakdown when available', () => {
     const result = resolveUsageEventCostCents({
       unitCostSnapshot: 999,

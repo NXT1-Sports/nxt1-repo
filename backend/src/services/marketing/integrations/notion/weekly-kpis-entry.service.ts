@@ -38,6 +38,8 @@ export interface WeeklyKpisMetrics {
   readonly usageRevenueActual: number; // dollars
   readonly grossMarginPercentActual: number; // 0-100
   readonly totalSiteVisitorsActual?: number;
+  readonly visitorConversationsActual?: number;
+  readonly visitorToConversationRatePercent?: number; // 0-100
   readonly usageStartRatePercent: number; // 0-100
   readonly timeToFirstUsageHoursActual?: number; // optional median/average
   readonly b2bNewAccountsStartedActual: number;
@@ -72,6 +74,21 @@ export interface WeeklyKpisMetrics {
   readonly b2cUsageRevenueActual: number;
   readonly b2cGrossMarginPercentActual: number;
   readonly b2cTimeToFirstUsageHoursActual?: number;
+  readonly trialsStartedActual: number;
+  readonly personalTrialsStartedActual: number;
+  readonly organizationTrialsStartedActual: number;
+  readonly trialsConvertedActual: number;
+  readonly personalTrialsConvertedActual: number;
+  readonly organizationTrialsConvertedActual: number;
+  readonly trialsExpiredActual: number;
+  readonly personalTrialsExpiredActual: number;
+  readonly organizationTrialsExpiredActual: number;
+  readonly trialConversionRatePercent: number; // 0-100
+  readonly personalTrialConversionRatePercent: number; // 0-100
+  readonly organizationTrialConversionRatePercent: number; // 0-100
+  readonly avgDaysToTrialConversionActual: number;
+  readonly personalAvgDaysToTrialConversionActual: number;
+  readonly organizationAvgDaysToTrialConversionActual: number;
   readonly notes?: string;
 }
 
@@ -141,7 +158,7 @@ export function buildWeeklyKpisProperties(metrics: WeeklyKpisMetrics): NotionPro
       number: metrics.payingEngagedUsersActual,
     },
     'Usage Start Rate (%)': {
-      number: metrics.usageStartRatePercent / 100, // Notion percent format stores 0-1 (0.75 → displays 75%)
+      number: metrics.usageStartRatePercent / 100,
     },
     'Closed Won Accounts (Actual)': {
       number: metrics.closedWonAccountsActual,
@@ -259,30 +276,97 @@ export function buildWeeklyKpisProperties(metrics: WeeklyKpisMetrics): NotionPro
     'B2C Gross Margin (%) Actual': {
       number: metrics.b2cGrossMarginPercentActual / 100,
     },
+    'Trials Started (Actual)': {
+      number: metrics.trialsStartedActual,
+    },
+    'Personal Trials Started (Actual)': {
+      number: metrics.personalTrialsStartedActual,
+    },
+    'Organization Trials Started (Actual)': {
+      number: metrics.organizationTrialsStartedActual,
+    },
+    'Trials Converted (Actual)': {
+      number: metrics.trialsConvertedActual,
+    },
+    'Personal Trials Converted (Actual)': {
+      number: metrics.personalTrialsConvertedActual,
+    },
+    'Organization Trials Converted (Actual)': {
+      number: metrics.organizationTrialsConvertedActual,
+    },
+    'Trials Expired (Actual)': {
+      number: metrics.trialsExpiredActual,
+    },
+    'Personal Trials Expired (Actual)': {
+      number: metrics.personalTrialsExpiredActual,
+    },
+    'Organization Trials Expired (Actual)': {
+      number: metrics.organizationTrialsExpiredActual,
+    },
+    'Trial Conversion Rate (%)': {
+      number: metrics.trialConversionRatePercent / 100,
+    },
+    'Personal Trial Conversion Rate (%)': {
+      number: metrics.personalTrialConversionRatePercent / 100,
+    },
+    'Organization Trial Conversion Rate (%)': {
+      number: metrics.organizationTrialConversionRatePercent / 100,
+    },
+    'Avg Days to Trial Conversion (Actual)': {
+      number: metrics.avgDaysToTrialConversionActual,
+    },
+    'Personal Avg Days to Trial Conversion (Actual)': {
+      number: metrics.personalAvgDaysToTrialConversionActual,
+    },
+    'Organization Avg Days to Trial Conversion (Actual)': {
+      number: metrics.organizationAvgDaysToTrialConversionActual,
+    },
   };
 
   if (typeof metrics.timeToFirstUsageHoursActual === 'number') {
     properties['Time to First Usage (hrs) Actual'] = {
       number: metrics.timeToFirstUsageHoursActual,
     };
+  } else {
+    properties['Time to First Usage (hrs) Actual'] = { number: null };
   }
 
   if (typeof metrics.totalSiteVisitorsActual === 'number') {
     properties['Total Site Visitors (Actual)'] = {
       number: metrics.totalSiteVisitorsActual,
     };
+  } else {
+    properties['Total Site Visitors (Actual)'] = { number: null };
   }
+
+  properties['Visitor Conversations (Actual)'] = {
+    number:
+      typeof metrics.visitorConversationsActual === 'number'
+        ? metrics.visitorConversationsActual
+        : null,
+  };
+
+  properties['Visitor to Conversation Rate (%)'] = {
+    number:
+      typeof metrics.visitorToConversationRatePercent === 'number'
+        ? metrics.visitorToConversationRatePercent / 100
+        : null,
+  };
 
   if (typeof metrics.b2bTimeToFirstUsageHoursActual === 'number') {
     properties['B2B Time to First Usage (hrs) Actual'] = {
       number: metrics.b2bTimeToFirstUsageHoursActual,
     };
+  } else {
+    properties['B2B Time to First Usage (hrs) Actual'] = { number: null };
   }
 
   if (typeof metrics.b2cTimeToFirstUsageHoursActual === 'number') {
     properties['B2C Time to First Usage (hrs) Actual'] = {
       number: metrics.b2cTimeToFirstUsageHoursActual,
     };
+  } else {
+    properties['B2C Time to First Usage (hrs) Actual'] = { number: null };
   }
 
   if (metrics.notes) {
@@ -294,6 +378,8 @@ export function buildWeeklyKpisProperties(metrics: WeeklyKpisMetrics): NotionPro
         },
       ],
     };
+  } else {
+    properties['Notes'] = { rich_text: [] };
   }
 
   return properties;

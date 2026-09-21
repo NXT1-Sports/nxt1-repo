@@ -64,6 +64,21 @@ function createMetrics(
     visitorToSignupConversionPercent: 4.8,
     topReferralSourcesActual: 'Social Media (12, 48%) | Friend or Teammate (7, 28%)',
     topReferralDetailsActual: 'Instagram (8, 57%) | TikTok (4, 29%)',
+    trialsStartedActual: 30,
+    personalTrialsStartedActual: 22,
+    organizationTrialsStartedActual: 8,
+    trialsConvertedActual: 11,
+    personalTrialsConvertedActual: 8,
+    organizationTrialsConvertedActual: 3,
+    trialsExpiredActual: 6,
+    personalTrialsExpiredActual: 4,
+    organizationTrialsExpiredActual: 2,
+    trialConversionRatePercent: 64.7,
+    personalTrialConversionRatePercent: 66.7,
+    organizationTrialConversionRatePercent: 60,
+    avgDaysToTrialConversionActual: 9.3,
+    personalAvgDaysToTrialConversionActual: 8.1,
+    organizationAvgDaysToTrialConversionActual: 12.6,
     notes: 'Monthly automation sync',
     ...overrides,
   };
@@ -159,7 +174,7 @@ describe('buildMonthlyScoreboardProperties', () => {
     });
   });
 
-  it('omits optional fields when undefined', () => {
+  it('clears optional fields when undefined', () => {
     const properties = buildMonthlyScoreboardProperties(
       createMetrics({
         momRevenueGrowthPercent: undefined,
@@ -173,14 +188,14 @@ describe('buildMonthlyScoreboardProperties', () => {
       })
     );
 
-    expect(properties['MoM Revenue Growth (%)']).toBeUndefined();
-    expect(properties['Time to First Usage (hrs) Actual']).toBeUndefined();
-    expect(properties['B2B Time to First Usage (hrs) Actual']).toBeUndefined();
-    expect(properties['B2C Time to First Usage (hrs) Actual']).toBeUndefined();
-    expect(properties['Total Site Visitors (Actual)']).toBeUndefined();
-    expect(properties['Visitor to Signup Conversion (%)']).toBeUndefined();
-    expect(properties['Top Referral Sources (Actual)']).toBeUndefined();
-    expect(properties['Top Referral Details (Actual)']).toBeUndefined();
+    expect(properties['MoM Revenue Growth (%)']).toEqual({ number: null });
+    expect(properties['Time to First Usage (hrs) Actual']).toEqual({ number: null });
+    expect(properties['B2B Time to First Usage (hrs) Actual']).toEqual({ number: null });
+    expect(properties['B2C Time to First Usage (hrs) Actual']).toEqual({ number: null });
+    expect(properties['Total Site Visitors (Actual)']).toEqual({ number: null });
+    expect(properties['Visitor to Signup Conversion (%)']).toEqual({ number: null });
+    expect(properties['Top Referral Sources (Actual)']).toEqual({ rich_text: [] });
+    expect(properties['Top Referral Details (Actual)']).toEqual({ rich_text: [] });
   });
 
   it('marks the row selected for the current dashboard month when requested', () => {
@@ -207,5 +222,29 @@ describe('isCurrentMonthDashboardRow', () => {
         new Date('2026-07-07T12:00:00.000Z')
       )
     ).toBe(false);
+  });
+});
+
+describe('buildMonthlyScoreboardProperties trial fields', () => {
+  it('maps trial lifecycle fields, excluding org-affiliated personal wallets from personal counts', () => {
+    const properties = buildMonthlyScoreboardProperties(createMetrics());
+
+    expect(properties['Trials Started (Actual)']).toEqual({ number: 30 });
+    expect(properties['Personal Trials Started (Actual)']).toEqual({ number: 22 });
+    expect(properties['Organization Trials Started (Actual)']).toEqual({ number: 8 });
+    expect(properties['Trials Converted (Actual)']).toEqual({ number: 11 });
+    expect(properties['Personal Trials Converted (Actual)']).toEqual({ number: 8 });
+    expect(properties['Organization Trials Converted (Actual)']).toEqual({ number: 3 });
+    expect(properties['Trials Expired (Actual)']).toEqual({ number: 6 });
+    expect(properties['Personal Trials Expired (Actual)']).toEqual({ number: 4 });
+    expect(properties['Organization Trials Expired (Actual)']).toEqual({ number: 2 });
+    expect(properties['Trial Conversion Rate (%)']).toEqual({ number: 0.647 });
+    expect(properties['Personal Trial Conversion Rate (%)']).toEqual({ number: 0.667 });
+    expect(properties['Organization Trial Conversion Rate (%)']).toEqual({ number: 0.6 });
+    expect(properties['Avg Days to Trial Conversion (Actual)']).toEqual({ number: 9.3 });
+    expect(properties['Personal Avg Days to Trial Conversion (Actual)']).toEqual({ number: 8.1 });
+    expect(properties['Organization Avg Days to Trial Conversion (Actual)']).toEqual({
+      number: 12.6,
+    });
   });
 });

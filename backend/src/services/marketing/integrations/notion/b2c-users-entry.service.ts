@@ -73,7 +73,7 @@ export interface B2CUsersEntryInput {
   readonly organizationId?: string | null;
 }
 
-type B2CUsersEngagement = 'High' | 'Medium' | 'Low' | 'At Risk';
+export type B2CUsersEngagement = 'High' | 'Medium' | 'Low' | 'At Risk';
 
 export type UpsertB2CUsersEntryResult =
   | {
@@ -85,6 +85,53 @@ export type UpsertB2CUsersEntryResult =
       readonly status: 'skipped';
       readonly reason: 'disabled' | 'missing-token' | 'missing-database-id' | 'missing-email';
     };
+
+export type RefreshB2CUsersActivityResult =
+  | { readonly status: 'updated'; readonly pageId: string }
+  | {
+      readonly status: 'skipped';
+      readonly reason: 'disabled' | 'missing-token' | 'missing-database-id';
+    }
+  | { readonly status: 'failed' };
+
+/**
+ * Re-stamps only `Last Active`/`Engagement` on an existing B2C Users page.
+ * Unlike `upsertB2CUsersEntry`, this never touches Stage/contact fields, so
+ * it is safe to run on a recurring schedule for every known page — this is
+ * the only path that keeps those two fields current between lifecycle
+ * stage transitions (which are one-time, billing-triggered events).
+ */
+export async function refreshB2CUsersActivity(input: {
+  readonly environment: RuntimeEnvironment;
+  readonly pageId: string;
+  readonly lastActiveAt: Date | string | null | undefined;
+}): Promise<RefreshB2CUsersActivityResult> {
+  const config = getNotionB2CUsersConfig(input.environment);
+  const disabledReason = getNotionSignupDashboardDisabledReason(config);
+  if (disabledReason) {
+    return { status: 'skipped', reason: disabledReason };
+  }
+
+  try {
+    const lastActiveAt = normalizeIsoDate(input.lastActiveAt);
+    const properties: NotionProperties = {
+      Engagement: { select: { name: resolveEngagement(input.lastActiveAt) } },
+    };
+    if (lastActiveAt) {
+      properties['Last Active'] = { date: { start: lastActiveAt } };
+    }
+
+    await updateNotionSignupDashboardPage({
+      config,
+      pageId: input.pageId,
+      properties,
+    });
+
+    return { status: 'updated', pageId: input.pageId };
+  } catch {
+    return { status: 'failed' };
+  }
+}
 
 function isArchivedNotionPageError(error: unknown): boolean {
   return (
@@ -172,8 +219,10 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function resolveEngagement(input: B2CUsersEntryInput): B2CUsersEngagement {
-  const lastActiveAt = toDate(input.lastActiveAt);
+export function resolveEngagement(
+  lastActiveAtInput: Date | string | null | undefined
+): B2CUsersEngagement {
+  const lastActiveAt = toDate(lastActiveAtInput);
   const inactiveDays = lastActiveAt
     ? Math.floor((Date.now() - lastActiveAt.getTime()) / (24 * 60 * 60 * 1000))
     : null;
@@ -232,7 +281,7 @@ export function buildB2CUsersNotionProperties(input: B2CUsersEntryInput): Notion
     Name: { title: [textFragment(resolveAthleteName(input))] },
     Email: { email },
     Stage: { status: { name: input.stage } },
-    Engagement: { select: { name: resolveEngagement(input) } },
+    Engagement: { select: { name: resolveEngagement(input.lastActiveAt) } },
     Sport: { select: { name: normalizeSport(input.primarySport) } },
     'Referral Source': { select: { name: resolveB2CReferralSource(input) } },
     Notes: { rich_text: richText(buildAutoNotes(input)) },

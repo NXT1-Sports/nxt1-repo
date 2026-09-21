@@ -20,6 +20,19 @@ describe('getPreviousMonthStart', () => {
 });
 
 describe('resolveUsageEventCostCents', () => {
+  it('preserves raw provider sub-cent precision until report aggregation', () => {
+    const result = resolveUsageEventCostCents({
+      rawProviderCostUsd: 0.05247281783908497,
+      unitCostSnapshot: 200,
+      quantity: 5,
+      metadata: {
+        chargeBreakdown: [{ chargeAmountCents: 145 }, { chargeAmountCents: 55 }],
+      },
+    });
+
+    expect(result).toBeCloseTo(5.247281783908497);
+  });
+
   it('prefers metadata chargeBreakdown when available', () => {
     const result = resolveUsageEventCostCents({
       unitCostSnapshot: 200,

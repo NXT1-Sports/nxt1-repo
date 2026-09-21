@@ -20,7 +20,7 @@ import {
   normalizeReferralSource,
   type CanonicalReferralSource,
 } from '../../routes/auth/referral-source.utils.js';
-import { fetchGa4MonthlySiteVisitors } from './ga4-site-visitors.service.js';
+import { calculateVisitorConversationMetric } from './visitor-conversation-metric.js';
 import {
   countEngagedUsers,
   countEngagementEligibleAccounts,
@@ -30,6 +30,7 @@ import {
 import { coerceDate } from './account-start-date.js';
 import { fetchReportingAccountStartedUsers } from './reporting-account-start-users.js';
 import { resolveUsageEventCostCents } from './usage-event-costs.js';
+import { computeTrialLifecycleMetrics } from './trial-metrics.js';
 
 export interface GenerateMonthlyScoreboardReportInput {
   readonly db: Firestore;
@@ -507,17 +508,16 @@ async function countSegmentedOnboardingCompleted(
   monthEnd: Date
 ): Promise<SegmentCounts> {
   try {
-    const snapshot = await db
-      .collection('Users')
-      .where('onboardingCompletedAt', '>=', monthStart)
-      .where('onboardingCompletedAt', '<=', monthEnd)
-      .get();
+    const users = await fetchReportingAccountStartedUsers(db, monthStart, monthEnd);
 
     let b2b = 0;
     let b2c = 0;
 
-    for (const doc of snapshot.docs) {
-      const segment = classifySegment(doc.data() as Record<string, unknown>);
+    for (const { user } of users) {
+      const onboardingCompletedAt = coerceDate(user['onboardingCompletedAt']);
+      if (!onboardingCompletedAt || onboardingCompletedAt.getTime() > monthEnd.getTime()) continue;
+
+      const segment = classifySegment(user);
       if (segment === 'b2b') b2b += 1;
       else b2c += 1;
     }
@@ -541,6 +541,7 @@ async function fetchSplitFinancials(start: Date, endExclusive: Date): Promise<Sp
       metadata: 1,
       billedOwnerType: 1,
       organizationId: 1,
+      rawProviderCostUsd: 1,
       unitCostSnapshot: 1,
       quantity: 1,
     })
@@ -549,6 +550,7 @@ async function fetchSplitFinancials(start: Date, endExclusive: Date): Promise<Sp
         metadata?: Record<string, unknown>;
         billedOwnerType?: string;
         organizationId?: string | null;
+        rawProviderCostUsd?: number;
         unitCostSnapshot?: number;
         quantity?: number;
       }>
@@ -571,6 +573,8 @@ async function fetchSplitFinancials(start: Date, endExclusive: Date): Promise<Sp
     },
     { b2b: 0, b2c: 0 }
   );
+  costTotals.b2b = Math.round(costTotals.b2b);
+  costTotals.b2c = Math.round(costTotals.b2c);
 
   const paymentLogs = await PaymentLogModel.find({
     createdAt: { $gte: start, $lt: endExclusive },
@@ -653,13 +657,6 @@ export async function generateMonthlyScoreboardReport(
 
   const newAccountsStarted = await countSegmentedAccountStarted(input.db, monthStart, monthEnd);
 
-  const usageStarted = await countSegmentedFromFields(
-    input.db,
-    USAGE_STARTED_CREATED_AT_FIELDS,
-    monthStart,
-    monthEnd
-  );
-
   const b2bClosedWon = await countAccountsByPath(
     input.db,
     'lifecycle.sales.closedWon.createdAt',
@@ -733,7 +730,12 @@ export async function generateMonthlyScoreboardReport(
     classifySegment
   );
   const topReferrals = await computeTopReferrals(input.db, monthStart, monthEnd);
-  const totalSiteVisitors = await fetchGa4MonthlySiteVisitors(monthStart, monthEnd);
+  const visitorConversationMetric = await calculateVisitorConversationMetric(
+    monthStart,
+    nextMonthStart,
+    'month'
+  );
+  const totalSiteVisitors = visitorConversationMetric.totalVisitors;
 
   const visitorToSignupConversionPercent =
     typeof totalSiteVisitors === 'number' && totalSiteVisitors > 0
@@ -744,6 +746,7 @@ export async function generateMonthlyScoreboardReport(
     monthStart,
     monthEnd
   );
+  const trial = await computeTrialLifecycleMetrics(input.db, monthStart, monthEnd);
   const [engagedUsers, engagementEligibleAccounts, payingEngagedUsers] = await Promise.all([
     countEngagedUsers(
       input.db,
@@ -797,9 +800,9 @@ export async function generateMonthlyScoreboardReport(
     b2cEngagedUsersActual: engagedUsers.b2c,
     b2cEngagementEligibleAccountsActual: engagementEligibleAccounts.b2c,
     b2cPayingEngagedUsersActual: payingEngagedUsers.b2c,
-    usageStartedAccountsActual: usageStarted.total,
-    b2bUsageStartedAccountsActual: usageStarted.b2b,
-    b2cUsageStartedAccountsActual: usageStarted.b2c,
+    usageStartedAccountsActual: usageStartedCohort.total,
+    b2bUsageStartedAccountsActual: usageStartedCohort.b2b,
+    b2cUsageStartedAccountsActual: usageStartedCohort.b2c,
     usageRevenueActual: currentFinancials.revenue.total,
     b2bUsageRevenueActual: currentFinancials.revenue.b2b,
     b2cUsageRevenueActual: currentFinancials.revenue.b2c,
@@ -838,7 +841,24 @@ export async function generateMonthlyScoreboardReport(
     topReferralSourcesActual: topReferrals.sourcesSummary,
     topReferralDetailsActual: topReferrals.detailsSummary,
     totalSiteVisitorsActual: totalSiteVisitors,
+    visitorConversationsActual: visitorConversationMetric.conversingVisitors,
     visitorToSignupConversionPercent,
+    visitorToConversationRatePercent: visitorConversationMetric.ratePercent,
+    trialsStartedActual: trial.started.total,
+    personalTrialsStartedActual: trial.started.personal,
+    organizationTrialsStartedActual: trial.started.organization,
+    trialsConvertedActual: trial.converted.total,
+    personalTrialsConvertedActual: trial.converted.personal,
+    organizationTrialsConvertedActual: trial.converted.organization,
+    trialsExpiredActual: trial.expired.total,
+    personalTrialsExpiredActual: trial.expired.personal,
+    organizationTrialsExpiredActual: trial.expired.organization,
+    trialConversionRatePercent: trial.conversionRatePercent.total,
+    personalTrialConversionRatePercent: trial.conversionRatePercent.personal,
+    organizationTrialConversionRatePercent: trial.conversionRatePercent.organization,
+    avgDaysToTrialConversionActual: trial.avgDaysToConversion.total,
+    personalAvgDaysToTrialConversionActual: trial.avgDaysToConversion.personal,
+    organizationAvgDaysToTrialConversionActual: trial.avgDaysToConversion.organization,
   };
 
   await persistMonthlyScoreboardSnapshot(input.db, monthStart, metrics, topReferrals);

@@ -5,6 +5,7 @@
  * Usage:
  *   NODE_ENV=staging    npx tsx scripts/test-weekly-kpis-sync.ts
  *   NODE_ENV=production npx tsx scripts/test-weekly-kpis-sync.ts
+ *   NODE_ENV=production npx tsx scripts/test-weekly-kpis-sync.ts --week-start=2026-09-07
  */
 
 // Step 1: Load env vars (pure imports, no side-effects at load time)
@@ -55,7 +56,23 @@ console.log(
   `   Mongoose: ${mongoose.connection.readyState === 1 ? 'connected ✅' : 'NOT connected ❌'}\n`
 );
 
-const weekStart = getPreviousWeekStart();
+const weekStartArgument = process.argv.find((arg) => arg.startsWith('--week-start='));
+const weekStartValue = weekStartArgument?.slice('--week-start='.length);
+const weekStart = weekStartValue
+  ? new Date(`${weekStartValue}T00:00:00.000Z`)
+  : getPreviousWeekStart();
+
+if (
+  !weekStartValue ||
+  !/^\d{4}-\d{2}-\d{2}$/.test(weekStartValue) ||
+  Number.isNaN(weekStart.getTime()) ||
+  weekStart.getUTCDay() !== 1
+) {
+  if (weekStartValue) {
+    throw new Error('--week-start must be a valid Monday in YYYY-MM-DD format');
+  }
+}
+
 console.log(`📅 Week: ${weekStart.toISOString().slice(0, 10)}`);
 console.log('⚙️  Generating report...\n');
 

@@ -284,13 +284,10 @@ function getUsageEventCost(doc: UsageEventDocument): number {
 }
 
 /** Project a wallet's raw trial metadata into the API-facing shape (adds server-computed daysRemaining). */
-function toUsageTrialState(
-  trial: WalletTrialState | undefined | null,
-  hasPaidHistory = false
-): UsageTrialState | null {
+function toUsageTrialState(trial: WalletTrialState | undefined | null): UsageTrialState | null {
   if (!trial) return null;
 
-  const isConverted = trial.status === 'converted' || hasPaidHistory;
+  const isConverted = trial.status === 'converted';
 
   const daysRemaining = Math.max(
     0,
@@ -1562,10 +1559,6 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const platformConfig = await getPlatformConfig(db);
 
-    const hasPaidPaymentHistory = (paymentLogsSnap as PaymentLogDocument[]).some(
-      (doc) => normalizePaymentStatus(doc.status) === 'completed' && (doc.amountPaid ?? 0) > 0
-    );
-
     // Build overview (includes wallet fields for B2C UI fork)
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
@@ -1582,7 +1575,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
       lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
-      trial: toUsageTrialState(billingCtx.trial, hasPaidPaymentHistory),
+      trial: toUsageTrialState(billingCtx.trial),
     };
 
     // Build chart data — stop at today so the line doesn't extend into future days
@@ -1876,13 +1869,6 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const platformConfig = await getPlatformConfig(db);
     timing.platformConfigMs = Date.now() - platformConfigStartedAt;
 
-    const resolvedTargetForOverview = target ?? (await resolveBillingTarget(db, userId));
-    const hasPaidPaymentHistory =
-      (await PaymentLogModel.exists({
-        userId: resolvedTargetForOverview.billingUserId,
-        status: 'PAID',
-      })) !== null;
-
     const overview: UsageOverview = {
       currentMeteredUsage: totalUsageCents,
       nextPaymentDueDate: end.toISOString(),
@@ -1898,7 +1884,7 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
       walletBalanceCents: billingCtx.walletBalanceCents ?? 0,
       pendingHoldsCents: billingCtx.pendingHoldsCents ?? 0,
       lowBalanceThresholdCents: platformConfig.lowBalanceThresholdCents,
-      trial: toUsageTrialState(billingCtx.trial, hasPaidPaymentHistory),
+      trial: toUsageTrialState(billingCtx.trial),
     };
 
     timing.totalMs = Date.now() - startedAt;
