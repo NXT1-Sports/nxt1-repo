@@ -5,8 +5,8 @@
  */
 export const environment = {
   production: true,
-  appVersion: '1.123.0',
-  version: '1.123.0',
+  appVersion: '1.124.0',
+  version: '1.124.0',
   webUrl: 'https://nxt1sports.com',
 
   // Backend API URLs (Production)
