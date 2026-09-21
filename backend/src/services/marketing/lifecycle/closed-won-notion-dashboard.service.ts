@@ -64,6 +64,8 @@ export interface ClosedWonNotionDashboardStateRecord {
   readonly amountCents?: number;
   readonly source?: string;
   readonly initiatedByUserId?: string;
+  readonly adminEmailSentAt?: Date;
+  readonly broadcastSentAt?: Date;
 }
 
 export interface RecordClosedWonNotionDashboardInput {
@@ -124,7 +126,15 @@ function toDate(value: unknown): Date | null {
 }
 
 function getClosedWonState(user: UserV2Document): ClosedWonNotionDashboardStateRecord | null {
-  const raw = user.lifecycle?.sales?.closedWon;
+  const raw = user.lifecycle?.sales?.closedWon as
+    | (ClosedWonNotionDashboardStateRecord & {
+        readonly queuedAt?: unknown;
+        readonly processingStartedAt?: unknown;
+        readonly createdAt?: unknown;
+        readonly adminEmailSentAt?: unknown;
+        readonly broadcastSentAt?: unknown;
+      })
+    | undefined;
   if (!raw) return null;
 
   return {
@@ -133,6 +143,8 @@ function getClosedWonState(user: UserV2Document): ClosedWonNotionDashboardStateR
     queuedAt: toDate(raw.queuedAt) ?? undefined,
     processingStartedAt: toDate(raw.processingStartedAt) ?? undefined,
     createdAt: toDate(raw.createdAt) ?? undefined,
+    adminEmailSentAt: toDate(raw.adminEmailSentAt) ?? undefined,
+    broadcastSentAt: toDate(raw.broadcastSentAt) ?? undefined,
     pageId: raw.pageId,
     pageUrl: raw.pageUrl,
     lastError: raw.lastError,
@@ -245,6 +257,8 @@ async function reserveClosedWonSignal(input: RecordClosedWonNotionDashboardInput
       readonly displayName?: string;
       readonly organizationName?: string;
       readonly teamName?: string;
+      readonly adminEmailAlreadySent?: boolean;
+      readonly broadcastAlreadySent?: boolean;
     }
   | { readonly status: 'skipped'; readonly reason: RecordClosedWonSkipReason }
   | { readonly status: 'failed'; readonly reason: 'state-update-failed' }
@@ -274,7 +288,8 @@ async function reserveClosedWonSignal(input: RecordClosedWonNotionDashboardInput
     if (
       state?.status === 'created' ||
       state?.status === 'processing' ||
-      state?.status === 'queued'
+      state?.status === 'queued' ||
+      state?.status === 'skipped'
     ) {
       return { status: 'skipped', reason: 'already-created' };
     }
@@ -287,6 +302,8 @@ async function reserveClosedWonSignal(input: RecordClosedWonNotionDashboardInput
       amountCents: input.amountCents,
       source: input.source,
       initiatedByUserId: input.initiatedByUserId,
+      adminEmailSentAt: state?.adminEmailSentAt,
+      broadcastSentAt: state?.broadcastSentAt,
     };
 
     const signupDrip = user.lifecycle?.signup?.drip as Record<string, unknown> | undefined;
@@ -329,6 +346,8 @@ async function reserveClosedWonSignal(input: RecordClosedWonNotionDashboardInput
       displayName: context.displayName,
       organizationName: context.organizationName,
       teamName: context.teamName,
+      adminEmailAlreadySent: Boolean(state?.adminEmailSentAt),
+      broadcastAlreadySent: Boolean(state?.broadcastSentAt),
     };
   } catch (error) {
     logger.error('[ClosedWonNotionDashboard] Failed to reserve closed won signal', {
@@ -348,9 +367,9 @@ export async function recordClosedWonNotionDashboardEntry(
     return reservation;
   }
 
-  // 1. Send B2B Admin payment confirmation email
-  if (reservation.email) {
-    await sendB2BClosedWonAdminEmail({
+  // 1. Send B2B Admin payment confirmation email idempotently
+  if (reservation.email && !reservation.adminEmailAlreadySent) {
+    const adminEmailResult = await sendB2BClosedWonAdminEmail({
       userId: reservation.stateUserId,
       email: reservation.email,
       firstName: reservation.displayName,
@@ -364,85 +383,108 @@ export async function recordClosedWonNotionDashboardEntry(
         userId: reservation.stateUserId,
         error: err instanceof Error ? err.message : String(err),
       });
+      return null;
     });
+
+    if (adminEmailResult?.status === 'sent' || adminEmailResult?.status === 'skipped') {
+      await updateClosedWonState(input.db, reservation.stateUserId, {
+        adminEmailSentAt: new Date(),
+      }).catch((err: unknown) => {
+        logger.warn('[ClosedWonNotionDashboard] Failed to persist adminEmailSentAt', {
+          userId: reservation.stateUserId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
   }
 
-  // 2. Broadcast to organization staff & athletes
-  try {
-    const orgMembersSnap = await input.db
-      .collection('Users')
-      .where('organizationId', '==', input.organizationId)
-      .get();
+  // 2. Broadcast to organization staff & athletes idempotently
+  if (!reservation.broadcastAlreadySent) {
+    try {
+      const orgMembersSnap = await input.db
+        .collection('Users')
+        .where('organizationId', '==', input.organizationId)
+        .get();
 
-    for (const doc of orgMembersSnap.docs) {
-      if (doc.id === reservation.stateUserId) continue; // Skip admin (already emailed)
-      const u = doc.data() as UserV2Document;
-      if (!u.email) continue;
+      for (const doc of orgMembersSnap.docs) {
+        if (doc.id === reservation.stateUserId) continue; // Skip admin (already emailed)
+        const u = doc.data() as UserV2Document;
+        if (!u.email) continue;
 
-      // Update org member payment state to org-covered
-      await doc.ref
-        .set(
-          {
-            lifecycle: {
-              signup: {
-                drip: {
-                  paymentState: 'org-covered',
+        // Update org member payment state to org-covered
+        await doc.ref
+          .set(
+            {
+              lifecycle: {
+                signup: {
+                  drip: {
+                    paymentState: 'org-covered',
+                  },
                 },
               },
             },
-          },
-          { merge: true }
-        )
-        .catch(() => undefined);
+            { merge: true }
+          )
+          .catch(() => undefined);
 
-      const memberPrefs = u.preferences as Record<string, unknown> | undefined;
-      const marketingEnabled =
-        typeof memberPrefs?.['marketingEmailsEnabled'] === 'boolean'
-          ? Boolean(memberPrefs['marketingEmailsEnabled'])
-          : true;
+        const memberPrefs = u.preferences as Record<string, unknown> | undefined;
+        const marketingEnabled =
+          typeof memberPrefs?.['marketingEmailsEnabled'] === 'boolean'
+            ? Boolean(memberPrefs['marketingEmailsEnabled'])
+            : true;
 
-      if (isTeamRole(u.role)) {
-        await sendB2BClosedWonStaffEmail({
-          userId: doc.id,
-          email: u.email,
-          firstName: u.firstName,
-          organizationName: reservation.organizationName,
-          environment: 'production',
-          marketingEnabled,
-        }).catch((err: unknown) => {
-          logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Staff email', {
+        if (isTeamRole(u.role)) {
+          await sendB2BClosedWonStaffEmail({
             userId: doc.id,
-            error: err instanceof Error ? err.message : String(err),
+            email: u.email,
+            firstName: u.firstName,
+            organizationName: reservation.organizationName,
+            environment: 'production',
+            marketingEnabled,
+          }).catch((err: unknown) => {
+            logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Staff email', {
+              userId: doc.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
-      } else if (u.role === 'athlete') {
-        await sendB2BClosedWonAthleteBroadcastEmail({
-          userId: doc.id,
-          email: u.email,
-          firstName: u.firstName,
-          organizationName: reservation.organizationName,
-          environment: 'production',
-          marketingEnabled,
-        }).catch((err: unknown) => {
-          logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Athlete Broadcast email', {
+        } else if (u.role === 'athlete') {
+          await sendB2BClosedWonAthleteBroadcastEmail({
             userId: doc.id,
-            error: err instanceof Error ? err.message : String(err),
+            email: u.email,
+            firstName: u.firstName,
+            organizationName: reservation.organizationName,
+            environment: 'production',
+            marketingEnabled,
+          }).catch((err: unknown) => {
+            logger.warn('[ClosedWonNotionDashboard] Failed to send B2B Athlete Broadcast email', {
+              userId: doc.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
           });
-        });
+        }
       }
+
+      await updateClosedWonState(input.db, reservation.stateUserId, {
+        broadcastSentAt: new Date(),
+      }).catch((err: unknown) => {
+        logger.warn('[ClosedWonNotionDashboard] Failed to persist broadcastSentAt', {
+          userId: reservation.stateUserId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    } catch (broadcastErr) {
+      logger.warn('[ClosedWonNotionDashboard] Error broadcasting closed won email to org members', {
+        organizationId: input.organizationId,
+        error: broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
+      });
     }
-  } catch (broadcastErr) {
-    logger.warn('[ClosedWonNotionDashboard] Error broadcasting closed won email to org members', {
-      organizationId: input.organizationId,
-      error: broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr),
-    });
   }
 
   const config = getNotionSignupDashboardConfig(CLOSED_WON_NOTION_ENVIRONMENT);
   const disabledReason = getNotionSignupDashboardDisabledReason(config);
   if (disabledReason) {
     await updateClosedWonState(input.db, reservation.stateUserId, {
-      status: 'failed',
+      status: 'skipped',
       environment: CLOSED_WON_NOTION_ENVIRONMENT,
       lastError: `Notion closed won sync is ${disabledReason}`,
     }).catch((error: unknown) => {
@@ -462,7 +504,7 @@ export async function recordClosedWonNotionDashboardEntry(
 
   if (!existing) {
     await updateClosedWonState(input.db, reservation.stateUserId, {
-      status: 'failed',
+      status: 'skipped',
       environment: CLOSED_WON_NOTION_ENVIRONMENT,
       lastError: 'No B2B Partners row exists for the Closed Won sync',
     }).catch((error: unknown) => {

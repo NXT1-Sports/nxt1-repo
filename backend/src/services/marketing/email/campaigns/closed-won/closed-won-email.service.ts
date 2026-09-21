@@ -7,6 +7,7 @@
  */
 
 import { sendOutboundMarketingEmail } from '../../outbound-email.service.js';
+import { hasSentMarketingEmailCampaign } from '../../marketing-email-dispatch.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { toAbsoluteAppUrl } from '../../../../../utils/app-url.js';
 import type { RuntimeEnvironment } from '../../../../../config/runtime-environment.js';
@@ -67,8 +68,16 @@ export type ClosedWonEmailResult =
     }
   | {
       readonly status: 'skipped';
-      readonly reason: 'missing-email' | 'marketing-disabled';
+      readonly reason: 'already-sent' | 'missing-email' | 'marketing-disabled';
     };
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (('code' in error && (error as { code?: unknown }).code === 11000) ||
+      error.message.includes('E11000'))
+  );
+}
 
 function escapeHtml(value: string): string {
   return value
@@ -85,6 +94,10 @@ function escapeHtml(value: string): string {
 export async function sendB2CClosedWonEmail(
   input: B2CClosedWonEmailInput
 ): Promise<ClosedWonEmailResult> {
+  if (input.marketingEnabled === false) {
+    return { status: 'skipped', reason: 'marketing-disabled' };
+  }
+
   const email = input.email?.trim().toLowerCase();
   if (!email) return { status: 'skipped', reason: 'missing-email' };
 
@@ -92,6 +105,15 @@ export async function sendB2CClosedWonEmail(
   const safeFirstName = escapeHtml(firstName);
   const isIap = input.paymentSource === 'iap_topup' || input.paymentSource === 'apple_pay';
   const campaignKey = isIap ? B2C_IAP_CAMPAIGN_KEY : B2C_STRIPE_CAMPAIGN_KEY;
+
+  if (
+    await hasSentMarketingEmailCampaign({
+      userId: input.userId,
+      campaignKey,
+    })
+  ) {
+    return { status: 'skipped', reason: 'already-sent' };
+  }
 
   const agentXUrl = toAbsoluteAppUrl('/agent-x', { environment: input.environment });
 
@@ -134,7 +156,10 @@ export async function sendB2CClosedWonEmail(
     });
 
     return { status: 'sent', email, campaignKey };
-  } catch (err) {
+  } catch (err: unknown) {
+    if (isDuplicateKeyError(err)) {
+      return { status: 'skipped', reason: 'already-sent' };
+    }
     logger.error('[MarketingEmail] B2C Closed Won email failed', {
       userId: input.userId,
       email,
@@ -150,8 +175,21 @@ export async function sendB2CClosedWonEmail(
 export async function sendB2BClosedWonAdminEmail(
   input: B2BClosedWonAdminEmailInput
 ): Promise<ClosedWonEmailResult> {
+  if (input.marketingEnabled === false) {
+    return { status: 'skipped', reason: 'marketing-disabled' };
+  }
+
   const email = input.email?.trim().toLowerCase();
   if (!email) return { status: 'skipped', reason: 'missing-email' };
+
+  if (
+    await hasSentMarketingEmailCampaign({
+      userId: input.userId,
+      campaignKey: B2B_ADMIN_CAMPAIGN_KEY,
+    })
+  ) {
+    return { status: 'skipped', reason: 'already-sent' };
+  }
 
   const firstName = input.firstName?.trim() || DEFAULT_FIRST_NAME;
   const safeFirstName = escapeHtml(firstName);
@@ -204,7 +242,10 @@ export async function sendB2BClosedWonAdminEmail(
     });
 
     return { status: 'sent', email, campaignKey: B2B_ADMIN_CAMPAIGN_KEY };
-  } catch (err) {
+  } catch (err: unknown) {
+    if (isDuplicateKeyError(err)) {
+      return { status: 'skipped', reason: 'already-sent' };
+    }
     logger.error('[MarketingEmail] B2B Admin Closed Won email failed', {
       userId: input.userId,
       email,
@@ -220,8 +261,21 @@ export async function sendB2BClosedWonAdminEmail(
 export async function sendB2BClosedWonStaffEmail(
   input: B2BClosedWonStaffEmailInput
 ): Promise<ClosedWonEmailResult> {
+  if (input.marketingEnabled === false) {
+    return { status: 'skipped', reason: 'marketing-disabled' };
+  }
+
   const email = input.email?.trim().toLowerCase();
   if (!email) return { status: 'skipped', reason: 'missing-email' };
+
+  if (
+    await hasSentMarketingEmailCampaign({
+      userId: input.userId,
+      campaignKey: B2B_STAFF_CAMPAIGN_KEY,
+    })
+  ) {
+    return { status: 'skipped', reason: 'already-sent' };
+  }
 
   const firstName = input.firstName?.trim() || DEFAULT_FIRST_NAME;
   const safeFirstName = escapeHtml(firstName);
@@ -268,7 +322,10 @@ export async function sendB2BClosedWonStaffEmail(
     });
 
     return { status: 'sent', email, campaignKey: B2B_STAFF_CAMPAIGN_KEY };
-  } catch (err) {
+  } catch (err: unknown) {
+    if (isDuplicateKeyError(err)) {
+      return { status: 'skipped', reason: 'already-sent' };
+    }
     logger.error('[MarketingEmail] B2B Staff Closed Won email failed', {
       userId: input.userId,
       email,
@@ -284,8 +341,21 @@ export async function sendB2BClosedWonStaffEmail(
 export async function sendB2BClosedWonAthleteBroadcastEmail(
   input: B2BClosedWonAthleteEmailInput
 ): Promise<ClosedWonEmailResult> {
+  if (input.marketingEnabled === false) {
+    return { status: 'skipped', reason: 'marketing-disabled' };
+  }
+
   const email = input.email?.trim().toLowerCase();
   if (!email) return { status: 'skipped', reason: 'missing-email' };
+
+  if (
+    await hasSentMarketingEmailCampaign({
+      userId: input.userId,
+      campaignKey: B2B_ATHLETE_BROADCAST_CAMPAIGN_KEY,
+    })
+  ) {
+    return { status: 'skipped', reason: 'already-sent' };
+  }
 
   const firstName = input.firstName?.trim() || DEFAULT_FIRST_NAME;
   const safeFirstName = escapeHtml(firstName);
@@ -332,7 +402,10 @@ export async function sendB2BClosedWonAthleteBroadcastEmail(
     });
 
     return { status: 'sent', email, campaignKey: B2B_ATHLETE_BROADCAST_CAMPAIGN_KEY };
-  } catch (err) {
+  } catch (err: unknown) {
+    if (isDuplicateKeyError(err)) {
+      return { status: 'skipped', reason: 'already-sent' };
+    }
     logger.error('[MarketingEmail] B2B Athlete Broadcast Closed Won email failed', {
       userId: input.userId,
       email,

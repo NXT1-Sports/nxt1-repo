@@ -17,7 +17,8 @@ import {
   type AgentXDesktopReviewPromptCloseEvent,
 } from '../components/agent-x-desktop-review-prompt.component';
 
-const AGENT_X_DESKTOP_REVIEW_PROMPT_ENABLED = false;
+const DEFAULT_AGENT_X_DESKTOP_REVIEW_PROMPT_ENABLED = false;
+let agentXDesktopReviewPromptEnabled = DEFAULT_AGENT_X_DESKTOP_REVIEW_PROMPT_ENABLED;
 const PROMPT_VERSION = 'agent-x-desktop-review-v2';
 /** Earlier versions are re-read so prior submitters are never asked twice. */
 const LEGACY_PROMPT_VERSIONS = ['agent-x-desktop-review-v1'] as const;
@@ -30,6 +31,10 @@ let promptedThisSession = false;
 export const __agentXDesktopReviewPromptServiceTestUtils = {
   resetSessionPromptState(): void {
     promptedThisSession = false;
+    agentXDesktopReviewPromptEnabled = DEFAULT_AGENT_X_DESKTOP_REVIEW_PROMPT_ENABLED;
+  },
+  setPromptEnabled(enabled: boolean): void {
+    agentXDesktopReviewPromptEnabled = enabled;
   },
 } as const;
 
@@ -65,11 +70,11 @@ export class AgentXDesktopReviewPromptService {
       | null
       | undefined
   ): Promise<void> {
-    if (!AGENT_X_DESKTOP_REVIEW_PROMPT_ENABLED) {
+    if (!agentXDesktopReviewPromptEnabled) {
       this.logger.info(
         'Skipping desktop Agent X review prompt because the feature flag is disabled',
         {
-          featureFlag: AGENT_X_DESKTOP_REVIEW_PROMPT_ENABLED,
+          featureFlag: agentXDesktopReviewPromptEnabled,
         }
       );
       return;

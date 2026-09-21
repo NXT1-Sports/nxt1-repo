@@ -6,6 +6,7 @@ const mockRecordB2CUsersUsageStartedEntry = vi.fn();
 const mockRecordB2CUsersAccountStartedEntry = vi.fn();
 const mockRecordUsageStartedNotionDashboardEntry = vi.fn();
 const mockRecordTrialCreditsFinishedNotionDashboardEntry = vi.fn();
+const mockRecordClosedWonNotionDashboardEntry = vi.fn();
 
 vi.mock('../../lifecycle/b2c-users.service.js', () => ({
   recordB2CUsersAccountStartedEntry: mockRecordB2CUsersAccountStartedEntry,
@@ -21,6 +22,10 @@ vi.mock('../../lifecycle/usage-started-notion-dashboard.service.js', () => ({
 vi.mock('../../lifecycle/trial-credits-finished-notion-dashboard.service.js', () => ({
   recordTrialCreditsFinishedNotionDashboardEntry:
     mockRecordTrialCreditsFinishedNotionDashboardEntry,
+}));
+
+vi.mock('../../lifecycle/closed-won-notion-dashboard.service.js', () => ({
+  recordClosedWonNotionDashboardEntry: mockRecordClosedWonNotionDashboardEntry,
 }));
 
 function createOutboxDb(initialRecords: Array<Record<string, unknown>>) {
@@ -105,6 +110,7 @@ describe('marketing-outbox.service', () => {
     mockRecordB2CUsersUsageStartedEntry.mockResolvedValue({ status: 'created' });
     mockRecordUsageStartedNotionDashboardEntry.mockResolvedValue({ status: 'created' });
     mockRecordTrialCreditsFinishedNotionDashboardEntry.mockResolvedValue({ status: 'created' });
+    mockRecordClosedWonNotionDashboardEntry.mockResolvedValue({ status: 'created' });
   });
 
   it('routes signup started to Account Started', async () => {
@@ -414,5 +420,43 @@ describe('marketing-outbox.service', () => {
       })
     );
     expect(mockRecordB2CUsersTrialCreditsFinishedEntry).not.toHaveBeenCalled();
+  });
+
+  it('completes organization closed won outbox when skipped as already-created', async () => {
+    mockRecordClosedWonNotionDashboardEntry.mockResolvedValueOnce({
+      status: 'skipped',
+      reason: 'already-created',
+    });
+
+    const { db, store } = createOutboxDb([
+      {
+        eventKey: 'billing.purchase.closed_won.organization::cs_repeat_123',
+        eventType: 'billing.purchase.closed_won.organization',
+        status: 'pending',
+        attempts: 0,
+        environment: 'production',
+        payload: {
+          organizationId: 'org_repeat_1',
+          amountCents: 5000,
+          source: 'stripe_checkout',
+        },
+      },
+    ]);
+
+    const { processPendingMarketingOutboxEvents } = await import('../marketing-outbox.service.js');
+
+    const result = await processPendingMarketingOutboxEvents({ db: db as never, limit: 10 });
+
+    expect(result).toEqual({
+      processedCount: 1,
+      completedCount: 1,
+      failedCount: 0,
+      skippedCount: 0,
+    });
+    expect(store.get('billing.purchase.closed_won.organization::cs_repeat_123')).toEqual(
+      expect.objectContaining({
+        status: 'completed',
+      })
+    );
   });
 });

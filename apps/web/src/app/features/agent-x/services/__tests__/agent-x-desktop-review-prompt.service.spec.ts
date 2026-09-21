@@ -100,6 +100,20 @@ describe('AgentXDesktopReviewPromptService', () => {
     vi.clearAllMocks();
     localStorage.clear();
     __agentXDesktopReviewPromptServiceTestUtils.resetSessionPromptState();
+    __agentXDesktopReviewPromptServiceTestUtils.setPromptEnabled(true);
+  });
+
+  it('does not open when the feature flag is disabled', async () => {
+    __agentXDesktopReviewPromptServiceTestUtils.setPromptEnabled(false);
+    const { service, overlayMock, loggerChild } = createService();
+
+    await service.maybePrompt({ uid: 'user-1', hasCompletedOnboarding: true });
+
+    expect(overlayMock.open).not.toHaveBeenCalled();
+    expect(loggerChild.info).toHaveBeenCalledWith(
+      'Skipping desktop Agent X review prompt because the feature flag is disabled',
+      { featureFlag: false }
+    );
   });
 
   it('opens the desktop review prompt once for eligible desktop users', async () => {

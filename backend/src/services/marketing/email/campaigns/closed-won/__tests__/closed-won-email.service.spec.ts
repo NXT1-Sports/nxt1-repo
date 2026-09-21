@@ -1,7 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const { mockHasSentMarketingEmailCampaign } = vi.hoisted(() => ({
+  mockHasSentMarketingEmailCampaign: vi.fn(),
+}));
+
 vi.mock('../../../outbound-email.service.js', () => ({
   sendOutboundMarketingEmail: vi.fn(),
+}));
+
+vi.mock('../../../marketing-email-dispatch.service.js', () => ({
+  hasSentMarketingEmailCampaign: mockHasSentMarketingEmailCampaign,
 }));
 
 import { sendOutboundMarketingEmail } from '../../../outbound-email.service.js';
@@ -15,6 +23,7 @@ import {
 describe('Closed Won Email Campaigns', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockHasSentMarketingEmailCampaign.mockResolvedValue(false);
     vi.mocked(sendOutboundMarketingEmail).mockResolvedValue({
       provider: 'platform_smtp',
       providerMessageId: 'msg_123',
@@ -122,6 +131,59 @@ describe('Closed Won Email Campaigns', () => {
       status: 'sent',
       email: 'athlete@example.com',
       campaignKey: 'closed_won_b2b_athlete_broadcast',
+    });
+  });
+
+  it('skips B2B Program Admin email when already sent previously', async () => {
+    mockHasSentMarketingEmailCampaign.mockResolvedValueOnce(true);
+
+    const result = await sendB2BClosedWonAdminEmail({
+      userId: 'admin-1',
+      email: 'admin@example.com',
+      firstName: 'Jordan',
+      organizationName: 'Alcoa High School',
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'already-sent',
+    });
+    expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
+  });
+
+  it('skips B2B Program Admin email when marketing is disabled', async () => {
+    const result = await sendB2BClosedWonAdminEmail({
+      userId: 'admin-1',
+      email: 'admin@example.com',
+      firstName: 'Jordan',
+      organizationName: 'Alcoa High School',
+      environment: 'production',
+      marketingEnabled: false,
+    });
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'marketing-disabled',
+    });
+    expect(sendOutboundMarketingEmail).not.toHaveBeenCalled();
+  });
+
+  it('handles duplicate key error gracefully without throwing', async () => {
+    const duplicateError = Object.assign(new Error('E11000 duplicate key error'), { code: 11000 });
+    vi.mocked(sendOutboundMarketingEmail).mockRejectedValueOnce(duplicateError);
+
+    const result = await sendB2BClosedWonAdminEmail({
+      userId: 'admin-1',
+      email: 'admin@example.com',
+      firstName: 'Jordan',
+      organizationName: 'Alcoa High School',
+      environment: 'production',
+    });
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'already-sent',
     });
   });
 });
