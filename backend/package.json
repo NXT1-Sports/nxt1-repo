@@ -41,6 +41,8 @@
     "migrate:weekly-recap-jobs:dry-run": "tsx scripts/data-migrations/migrate-weekly-recap-jobs.ts",
     "backfill:organization-trials": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-organization-trials.ts",
     "backfill:organization-trials:commit": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-organization-trials.ts --target=production --commit",
+    "backfill:personal-trials": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-personal-trials.ts",
+    "backfill:personal-trials:commit": "tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-personal-trials.ts --target=production --commit",
     "cleanup:analytics:lifecycle-noise": "tsx scripts/cleanup-analytics-lifecycle-noise.ts",
     "cleanup:analytics:lifecycle-noise:dry-run": "tsx scripts/cleanup-analytics-lifecycle-noise.ts --dry-run",
     "cleanup:help-center-and-global-mongo-residue": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/data-migrations/cleanup-help-center-and-global-mongo-residue.ts",

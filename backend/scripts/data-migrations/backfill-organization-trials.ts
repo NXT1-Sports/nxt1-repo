@@ -2,7 +2,8 @@
  * @fileoverview Backfill missing organization wallet trial metadata.
  *
  * Existing wallet balances are preserved. The script only adds the missing
- * 30-day trial metadata to organization wallets that do not already have it.
+ * 30-day trial metadata to organization wallets that do not already have it,
+ * regardless of prior paid history — paid orgs still get the trial window.
  *
  * Usage:
  *   npx tsx --tsconfig tsconfig.scripts.json scripts/data-migrations/backfill-organization-trials.ts --dry-run
@@ -100,10 +101,9 @@ async function main(): Promise<void> {
   const organizationIds = parseOrganizationIds();
   const organizationNames = parseOrganizationNames();
 
-  if (target === 'production' && !commit) {
-    throw new Error(
-      'Production requires --commit. Run without --commit only for a dry-run on staging.'
-    );
+  // --dry-run explicitly opts into a read-only production preview (no writes).
+  if (target === 'production' && !commit && !hasFlag('dry-run')) {
+    throw new Error('Production requires --commit or --dry-run. Refusing to run with neither.');
   }
 
   const { db } = initTargetApp();

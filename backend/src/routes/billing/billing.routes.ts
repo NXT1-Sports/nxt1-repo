@@ -9,7 +9,6 @@ import { Router, type Request, type Response } from 'express';
 import { Types } from 'mongoose';
 import type { UsageTrialState } from '@nxt1/core';
 import type { WalletTrialState } from '@nxt1/core/usage';
-import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
 import { appGuard, cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { getCacheService } from '../../services/core/cache.service.js';
@@ -579,13 +578,10 @@ router.get('/usage/features', async (_req: Request, res: Response) => {
 // ============================================
 
 /** Project a wallet's raw trial metadata into the API-facing shape (adds server-computed daysRemaining). */
-function toUsageTrialState(
-  trial: WalletTrialState | undefined | null,
-  hasPaidHistory = false
-): UsageTrialState | null {
+function toUsageTrialState(trial: WalletTrialState | undefined | null): UsageTrialState | null {
   if (!trial) return null;
 
-  const isConverted = trial.status === 'converted' || hasPaidHistory;
+  const isConverted = trial.status === 'converted';
 
   const daysRemaining = Math.max(
     0,
@@ -684,12 +680,6 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         ? await buildAvailableBudgetTargets(db, target.organizationId)
         : undefined;
 
-    const hasPaidPaymentHistory =
-      (await PaymentLogModel.exists({
-        userId: target.billingUserId,
-        status: 'PAID',
-      })) !== null;
-
     return res.json({
       success: true,
       data: {
@@ -719,7 +709,7 @@ router.get('/budget', appGuard, async (req: Request, res: Response) => {
         hasOrganizationBilling,
         orgWalletEmpty: ctx.billingEntity !== 'individual' && walletBalance <= 0,
         availableBudgetTargets,
-        trial: toUsageTrialState(ctx.trial, hasPaidPaymentHistory),
+        trial: toUsageTrialState(ctx.trial),
       },
     });
   } catch (error) {
