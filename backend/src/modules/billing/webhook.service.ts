@@ -15,6 +15,7 @@ import { NOTIFICATION_TYPES } from '@nxt1/core';
 import {
   addWalletTopUp,
   addFundsToOrgWallet,
+  revokeFundsFromOrgWallet,
   getBillingState,
   setWalletTrialInvoiceMode,
 } from './budget.service.js';
@@ -1484,34 +1485,45 @@ async function handleInvoicePaid(
   }
 
   try {
-    const { newBalance } = await addFundsToOrgWallet(
+    const { newBalance, alreadyFinalized } = await addFundsToOrgWallet(
       db,
       organizationId,
       amountCents,
       'invoice_payment',
       {
         initiatedByUserId: userId || undefined,
+        checkoutSessionId: `invoice:${invoice.id}`,
       }
     );
+
+    if (alreadyFinalized) {
+      logger.info(
+        '[handleInvoicePaid] Invoice credits were already provisioned upfront on Net 30 terms; updating payment status to PAID',
+        { invoiceId: invoice.id, organizationId, amountCents }
+      );
+    }
 
     await PaymentLogModel.findOneAndUpdate(
       { invoiceId: invoice.id },
       {
+        $set: {
+          status: 'PAID',
+          amountPaid: amountCents / 100,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        },
         $setOnInsert: {
           invoiceId: invoice.id,
           customerId: (invoice.customer as string) ?? '',
           userId: `org:${organizationId}`,
           organizationId,
           amountDue: amountCents / 100,
-          amountPaid: amountCents / 100,
           currency: invoice.currency ?? 'usd',
-          status: 'PAID',
           paymentMethodLabel: metadata['poNumber']
             ? `Invoice (PO #${metadata['poNumber']})`
             : 'Invoice',
           type: 'org_invoice_topup',
           invoiceUrl: invoice.invoice_pdf,
-          rawEvent: invoice as unknown as Record<string, unknown>,
           createdAt: new Date(),
         },
       },
@@ -1565,6 +1577,83 @@ async function handleInvoicePaid(
       organizationId,
       amountCents,
     });
+    throw error;
+  }
+}
+
+/**
+ * Handle invoice.voided and invoice.marked_uncollectible
+ *
+ * When an unpaid organization Net 30 invoice is voided or marked uncollectible in Stripe,
+ * this revokes any upfront provisioned credits from the organization wallet (capped at 0)
+ * and updates the payment log status.
+ */
+async function handleInvoiceVoidedOrUncollectible(
+  db: Firestore,
+  invoice: Stripe.Invoice,
+  eventType: 'invoice.voided' | 'invoice.marked_uncollectible',
+  _environment: 'staging' | 'production'
+): Promise<void> {
+  const metadata = invoice.metadata ?? {};
+  if (metadata['type'] !== 'org_invoice_topup') {
+    return;
+  }
+
+  const organizationId = metadata['organizationId'];
+  const amountCents = parseInt(metadata['amountCents'] ?? '0', 10);
+  const status = eventType === 'invoice.voided' ? 'VOID' : 'UNCOLLECTIBLE';
+
+  if (!organizationId || !amountCents || amountCents <= 0) {
+    logger.warn('[handleInvoiceVoidedOrUncollectible] Missing metadata on invoice', {
+      invoiceId: invoice.id,
+      metadata,
+    });
+    return;
+  }
+
+  try {
+    const existingPayment = await PaymentLogModel.findOne({ invoiceId: invoice.id });
+    // Only revoke if the invoice was never marked as successfully paid
+    if (!existingPayment || existingPayment.status !== 'PAID') {
+      const { previousBalance, newBalance, deductedCents } = await revokeFundsFromOrgWallet(
+        db,
+        organizationId,
+        amountCents,
+        eventType === 'invoice.voided' ? 'invoice_voided' : 'invoice_uncollectible'
+      );
+
+      logger.info(`[handleInvoiceVoidedOrUncollectible] Org wallet funds revoked (${status})`, {
+        invoiceId: invoice.id,
+        organizationId,
+        amountCents,
+        deductedCents,
+        previousBalance,
+        newBalance,
+      });
+    }
+
+    await PaymentLogModel.findOneAndUpdate(
+      { invoiceId: invoice.id },
+      {
+        $set: {
+          status,
+          rawEvent: invoice as unknown as Record<string, unknown>,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+  } catch (error) {
+    logger.error(
+      '[handleInvoiceVoidedOrUncollectible] Failed to process void/uncollectible invoice',
+      {
+        error,
+        invoiceId: invoice.id,
+        organizationId,
+        amountCents,
+        eventType,
+      }
+    );
     throw error;
   }
 }
@@ -1671,6 +1760,24 @@ export async function handleWebhookEvent(
 
     case 'invoice.paid':
       await handleInvoicePaid(db, event.data.object as Stripe.Invoice, environment);
+      break;
+
+    case 'invoice.voided':
+      await handleInvoiceVoidedOrUncollectible(
+        db,
+        event.data.object as Stripe.Invoice,
+        'invoice.voided',
+        environment
+      );
+      break;
+
+    case 'invoice.marked_uncollectible':
+      await handleInvoiceVoidedOrUncollectible(
+        db,
+        event.data.object as Stripe.Invoice,
+        'invoice.marked_uncollectible',
+        environment
+      );
       break;
 
     case 'customer.subscription.created':

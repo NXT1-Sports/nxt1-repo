@@ -843,7 +843,12 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
         amountCents: data.amountCents,
       });
     } else if (data.type === 'invoice') {
-      await this.svc.requestInvoiceTopUp(data.amountCents, data.poNumber, data.netDays);
+      await this.svc.requestInvoiceTopUp(
+        data.amountCents,
+        data.poNumber,
+        data.netDays,
+        data.billingEmail
+      );
     }
   }
 

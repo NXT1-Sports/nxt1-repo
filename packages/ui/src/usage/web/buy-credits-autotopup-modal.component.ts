@@ -105,35 +105,9 @@ import {
             <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
             <line x1="1" y1="10" x2="23" y2="10" />
           </svg>
-          Add Credits
+          {{ organizationId() ? 'Pay by Card' : 'Add Credits' }}
         </button>
         @if (organizationId()) {
-          <button
-            type="button"
-            class="bc-tab"
-            [class.bc-tab--active]="activeTab() === 'subscription'"
-            role="tab"
-            [attr.aria-selected]="activeTab() === 'subscription'"
-            [attr.data-testid]="testIds.BUY_CREDITS_TAB_SUBSCRIPTION"
-            (click)="activeTab.set('subscription')"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M20 21a8 8 0 0 0-16 0" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-            Subscription
-          </button>
           <button
             type="button"
             class="bc-tab"
@@ -162,6 +136,32 @@ import {
               <polyline points="10 9 9 9 8 9" />
             </svg>
             Pay by Invoice
+          </button>
+          <button
+            type="button"
+            class="bc-tab"
+            [class.bc-tab--active]="activeTab() === 'subscription'"
+            role="tab"
+            [attr.aria-selected]="activeTab() === 'subscription'"
+            [attr.data-testid]="testIds.BUY_CREDITS_TAB_SUBSCRIPTION"
+            (click)="activeTab.set('subscription')"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M20 21a8 8 0 0 0-16 0" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Subscription
           </button>
         }
         <button
@@ -387,8 +387,8 @@ import {
       @if (activeTab() === 'invoice') {
         <div class="bc-body" role="tabpanel" aria-label="Pay by Invoice">
           <p class="bc-subtitle">
-            Request a formal Stripe invoice with net payment terms for your school or organization.
-            Credits are added to your team wallet as soon as the invoice is paid.
+            Request an official invoice with Net 30 payment terms for your school or organization.
+            Credits are added to your team wallet immediately so your program can start right away.
           </p>
 
           <div class="bc-packages-grid">
@@ -447,6 +447,35 @@ import {
             }
           </div>
 
+          <!-- Billing / Accounts Payable Email -->
+          <div class="bc-setting-group">
+            <div class="bc-setting-header">
+              <label class="bc-setting-label">Accounts Payable / Billing Email</label>
+              <span class="bc-custom-amount-hint"
+                >Where the invoice & W-9 instructions are sent</span
+              >
+            </div>
+            <label
+              class="bc-text-input-shell"
+              [class.bc-text-input-shell--invalid]="billingEmailError() !== null"
+            >
+              <input
+                #billingEmailInput
+                type="email"
+                class="bc-text-input"
+                placeholder="e.g. ap@school.org or bookkeeper@district.edu"
+                [value]="billingEmail()"
+                [attr.data-testid]="testIds.BUY_CREDITS_BILLING_EMAIL_INPUT"
+                (input)="onBillingEmailInput(billingEmailInput.value)"
+              />
+            </label>
+            @if (billingEmailError()) {
+              <p class="bc-custom-amount-feedback bc-custom-amount-feedback--error">
+                {{ billingEmailError() }}
+              </p>
+            }
+          </div>
+
           <!-- Purchase Order number -->
           <div class="bc-setting-group">
             <div class="bc-setting-header">
@@ -487,15 +516,26 @@ import {
           <div class="bc-topup-summary">
             A Stripe invoice for
             <strong>{{ selectedInvoiceAmountLabel() ?? '$0.00' }}</strong> (Net
-            {{ selectedNetDays() }}) will be sent to your billing email. You can pay via ACH, wire
-            transfer, corporate card, or check.
+            {{ selectedNetDays() }}) will be sent to
+            <strong>{{ effectiveRecipientEmail() }}</strong> with ACH, Wire, Check, and P-Card
+            remittance instructions.
           </div>
+
+          <p class="bc-vendor-note">
+            Need our W-9, EIN, or direct deposit form for vendor onboarding?
+            <a
+              href="mailto:billing@nxt1sports.com?subject=Vendor%20Onboarding%20Packet%20Request"
+              class="bc-vendor-link"
+            >
+              Contact billing@nxt1sports.com
+            </a>
+          </p>
 
           <!-- Submit invoice button -->
           <button
             type="button"
             class="bc-primary-btn"
-            [disabled]="selectedInvoiceAmountCents() === null"
+            [disabled]="selectedInvoiceAmountCents() === null || billingEmailError() !== null"
             [attr.data-testid]="testIds.BUY_CREDITS_INVOICE_BTN"
             (click)="onRequestInvoice()"
           >
@@ -738,6 +778,20 @@ import {
         font-size: 12px;
         color: var(--nxt1-color-text-tertiary, #64748b);
         text-align: center;
+      }
+
+      .bc-vendor-note {
+        margin: 0;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--nxt1-color-text-secondary, #94a3b8);
+        text-align: center;
+      }
+
+      .bc-vendor-link {
+        color: var(--nxt1-color-primary, currentColor);
+        text-decoration: underline;
+        font-weight: 500;
       }
 
       /* ---- Primary / secondary buttons ---- */
@@ -1045,7 +1099,7 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
         return 'Subscription';
       case 'buy':
       default:
-        return 'Add Credits';
+        return this.organizationId() ? 'Pay by Card' : 'Add Credits';
     }
   });
 
@@ -1140,6 +1194,25 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
 
   protected readonly poNumber = signal('');
   protected readonly selectedNetDays = signal<30>(30);
+  protected readonly billingEmail = signal('');
+
+  protected readonly billingEmailError = computed(() => {
+    const raw = this.billingEmail().trim();
+    if (!raw) return null;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(raw)) {
+      return 'Enter a valid email address.';
+    }
+    return null;
+  });
+
+  protected readonly effectiveRecipientEmail = computed(() => {
+    const custom = this.billingEmail().trim();
+    if (custom && this.billingEmailError() === null) return custom;
+    const profileEmail = this.profile()?.email?.trim();
+    if (profileEmail) return profileEmail;
+    return 'your billing email';
+  });
 
   /** Auto top-up local editable state */
   protected readonly enabledLocal = signal(false);
@@ -1168,6 +1241,11 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
     this.thresholdCentsLocal.set(threshold > 0 ? threshold : this.thresholdPresets[1]); // 500
     const amount = this.initialAutoTopupAmountCents();
     this.topupAmountCentsLocal.set(amount > 0 ? amount : this.amountPresets[1]); // 1_000
+
+    const defaultEmail = this.profile()?.email?.trim();
+    if (defaultEmail) {
+      this.billingEmail.set(defaultEmail);
+    }
   }
 
   // ----------------------------------------
@@ -1225,15 +1303,20 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
     }
   }
 
+  protected onBillingEmailInput(value: string): void {
+    this.billingEmail.set(value.trim());
+  }
+
   protected onRequestInvoice(): void {
     const amountCents = this.selectedInvoiceAmountCents();
-    if (amountCents === null) return;
+    if (amountCents === null || this.billingEmailError() !== null) return;
 
     this.close.emit({
       type: 'invoice',
       amountCents,
       poNumber: this.poNumber().trim() || undefined,
       netDays: this.selectedNetDays(),
+      billingEmail: this.billingEmail().trim() || undefined,
     });
   }
 

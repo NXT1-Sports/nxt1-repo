@@ -155,7 +155,12 @@ export class UsageBottomSheetService {
   }): Promise<{
     amountCents: number | null;
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
-    invoice: { amountCents: number; poNumber?: string; netDays: 30 } | null;
+    invoice: {
+      amountCents: number;
+      poNumber?: string;
+      netDays: 30;
+      billingEmail?: string;
+    } | null;
   }> {
     const result = await this.openBuyCreditsSheet(opts);
 
@@ -188,6 +193,7 @@ export class UsageBottomSheetService {
           amountCents: result.amountCents,
           poNumber: result.poNumber,
           netDays: result.netDays,
+          billingEmail: result.billingEmail,
         },
       };
     }

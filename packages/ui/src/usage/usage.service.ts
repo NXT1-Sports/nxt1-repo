@@ -1380,20 +1380,22 @@ export class UsageService implements OnDestroy {
   async requestInvoiceTopUp(
     amountCents: number,
     poNumber?: string,
-    netDays: 30 = 30
+    netDays: 30 = 30,
+    billingEmail?: string
   ): Promise<boolean> {
-    this.logger.info('Requesting invoice top-up', { amountCents, poNumber, netDays });
+    this.logger.info('Requesting invoice top-up', { amountCents, poNumber, netDays, billingEmail });
     this.breadcrumb.trackStateChange('usage:requesting-invoice-topup', {
       amountCents,
       poNumber,
       netDays,
+      billingEmail,
     });
 
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
 
     try {
       const result = await this.runWithSharedLoader({ message: 'Creating invoice...' }, () =>
-        this.api.requestInvoiceTopUp({ amountCents, poNumber, netDays })
+        this.api.requestInvoiceTopUp({ amountCents, poNumber, netDays, billingEmail })
       );
 
       this.trackAnalyticsEvent(APP_EVENTS.USAGE_INVOICE_REQUESTED, {
@@ -1405,7 +1407,10 @@ export class UsageService implements OnDestroy {
       });
 
       await this.haptics.notification('success');
-      this.toast.success('Invoice created and sent to your billing email.');
+      const targetLabel = billingEmail ? `sent to ${billingEmail}` : 'sent to your billing email';
+      this.toast.success(
+        `Credits added to your wallet! Invoice #${result.invoiceId} ${targetLabel}.`
+      );
 
       const viewUrl = result.hostedInvoiceUrl || result.invoiceUrl;
       if (viewUrl) {

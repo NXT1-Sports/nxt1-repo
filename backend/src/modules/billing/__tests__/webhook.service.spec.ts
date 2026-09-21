@@ -5,6 +5,7 @@ import type { Firestore } from 'firebase-admin/firestore';
 const {
   mockAddWalletTopUp,
   mockAddFundsToOrgWallet,
+  mockRevokeFundsFromOrgWallet,
   mockPublishInvoicePaidDomainEvent,
   mockPublishSubscriptionCanceledDomainEvent,
   mockPaymentLogFindOne,
@@ -15,6 +16,9 @@ const {
 } = vi.hoisted(() => ({
   mockAddWalletTopUp: vi.fn(),
   mockAddFundsToOrgWallet: vi.fn(),
+  mockRevokeFundsFromOrgWallet: vi
+    .fn()
+    .mockResolvedValue({ previousBalance: 5000, newBalance: 2500, deductedCents: 2500 }),
   mockPublishInvoicePaidDomainEvent: vi.fn().mockResolvedValue({
     domainEventType: 'billing.invoice_paid',
     projections: [
@@ -47,6 +51,7 @@ const {
 vi.mock('../budget.service.js', () => ({
   addWalletTopUp: mockAddWalletTopUp,
   addFundsToOrgWallet: mockAddFundsToOrgWallet,
+  revokeFundsFromOrgWallet: mockRevokeFundsFromOrgWallet,
   getBillingState: vi.fn(),
 }));
 
@@ -348,6 +353,84 @@ describe('finalizeWalletCheckoutSession', () => {
     );
 
     expect(mockTrackBillingPurchaseEvent).not.toHaveBeenCalled();
+  });
+
+  it('revokes org wallet credits when an unpaid Net 30 invoice is voided', async () => {
+    mockPaymentLogFindOne.mockResolvedValueOnce({ status: 'PENDING' });
+
+    await handleWebhookEvent(
+      {} as Firestore,
+      {
+        id: 'evt_invoice_voided_123',
+        type: 'invoice.voided',
+        data: {
+          object: {
+            id: 'in_void_123',
+            object: 'invoice',
+            customer: 'cus_org_123',
+            metadata: {
+              type: 'org_invoice_topup',
+              organizationId: 'org_123',
+              amountCents: '5000',
+            },
+          },
+        },
+      } as unknown as Stripe.Event,
+      'production'
+    );
+
+    expect(mockRevokeFundsFromOrgWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'org_123',
+      5000,
+      'invoice_voided'
+    );
+    expect(mockPaymentLogFindOneAndUpdate).toHaveBeenCalledWith(
+      { invoiceId: 'in_void_123' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: 'VOID' }),
+      }),
+      { upsert: true }
+    );
+  });
+
+  it('revokes org wallet credits when an unpaid Net 30 invoice is marked uncollectible', async () => {
+    mockPaymentLogFindOne.mockResolvedValueOnce({ status: 'PENDING' });
+
+    await handleWebhookEvent(
+      {} as Firestore,
+      {
+        id: 'evt_invoice_uncollectible_123',
+        type: 'invoice.marked_uncollectible',
+        data: {
+          object: {
+            id: 'in_uncollectible_123',
+            object: 'invoice',
+            customer: 'cus_org_123',
+            metadata: {
+              type: 'org_invoice_topup',
+              organizationId: 'org_123',
+              amountCents: '10000',
+            },
+          },
+        },
+      } as unknown as Stripe.Event,
+      'production'
+    );
+
+    expect(mockRevokeFundsFromOrgWallet).toHaveBeenCalledWith(
+      expect.anything(),
+      'org_123',
+      10000,
+      'invoice_uncollectible'
+    );
+    expect(mockPaymentLogFindOneAndUpdate).toHaveBeenCalledWith(
+      { invoiceId: 'in_uncollectible_123' },
+      expect.objectContaining({
+        $set: expect.objectContaining({ status: 'UNCOLLECTIBLE' }),
+      }),
+      { upsert: true }
+    );
   });
 
   it('enqueues churned marketing outbox work for org subscription deletions', async () => {
