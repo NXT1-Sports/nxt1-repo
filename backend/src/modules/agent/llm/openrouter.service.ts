@@ -1849,10 +1849,8 @@ export class OpenRouterService {
       );
     }
 
-    let parsedJson: unknown;
-    try {
-      parsedJson = JSON.parse(content);
-    } catch {
+    const parsedJson = this.extractJsonObject(content);
+    if (parsedJson === undefined) {
       throw new AgentEngineError(
         'OPENROUTER_INVALID_RESPONSE',
         `OpenRouter returned invalid JSON for structured output schema "${schemaName}".`
@@ -1870,6 +1868,40 @@ export class OpenRouterService {
     }
 
     return validated.data;
+  }
+
+  /**
+   * Parse a structured-output response body as JSON, tolerating the common
+   * ways smaller/free models violate strict `json_schema` mode: fenced
+   * ```json code blocks, leading/trailing prose around the object, and
+   * trailing commas. Returns `undefined` if no valid JSON object is found.
+   */
+  private extractJsonObject(content: string): unknown {
+    const tryParse = (candidate: string): unknown => {
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        return undefined;
+      }
+    };
+
+    const direct = tryParse(content);
+    if (direct !== undefined) return direct;
+
+    const trimmed = content.trim();
+    const unfenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const fromFence = tryParse(unfenced);
+    if (fromFence !== undefined) return fromFence;
+
+    const firstBrace = unfenced.indexOf('{');
+    const lastBrace = unfenced.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace <= firstBrace) return undefined;
+
+    const objectSlice = unfenced.slice(firstBrace, lastBrace + 1);
+    const sliced = tryParse(objectSlice);
+    if (sliced !== undefined) return sliced;
+
+    return tryParse(objectSlice.replace(/,\s*([}\]])/g, '$1'));
   }
 
   // ─── Text Embeddings ────────────────────────────────────────────────────

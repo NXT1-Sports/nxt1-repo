@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildB2CUsersNotionProperties, upsertB2CUsersEntry } from '../b2c-users-entry.service.js';
+import {
+  buildB2CUsersNotionProperties,
+  refreshB2CUsersActivity,
+  upsertB2CUsersEntry,
+} from '../b2c-users-entry.service.js';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -299,6 +303,82 @@ describe('B2C Users Notion entry service', () => {
     });
     expect(relationPatchBody.properties['Partner']).toEqual({
       relation: [{ id: 'partner-page' }],
+    });
+  });
+
+  describe('refreshB2CUsersActivity', () => {
+    it('re-stamps Last Active and Engagement without touching other fields', async () => {
+      process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
+      process.env['NOTION_API_TOKEN'] = 'secret-test';
+      process.env['NOTION_B2C_GROWTH_HUB_DATABASE_ID'] = 'database-b2c';
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 'page-active', url: 'https://notion.so/b2c-active' })
+      );
+
+      const lastActiveAt = new Date('2026-09-20T12:00:00.000Z');
+      const result = await refreshB2CUsersActivity({
+        environment: 'production',
+        pageId: 'page-active',
+        lastActiveAt,
+      });
+
+      expect(result).toEqual({ status: 'updated', pageId: 'page-active' });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('/pages/page-active');
+      expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('PATCH');
+
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.properties).toEqual({
+        Engagement: { select: { name: 'High' } },
+        'Last Active': { date: { start: '2026-09-20T12:00:00.000Z' } },
+      });
+    });
+
+    it('computes At Risk engagement for stale activity timestamps', async () => {
+      process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
+      process.env['NOTION_API_TOKEN'] = 'secret-test';
+      process.env['NOTION_B2C_GROWTH_HUB_DATABASE_ID'] = 'database-b2c';
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: 'page-stale', url: 'https://notion.so/b2c-stale' })
+      );
+
+      const result = await refreshB2CUsersActivity({
+        environment: 'production',
+        pageId: 'page-stale',
+        lastActiveAt: '2026-05-01T00:00:00.000Z',
+      });
+
+      expect(result).toEqual({ status: 'updated', pageId: 'page-stale' });
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      expect(body.properties['Engagement']).toEqual({ select: { name: 'At Risk' } });
+    });
+
+    it('skips without calling Notion when the integration is disabled', async () => {
+      process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'false';
+
+      const result = await refreshB2CUsersActivity({
+        environment: 'production',
+        pageId: 'page-disabled',
+        lastActiveAt: new Date(),
+      });
+
+      expect(result).toEqual({ status: 'skipped', reason: 'disabled' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('returns failed when the Notion update request errors', async () => {
+      process.env['NOTION_B2C_GROWTH_HUB_ENABLED'] = 'true';
+      process.env['NOTION_API_TOKEN'] = 'secret-test';
+      process.env['NOTION_B2C_GROWTH_HUB_DATABASE_ID'] = 'database-b2c';
+      fetchMock.mockResolvedValue(jsonResponse({ message: 'server error' }, 500));
+
+      const result = await refreshB2CUsersActivity({
+        environment: 'production',
+        pageId: 'page-error',
+        lastActiveAt: new Date(),
+      });
+
+      expect(result).toEqual({ status: 'failed' });
     });
   });
 });

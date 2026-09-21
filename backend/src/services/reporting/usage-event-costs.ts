@@ -1,5 +1,6 @@
 export type UsageEventCostProjection = {
   readonly metadata?: Record<string, unknown>;
+  readonly rawProviderCostUsd?: number;
   readonly unitCostSnapshot?: number;
   readonly quantity?: number;
 };
@@ -22,6 +23,14 @@ function readChargeBreakdownTotalCents(metadata?: Record<string, unknown>): numb
 }
 
 export function resolveUsageEventCostCents(event: UsageEventCostProjection): number {
+  if (
+    typeof event.rawProviderCostUsd === 'number' &&
+    Number.isFinite(event.rawProviderCostUsd) &&
+    event.rawProviderCostUsd >= 0
+  ) {
+    return event.rawProviderCostUsd * 100;
+  }
+
   const fromBreakdown = readChargeBreakdownTotalCents(event.metadata);
   if (fromBreakdown != null) return fromBreakdown;
 

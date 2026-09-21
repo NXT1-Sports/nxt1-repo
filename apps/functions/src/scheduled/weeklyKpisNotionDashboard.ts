@@ -2,7 +2,7 @@
  * @fileoverview Scheduled Cloud Function: Weekly KPIs Notion Dashboard Sync
  * @module functions/scheduled/weeklyKpisNotionDashboard
  *
- * Triggers weekly (Monday 8 AM ET) to sync KPI metrics to the Notion dashboard.
+ * Triggers weekly (Monday 8 AM ET) to sync completed KPI metrics to the Notion dashboard.
  */
 
 import { onSchedule } from 'firebase-functions/v2/scheduler';
@@ -14,12 +14,12 @@ const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
 
 /**
- * Scheduled trigger: Every Sunday at 8:00 AM ET.
+ * Scheduled trigger: Every Monday at 8:00 AM ET.
  * Computes KPIs for the prior week and pushes to Notion.
  */
 export const weeklyKpisNotionDashboard = onSchedule(
   {
-    schedule: '0 8 * * 0',
+    schedule: '0 8 * * 1',
     timeZone: 'America/New_York',
     retryCount: 1,
     timeoutSeconds: 540,

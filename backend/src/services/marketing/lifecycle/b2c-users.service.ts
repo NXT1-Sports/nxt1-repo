@@ -16,7 +16,10 @@ import {
   getSignupDripRoleTrack,
 } from './signup-drip.service.js';
 import {
+  refreshB2CUsersActivity,
+  resolveEngagement,
   upsertB2CUsersEntry,
+  type B2CUsersEngagement,
   type B2CUsersStage,
   type UpsertB2CUsersEntryResult,
 } from '../integrations/notion/b2c-users-entry.service.js';
@@ -341,6 +344,7 @@ function resolveSignUpDate(user: UserV2Document): Date | null {
 function resolveLastActiveAt(user: UserV2Document): Date | null {
   const candidates = [
     toDate(user.lastLoginAt),
+    toDate((user as unknown as Record<string, unknown>)['agentXLastActiveAt']),
     toDate((user as unknown as Record<string, unknown>)['updatedAt']),
     toDate(user.onboardingCompletedAt),
   ].filter((value): value is Date => Boolean(value));
@@ -1241,4 +1245,197 @@ export async function recordB2CUsersChurnedEntry(input: {
     balanceCents: input.balanceCents,
     notes: 'Churned auto-sync.',
   });
+}
+
+const ACTIVITY_REFRESH_TERMINAL_STAGE_KEYS: ReadonlySet<B2CUsersStateKey> = new Set([
+  'closedLost',
+  'churned',
+]);
+
+interface B2CUsersActivitySyncState {
+  readonly lastActiveAt?: string | null;
+  readonly engagement?: B2CUsersEngagement;
+  readonly refreshedAt?: string;
+}
+
+function getActivitySyncState(user: UserV2Document): B2CUsersActivitySyncState | null {
+  const raw = (user.lifecycle?.b2cUsers as Record<string, unknown> | undefined)?.['activitySync'];
+  if (!raw || typeof raw !== 'object') return null;
+  return raw as B2CUsersActivitySyncState;
+}
+
+async function updateB2CUsersActivitySyncState(
+  db: Firestore,
+  userId: string,
+  state: B2CUsersActivitySyncState
+): Promise<void> {
+  await db
+    .collection('Users')
+    .doc(userId)
+    .set(
+      {
+        lifecycle: {
+          b2cUsers: {
+            activitySync: state,
+          },
+        },
+      },
+      { merge: true }
+    );
+}
+
+export interface RunB2CUsersActivityRefreshSyncInput {
+  readonly db: Firestore;
+  readonly environment: RuntimeEnvironment;
+  readonly limit?: number;
+  readonly batchSize?: number;
+  readonly force?: boolean;
+}
+
+export interface B2CUsersActivityRefreshProcessingResult {
+  readonly userId: string;
+  readonly outcome: 'updated' | 'skipped' | 'failed';
+  readonly reason?: string;
+}
+
+export interface RunB2CUsersActivityRefreshSyncResult {
+  readonly processedCount: number;
+  readonly updatedCount: number;
+  readonly skippedCount: number;
+  readonly failedCount: number;
+  readonly results: B2CUsersActivityRefreshProcessingResult[];
+}
+
+/**
+ * Recurring refresh for `Last Active`/`Engagement` on the B2C Users Notion
+ * database. Every other write to these two fields only happens once, at a
+ * specific billing lifecycle transition (Account Started, Usage Started,
+ * Closed Won, etc.), so an active user who doesn't trigger a new billing
+ * event never gets their Notion row refreshed. This walks every personal
+ * wallet owner and re-stamps both fields from their real last-login activity,
+ * independent of billing events. Terminal stages (Closed Lost/Churned) are
+ * intentionally left alone since their engagement label reflects payment
+ * inactivity, not app usage.
+ *
+ * Paginates across all individual wallets using document cursors when limit is
+ * omitted, and skips redundant Notion writes if lastActiveAt + engagement
+ * ladder are already current.
+ */
+export async function runB2CUsersActivityRefreshSync(
+  input: RunB2CUsersActivityRefreshSyncInput
+): Promise<RunB2CUsersActivityRefreshSyncResult> {
+  const batchSize = Math.min(Math.max(input.batchSize ?? 100, 1), 500);
+  const maxLimit = input.limit && input.limit > 0 ? input.limit : Infinity;
+
+  const results: B2CUsersActivityRefreshProcessingResult[] = [];
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+  let hasMore = true;
+
+  while (hasMore && results.length < maxLimit) {
+    const fetchLimit = Math.min(batchSize, maxLimit - results.length);
+    let query: FirebaseFirestore.Query = input.db
+      .collection('Wallets')
+      .where('ownerType', '==', 'individual')
+      .limit(fetchLimit);
+
+    if (lastDoc) {
+      query = query.startAfter(lastDoc);
+    }
+
+    const snapshot = await query.get();
+    if (snapshot.empty) {
+      break;
+    }
+
+    lastDoc = snapshot.docs[snapshot.docs.length - 1];
+
+    for (const doc of snapshot.docs) {
+      if (results.length >= maxLimit) {
+        hasMore = false;
+        break;
+      }
+
+      const userId = compactText(
+        (doc.data() as Record<string, unknown>)['ownerId'] as string | undefined
+      );
+      if (!userId) continue;
+
+      try {
+        const loaded = await loadEligibleUser(input.db, userId);
+        if ('reason' in loaded) {
+          results.push({ userId, outcome: 'skipped', reason: loaded.reason });
+          continue;
+        }
+
+        const { stateKey, pageId } = resolveCurrentB2CUsersStage(loaded.user);
+        if (!stateKey || !pageId) {
+          results.push({ userId, outcome: 'skipped', reason: 'missing-existing-row' });
+          continue;
+        }
+
+        if (ACTIVITY_REFRESH_TERMINAL_STAGE_KEYS.has(stateKey)) {
+          results.push({ userId, outcome: 'skipped', reason: 'terminal-stage' });
+          continue;
+        }
+
+        const lastActiveAt = resolveLastActiveAt(loaded.user);
+        const engagement = resolveEngagement(lastActiveAt);
+        const activitySync = getActivitySyncState(loaded.user);
+        const normalizedLastActiveAt = lastActiveAt ? lastActiveAt.toISOString() : null;
+
+        const isAlreadyCurrent =
+          !input.force &&
+          activitySync &&
+          activitySync.lastActiveAt === normalizedLastActiveAt &&
+          activitySync.engagement === engagement;
+
+        if (isAlreadyCurrent) {
+          results.push({ userId, outcome: 'skipped', reason: 'already-current' });
+          continue;
+        }
+
+        const refreshResult = await refreshB2CUsersActivity({
+          environment: input.environment,
+          pageId,
+          lastActiveAt,
+        });
+
+        if (refreshResult.status === 'updated') {
+          await updateB2CUsersActivitySyncState(input.db, userId, {
+            lastActiveAt: normalizedLastActiveAt,
+            engagement,
+            refreshedAt: new Date().toISOString(),
+          }).catch((err) => {
+            logger.warn('[B2CUsers] Failed to update activitySync state', {
+              userId,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+          results.push({ userId, outcome: 'updated' });
+        } else if (refreshResult.status === 'skipped') {
+          results.push({ userId, outcome: 'skipped', reason: refreshResult.reason });
+        } else {
+          results.push({ userId, outcome: 'failed' });
+        }
+      } catch (error) {
+        logger.error('[B2CUsers] Failed to refresh activity for user', {
+          userId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        results.push({ userId, outcome: 'failed', reason: 'exception' });
+      }
+    }
+
+    if (snapshot.docs.length < fetchLimit) {
+      hasMore = false;
+    }
+  }
+
+  return {
+    processedCount: results.length,
+    updatedCount: results.filter((item) => item.outcome === 'updated').length,
+    skippedCount: results.filter((item) => item.outcome === 'skipped').length,
+    failedCount: results.filter((item) => item.outcome === 'failed').length,
+    results,
+  };
 }

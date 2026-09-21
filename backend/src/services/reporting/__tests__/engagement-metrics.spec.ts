@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { isEligibleForEngagementPeriod } from '../engagement-metrics.js';
+import {
+  getOrganizationId,
+  isEligibleForEngagementPeriod,
+  summarizeEngagementIdentityRecords,
+} from '../engagement-metrics.js';
 
 describe('isEligibleForEngagementPeriod', () => {
   const periodStart = new Date('2026-06-01T00:00:00.000Z');
@@ -78,5 +82,46 @@ describe('isEligibleForEngagementPeriod', () => {
         periodEndExclusive
       )
     ).toBe(true);
+  });
+});
+
+describe('summarizeEngagementIdentityRecords', () => {
+  const classifySegment = (user: Record<string, unknown>) =>
+    user['segment'] === 'b2b' ? ('b2b' as const) : ('b2c' as const);
+
+  it('counts B2B organizations once while keeping B2C at user level', () => {
+    expect(
+      summarizeEngagementIdentityRecords(
+        [
+          {
+            userId: 'org-member-1',
+            user: { segment: 'b2b', activeBillingTarget: { organizationId: 'org-1' } },
+          },
+          {
+            userId: 'org-member-2',
+            user: { segment: 'b2b', organizationId: 'org-1' },
+          },
+          {
+            userId: 'org-member-3',
+            user: { segment: 'b2b', organizationId: 'org-2' },
+          },
+          { userId: 'consumer-1', user: { segment: 'b2c' } },
+          { userId: 'consumer-2', user: { segment: 'b2c' } },
+        ],
+        classifySegment
+      )
+    ).toEqual({ b2b: 2, b2c: 2, total: 4 });
+  });
+});
+
+describe('getOrganizationId', () => {
+  it('prefers the active billing target and falls back to the user field', () => {
+    expect(
+      getOrganizationId({
+        organizationId: 'org-fallback',
+        activeBillingTarget: { organizationId: 'org-active' },
+      })
+    ).toBe('org-active');
+    expect(getOrganizationId({ organizationId: 'org-fallback' })).toBe('org-fallback');
   });
 });

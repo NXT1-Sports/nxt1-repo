@@ -16,7 +16,7 @@ import {
   upsertWeeklyKpisRow,
   type WeeklyKpisMetrics,
 } from '../marketing/integrations/notion/weekly-kpis-entry.service.js';
-import { fetchGa4WeeklySiteVisitors } from './ga4-site-visitors.service.js';
+import { calculateVisitorConversationMetric } from './visitor-conversation-metric.js';
 import {
   countEngagedUsers,
   countEngagementEligibleAccounts,
@@ -27,6 +27,7 @@ import { coerceDate } from './account-start-date.js';
 import { fetchReportingAccountStartedUsers } from './reporting-account-start-users.js';
 import { calculateMedianTimeToFirstUsageHours } from './time-to-first-usage.service.js';
 import { resolveUsageEventCostCents } from './usage-event-costs.js';
+import { computeTrialLifecycleMetrics } from './trial-metrics.js';
 
 type Segment = 'b2b' | 'b2c';
 
@@ -350,17 +351,16 @@ async function countSegmentedOnboardingCompleted(
   weekEnd: Date
 ): Promise<SegmentCounts> {
   try {
-    const snapshot = await db
-      .collection('Users')
-      .where('onboardingCompletedAt', '>=', weekStart)
-      .where('onboardingCompletedAt', '<=', weekEnd)
-      .get();
+    const users = await fetchReportingAccountStartedUsers(db, weekStart, weekEnd);
 
     let b2b = 0;
     let b2c = 0;
 
-    for (const doc of snapshot.docs) {
-      const segment = classifySegment(doc.data() as Record<string, unknown>);
+    for (const { user } of users) {
+      const onboardingCompletedAt = coerceDate(user['onboardingCompletedAt']);
+      if (!onboardingCompletedAt || onboardingCompletedAt.getTime() > weekEnd.getTime()) continue;
+
+      const segment = classifySegment(user);
       if (segment === 'b2b') b2b += 1;
       else b2c += 1;
     }
@@ -388,6 +388,7 @@ async function fetchSplitFinancials(start: Date, endExclusive: Date): Promise<Sp
       metadata: 1,
       billedOwnerType: 1,
       organizationId: 1,
+      rawProviderCostUsd: 1,
       unitCostSnapshot: 1,
       quantity: 1,
     })
@@ -396,6 +397,7 @@ async function fetchSplitFinancials(start: Date, endExclusive: Date): Promise<Sp
         metadata?: Record<string, unknown>;
         billedOwnerType?: string;
         organizationId?: string | null;
+        rawProviderCostUsd?: number;
         unitCostSnapshot?: number;
         quantity?: number;
       }>
@@ -418,6 +420,8 @@ async function fetchSplitFinancials(start: Date, endExclusive: Date): Promise<Sp
     },
     { b2b: 0, b2c: 0 }
   );
+  costTotals.b2b = Math.round(costTotals.b2b);
+  costTotals.b2c = Math.round(costTotals.b2c);
 
   const paymentLogs = await PaymentLogModel.find({
     createdAt: { $gte: start, $lt: endExclusive },
@@ -497,13 +501,6 @@ export async function generateWeeklyKpisReport(
       weekEnd
     );
 
-    const usageStarted = await countSegmentedFromFields(
-      input.db,
-      USAGE_STARTED_CREATED_AT_FIELDS,
-      input.weekStart,
-      weekEnd
-    );
-
     const b2bClosedWon = await countAccountsByPath(
       input.db,
       'lifecycle.sales.closedWon.createdAt',
@@ -567,7 +564,12 @@ export async function generateWeeklyKpisReport(
       weekEnd,
       classifySegment
     );
-    const totalSiteVisitors = await fetchGa4WeeklySiteVisitors(input.weekStart, weekEnd);
+    const visitorConversationMetric = await calculateVisitorConversationMetric(
+      input.weekStart,
+      weekEndExclusive,
+      'week'
+    );
+    const totalSiteVisitors = visitorConversationMetric.totalVisitors;
 
     const b2bClosedLost = closedLost.b2b;
     const b2cClosedLost = closedLost.b2c;
@@ -583,6 +585,7 @@ export async function generateWeeklyKpisReport(
       input.weekStart,
       weekEnd
     );
+    const trial = await computeTrialLifecycleMetrics(input.db, input.weekStart, weekEnd);
     const [engagedUsers, engagementEligibleAccounts, payingEngagedUsers] = await Promise.all([
       countEngagedUsers(
         input.db,
@@ -614,7 +617,7 @@ export async function generateWeeklyKpisReport(
     const metrics: WeeklyKpisMetrics = {
       weekStart: input.weekStart,
       newAccountsStartedActual: newAccountsStarted.total,
-      usageStartedAccountsActual: usageStarted.total,
+      usageStartedAccountsActual: usageStartedCohort.total,
       engagedUsersActual: engagedUsers.total,
       engagementEligibleAccountsActual: engagementEligibleAccounts.total,
       payingEngagedUsersActual: payingEngagedUsers.total,
@@ -628,10 +631,12 @@ export async function generateWeeklyKpisReport(
       usageRevenueActual: financials.revenue.total,
       grossMarginPercentActual: financials.marginPercent.total,
       totalSiteVisitorsActual: totalSiteVisitors,
+      visitorConversationsActual: visitorConversationMetric.conversingVisitors,
+      visitorToConversationRatePercent: visitorConversationMetric.ratePercent,
       usageStartRatePercent: usageStartRate,
       timeToFirstUsageHoursActual: timeToFirstUsage.total,
       b2bNewAccountsStartedActual: newAccountsStarted.b2b,
-      b2bUsageStartedAccountsActual: usageStarted.b2b,
+      b2bUsageStartedAccountsActual: usageStartedCohort.b2b,
       b2bEngagedUsersActual: engagedUsers.b2b,
       b2bEngagementEligibleAccountsActual: engagementEligibleAccounts.b2b,
       b2bPayingEngagedUsersActual: payingEngagedUsers.b2b,
@@ -647,7 +652,7 @@ export async function generateWeeklyKpisReport(
       b2bGrossMarginPercentActual: financials.marginPercent.b2b,
       b2bTimeToFirstUsageHoursActual: timeToFirstUsage.b2b,
       b2cNewAccountsStartedActual: newAccountsStarted.b2c,
-      b2cUsageStartedAccountsActual: usageStarted.b2c,
+      b2cUsageStartedAccountsActual: usageStartedCohort.b2c,
       b2cEngagedUsersActual: engagedUsers.b2c,
       b2cEngagementEligibleAccountsActual: engagementEligibleAccounts.b2c,
       b2cPayingEngagedUsersActual: payingEngagedUsers.b2c,
@@ -662,6 +667,21 @@ export async function generateWeeklyKpisReport(
       b2cUsageRevenueActual: financials.revenue.b2c,
       b2cGrossMarginPercentActual: financials.marginPercent.b2c,
       b2cTimeToFirstUsageHoursActual: timeToFirstUsage.b2c,
+      trialsStartedActual: trial.started.total,
+      personalTrialsStartedActual: trial.started.personal,
+      organizationTrialsStartedActual: trial.started.organization,
+      trialsConvertedActual: trial.converted.total,
+      personalTrialsConvertedActual: trial.converted.personal,
+      organizationTrialsConvertedActual: trial.converted.organization,
+      trialsExpiredActual: trial.expired.total,
+      personalTrialsExpiredActual: trial.expired.personal,
+      organizationTrialsExpiredActual: trial.expired.organization,
+      trialConversionRatePercent: trial.conversionRatePercent.total,
+      personalTrialConversionRatePercent: trial.conversionRatePercent.personal,
+      organizationTrialConversionRatePercent: trial.conversionRatePercent.organization,
+      avgDaysToTrialConversionActual: trial.avgDaysToConversion.total,
+      personalAvgDaysToTrialConversionActual: trial.avgDaysToConversion.personal,
+      organizationAvgDaysToTrialConversionActual: trial.avgDaysToConversion.organization,
     };
 
     logger.info('[WeeklyKpisReport] Metrics computed', {

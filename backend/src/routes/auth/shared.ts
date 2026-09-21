@@ -236,6 +236,11 @@ export interface UserV2Document {
         graceDays?: number;
         balanceCents?: number;
       };
+      activitySync?: {
+        lastActiveAt?: PortableTimestamp | null;
+        engagement?: 'High' | 'Medium' | 'Low' | 'At Risk';
+        refreshedAt?: PortableTimestamp;
+      };
     };
     usage?: {
       notionDashboard?: {

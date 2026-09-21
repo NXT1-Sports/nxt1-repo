@@ -17,6 +17,7 @@ export { marketingOutbox } from './marketingOutbox';
 export { signupNotionDashboard } from './signupNotionDashboard';
 export { churnedNotionDashboard } from './churnedNotionDashboard';
 export { closedLostNotionDashboard } from './closedLostNotionDashboard';
+export { b2cUsersActivityRefresh } from './b2cUsersActivityRefresh';
 export { b2bMemberCountNotionDashboard } from './b2bMemberCountNotionDashboard';
 export { weeklyKpisNotionDashboard } from './weeklyKpisNotionDashboard';
 export { monthlyScoreboardNotionDashboard } from './monthlyScoreboardNotionDashboard';

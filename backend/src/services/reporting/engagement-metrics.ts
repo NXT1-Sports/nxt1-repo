@@ -14,6 +14,11 @@ export interface SegmentCounts {
 
 type SegmentClassifier = (user: Record<string, unknown>) => ReportingSegment;
 
+interface EngagementIdentityRecord {
+  readonly userId: string;
+  readonly user: Record<string, unknown>;
+}
+
 function getPath(record: Record<string, unknown>, path: string): unknown {
   const parts = path.split('.');
   let current: unknown = record;
@@ -61,6 +66,48 @@ function normalizeDistinctStringIds(values: readonly unknown[]): string[] {
     .filter((value) => value.length > 0);
 }
 
+export function getOrganizationId(user: Record<string, unknown>): string | undefined {
+  const activeBillingTarget = user['activeBillingTarget'];
+  const activeOrganizationId =
+    activeBillingTarget && typeof activeBillingTarget === 'object'
+      ? (activeBillingTarget as Record<string, unknown>)['organizationId']
+      : undefined;
+
+  if (typeof activeOrganizationId === 'string' && activeOrganizationId.trim().length > 0) {
+    return activeOrganizationId.trim();
+  }
+
+  const organizationId = user['organizationId'];
+  return typeof organizationId === 'string' && organizationId.trim().length > 0
+    ? organizationId.trim()
+    : undefined;
+}
+
+export function summarizeEngagementIdentityRecords(
+  records: readonly EngagementIdentityRecord[],
+  classifySegment: SegmentClassifier
+): SegmentCounts {
+  const b2bOrganizationIds = new Set<string>();
+  const b2cUserIds = new Set<string>();
+
+  for (const { userId, user } of records) {
+    if (typeof user['_legacyId'] === 'string' && user['_legacyId'].trim().length > 0) continue;
+
+    if (classifySegment(user) === 'b2b') {
+      const organizationId = getOrganizationId(user);
+      if (organizationId) b2bOrganizationIds.add(organizationId);
+    } else {
+      b2cUserIds.add(userId);
+    }
+  }
+
+  return {
+    b2b: b2bOrganizationIds.size,
+    b2c: b2cUserIds.size,
+    total: b2bOrganizationIds.size + b2cUserIds.size,
+  };
+}
+
 function getEngagementEligibilityAccountStartDate(
   record: Record<string, unknown>
 ): Date | undefined {
@@ -75,6 +122,10 @@ export function isEligibleForEngagementPeriod(
   periodStart: Date,
   periodEndExclusive: Date
 ): boolean {
+  if (typeof user['_legacyId'] === 'string' && user['_legacyId'].trim().length > 0) {
+    return false;
+  }
+
   const accountStartDate = getEngagementEligibilityAccountStartDate(user);
   if (!accountStartDate || accountStartDate.getTime() >= periodEndExclusive.getTime()) return false;
 
@@ -102,8 +153,7 @@ async function summarizeUserIdsBySegment(
 ): Promise<SegmentCounts> {
   try {
     const normalizedUserIds = normalizeDistinctStringIds(userIds);
-    let b2b = 0;
-    let b2c = 0;
+    const records: EngagementIdentityRecord[] = [];
 
     for (let index = 0; index < normalizedUserIds.length; index += 300) {
       const batchUserIds = normalizedUserIds.slice(index, index + 300);
@@ -114,14 +164,14 @@ async function summarizeUserIdsBySegment(
 
       for (const userSnapshot of userSnapshots) {
         if (!userSnapshot.exists) continue;
-
-        const segment = classifySegment(userSnapshot.data() as Record<string, unknown>);
-        if (segment === 'b2b') b2b += 1;
-        else b2c += 1;
+        records.push({
+          userId: userSnapshot.id,
+          user: userSnapshot.data() as Record<string, unknown>,
+        });
       }
     }
 
-    return { b2b, b2c, total: b2b + b2c };
+    return summarizeEngagementIdentityRecords(records, classifySegment);
   } catch (err) {
     logger.error(`${logPrefix} Failed to summarize user ids by segment`, {
       error: err instanceof Error ? err.message : String(err),
@@ -241,29 +291,35 @@ export async function countPayingEngagedUsers(
     const payingOrganizationSet = new Set(payingIdentities.organizationIds);
     const userRefs = engagedUserIds.map((userId) => db.collection('Users').doc(userId));
     const userSnapshots = await db.getAll(...userRefs);
-    const payingEngagedUserIds = userSnapshots
-      .filter((snapshot) => {
-        if (!snapshot.exists) return false;
-        const user = snapshot.data() as Record<string, unknown>;
-        const segment = classifySegment(user);
-        if (segment === 'b2c') return payingPersonalUserSet.has(snapshot.id);
+    const payingEngagedB2BOrganizationIds = new Set<string>();
+    const payingEngagedB2CUserIds = new Set<string>();
 
-        const activeTarget = user['activeBillingTarget'] as Record<string, unknown> | undefined;
-        const organizationId =
-          typeof activeTarget?.['organizationId'] === 'string'
-            ? activeTarget['organizationId']
-            : typeof user['organizationId'] === 'string'
-              ? user['organizationId']
-              : undefined;
-        return Boolean(organizationId && payingOrganizationSet.has(organizationId));
-      })
-      .map((snapshot) => snapshot.id);
+    for (const snapshot of userSnapshots) {
+      if (!snapshot.exists) continue;
 
-    return summarizeUserIdsBySegment(db, payingEngagedUserIds, classifySegment, logPrefix, {
-      periodStart: periodStart.toISOString(),
-      periodEndExclusive: periodEndExclusive.toISOString(),
-      payingPeriodEnd: payingPeriodEnd.toISOString(),
-    });
+      const user = snapshot.data() as Record<string, unknown>;
+      if (typeof user['_legacyId'] === 'string' && user['_legacyId'].trim().length > 0) {
+        continue;
+      }
+
+      const segment = classifySegment(user);
+      if (segment === 'b2c') {
+        if (payingPersonalUserSet.has(snapshot.id)) payingEngagedB2CUserIds.add(snapshot.id);
+        continue;
+      }
+
+      const organizationId = getOrganizationId(user);
+
+      if (organizationId && payingOrganizationSet.has(organizationId)) {
+        payingEngagedB2BOrganizationIds.add(organizationId);
+      }
+    }
+
+    return {
+      b2b: payingEngagedB2BOrganizationIds.size,
+      b2c: payingEngagedB2CUserIds.size,
+      total: payingEngagedB2BOrganizationIds.size + payingEngagedB2CUserIds.size,
+    };
   } catch (err) {
     logger.error(`${logPrefix} Failed to count paying engaged users`, {
       error: err instanceof Error ? err.message : String(err),
@@ -284,20 +340,15 @@ export async function countEngagementEligibleAccounts(
 ): Promise<SegmentCounts> {
   try {
     const snapshot = await db.collection('Users').get();
-
-    let b2b = 0;
-    let b2c = 0;
+    const records: EngagementIdentityRecord[] = [];
 
     for (const doc of snapshot.docs) {
       const user = doc.data() as Record<string, unknown>;
       if (!isEligibleForEngagementPeriod(user, periodStart, periodEndExclusive)) continue;
-
-      const segment = classifySegment(user);
-      if (segment === 'b2b') b2b += 1;
-      else b2c += 1;
+      records.push({ userId: doc.id, user });
     }
 
-    return { b2b, b2c, total: b2b + b2c };
+    return summarizeEngagementIdentityRecords(records, classifySegment);
   } catch (err) {
     logger.error(`${logPrefix} Failed to count engagement-eligible accounts`, {
       error: err instanceof Error ? err.message : String(err),

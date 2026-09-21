@@ -18,16 +18,6 @@
     "noEmit": false,
     "types": ["node"],
     "paths": {
-      "@nxt1/core": ["../packages/core/dist/index.d.ts"],
-      "@nxt1/core/errors/express": [
-        "../packages/core/dist/errors/express.middleware.d.ts"
-      ],
-      "@nxt1/core/*": [
-        "../packages/core/dist/*/index.d.ts",
-        "../packages/core/dist/*.d.ts"
-      ],
-      "@nxt1/cache": ["../packages/cache/dist/index.d.ts"],
-      "@nxt1/cache/*": ["../packages/cache/dist/*.d.ts"],
       "@apple/app-store-server-library": [
         "../node_modules/@apple/app-store-server-library/dist/index.d.ts"
       ],

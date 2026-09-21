@@ -10,6 +10,10 @@ const GA4_PROPERTY_ID = process.env['GA4_PROPERTY_ID']?.trim();
 const GA4_DATA_API_BASE_URL = 'https://analyticsdata.googleapis.com/v1beta';
 const GA4_READ_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 
+export interface Ga4SiteVisitorReport {
+  readonly totalUsers: number;
+}
+
 function formatIsoDate(date: Date): string {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
@@ -123,6 +127,102 @@ async function fetchGa4SiteVisitors(
     });
     return undefined;
   }
+}
+
+async function runGa4Report(
+  propertyId: string,
+  accessToken: string,
+  payload: Record<string, unknown>,
+  context: Record<string, unknown>
+): Promise<
+  | Array<{
+      dimensionValues?: Array<{ value?: string }>;
+      metricValues?: Array<{ value?: string }>;
+    }>
+  | undefined
+> {
+  try {
+    const response = await fetch(`${GA4_DATA_API_BASE_URL}/properties/${propertyId}:runReport`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const details = await response.text().catch(() => '');
+      logger.warn('[GA4SiteVisitors] GA4 cohort report failed', {
+        status: response.status,
+        details: details.slice(0, 500),
+        ...context,
+      });
+      return undefined;
+    }
+
+    const body = (await response.json()) as {
+      rows?: Array<{
+        dimensionValues?: Array<{ value?: string }>;
+        metricValues?: Array<{ value?: string }>;
+      }>;
+    };
+    return body.rows ?? [];
+  } catch (error) {
+    logger.warn('[GA4SiteVisitors] Failed to run cohort report', {
+      error: error instanceof Error ? error.message : String(error),
+      ...context,
+    });
+    return undefined;
+  }
+}
+
+/**
+ * Returns the GA4 visitor denominator (`totalUsers`) for the given period.
+ *
+ * Note: the GA4 Data API does not expose raw User-ID values as a queryable
+ * dimension (Google withholds it for privacy, even when the User-ID feature
+ * is enabled on the property), so per-visitor cohort correlation with backend
+ * signup/conversation records is not possible via this API and is
+ * intentionally not attempted here.
+ */
+export async function fetchGa4SiteVisitorReport(
+  startDate: Date,
+  endDate: Date,
+  periodLabel: 'week' | 'month'
+): Promise<Ga4SiteVisitorReport | undefined> {
+  const propertyId = normalizePropertyId(GA4_PROPERTY_ID);
+  if (!propertyId) return undefined;
+
+  const accessToken = await getAccessToken();
+  if (!accessToken) return undefined;
+
+  const dateRange = {
+    startDate: formatIsoDate(startDate),
+    endDate: formatIsoDate(endDate),
+  };
+  const baseContext = { periodLabel, ...dateRange };
+  const visitorRows = await runGa4Report(
+    propertyId,
+    accessToken,
+    {
+      dateRanges: [dateRange],
+      metrics: [{ name: 'totalUsers' }],
+    },
+    baseContext
+  );
+  if (!visitorRows) return undefined;
+
+  const totalUsers = Number.parseInt(visitorRows[0]?.metricValues?.[0]?.value ?? '', 10);
+  if (!Number.isFinite(totalUsers) || totalUsers < 0) {
+    logger.warn('[GA4SiteVisitors] Invalid GA4 totalUsers value', {
+      rawValue: visitorRows[0]?.metricValues?.[0]?.value,
+      ...baseContext,
+    });
+    return undefined;
+  }
+
+  return { totalUsers };
 }
 
 /**

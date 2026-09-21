@@ -67,9 +67,26 @@ export interface MonthlyScoreboardMetrics {
   readonly b2bTimeToFirstUsageHoursActual?: number;
   readonly b2cTimeToFirstUsageHoursActual?: number;
   readonly totalSiteVisitorsActual?: number;
+  readonly visitorConversationsActual?: number;
   readonly visitorToSignupConversionPercent?: number; // 0-100
+  readonly visitorToConversationRatePercent?: number; // 0-100
   readonly topReferralSourcesActual?: string;
   readonly topReferralDetailsActual?: string;
+  readonly trialsStartedActual: number;
+  readonly personalTrialsStartedActual: number;
+  readonly organizationTrialsStartedActual: number;
+  readonly trialsConvertedActual: number;
+  readonly personalTrialsConvertedActual: number;
+  readonly organizationTrialsConvertedActual: number;
+  readonly trialsExpiredActual: number;
+  readonly personalTrialsExpiredActual: number;
+  readonly organizationTrialsExpiredActual: number;
+  readonly trialConversionRatePercent: number; // 0-100
+  readonly personalTrialConversionRatePercent: number; // 0-100
+  readonly organizationTrialConversionRatePercent: number; // 0-100
+  readonly avgDaysToTrialConversionActual: number;
+  readonly personalAvgDaysToTrialConversionActual: number;
+  readonly organizationAvgDaysToTrialConversionActual: number;
   readonly notes?: string;
 }
 
@@ -278,43 +295,114 @@ export function buildMonthlyScoreboardProperties(
     'B2C Onboarding Completed Accounts (Actual)': {
       number: metrics.b2cOnboardingCompletedAccountsActual,
     },
+    'Trials Started (Actual)': {
+      number: metrics.trialsStartedActual,
+    },
+    'Personal Trials Started (Actual)': {
+      number: metrics.personalTrialsStartedActual,
+    },
+    'Organization Trials Started (Actual)': {
+      number: metrics.organizationTrialsStartedActual,
+    },
+    'Trials Converted (Actual)': {
+      number: metrics.trialsConvertedActual,
+    },
+    'Personal Trials Converted (Actual)': {
+      number: metrics.personalTrialsConvertedActual,
+    },
+    'Organization Trials Converted (Actual)': {
+      number: metrics.organizationTrialsConvertedActual,
+    },
+    'Trials Expired (Actual)': {
+      number: metrics.trialsExpiredActual,
+    },
+    'Personal Trials Expired (Actual)': {
+      number: metrics.personalTrialsExpiredActual,
+    },
+    'Organization Trials Expired (Actual)': {
+      number: metrics.organizationTrialsExpiredActual,
+    },
+    'Trial Conversion Rate (%)': {
+      number: toNotionPercent(metrics.trialConversionRatePercent),
+    },
+    'Personal Trial Conversion Rate (%)': {
+      number: toNotionPercent(metrics.personalTrialConversionRatePercent),
+    },
+    'Organization Trial Conversion Rate (%)': {
+      number: toNotionPercent(metrics.organizationTrialConversionRatePercent),
+    },
+    'Avg Days to Trial Conversion (Actual)': {
+      number: metrics.avgDaysToTrialConversionActual,
+    },
+    'Personal Avg Days to Trial Conversion (Actual)': {
+      number: metrics.personalAvgDaysToTrialConversionActual,
+    },
+    'Organization Avg Days to Trial Conversion (Actual)': {
+      number: metrics.organizationAvgDaysToTrialConversionActual,
+    },
   };
 
   if (typeof metrics.momRevenueGrowthPercent === 'number') {
     properties['MoM Revenue Growth (%)'] = {
       number: toNotionPercent(metrics.momRevenueGrowthPercent),
     };
+  } else {
+    properties['MoM Revenue Growth (%)'] = { number: null };
   }
 
   if (typeof metrics.timeToFirstUsageHoursActual === 'number') {
     properties['Time to First Usage (hrs) Actual'] = {
       number: metrics.timeToFirstUsageHoursActual,
     };
+  } else {
+    properties['Time to First Usage (hrs) Actual'] = { number: null };
   }
 
   if (typeof metrics.b2bTimeToFirstUsageHoursActual === 'number') {
     properties['B2B Time to First Usage (hrs) Actual'] = {
       number: metrics.b2bTimeToFirstUsageHoursActual,
     };
+  } else {
+    properties['B2B Time to First Usage (hrs) Actual'] = { number: null };
   }
 
   if (typeof metrics.b2cTimeToFirstUsageHoursActual === 'number') {
     properties['B2C Time to First Usage (hrs) Actual'] = {
       number: metrics.b2cTimeToFirstUsageHoursActual,
     };
+  } else {
+    properties['B2C Time to First Usage (hrs) Actual'] = { number: null };
   }
 
   if (typeof metrics.totalSiteVisitorsActual === 'number') {
     properties['Total Site Visitors (Actual)'] = {
       number: metrics.totalSiteVisitorsActual,
     };
+  } else {
+    properties['Total Site Visitors (Actual)'] = { number: null };
   }
+
+  properties['Visitor Conversations (Actual)'] = {
+    number:
+      typeof metrics.visitorConversationsActual === 'number'
+        ? metrics.visitorConversationsActual
+        : null,
+  };
 
   if (typeof metrics.visitorToSignupConversionPercent === 'number') {
     properties['Visitor to Signup Conversion (%)'] = {
       number: toNotionPercent(metrics.visitorToSignupConversionPercent),
     };
+  } else {
+    properties['Visitor to Signup Conversion (%)'] = { number: null };
   }
+
+  properties['Visitor to Conversation Rate (%)'] = {
+    number:
+      typeof metrics.visitorToConversationRatePercent === 'number'
+        ? toNotionPercent(metrics.visitorToConversationRatePercent)
+        : null,
+  };
 
   if (metrics.topReferralSourcesActual) {
     properties['Top Referral Sources (Actual)'] = {
@@ -325,6 +413,8 @@ export function buildMonthlyScoreboardProperties(
         },
       ],
     };
+  } else {
+    properties['Top Referral Sources (Actual)'] = { rich_text: [] };
   }
 
   if (metrics.topReferralDetailsActual) {
@@ -336,6 +426,8 @@ export function buildMonthlyScoreboardProperties(
         },
       ],
     };
+  } else {
+    properties['Top Referral Details (Actual)'] = { rich_text: [] };
   }
 
   if (metrics.notes) {
@@ -347,6 +439,8 @@ export function buildMonthlyScoreboardProperties(
         },
       ],
     };
+  } else {
+    properties['Notes'] = { rich_text: [] };
   }
 
   return properties;

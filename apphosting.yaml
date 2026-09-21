@@ -62,6 +62,12 @@ env:
   - variable: PRODUCTION_NOTION_WEEKLY_KPIS_DATABASE_ID
     value: 'd9d021268e784dbcaa781bcdd7a688d1'
 
+  # Monthly Scoreboard Notion automation (production)
+  - variable: NOTION_MONTHLY_SCOREBOARD_ENABLED
+    value: 'true'
+  - variable: PRODUCTION_NOTION_MONTHLY_SCOREBOARD_DATABASE_ID
+    value: '73bd23f7da4947119dbb17e4cb344e6e'
+
 # Custom headers for all responses
 headers:
   # Security headers + default no-cache for all SSR routes

@@ -184,14 +184,9 @@ function getEnvironmentB2CUsersDatabaseId(environment: RuntimeEnvironment): stri
 function getEnvironmentMonthlyScoreboardDatabaseId(
   environment: RuntimeEnvironment
 ): string | undefined {
-  const environmentSpecific =
-    environment === 'production'
-      ? process.env['PRODUCTION_NOTION_MONTHLY_SCOREBOARD_DATABASE_ID']
-      : process.env['STAGING_NOTION_MONTHLY_SCOREBOARD_DATABASE_ID'];
+  if (environment !== 'production') return undefined;
 
-  return (
-    environmentSpecific?.trim() || process.env['NOTION_MONTHLY_SCOREBOARD_DATABASE_ID']?.trim()
-  );
+  return process.env['PRODUCTION_NOTION_MONTHLY_SCOREBOARD_DATABASE_ID']?.trim();
 }
 
 function getEnvironmentInvestorsPartnershipsDatabaseId(
@@ -284,7 +279,8 @@ export function getNotionB2CUsersConfig(
 export function getNotionMonthlyScoreboardConfig(
   environment: RuntimeEnvironment
 ): NotionSignupDashboardConfig {
-  const enabled = process.env['NOTION_MONTHLY_SCOREBOARD_ENABLED'] === 'true';
+  const enabled =
+    environment === 'production' && process.env['NOTION_MONTHLY_SCOREBOARD_ENABLED'] === 'true';
 
   return {
     enabled,

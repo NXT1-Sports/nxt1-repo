@@ -997,11 +997,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     this.logger.debug('🔍 Firebase detected isNewUser (Microsoft)', { isNewUser });
 
+    this.analytics.setUserId(result.user.uid);
+
     // Track analytics
     this.analytics.trackEvent(isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN, {
       method: AUTH_METHODS.MICROSOFT,
     });
-    this.analytics.setUserId(result.user.uid);
     this.analytics.setUserProperties({ user_type: this.user()?.role });
 
     // Set flag to prevent auth state listener from racing with user setup (via core state manager)
@@ -1226,6 +1227,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
           this.logger.debug('🔍 Firebase detected isNewUser', { isNewUser });
 
+          this.analytics.setUserId(result.user.uid);
+
           // Track analytics
           this.analytics.trackEvent(
             isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
@@ -1233,7 +1236,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               method: AUTH_METHODS.GOOGLE,
             }
           );
-          this.analytics.setUserId(result.user.uid);
           this.analytics.setUserProperties({ user_type: this.user()?.role });
 
           // Set flag to prevent auth state listener from racing with user setup (via core state manager)
@@ -1663,6 +1665,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             hasLastName: !!appleLastName,
           });
 
+          this.analytics.setUserId(result.user.uid);
+
           // Track analytics
           this.analytics.trackEvent(
             isNewUser ? APP_EVENTS.AUTH_SIGNED_UP : APP_EVENTS.AUTH_SIGNED_IN,
@@ -1670,7 +1674,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               method: AUTH_METHODS.APPLE,
             }
           );
-          this.analytics.setUserId(result.user.uid);
           this.analytics.setUserProperties({ user_type: this.user()?.role });
 
           // Set flag to prevent auth state listener from racing with user setup (via core state manager)
@@ -1852,6 +1855,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             );
           }
 
+          this.analytics.setUserId(result.user.uid);
+
           // Track successful sign up
           this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_UP, {
             method: AUTH_METHODS.EMAIL,
@@ -1864,8 +1869,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               method: AUTH_METHODS.EMAIL,
             });
           }
-          this.analytics.setUserId(result.user.uid);
-
           // Sync user state BEFORE navigating (required for onboarding page)
           await this.syncUserProfile(result.user);
 
