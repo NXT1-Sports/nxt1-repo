@@ -130,6 +130,7 @@ function mapToActivityType(type: string): string {
     payment_succeeded: 'update',
     credits_low: 'update',
     credits_added: 'update',
+    invoice_sent: 'update',
     account_created: 'system',
     security_alert: 'system',
   };

@@ -1391,8 +1391,6 @@ export class UsageService implements OnDestroy {
       billingEmail,
     });
 
-    const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
-
     try {
       const result = await this.runWithSharedLoader({ message: 'Creating invoice...' }, () =>
         this.api.requestInvoiceTopUp({ amountCents, poNumber, netDays, billingEmail })
@@ -1411,15 +1409,6 @@ export class UsageService implements OnDestroy {
       this.toast.success(
         `Credits added to your wallet! Invoice #${result.invoiceId} ${targetLabel}.`
       );
-
-      const viewUrl = result.hostedInvoiceUrl || result.invoiceUrl;
-      if (viewUrl) {
-        if (isNativePlatform) {
-          await this.browser.open({ url: viewUrl, presentationStyle: 'fullscreen' });
-        } else if (typeof window !== 'undefined') {
-          window.open(viewUrl, '_blank', 'noopener,noreferrer');
-        }
-      }
 
       // Reload dashboard so payment history includes the new PENDING invoice.
       await this.loadDashboard(true);

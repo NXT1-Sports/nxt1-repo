@@ -47,6 +47,7 @@ describe('notification.service billing activity mapping', () => {
     NOTIFICATION_TYPES.CREDITS_ADDED,
     NOTIFICATION_TYPES.PAYMENT_FAILED,
     NOTIFICATION_TYPES.ORG_WALLET_REFILLED,
+    NOTIFICATION_TYPES.INVOICE_SENT,
   ])('writes %s as an announcement activity item', async (type) => {
     const { db, writes } = createMockFirestore();
 

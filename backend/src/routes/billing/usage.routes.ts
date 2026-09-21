@@ -47,7 +47,12 @@ import {
   type ResolvedBillingTarget,
 } from '../../modules/billing/index.js';
 import { trackBillingPurchaseEvent } from '../../modules/billing/ga4-revenue.service.js';
-import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
+import {
+  USAGE_PRODUCT_CONFIGS,
+  USAGE_CATEGORY_CONFIGS,
+  USAGE_HISTORY_PAGE_SIZE,
+  NOTIFICATION_TYPES,
+} from '@nxt1/core';
 import {
   UsageEventModel,
   type UsageEventDocument,
@@ -1645,11 +1650,15 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     const paymentHistory: UsagePaymentHistoryRecord[] = paymentLogDocs.map((doc) => {
       const idStr = (doc._id as Types.ObjectId).toString();
+      const amountDollars =
+        typeof doc.amountPaid === 'number' && doc.amountPaid > 0
+          ? doc.amountPaid
+          : (doc.amountDue ?? 0);
       return {
         id: idStr,
         displayId: idStr.slice(0, 8).toUpperCase(),
-        // PaymentLog stores amountPaid in dollars; UsagePaymentHistoryRecord.amount is cents.
-        amount: Math.round((doc.amountPaid ?? 0) * 100),
+        // PaymentLog stores amountPaid / amountDue in dollars; UsagePaymentHistoryRecord.amount is cents.
+        amount: Math.round(amountDollars * 100),
         currency: (doc.currency ?? 'usd') as UsagePaymentHistoryRecord['currency'],
         status: normalizePaymentStatus(doc.status) as UsagePaymentHistoryRecord['status'],
         paymentMethodLabel: doc.paymentMethodLabel ?? 'Card',
@@ -2077,11 +2086,15 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
     const records: UsagePaymentHistoryRecord[] = (paginatedDocs as PaymentLogDocument[]).map(
       (doc) => {
         const idStr = (doc._id as Types.ObjectId).toString();
+        const amountDollars =
+          typeof doc.amountPaid === 'number' && doc.amountPaid > 0
+            ? doc.amountPaid
+            : (doc.amountDue ?? 0);
         return {
           id: idStr,
           displayId: idStr.slice(0, 8).toUpperCase(),
-          // PaymentLog stores amountPaid in dollars; UsagePaymentHistoryRecord.amount is cents.
-          amount: Math.round((doc.amountPaid ?? 0) * 100),
+          // PaymentLog stores amountPaid / amountDue in dollars; UsagePaymentHistoryRecord.amount is cents.
+          amount: Math.round(amountDollars * 100),
           currency: (doc.currency ?? 'usd') as UsagePaymentHistoryRecord['currency'],
           status: normalizePaymentStatus(doc.status) as UsagePaymentHistoryRecord['status'],
           paymentMethodLabel: doc.paymentMethodLabel ?? 'Card',
@@ -2092,6 +2105,7 @@ router.get('/history', appGuard, async (req: Request, res: Response) => {
           invoiceUrl: doc.invoiceUrl ?? null,
           // Since Net 30 organization invoices provision wallet credits upfront,
           // self-serve cancellation is disabled to prevent credit clawback loopholes.
+          // Schools or orgs needing to void or amend an invoice contact support.
           canCancelInvoice: false,
         };
       }
@@ -3218,6 +3232,32 @@ router.post(
           });
         });
       }
+
+      // Dispatch push notification to the requester confirming the invoice was sent to their email
+      const { dispatch } = await import('../../services/communications/notification.service.js');
+      const invoiceNumber = finalizedInvoice.number || finalizedInvoice.id;
+      const formattedAmount = `$${(amountCents / 100).toFixed(2)}`;
+
+      await dispatch(db, {
+        userId,
+        type: NOTIFICATION_TYPES.INVOICE_SENT,
+        title: 'Invoice Sent to Email',
+        body: `Invoice #${invoiceNumber} for ${formattedAmount} has been sent to ${resolvedBillingEmail}.`,
+        deepLink: '/usage?section=payment-history',
+        source: { userName: 'NXT1 Billing' },
+        data: {
+          invoiceId: finalizedInvoice.id,
+          organizationId,
+          recipientEmail: resolvedBillingEmail,
+          amountCents: String(amountCents),
+        },
+      }).catch((notifyErr: unknown) => {
+        logger.warn('[POST /invoice-topup] Failed to dispatch invoice push notification', {
+          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          userId,
+          invoiceId: finalizedInvoice.id,
+        });
+      });
 
       logger.info('[POST /invoice-topup] Invoice created and sent', {
         userId,
