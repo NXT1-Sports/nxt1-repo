@@ -7,7 +7,7 @@
  * Temporary rollout switch for user-facing release-note prompts.
  * Flip back to true when the What's New modal is ready for production users.
  */
-export const RELEASE_NOTES_PROMPT_ENABLED = false;
+export const RELEASE_NOTES_PROMPT_ENABLED = true;
 
 export * from './release-notes.types';
 export * from './release-notes.api';
