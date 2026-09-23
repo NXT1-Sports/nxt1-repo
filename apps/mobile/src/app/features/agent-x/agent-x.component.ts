@@ -243,7 +243,7 @@ export class AgentXComponent implements OnInit, OnDestroy {
    * Automatically focuses the Agent X input bar and requests native keyboard display.
    */
   private focusInputWithRetry(): void {
-    if (!isPlatformBrowser(this.platformId) || this.isOverlayOrSidenavOpen()) {
+    if (!isPlatformBrowser(this.platformId)) {
       return;
     }
 
@@ -255,7 +255,8 @@ export class AgentXComponent implements OnInit, OnDestroy {
       void this.nativeApp.showKeyboard();
     };
 
-    triggerFocus();
+    // Do NOT call triggerFocus() synchronously — the keyboard-offset listener
+    // may not be registered yet at this point.
     setTimeout(triggerFocus, 100);
     setTimeout(triggerFocus, 300);
     setTimeout(triggerFocus, 500);

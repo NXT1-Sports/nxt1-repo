@@ -1944,6 +1944,28 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         void this.launchChatFromStartupMessage(startupMessage);
       }
 
+      if (Capacitor.isNativePlatform()) {
+        void bindAgentXKeyboardOffset({
+          platformId: this.platformId,
+          hostElement: this.hostElement.nativeElement,
+          offsetCssVar: '--agent-keyboard-offset',
+          safeAreaCssVar: '--footer-safe-area',
+          keyboardOffsetTrimPx: -6,
+          onKeyboardShow: () => {
+            if (!this.sidenavService?.isOpen()) return;
+            this.hostElement.nativeElement.style.setProperty('--agent-keyboard-offset', '0px');
+            this.hostElement.nativeElement.style.removeProperty('--footer-safe-area');
+          },
+        }).then((binding) => {
+          // Only store the binding if ngOnInit hasn't already created one.
+          if (!this.keyboardOffsetBinding) {
+            this.keyboardOffsetBinding = binding;
+          } else {
+            binding.teardown();
+          }
+        });
+      }
+
       if (this.autoFocusInput()) {
         setTimeout(() => {
           this.focusInput();
@@ -2011,7 +2033,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   }
 
   async ngOnInit(): Promise<void> {
-    if (!Capacitor.isNativePlatform()) return;
+    if (!Capacitor.isNativePlatform() || this.keyboardOffsetBinding) return;
 
     this.keyboardOffsetBinding = await bindAgentXKeyboardOffset({
       platformId: this.platformId,
