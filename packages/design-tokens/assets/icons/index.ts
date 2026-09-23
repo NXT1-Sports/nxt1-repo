@@ -780,6 +780,18 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Target/bullseye icon (outline) — used for Goals actions */
+  target: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z' },
+      { d: 'M16.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0z' },
+      { d: 'M13.5 12a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z' },
+    ],
+  },
+
   /** Logout/Sign out icon (outline) */
   logout: {
     viewBox: '0 0 24 24',

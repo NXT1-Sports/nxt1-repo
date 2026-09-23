@@ -4323,6 +4323,24 @@ const AGENT_X_GOOGLE_PLAY_URL =
 
       .m-briefing {
         padding-top: var(--nxt1-spacing-5, 20px);
+        animation: mBriefingFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      @keyframes mBriefingFadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .m-briefing {
+          animation: none;
+        }
       }
 
       .m-briefing .inline-goals {
@@ -4675,41 +4693,21 @@ const AGENT_X_GOOGLE_PLAY_URL =
       }
 
       .m-coordinator-pill {
-        --coordinator-pill-accent: var(--agent-primary);
-        --coordinator-pill-text: var(--agent-text-primary);
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
-        );
-        --coordinator-pill-surface: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 26%,
-          var(--agent-glass-bg)
-        );
-        --coordinator-pill-border: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 72%,
-          var(--agent-border)
-        );
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
-        border: 1px solid var(--coordinator-pill-border);
+        border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
-        background: var(--coordinator-pill-surface);
-        color: var(--coordinator-pill-text);
+        background: var(--agent-surface);
+        color: var(--agent-text-primary);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
-          0 10px 24px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+          0 2px 8px rgba(0, 0, 0, 0.12),
+          inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -4722,12 +4720,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
       }
 
       .m-coordinator-pill:active {
-        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 82%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 34%, var(--agent-glass-bg));
-        box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
-          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 18%, white);
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-primary);
         transform: scale(0.98);
       }
 

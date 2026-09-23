@@ -31,6 +31,7 @@ import {
   inject,
   input,
   output,
+  viewChild,
   computed,
   signal,
   afterNextRender,
@@ -43,7 +44,7 @@ import {
   OnInit,
   OnDestroy,
 } from '@angular/core';
-import { Location } from '@angular/common';
+import { Location, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { IonContent, NavController } from '@ionic/angular/standalone';
 import { Capacitor } from '@capacitor/core';
@@ -52,7 +53,14 @@ import { NxtLogoComponent } from '../../../components/logo';
 import { NxtRefresherComponent, type RefreshEvent } from '../../../components/refresh-container';
 import { NxtIconComponent } from '../../../components/icon';
 import { AgentXService } from '../../services/agent-x.service';
-import { AgentXControlPanelComponent } from './agent-x-control-panel.component';
+import {
+  AgentXControlPanelComponent,
+  type AgentXControlPanelCloseResult,
+} from './agent-x-control-panel.component';
+import {
+  AgentXLabSheetComponent,
+  type AgentXLabSheetCloseResult,
+} from '../modals/agent-x-lab-sheet.component';
 import { AgentXInputBarComponent } from '../inputs/agent-x-input-bar.component';
 import {
   AgentXAttachmentsSheetComponent,
@@ -356,9 +364,13 @@ function sortCoordinatorCategories(
                 class="inline-goals__manage-btn inline-goals__manage-btn--goals"
                 (click)="onSetupGoals()"
               >
-                <nxt1-icon name="settings" [size]="14"></nxt1-icon>
-                <span>Manage Goals</span>
-                @if (agentX.goals().length > 0) {
+                <nxt1-icon name="target" [size]="14"></nxt1-icon>
+                <span>Goals</span>
+                @if (pendingPlaybookItems().length > 0) {
+                  <span class="inline-goals__manage-count">{{
+                    pendingPlaybookItems().length
+                  }}</span>
+                } @else if (agentX.goals().length > 0) {
                   <span class="inline-goals__manage-count">{{ agentX.goals().length }}</span>
                 }
               </button>
@@ -367,225 +379,46 @@ function sortCoordinatorCategories(
                 class="inline-goals__manage-btn inline-goals__manage-btn--connected"
                 (click)="openConnectedAccounts()"
               >
-                <nxt1-icon name="link" [size]="14"></nxt1-icon>
-                <span class="w-[125px]">Connected Accounts</span>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="inline-goals__connection-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 -960 960 960"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M280-160v-40h-40q-50 0-85-35t-35-85v-120H40v-80h80v-120q0-50 35-85t85-35h40v-40h80v640h-80Zm-40-120h40v-400h-40q-17 0-28.5 11.5T200-640v320q0 17 11.5 28.5T240-280Zm360 120v-160H440v-80h160v-160H440v-80h160v-160h80v40h40q50 0 85 35t35 85v120h80v80h-80v120q0 50-35 85t-85 35h-40v40h-80Zm80-120h40q17 0 28.5-11.5T760-320v-320q0-17-11.5-28.5T720-680h-40v400ZM280-480Zm400 0Z"
+                  />
+                </svg>
+                <span>Connectors</span>
+              </button>
+              <button
+                type="button"
+                class="inline-goals__manage-btn inline-goals__manage-btn--lab"
+                (click)="openLabModal()"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="inline-goals__connection-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M3 7.5A2.5 2.5 0 0 1 5.5 5H10l2 2h6.5A2.5 2.5 0 0 1 21 9.5v8A2.5 2.5 0 0 1 18.5 20h-13A2.5 2.5 0 0 1 3 17.5v-10z"
+                  />
+                </svg>
+                <span>The Lab</span>
               </button>
             </div>
-
-            <!-- ═══ 2. THIS WEEK'S ACTION PLAN (AI-Generated Playbook) ═══ -->
-            <section class="action-cards-section" aria-label="This Week's Action Plan">
-              <div class="action-plan-header">
-                <h3 class="section-title action-plan-title">This Week's Action Plan</h3>
-                @if (weeklyPlaybook().length > 0) {
-                  <div class="action-plan-status">
-                    <div class="action-plan-status-main">
-                      <span class="action-plan-percent">{{ actionPlanProgressPercent() }}%</span>
-                      <div
-                        class="action-plan-progress"
-                        aria-label="Action plan progress"
-                        [attr.aria-valuenow]="actionPlanProgressPercent()"
-                        aria-valuemin="0"
-                        aria-valuemax="100"
-                        role="progressbar"
-                      >
-                        <div
-                          class="action-plan-progress-bar"
-                          [style.width.%]="actionPlanProgressPercent()"
-                        ></div>
-                      </div>
-                    </div>
-                    <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
-                  </div>
-                }
-              </div>
-
-              @if (agentX.playbookGenerating()) {
-                <div class="action-plan-generating" aria-label="Loading action plan" role="status">
-                  <div class="generating-hero">
-                    <div class="generating-logo-ring">
-                      <svg viewBox="0 0 612 792" class="generating-x-mark" aria-hidden="true">
-                        <path [attr.d]="agentXLogoPath" />
-                      </svg>
-                    </div>
-                    <p class="generating-status">
-                      Agent X is building your playbook<span class="typing-dots"
-                        ><span>.</span><span>.</span><span>.</span></span
-                      >
-                    </p>
-                    <p class="generating-sub">
-                      Reading your profile, reviewing activity, and generating tasks
-                    </p>
-                  </div>
-                  <div class="generating-steps">
-                    @for (step of generatingSteps; track step.label; let i = $index) {
-                      <div class="generating-step" [style.animation-delay]="i * 600 + 'ms'">
-                        <div class="step-indicator">
-                          <div class="step-dot"></div>
-                        </div>
-                        <span class="step-label">{{ step.label }}</span>
-                      </div>
-                    }
-                  </div>
-                </div>
-              } @else if (allTasksSnoozed()) {
-                <div
-                  class="action-empty-state action-empty-state--visible"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div class="action-empty-icon" aria-hidden="true">
-                    <svg
-                      class="agent-x-mark"
-                      width="40"
-                      height="40"
-                      viewBox="0 0 612 792"
-                      fill="currentColor"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path [attr.d]="agentXLogoPath" />
-                      <polygon [attr.points]="agentXLogoPolygon" />
-                    </svg>
-                  </div>
-                  <h4 class="action-empty-title">All Tasks Snoozed</h4>
-                  <p class="action-empty-copy">
-                    You snoozed everything. Want Agent X to generate a fresh set of actions?
-                  </p>
-                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
-                    Give Me More
-                  </button>
-                </div>
-              } @else if (weeklyPlaybook().length > 0 && !allTasksComplete()) {
-                @if (showCategoryPills()) {
-                  <div class="category-pills" role="tablist" aria-label="Filter action plan">
-                    @for (pill of categoryPills(); track pill.id) {
-                      <button
-                        type="button"
-                        role="tab"
-                        class="category-pill"
-                        [class.category-pill--active]="activeCategoryId() === pill.id"
-                        [attr.aria-selected]="activeCategoryId() === pill.id"
-                        (click)="selectCategory(pill.id)"
-                      >
-                        {{ pill.label }}
-                      </button>
-                    }
-                  </div>
-                }
-                @for (task of filteredPlaybookItems(); track task.id; let i = $index) {
-                  <div
-                    class="action-card action-card--enter"
-                    [style.animation-delay]="i * 80 + 'ms'"
-                  >
-                    <div class="card-coordinator">
-                      <div class="coordinator-avatar" aria-hidden="true">
-                        <svg viewBox="0 0 612 792" class="coordinator-mark">
-                          <path [attr.d]="agentXLogoPath" />
-                        </svg>
-                      </div>
-                      <div class="coordinator-copy">
-                        <span class="coordinator-brand">Agent X</span>
-                        @if (task.coordinator) {
-                          <span class="coordinator-role">{{ task.coordinator.label }}</span>
-                        }
-                      </div>
-                    </div>
-                    <div class="card-content">
-                      <div class="card-title">{{ task.title }}</div>
-                      <p class="card-description">{{ task.summary }}</p>
-                      @if (task.why) {
-                        <p class="card-why">
-                          <svg
-                            class="agent-x-mark"
-                            width="16"
-                            height="16"
-                            viewBox="0 0 612 792"
-                            fill="currentColor"
-                            xmlns="http://www.w3.org/2000/svg"
-                          >
-                            <path [attr.d]="agentXLogoPath" />
-                            <polygon [attr.points]="agentXLogoPolygon" />
-                          </svg>
-                          {{ task.why }}
-                        </p>
-                      }
-                    </div>
-                    <div class="card-actions">
-                      <button
-                        type="button"
-                        class="action-btn primary-btn"
-                        (click)="onPlaybookAction(task)"
-                      >
-                        {{ task.actionLabel }}
-                      </button>
-                      <div class="card-secondary-actions">
-                        <button
-                          type="button"
-                          class="action-btn snooze-btn"
-                          (click)="onSnoozeTask(task)"
-                        >
-                          Snooze
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                }
-              } @else if (allTasksComplete()) {
-                <div
-                  class="action-empty-state action-empty-state--visible"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div class="action-empty-icon" aria-hidden="true">
-                    <svg
-                      class="agent-x-mark"
-                      width="40"
-                      height="40"
-                      viewBox="0 0 612 792"
-                      fill="currentColor"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path [attr.d]="agentXLogoPath" />
-                      <polygon [attr.points]="agentXLogoPolygon" />
-                    </svg>
-                  </div>
-                  <h4 class="action-empty-title">Week Complete 🏆</h4>
-                  <p class="action-empty-copy">
-                    You crushed it. Agent X is still monitoring for new opportunities.
-                  </p>
-                  <button type="button" class="action-empty-btn" (click)="onRegeneratePlaybook()">
-                    Give Me More
-                  </button>
-                </div>
-              } @else {
-                <div
-                  class="action-empty-state action-empty-state--visible"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <div class="action-empty-icon" aria-hidden="true">
-                    <svg
-                      class="agent-x-mark"
-                      width="40"
-                      height="40"
-                      viewBox="0 0 612 792"
-                      fill="currentColor"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path [attr.d]="agentXLogoPath" />
-                      <polygon [attr.points]="agentXLogoPolygon" />
-                    </svg>
-                  </div>
-                  <h4 class="action-empty-title">No Actions Yet</h4>
-                  <p class="action-empty-copy">
-                    Agent X will generate your personalized action plan based on your goals and
-                    profile data.
-                  </p>
-                  <button type="button" class="action-empty-btn" (click)="onGenerateActionsClick()">
-                    {{ agentX.goals().length > 0 ? 'Generate Actions' : 'Set Goals' }}
-                  </button>
-                </div>
-              }
-            </section>
           </section>
         }
       </div>
@@ -616,6 +449,7 @@ function sortCoordinatorCategories(
       </section>
 
       <nxt1-agent-x-input-bar
+        [autoFocus]="autoFocusInput()"
         [userMessage]="agentX.userMessage()"
         [isLoading]="agentX.isLoading()"
         [uploading]="agentX.uploading()"
@@ -1061,12 +895,32 @@ function sortCoordinatorCategories(
       .briefing-section {
         display: flex;
         flex-direction: column;
-        align-items: flex-start;
+        align-items: stretch;
+        width: 100%;
         text-align: left;
         padding: var(--nxt1-spacing-6, 24px) 0 var(--nxt1-spacing-4, 16px);
+        animation: briefingFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      @keyframes briefingFadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .briefing-section {
+          animation: none;
+        }
       }
 
       .briefing-status-dot-btn {
+        align-self: flex-start;
         display: inline-flex;
         align-items: center;
         gap: 8px;
@@ -1118,6 +972,7 @@ function sortCoordinatorCategories(
       }
 
       .trial-badge {
+        align-self: flex-start;
         display: inline-flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
@@ -1241,12 +1096,10 @@ function sortCoordinatorCategories(
       }
 
       .floating-coordinator-pill {
-        --coordinator-pill-accent: var(--agent-primary);
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
-        border: 1px solid
-          color-mix(in srgb, var(--coordinator-pill-accent) 58%, var(--agent-border));
+        border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
         background: var(--agent-surface);
@@ -1256,7 +1109,6 @@ function sortCoordinatorCategories(
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
           0 2px 8px rgba(0, 0, 0, 0.12),
           inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
         transition:
@@ -1267,9 +1119,8 @@ function sortCoordinatorCategories(
       }
 
       .floating-coordinator-pill:active {
-        border-color: var(--agent-primary);
-        background: var(--agent-primary-glow);
-        color: var(--agent-primary);
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-primary);
         transform: scale(0.98);
       }
 
@@ -1358,14 +1209,16 @@ function sortCoordinatorCategories(
       .inline-goals {
         display: flex;
         align-items: stretch;
-        gap: var(--nxt1-spacing-2-5, 10px);
+        width: 100%;
+        gap: var(--nxt1-spacing-2, 8px);
+        margin-top: var(--nxt1-spacing-1, 4px);
         margin-bottom: var(--nxt1-spacing-4, 16px);
       }
 
       .inline-goals__manage-btn {
         display: flex;
         align-items: center;
-        justify-content: flex-start;
+        justify-content: center;
         gap: 6px;
         flex: 1 1 0;
         min-width: 0;
@@ -1373,8 +1226,8 @@ function sortCoordinatorCategories(
         background: none;
         border: 1px solid var(--agent-border);
         border-radius: 10px;
-        padding: 10px 10px;
-        font-size: clamp(12px, 3.2vw, 13px);
+        padding: 10px 8px;
+        font-size: clamp(11px, 2.9vw, 12.5px);
         font-weight: 600;
         color: var(--agent-text-secondary);
         cursor: pointer;
@@ -1386,20 +1239,32 @@ function sortCoordinatorCategories(
       }
 
       .inline-goals__manage-btn--connected {
-        flex: 1.12 1 0;
+        flex: 1.15 1 0;
+        justify-content: center;
         padding-inline: 10px;
       }
 
-      .inline-goals__manage-btn--goals {
-        flex: 1.04 1 0;
+      .inline-goals__manage-btn--lab {
+        flex: 0.95 1 0;
         justify-content: center;
-        gap: 10px;
-        padding-inline: 14px;
+        padding-inline: 8px;
+      }
+
+      .inline-goals__manage-btn--goals {
+        flex: 1 1 0;
+        justify-content: center;
+        gap: 6px;
+        padding-inline: 8px;
       }
 
       .inline-goals__manage-btn > nxt1-icon,
       .inline-goals__manage-btn > svg {
         flex-shrink: 0;
+      }
+
+      .inline-goals__connection-icon {
+        display: block;
+        flex: 0 0 14px;
       }
 
       .inline-goals__manage-btn > span:not(.inline-goals__manage-count) {
@@ -1410,12 +1275,13 @@ function sortCoordinatorCategories(
 
       @media (max-width: 360px) {
         .inline-goals {
-          gap: 6px;
+          gap: 5px;
         }
 
         .inline-goals__manage-btn {
-          padding: 9px 8px;
-          font-size: 12px;
+          padding: 8px 6px;
+          font-size: 11px;
+          gap: 4px;
         }
       }
 
@@ -1425,13 +1291,13 @@ function sortCoordinatorCategories(
       }
 
       .inline-goals__manage-count {
-        margin-left: auto;
+        margin-left: 4px;
         font-size: 11px;
         font-weight: 700;
         color: var(--agent-primary);
         background: var(--agent-primary-glow);
         border-radius: 999px;
-        padding: 2px 8px;
+        padding: 2px 7px;
       }
 
       .action-plan-header {
@@ -1911,6 +1777,11 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** Hide page header (desktop sidebar provides navigation). */
   readonly hideHeader = input(false);
 
+  /** Automatically focus the input bar when the shell is presented. */
+  readonly autoFocusInput = input(false);
+
+  private readonly inputBarRef = viewChild(AgentXInputBarComponent);
+
   // ============================================
   // LOCAL STATE
   // ============================================
@@ -2072,6 +1943,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       if (startupMessage) {
         void this.launchChatFromStartupMessage(startupMessage);
       }
+
+      if (this.autoFocusInput()) {
+        setTimeout(() => {
+          this.focusInput();
+        }, 150);
+      }
     });
 
     effect(() => {
@@ -2155,6 +2032,15 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     this.keyboardOffsetBinding?.teardown();
   }
 
+  /**
+   * Programmatically focus the Agent X input bar.
+   */
+  public focusInput(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    if (this.sidenavService?.isOpen()) return;
+    this.inputBarRef()?.focus();
+  }
+
   // ============================================
   // EVENT HANDLERS
   // ============================================
@@ -2212,6 +2098,41 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     }
   }
 
+  protected async openLabModal(): Promise<void> {
+    await this.haptics.impact('light');
+
+    const user = this.user();
+    const role = user?.role ?? null;
+    const sport = user?.activeSport ?? user?.selectedSports?.[0] ?? '';
+    let teamId = user?.activeTeamId ?? null;
+
+    if (!teamId) {
+      const scopedTeamSource = user?.connectedSources?.find(
+        (source) => source.scopeType === 'team' && typeof source.scopeId === 'string'
+      );
+      teamId = scopedTeamSource?.scopeId?.trim() ?? null;
+    }
+
+    const result = await this.bottomSheet.openSheet<AgentXLabSheetCloseResult>({
+      component: AgentXLabSheetComponent,
+      componentProps: {
+        teamId,
+        role,
+        sport,
+      },
+      ...SHEET_PRESETS.FULL,
+      showHandle: true,
+      handleBehavior: 'cycle',
+      backdropDismiss: true,
+      cssClass: 'agent-x-lab-sheet-modal',
+    });
+
+    if (result?.data?.action === 'ask-agent' && result.data.prompt?.trim()) {
+      const prompt = result.data.prompt.trim();
+      this.agentX.setUserMessage(prompt);
+    }
+  }
+
   protected async openControlPanel(panel: AgentXControlPanelKind, required = false): Promise<void> {
     await this.haptics.impact('light');
 
@@ -2230,10 +2151,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
     this.controlPanelState.notePanelOpened(panel, 'sheet');
 
-    const result = await this.bottomSheet.openSheet<{
-      panel: AgentXControlPanelKind;
-      saved?: boolean;
-    }>({
+    const result = await this.bottomSheet.openSheet<AgentXControlPanelCloseResult>({
       component: AgentXControlPanelComponent,
       componentProps: {
         panel,
@@ -2254,6 +2172,11 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     // User tapped close without saving in required mode — navigate back
     if (result?.role === 'back') {
       this.location.back();
+      return;
+    }
+
+    if (result?.data?.actionTask) {
+      await this.onPlaybookAction(result.data.actionTask);
       return;
     }
 

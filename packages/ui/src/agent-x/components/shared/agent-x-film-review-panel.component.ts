@@ -2375,6 +2375,9 @@ type DrawInteractionState =
       }
 
       .film-playlist-create__btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         min-height: 34px;
         border: 1px solid var(--nxt1-color-border-default);
         border-radius: 8px;
@@ -2384,11 +2387,21 @@ type DrawInteractionState =
         font-weight: 700;
         padding: 0 10px;
         cursor: pointer;
+        transition: all 0.15s ease;
+      }
+
+      .film-playlist-create__btn:hover:not(:disabled) {
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
       }
 
       .film-playlist-create__btn--primary {
         border-color: var(--nxt1-color-border-primary);
         color: var(--nxt1-color-primary);
+      }
+
+      .film-playlist-create__btn--primary:hover:not(:disabled) {
+        background: var(--nxt1-color-alpha-primary10);
       }
 
       .film-playlist-folder {
@@ -4186,16 +4199,61 @@ type DrawInteractionState =
       }
 
       .film-playbook-checkbox {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        background-image: none !important;
+        position: relative;
         width: 16px;
         height: 16px;
         margin: 0;
-        accent-color: var(--nxt1-color-primary);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 4px;
+        background: var(--nxt1-color-surface-100);
         cursor: pointer;
+        box-shadow: none !important;
       }
 
-      .film-playbook-checkbox:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
+      .film-playbook-checkbox:checked,
+      .film-playbook-checkbox:indeterminate,
+      .film-playbook-checkbox:checked:focus,
+      .film-playbook-checkbox:checked:focus-visible,
+      .film-playbook-checkbox:checked:active,
+      .film-playbook-checkbox:indeterminate:focus,
+      .film-playbook-checkbox:indeterminate:focus-visible,
+      .film-playbook-checkbox:indeterminate:active {
+        background: var(--nxt1-color-primary, #ccff00) !important;
+        border-color: var(--nxt1-color-primary, #ccff00) !important;
+      }
+
+      .film-playbook-checkbox:checked::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 5px;
+        height: 9px;
+        border: solid var(--nxt1-color-surface-100);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+      }
+
+      .film-playbook-checkbox:indeterminate::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        right: 3px;
+        top: 6px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .film-playbook-checkbox:focus,
+      .film-playbook-checkbox:focus-visible,
+      .film-playbook-checkbox:active,
+      .film-playbook-checkbox:hover {
+        outline: none !important;
+        box-shadow: none !important;
       }
 
       .film-playbook-cell--editable {
@@ -4510,7 +4568,16 @@ type DrawInteractionState =
         }
 
         .film-playlist-create {
-          grid-template-columns: 1fr;
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .film-playlist-create__input {
+          grid-column: 1 / -1;
+        }
+
+        .film-playlist-create__btn {
+          width: 100%;
+          justify-content: center;
         }
 
         .film-playlist-folder__menu {

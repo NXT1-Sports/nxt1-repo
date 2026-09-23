@@ -8,6 +8,7 @@ import {
   Input,
   OnChanges,
   OnDestroy,
+  OnInit,
   SimpleChanges,
   computed,
   effect,
@@ -567,7 +568,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   ],
   template: `
     <nxt1-agent-x-library-chrome></nxt1-agent-x-library-chrome>
-    <section class="agent-x-files-panel film-review-panel">
+    <section
+      class="agent-x-files-panel film-review-panel"
+      [class.agent-x-files-panel--compact]="compact"
+    >
       @if (
         !teamId?.trim() &&
         !filesService.loading() &&
@@ -600,106 +604,12 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           />
         } @else {
           @if (viewerMode() === 'library') {
-            <header class="film-library-header agent-x-files-panel__toolbar">
-              <div class="film-library-header__actions-primary">
-                <div class="film-playbook-ask-agent">
-                  <button
-                    type="button"
-                    class="film-playbook-nav-btn film-playbook-nav-btn--attach"
-                    cdkOverlayOrigin
-                    #filesAskAgentMenuOrigin="cdkOverlayOrigin"
-                    aria-label="Ask Agent X about files"
-                    [attr.aria-expanded]="isFilesAskAgentMenuOpen()"
-                    aria-haspopup="menu"
-                    (click)="onToggleFilesAskAgentMenu($event)"
-                  >
-                    <svg
-                      class="film-playbook-ask-agent__logo"
-                      viewBox="0 0 612 792"
-                      fill="currentColor"
-                      stroke="currentColor"
-                      stroke-width="10"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path [attr.d]="agentXLogoPath" />
-                      <polygon [attr.points]="agentXLogoPolygon" />
-                    </svg>
-                    <span>Ask Agent</span>
-                    @if (selectedSelectionCount() > 0) {
-                      <span class="film-playbook-ask-agent__count">
-                        {{ selectedSelectionCount() }}
-                      </span>
-                    }
-                    <svg
-                      class="film-playbook-ask-agent__caret"
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M3 4.5 6 7.5l3-3" />
-                    </svg>
-                  </button>
-
-                  @if (isFilesAskAgentMenuOpen()) {
-                    <ng-template
-                      cdkConnectedOverlay
-                      [cdkConnectedOverlayOrigin]="filesAskAgentMenuOrigin"
-                      [cdkConnectedOverlayOpen]="true"
-                      [cdkConnectedOverlayHasBackdrop]="true"
-                      cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                      [cdkConnectedOverlayPositions]="askAgentMenuPositions"
-                      [cdkConnectedOverlayPush]="true"
-                      [cdkConnectedOverlayViewportMargin]="8"
-                      (backdropClick)="onCloseFilesAskAgentMenu($event)"
-                      (detach)="onCloseFilesAskAgentMenu()"
-                    >
-                      <div
-                        class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
-                        role="menu"
-                      >
-                        @if (selectedSelectionCount() <= 0) {
-                          <p class="film-playbook-ask-agent-menu__empty">
-                            Select one or more items or folders to ask Agent... Or ask anything.
-                          </p>
-                        }
-                        @for (section of filesAskAgentPromptSections(); track section.title) {
-                          <div class="film-playbook-ask-agent-menu__section">
-                            <p class="film-playbook-ask-agent-menu__section-title">
-                              {{ section.title }}
-                            </p>
-                            <div class="film-playbook-ask-agent-menu__section-options">
-                              @for (option of section.options; track option.id) {
-                                <button
-                                  type="button"
-                                  class="film-playbook-ask-agent-menu__option"
-                                  role="menuitem"
-                                  [disabled]="selectedSelectionCount() <= 0"
-                                  (click)="onFilesAskAgentPromptSelect(option.id, $event)"
-                                >
-                                  <span class="film-playbook-ask-agent-menu__label">
-                                    {{ option.label }}
-                                  </span>
-                                  <span class="film-playbook-ask-agent-menu__hint">
-                                    {{ option.hint }}
-                                  </span>
-                                </button>
-                              }
-                            </div>
-                          </div>
-                        }
-                      </div>
-                    </ng-template>
-                  }
-                </div>
-
-                <div class="film-library-search-wrap">
+            @if (compact) {
+              <!-- Mobile Toolbar: 1. Search at top, 2. Ask Agent, New Folder & Upload side by side under that -->
+              <div class="film-mobile-toolbar">
+                <div class="film-mobile-search-row">
                   <nxt1-search-bar
-                    variant="desktop"
+                    variant="desktop-centered"
                     [desktopUsePlainSearchIcon]="true"
                     placeholder="Search files, folders, and outputs"
                     [value]="searchQuery()"
@@ -712,232 +622,457 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     </span>
                   }
                 </div>
-              </div>
 
-              <div class="film-library-header__actions-secondary">
-                @if (hasSelectedFiles()) {
-                  <button
-                    type="button"
-                    class="film-playbook-nav-btn"
-                    [attr.aria-label]="downloadSelectedFilesButtonAriaLabel()"
-                    (click)="onDownloadSelectedFiles($event)"
-                  >
-                    <nxt1-icon name="download" [size]="14"></nxt1-icon>
-                    <span>Download</span>
-                  </button>
-                }
-
-                @if (hasDeletableSelection()) {
-                  <button
-                    type="button"
-                    class="film-playbook-nav-btn film-playbook-nav-btn--danger"
-                    [disabled]="filesService.saving()"
-                    [attr.aria-label]="deleteSelectedFilesButtonAriaLabel()"
-                    (click)="onDeleteSelectedFiles($event)"
-                  >
-                    <nxt1-icon name="trash" [size]="14"></nxt1-icon>
-                    <span>Delete</span>
-                  </button>
-                }
-                <button
-                  type="button"
-                  class="film-playbook-nav-btn"
-                  [disabled]="filesService.saving()"
-                  (click)="onFolderCreateToggle($event)"
-                >
-                  <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-                  Folder
-                </button>
-                <div class="film-upload-menu-anchor">
-                  <button
-                    type="button"
-                    class="film-playbook-nav-btn"
-                    [disabled]="filesService.saving()"
-                    [attr.aria-expanded]="isUploadMenuOpen()"
-                    aria-haspopup="menu"
-                    (click)="onToggleUploadMenu($event)"
-                  >
-                    @if (isPreparingUpload()) {
-                      Preparing...
-                    } @else if (isUploadingFiles()) {
-                      Uploading...
-                    } @else {
-                      Upload
-                    }
-                  </button>
-                  @if (isUploadMenuOpen()) {
+                <div class="film-mobile-actions-row">
+                  <div class="film-mobile-action-item">
                     <button
                       type="button"
-                      class="film-list-item__menu-backdrop"
-                      aria-label="Close upload menu"
-                      (click)="onCloseUploadMenu($event)"
-                    ></button>
-                    <div class="film-upload-menu" role="menu" aria-label="Upload destination menu">
-                      <div class="film-upload-destination-menu">
-                        <div class="film-upload-destination-menu__header">
-                          <button
-                            type="button"
-                            class="film-upload-destination-menu__back"
-                            (click)="
-                              uploadDestinationMenuStep() === 'destination'
-                                ? onBackToUploadTypeMenu($event)
-                                : onCloseUploadMenu($event)
-                            "
-                          >
-                            <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                            {{ uploadDestinationMenuStep() === 'destination' ? 'Back' : 'Close' }}
-                          </button>
-                          <div class="film-upload-destination-menu__copy">
-                            <span class="film-upload-destination-menu__title">
-                              @if (uploadDestinationMenuStep() === 'menu') {
-                                Choose upload type
-                              } @else {
-                                Choose where the upload goes
-                              }
-                            </span>
-                            <span class="film-upload-destination-menu__subtitle">
-                              @if (uploadDestinationMenuStep() === 'menu') {
-                                Upload clips, breakdown sheets, single files, entire folders, or ZIP
-                                archives.
-                              } @else if (uploadSelectionSource() === 'folder') {
-                                Pick the folder in your library where the uploaded folder should
-                                land.
-                              } @else if (uploadSelectionSource() === 'zip') {
-                                Pick the folder in your library where the ZIP contents should land.
-                              } @else {
-                                Pick the folder in your library where these files should land.
-                              }
-                            </span>
-                          </div>
-                        </div>
+                      class="film-playbook-nav-btn film-playbook-nav-btn--attach film-mobile-btn"
+                      cdkOverlayOrigin
+                      #filesAskAgentMenuOriginMobile="cdkOverlayOrigin"
+                      aria-label="Ask Agent X about files"
+                      [attr.aria-expanded]="isFilesAskAgentMenuOpen()"
+                      aria-haspopup="menu"
+                      (click)="onToggleFilesAskAgentMenu($event)"
+                    >
+                      <svg
+                        class="film-playbook-ask-agent__logo"
+                        viewBox="0 0 612 792"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="10"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path [attr.d]="agentXLogoPath" />
+                        <polygon [attr.points]="agentXLogoPolygon" />
+                      </svg>
+                      <span>Ask Agent</span>
+                      @if (selectedSelectionCount() > 0) {
+                        <span class="film-playbook-ask-agent__count">
+                          {{ selectedSelectionCount() }}
+                        </span>
+                      }
+                      @if (isFilesAskAgentMenuOpen()) {
+                        <ng-template
+                          cdkConnectedOverlay
+                          [cdkConnectedOverlayOrigin]="filesAskAgentMenuOriginMobile"
+                          [cdkConnectedOverlayOpen]="true"
+                          [cdkConnectedOverlayHasBackdrop]="true"
+                          cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                          [cdkConnectedOverlayPositions]="askAgentMenuPositions"
+                          [cdkConnectedOverlayPush]="true"
+                          [cdkConnectedOverlayViewportMargin]="8"
+                          (backdropClick)="onCloseFilesAskAgentMenu($event)"
+                          (detach)="onCloseFilesAskAgentMenu()"
+                        >
+                          <ng-container *ngTemplateOutlet="askAgentDropdownContent" />
+                        </ng-template>
+                      }
+                    </button>
+                  </div>
 
-                        @if (uploadDestinationMenuStep() === 'menu') {
-                          <div class="film-upload-destination-menu__actions" role="none">
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__action"
-                              (click)="onUploadSourceSelect('files', $event)"
-                            >
-                              <nxt1-icon name="documentText" [size]="14"></nxt1-icon>
-                              <span>Upload Files</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__action"
-                              (click)="onUploadSourceSelect('folder', $event)"
-                            >
-                              <nxt1-icon name="folder" [size]="14"></nxt1-icon>
-                              <span>Upload Folder</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__action"
-                              (click)="onUploadSourceSelect('zip', $event)"
-                            >
-                              <nxt1-icon name="archive" [size]="14"></nxt1-icon>
-                              <span>Upload ZIP</span>
-                            </button>
-                          </div>
+                  <div class="film-mobile-action-item">
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-mobile-btn"
+                      [disabled]="filesService.saving()"
+                      (click)="onFolderCreateToggle($event)"
+                    >
+                      <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                      <span>New Folder</span>
+                    </button>
+                  </div>
+
+                  <div class="film-upload-menu-anchor film-mobile-action-item">
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-mobile-btn"
+                      [disabled]="filesService.saving()"
+                      [attr.aria-expanded]="isUploadMenuOpen()"
+                      aria-haspopup="menu"
+                      (click)="onToggleUploadMenu($event)"
+                    >
+                      <span>
+                        @if (isPreparingUpload()) {
+                          Preparing...
+                        } @else if (isUploadingFiles()) {
+                          Uploading...
                         } @else {
-                          <label class="film-upload-destination-menu__search">
-                            <span class="film-upload-destination-menu__search-label">
-                              Destination folder
-                            </span>
-                            <input
-                              type="text"
-                              class="film-upload-destination-menu__search-input"
-                              placeholder="Search folders"
-                              [value]="uploadDestinationSearchQuery()"
-                              (input)="onUploadDestinationSearchInput($any($event.target).value)"
-                            />
-                          </label>
-
-                          <div class="film-upload-destination-menu__options" role="none">
-                            <button
-                              type="button"
-                              class="film-upload-destination-option"
-                              [class.film-upload-destination-option--selected]="
-                                uploadDestinationFolderId() === null
-                              "
-                              (click)="onUploadDestinationSelect(null, $event)"
-                            >
-                              <span class="film-upload-destination-option__row">
-                                <nxt1-icon
-                                  name="folder"
-                                  [size]="16"
-                                  class="film-upload-destination-option__icon"
-                                ></nxt1-icon>
-                                <span class="film-upload-destination-option__title"> Library </span>
-                              </span>
-                            </button>
-
-                            @for (option of visibleUploadDestinationOptions(); track option.id) {
-                              <button
-                                type="button"
-                                class="film-upload-destination-option"
-                                [class.film-upload-destination-option--selected]="
-                                  uploadDestinationFolderId() === option.id
-                                "
-                                (click)="onUploadDestinationSelect(option.id, $event)"
-                              >
-                                <span
-                                  class="film-upload-destination-option__row"
-                                  [style.padding-left.px]="option.depth * 16"
-                                >
-                                  <nxt1-icon
-                                    name="folder"
-                                    [size]="16"
-                                    class="film-upload-destination-option__icon"
-                                  ></nxt1-icon>
-                                  <span class="film-upload-destination-option__title">
-                                    {{ option.name }}
-                                  </span>
-                                </span>
-                              </button>
-                            }
-                          </div>
-
-                          @if (
-                            visibleUploadDestinationOptions().length === 0 &&
-                            uploadDestinationSearchQuery().trim().length > 0
-                          ) {
-                            <p class="film-upload-destination-menu__empty">
-                              No folders match that search yet.
-                            </p>
-                          }
+                          Upload
                         }
-                      </div>
+                      </span>
+                    </button>
+                    @if (isUploadMenuOpen()) {
+                      <ng-container *ngTemplateOutlet="uploadDropdownContent" />
+                    }
+                  </div>
+                </div>
+
+                @if (hasSelectedFiles() || hasDeletableSelection()) {
+                  <div class="film-mobile-selection-row">
+                    @if (hasSelectedFiles()) {
+                      <button
+                        type="button"
+                        class="film-playbook-nav-btn film-mobile-btn"
+                        [attr.aria-label]="downloadSelectedFilesButtonAriaLabel()"
+                        (click)="onDownloadSelectedFiles($event)"
+                      >
+                        <nxt1-icon name="download" [size]="14"></nxt1-icon>
+                        <span>Download</span>
+                      </button>
+                    }
+
+                    @if (hasDeletableSelection()) {
+                      <button
+                        type="button"
+                        class="film-playbook-nav-btn film-playbook-nav-btn--danger film-mobile-btn"
+                        [disabled]="filesService.saving()"
+                        [attr.aria-label]="deleteSelectedFilesButtonAriaLabel()"
+                        (click)="onDeleteSelectedFiles($event)"
+                      >
+                        <nxt1-icon name="trash" [size]="14"></nxt1-icon>
+                        <span>Delete</span>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            } @else {
+              <header class="film-library-header agent-x-files-panel__toolbar">
+                <div class="film-library-header__actions-primary">
+                  <div class="film-library-search-wrap">
+                    <nxt1-search-bar
+                      variant="desktop"
+                      [desktopUsePlainSearchIcon]="true"
+                      placeholder="Search files, folders, and outputs"
+                      [value]="searchQuery()"
+                      (searchInput)="onSearchInput($event)"
+                      (searchClear)="onClearSearch()"
+                    />
+                    @if (hasSearchQuery()) {
+                      <span class="film-library-search-count" aria-live="polite">
+                        {{ filteredFileCount() }}
+                      </span>
+                    }
+                  </div>
+
+                  <div class="film-playbook-ask-agent">
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-playbook-nav-btn--attach"
+                      cdkOverlayOrigin
+                      #filesAskAgentMenuOrigin="cdkOverlayOrigin"
+                      aria-label="Ask Agent X about files"
+                      [attr.aria-expanded]="isFilesAskAgentMenuOpen()"
+                      aria-haspopup="menu"
+                      (click)="onToggleFilesAskAgentMenu($event)"
+                    >
+                      <svg
+                        class="film-playbook-ask-agent__logo"
+                        viewBox="0 0 612 792"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        stroke-width="10"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path [attr.d]="agentXLogoPath" />
+                        <polygon [attr.points]="agentXLogoPolygon" />
+                      </svg>
+                      <span>Ask Agent</span>
+                      @if (selectedSelectionCount() > 0) {
+                        <span class="film-playbook-ask-agent__count">
+                          {{ selectedSelectionCount() }}
+                        </span>
+                      }
+                      @if (isFilesAskAgentMenuOpen()) {
+                        <ng-template
+                          cdkConnectedOverlay
+                          [cdkConnectedOverlayOrigin]="filesAskAgentMenuOrigin"
+                          [cdkConnectedOverlayOpen]="true"
+                          [cdkConnectedOverlayHasBackdrop]="true"
+                          cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                          [cdkConnectedOverlayPositions]="askAgentMenuPositions"
+                          [cdkConnectedOverlayPush]="true"
+                          [cdkConnectedOverlayViewportMargin]="8"
+                          (backdropClick)="onCloseFilesAskAgentMenu($event)"
+                          (detach)="onCloseFilesAskAgentMenu()"
+                        >
+                          <ng-container *ngTemplateOutlet="askAgentDropdownContent" />
+                        </ng-template>
+                      }
+                    </button>
+                  </div>
+                </div>
+
+                <div class="film-library-header__actions-secondary">
+                  @if (hasSelectedFiles()) {
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn"
+                      [attr.aria-label]="downloadSelectedFilesButtonAriaLabel()"
+                      (click)="onDownloadSelectedFiles($event)"
+                    >
+                      <nxt1-icon name="download" [size]="14"></nxt1-icon>
+                      <span>Download</span>
+                    </button>
+                  }
+
+                  @if (hasDeletableSelection()) {
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-playbook-nav-btn--danger"
+                      [disabled]="filesService.saving()"
+                      [attr.aria-label]="deleteSelectedFilesButtonAriaLabel()"
+                      (click)="onDeleteSelectedFiles($event)"
+                    >
+                      <nxt1-icon name="trash" [size]="14"></nxt1-icon>
+                      <span>Delete</span>
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn"
+                    [disabled]="filesService.saving()"
+                    (click)="onFolderCreateToggle($event)"
+                  >
+                    <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                    Folder
+                  </button>
+                  <div class="film-upload-menu-anchor">
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn"
+                      [disabled]="filesService.saving()"
+                      [attr.aria-expanded]="isUploadMenuOpen()"
+                      aria-haspopup="menu"
+                      (click)="onToggleUploadMenu($event)"
+                    >
+                      @if (isPreparingUpload()) {
+                        Preparing...
+                      } @else if (isUploadingFiles()) {
+                        Uploading...
+                      } @else {
+                        Upload
+                      }
+                    </button>
+                    @if (isUploadMenuOpen()) {
+                      <ng-container *ngTemplateOutlet="uploadDropdownContent" />
+                    }
+                  </div>
+                </div>
+              </header>
+            }
+
+            <ng-template #askAgentDropdownContent>
+              <div
+                class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
+                role="menu"
+              >
+                @if (selectedSelectionCount() <= 0) {
+                  <p class="film-playbook-ask-agent-menu__empty">
+                    Select one or more items or folders to ask Agent... Or ask anything.
+                  </p>
+                }
+                @for (section of filesAskAgentPromptSections(); track section.title) {
+                  <div class="film-playbook-ask-agent-menu__section">
+                    <p class="film-playbook-ask-agent-menu__section-title">
+                      {{ section.title }}
+                    </p>
+                    <div class="film-playbook-ask-agent-menu__section-options">
+                      @for (option of section.options; track option.id) {
+                        <button
+                          type="button"
+                          class="film-playbook-ask-agent-menu__option"
+                          role="menuitem"
+                          [disabled]="selectedSelectionCount() <= 0"
+                          (click)="onFilesAskAgentPromptSelect(option.id, $event)"
+                        >
+                          <span class="film-playbook-ask-agent-menu__label">
+                            {{ option.label }}
+                          </span>
+                          <span class="film-playbook-ask-agent-menu__hint">
+                            {{ option.hint }}
+                          </span>
+                        </button>
+                      }
                     </div>
+                  </div>
+                }
+              </div>
+            </ng-template>
+
+            <ng-template #uploadDropdownContent>
+              <button
+                type="button"
+                class="film-list-item__menu-backdrop"
+                aria-label="Close upload menu"
+                (click)="onCloseUploadMenu($event)"
+              ></button>
+              <div class="film-upload-menu" role="menu" aria-label="Upload destination menu">
+                <div class="film-upload-destination-menu">
+                  <div class="film-upload-destination-menu__header">
+                    <button
+                      type="button"
+                      class="film-upload-destination-menu__back"
+                      (click)="
+                        uploadDestinationMenuStep() === 'destination'
+                          ? onBackToUploadTypeMenu($event)
+                          : onCloseUploadMenu($event)
+                      "
+                    >
+                      <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                      {{ uploadDestinationMenuStep() === 'destination' ? 'Back' : 'Close' }}
+                    </button>
+                    <div class="film-upload-destination-menu__copy">
+                      <span class="film-upload-destination-menu__title">
+                        @if (uploadDestinationMenuStep() === 'menu') {
+                          Choose upload type
+                        } @else {
+                          Choose where the upload goes
+                        }
+                      </span>
+                      <span class="film-upload-destination-menu__subtitle">
+                        @if (uploadDestinationMenuStep() === 'menu') {
+                          Upload clips, breakdown sheets, single files, entire folders, or ZIP
+                          archives.
+                        } @else if (uploadSelectionSource() === 'folder') {
+                          Pick the folder in your library where the uploaded folder should land.
+                        } @else if (uploadSelectionSource() === 'zip') {
+                          Pick the folder in your library where the ZIP contents should land.
+                        } @else {
+                          Pick the folder in your library where these files should land.
+                        }
+                      </span>
+                    </div>
+                  </div>
+
+                  @if (uploadDestinationMenuStep() === 'menu') {
+                    <div class="film-upload-destination-menu__actions" role="none">
+                      <button
+                        type="button"
+                        class="film-upload-destination-menu__action"
+                        (click)="onUploadSourceSelect('files', $event)"
+                      >
+                        <nxt1-icon name="documentText" [size]="14"></nxt1-icon>
+                        <span>Upload Files</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="film-upload-destination-menu__action"
+                        (click)="onUploadSourceSelect('folder', $event)"
+                      >
+                        <nxt1-icon name="folder" [size]="14"></nxt1-icon>
+                        <span>Upload Folder</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="film-upload-destination-menu__action"
+                        (click)="onUploadSourceSelect('zip', $event)"
+                      >
+                        <nxt1-icon name="archive" [size]="14"></nxt1-icon>
+                        <span>Upload ZIP</span>
+                      </button>
+                    </div>
+                  } @else {
+                    <label class="film-upload-destination-menu__search">
+                      <span class="film-upload-destination-menu__search-label">
+                        Destination folder
+                      </span>
+                      <input
+                        type="text"
+                        class="film-upload-destination-menu__search-input"
+                        placeholder="Search folders"
+                        [value]="uploadDestinationSearchQuery()"
+                        (input)="onUploadDestinationSearchInput($any($event.target).value)"
+                      />
+                    </label>
+
+                    <div class="film-upload-destination-menu__options" role="none">
+                      <button
+                        type="button"
+                        class="film-upload-destination-option"
+                        [class.film-upload-destination-option--selected]="
+                          uploadDestinationFolderId() === null
+                        "
+                        (click)="onUploadDestinationSelect(null, $event)"
+                      >
+                        <span class="film-upload-destination-option__row">
+                          <nxt1-icon
+                            name="folder"
+                            [size]="16"
+                            class="film-upload-destination-option__icon"
+                          ></nxt1-icon>
+                          <span class="film-upload-destination-option__title"> Library </span>
+                        </span>
+                      </button>
+
+                      @for (option of visibleUploadDestinationOptions(); track option.id) {
+                        <button
+                          type="button"
+                          class="film-upload-destination-option"
+                          [class.film-upload-destination-option--selected]="
+                            uploadDestinationFolderId() === option.id
+                          "
+                          (click)="onUploadDestinationSelect(option.id, $event)"
+                        >
+                          <span
+                            class="film-upload-destination-option__row"
+                            [style.padding-left.px]="option.depth * 16"
+                          >
+                            <nxt1-icon
+                              name="folder"
+                              [size]="16"
+                              class="film-upload-destination-option__icon"
+                            ></nxt1-icon>
+                            <span class="film-upload-destination-option__title">
+                              {{ option.name }}
+                            </span>
+                          </span>
+                        </button>
+                      }
+                    </div>
+
+                    @if (
+                      visibleUploadDestinationOptions().length === 0 &&
+                      uploadDestinationSearchQuery().trim().length > 0
+                    ) {
+                      <p class="film-upload-destination-menu__empty">
+                        No folders match that search yet.
+                      </p>
+                    }
                   }
                 </div>
               </div>
-              <input
-                #fileUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedMimeTypes"
-                (change)="onFilesSelected($event)"
-              />
-              <input
-                #folderUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedMimeTypes"
-                webkitdirectory
-                directory
-                (change)="onFilesSelected($event)"
-              />
-              <input
-                #zipUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedZipMimeTypes"
-                (change)="onFilesSelected($event)"
-              />
-            </header>
+            </ng-template>
+
+            <input
+              #fileUploadInput
+              type="file"
+              class="film-library-file-input"
+              multiple
+              [attr.accept]="acceptedMimeTypes"
+              (change)="onFilesSelected($event)"
+            />
+            <input
+              #folderUploadInput
+              type="file"
+              class="film-library-file-input"
+              multiple
+              [attr.accept]="acceptedMimeTypes"
+              webkitdirectory
+              directory
+              (change)="onFilesSelected($event)"
+            />
+            <input
+              #zipUploadInput
+              type="file"
+              class="film-library-file-input"
+              multiple
+              [attr.accept]="acceptedZipMimeTypes"
+              (change)="onFilesSelected($event)"
+            />
 
             @if (isPreparingUpload() || isUploadingFiles()) {
               <div class="film-library-upload-status" aria-live="polite">
@@ -1009,17 +1144,17 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                 />
                 <button
                   type="button"
-                  class="film-playlist-create__btn film-playlist-create__btn--primary"
-                  (click)="onFolderCreateConfirm($event)"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
                   class="film-playlist-create__btn"
                   (click)="onFolderCreateCancel($event)"
                 >
                   Cancel
+                </button>
+                <button
+                  type="button"
+                  class="film-playlist-create__btn film-playlist-create__btn--primary"
+                  (click)="onFolderCreateConfirm($event)"
+                >
+                  Create
                 </button>
               </div>
             }
@@ -1638,12 +1773,111 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   `,
   styles: [
     `
+      :host {
+        display: block;
+        width: 100%;
+        --nxt1-color-primary: var(--agent-primary, #ccff00);
+        --nxt1-color-border-primary: var(--agent-primary, #ccff00);
+      }
+
       .agent-x-files-panel {
         display: grid;
         gap: 16px;
         padding: 12px;
+        width: 100%;
       }
 
+      /* Compact: the mobile sheet body already supplies outer padding. */
+      .agent-x-files-panel--compact {
+        padding: 0;
+        gap: 12px;
+        width: 100%;
+      }
+
+      .agent-x-files-panel--compact .film-playlist-create {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .agent-x-files-panel--compact .film-playlist-create__input {
+        grid-column: 1 / -1;
+      }
+
+      .agent-x-files-panel--compact .film-playlist-create__btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      /* ═══ MOBILE TOOLBAR (compact mode) ═══ */
+      .film-mobile-toolbar {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .film-mobile-search-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+      }
+
+      .film-mobile-search-row nxt1-search-bar {
+        flex: 1 1 100%;
+        width: 100%;
+      }
+
+      .film-mobile-selection-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+      }
+
+      .film-mobile-selection-row .film-mobile-btn {
+        flex: 1 1 0 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+      }
+
+      .film-mobile-actions-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        width: 100%;
+      }
+
+      .film-mobile-action-item {
+        width: 100%;
+        min-width: 0;
+        display: flex;
+      }
+
+      .film-mobile-btn {
+        width: 100% !important;
+        justify-content: center !important;
+        padding: 9px 6px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        white-space: nowrap !important;
+        min-width: 0 !important;
+        gap: 5px !important;
+      }
+
+      .film-mobile-btn span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .film-mobile-action-item.film-upload-menu-anchor,
+      .film-mobile-action-item .film-upload-menu-anchor {
+        width: 100%;
+      }
+
+      /* ═══ DESKTOP TOOLBAR ═══ */
       .agent-x-files-panel__toolbar {
         padding: 0;
         align-items: center;
@@ -1666,6 +1900,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         flex: 1 1 auto;
       }
 
+      /* Fallback for narrow desktop windows/panels that aren't explicitly compact. */
       @media (max-width: 680px) {
         .agent-x-files-panel__toolbar {
           align-items: flex-start;
@@ -1675,7 +1910,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         .agent-x-files-panel__toolbar .film-library-header__actions-primary {
           flex-basis: 100%;
           width: 100%;
-          flex-wrap: wrap;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          flex-wrap: nowrap;
         }
 
         .agent-x-files-panel__toolbar .film-library-header__actions-secondary {
@@ -1684,7 +1922,17 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           margin-left: 0;
         }
 
+        .agent-x-files-panel__toolbar .film-playbook-ask-agent {
+          width: 100%;
+        }
+
+        .agent-x-files-panel__toolbar .film-playbook-ask-agent .film-playbook-nav-btn {
+          width: 100%;
+          justify-content: center;
+        }
+
         .agent-x-files-panel__toolbar .film-library-search-wrap {
+          width: 100%;
           min-width: 100%;
         }
 
@@ -1692,6 +1940,26 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           .film-library-header__actions-secondary
           .film-playbook-nav-btn {
           justify-content: center;
+          width: 100%;
+        }
+
+        .agent-x-files-panel__toolbar .film-library-header__actions-secondary {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .agent-x-files-panel__toolbar .film-library-header__actions-secondary > * {
+          min-width: 0;
+        }
+
+        .agent-x-files-panel__toolbar
+          .film-library-header__actions-secondary
+          .film-upload-menu-anchor,
+        .agent-x-files-panel__toolbar
+          .film-library-header__actions-secondary
+          .film-upload-menu-anchor
+          .film-playbook-nav-btn {
           width: 100%;
         }
       }
@@ -2897,16 +3165,116 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       }
 
       .film-playbook-checkbox {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        background-image: none !important;
+        position: relative;
         width: 16px;
         height: 16px;
         margin: 0;
-        accent-color: var(--nxt1-color-primary);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 4px;
+        background: var(--nxt1-color-surface-100);
         cursor: pointer;
+        box-shadow: none !important;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
       }
 
-      .film-playbook-checkbox:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
+      .film-playbook-checkbox:checked,
+      .film-playbook-checkbox:indeterminate,
+      .film-playbook-checkbox:checked:focus,
+      .film-playbook-checkbox:checked:focus-visible,
+      .film-playbook-checkbox:checked:active,
+      .film-playbook-checkbox:indeterminate:focus,
+      .film-playbook-checkbox:indeterminate:focus-visible,
+      .film-playbook-checkbox:indeterminate:active {
+        background: var(--nxt1-color-primary, #ccff00) !important;
+        border-color: var(--nxt1-color-primary, #ccff00) !important;
+      }
+
+      .film-playbook-checkbox:checked::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 5px;
+        height: 9px;
+        border: solid var(--nxt1-color-surface-100);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+      }
+
+      .film-playbook-checkbox:indeterminate::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        right: 3px;
+        top: 6px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .film-playbook-checkbox:focus,
+      .film-playbook-checkbox:focus-visible,
+      .film-playbook-checkbox:active,
+      .film-playbook-checkbox:hover {
+        outline: none !important;
+        box-shadow: none !important;
+      }
+
+      .film-list-item__menu-btn {
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        color: var(--nxt1-color-text-secondary);
+        border-radius: 50%;
+        padding: 0;
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .film-list-item__menu-btn:hover,
+      .film-list-item__menu-btn:focus-visible {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 8%,
+          transparent
+        ) !important;
+        color: var(--nxt1-color-primary, #ccff00);
+        outline: none !important;
+      }
+
+      .film-list-item__menu-btn:active {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 12%,
+          transparent
+        ) !important;
+      }
+
+      .film-list-item__menu-btn[aria-expanded='true'] {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 8%,
+          transparent
+        ) !important;
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .film-list-item__title-row {
@@ -3104,11 +3472,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
+export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDestroy {
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
   @Input() enableDrawTool = false;
+  /** Forces the compact mobile toolbar/search layout regardless of container width. */
+  @Input() compact = false;
 
   readonly askAgentPromptRequested = output<string>();
   readonly inlineVideoViewChange = output<boolean>();
@@ -3736,6 +4106,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       URL.revokeObjectURL(thumbnailUrl);
     }
     this.generatedListThumbnailUrls.clear();
+  }
+
+  ngOnInit(): void {
+    void this.refreshData();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -7075,6 +7449,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
         sizeBytes: file.sizeBytes,
       },
     };
+  }
+
+  public selectedAgentContexts(): readonly AgentXSelectedContext[] {
+    const selectedFolders = this.selectedFolders();
+    const selectedFilesOutsideFolders = this.selectedFilesOutsideFolders();
+
+    const selectedFolderContexts = selectedFolders.map((folder) =>
+      this.buildFolderDragContext(folder, this.collectFolderFiles(folder))
+    );
+    const selectedFileContexts = selectedFilesOutsideFolders.map((file) =>
+      this.buildFileDragContext(file)
+    );
+
+    return [...selectedFolderContexts, ...selectedFileContexts];
   }
 
   private resolveFilmReviewDragData(

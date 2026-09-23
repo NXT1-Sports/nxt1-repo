@@ -18,7 +18,11 @@ import {
   ElementRef,
   effect,
   signal,
+  inject,
+  PLATFORM_ID,
+  afterNextRender,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
 import type { AgentXEffortLevel, AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
@@ -230,6 +234,7 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
           #messageInput
           class="input-textarea"
           rows="1"
+          [autofocus]="autoFocus()"
           [ngModel]="userMessage()"
           (ngModelChange)="onMessageInputChange($event)"
           (focus)="onInputFocus()"
@@ -1107,6 +1112,8 @@ export class AgentXInputBarComponent {
   private static readonly MENU_GAP_PX = 10;
   private static readonly MENU_VIEWPORT_MARGIN_PX = 12;
 
+  private readonly platformId = inject(PLATFORM_ID);
+
   // ── Ref for auto-resize ──
   private readonly textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('messageInput');
   private readonly modePickerRef = viewChild<ElementRef<HTMLElement>>('modePicker');
@@ -1138,6 +1145,8 @@ export class AgentXInputBarComponent {
   readonly pendingContexts = input<readonly AgentXSelectedContext[]>([]);
   /** String label of the currently selected task (null = none). */
   readonly selectedTask = input<string | null>(null);
+  /** Whether the textarea should automatically receive focus upon mounting. */
+  readonly autoFocus = input(false);
 
   // ── Outputs ──
   readonly messageChange = output<string>();
@@ -1313,6 +1322,39 @@ export class AgentXInputBarComponent {
         viewport?.removeEventListener('scroll', syncLayout);
       });
     });
+
+    afterNextRender(() => {
+      if (!isPlatformBrowser(this.platformId)) {
+        return;
+      }
+      if (this.autoFocus()) {
+        setTimeout(() => {
+          this.focus();
+        }, 100);
+      }
+    });
+  }
+
+  /**
+   * Programmatically focuses the textarea input and places the cursor at the end.
+   */
+  public focus(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+    textarea.focus();
+    const length = textarea.value.length;
+    if (length > 0) {
+      try {
+        textarea.setSelectionRange(length, length);
+      } catch {
+        // Ignored if not supported by browser/platform
+      }
+    }
   }
 
   protected onEnterKey(event: Event): void {

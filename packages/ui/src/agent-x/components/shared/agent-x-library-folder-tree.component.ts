@@ -430,17 +430,17 @@ export interface AgentXLibraryFolderTreeController {
                       />
                       <button
                         type="button"
-                        class="film-playlist-create__btn film-playlist-create__btn--primary"
-                        (click)="controller().onCreateConfirm($event)"
-                      >
-                        Create
-                      </button>
-                      <button
-                        type="button"
                         class="film-playlist-create__btn"
                         (click)="controller().onCreateCancel($event)"
                       >
                         Cancel
+                      </button>
+                      <button
+                        type="button"
+                        class="film-playlist-create__btn film-playlist-create__btn--primary"
+                        (click)="controller().onCreateConfirm($event)"
+                      >
+                        Create
                       </button>
                     </div>
                   }
@@ -529,17 +529,73 @@ export interface AgentXLibraryFolderTreeController {
   `,
   styles: [
     `
+      :host {
+        display: block;
+        width: 100%;
+        --nxt1-color-primary: var(--agent-primary, #ccff00);
+        --nxt1-color-border-primary: var(--agent-primary, #ccff00);
+      }
+
       .film-playbook-checkbox {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        background-image: none !important;
+        position: relative;
         width: 16px;
         height: 16px;
         margin: 0;
-        accent-color: var(--nxt1-color-primary);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 4px;
+        background: var(--nxt1-color-surface-100);
         cursor: pointer;
+        box-shadow: none !important;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
       }
 
-      .film-playbook-checkbox:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
+      .film-playbook-checkbox:checked,
+      .film-playbook-checkbox:indeterminate,
+      .film-playbook-checkbox:checked:focus,
+      .film-playbook-checkbox:checked:focus-visible,
+      .film-playbook-checkbox:checked:active,
+      .film-playbook-checkbox:indeterminate:focus,
+      .film-playbook-checkbox:indeterminate:focus-visible,
+      .film-playbook-checkbox:indeterminate:active {
+        background: var(--nxt1-color-primary, #ccff00) !important;
+        border-color: var(--nxt1-color-primary, #ccff00) !important;
+      }
+
+      .film-playbook-checkbox:checked::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 5px;
+        height: 9px;
+        border: solid var(--nxt1-color-surface-100);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+      }
+
+      .film-playbook-checkbox:indeterminate::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        right: 3px;
+        top: 6px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .film-playbook-checkbox:focus,
+      .film-playbook-checkbox:focus-visible,
+      .film-playbook-checkbox:active,
+      .film-playbook-checkbox:hover {
+        outline: none !important;
+        box-shadow: none !important;
       }
 
       .agent-x-library-folder-tree .film-playlist-folder {
@@ -695,7 +751,9 @@ export interface AgentXLibraryFolderTreeController {
         color: color-mix(in srgb, var(--nxt1-color-primary) 80%, var(--nxt1-color-text-primary));
       }
 
-      .agent-x-library-folder-tree .film-playlist-folder .film-playlist-folder__menu-btn {
+      .agent-x-library-folder-tree .film-playlist-folder .film-playlist-folder__menu-btn,
+      .film-playlist-folder__menu-btn,
+      .film-list-item__menu-btn {
         position: static;
         top: auto;
         right: auto;
@@ -704,7 +762,63 @@ export interface AgentXLibraryFolderTreeController {
         height: 28px;
         min-width: 28px;
         min-height: 28px;
+        border: 0 !important;
+        border-radius: 50% !important;
+        background: transparent !important;
+        color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        outline: none !important;
+        box-shadow: none !important;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
         z-index: 6;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder .film-playlist-folder__menu-btn:hover,
+      .agent-x-library-folder-tree
+        .film-playlist-folder
+        .film-playlist-folder__menu-btn:focus-visible,
+      .film-playlist-folder__menu-btn:hover,
+      .film-playlist-folder__menu-btn:focus-visible,
+      .film-list-item__menu-btn:hover,
+      .film-list-item__menu-btn:focus-visible {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 8%,
+          transparent
+        ) !important;
+        color: var(--nxt1-color-primary, #ccff00);
+        outline: none !important;
+      }
+
+      .agent-x-library-folder-tree .film-playlist-folder .film-playlist-folder__menu-btn:active,
+      .film-playlist-folder__menu-btn:active,
+      .film-list-item__menu-btn:active {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 12%,
+          transparent
+        ) !important;
+      }
+
+      .agent-x-library-folder-tree
+        .film-playlist-folder
+        .film-playlist-folder__menu-btn[aria-expanded='true'],
+      .film-playlist-folder__menu-btn[aria-expanded='true'],
+      .film-list-item__menu-btn[aria-expanded='true'] {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 8%,
+          transparent
+        ) !important;
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .agent-x-library-folder-tree .film-list-item__menu-backdrop {

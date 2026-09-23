@@ -9,6 +9,7 @@
 
 import { Component, ChangeDetectionStrategy, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
   selector: 'nxt1-agent-x-dashboard-skeleton',
@@ -111,68 +112,20 @@ import { CommonModule } from '@angular/common';
           }
         </div>
       } @else {
-        <div class="mobile-stack">
-          <section class="mobile-briefing">
-            <div class="mobile-status-row">
-              <div class="skeleton-line skeleton-shimmer h-12 w-20"></div>
-              <div class="skeleton-circle skeleton-shimmer size-10"></div>
-            </div>
-            <div class="skeleton-line h-30 skeleton-shimmer w-60"></div>
-            <div class="mobile-briefing__copy">
-              <div class="skeleton-line w-100 skeleton-shimmer h-14"></div>
-              <div class="skeleton-line w-74 skeleton-shimmer h-14"></div>
-            </div>
-            <div class="mobile-goals-row">
-              <div class="skeleton-pill w-100 skeleton-shimmer h-40"></div>
-              <div class="skeleton-pill w-100 skeleton-shimmer h-40"></div>
-            </div>
-          </section>
-
-          <section class="mobile-plan surface-block">
-            <div class="mobile-plan__header">
-              <div class="skeleton-line h-18 skeleton-shimmer w-56"></div>
-              <div class="mobile-progress">
-                <div class="skeleton-line w-34 skeleton-shimmer h-14"></div>
-                <div class="skeleton-line skeleton-shimmer h-4 w-24"></div>
-              </div>
-            </div>
-
-            <div class="mobile-pill-row">
-              <div class="skeleton-pill h-30 skeleton-shimmer w-36"></div>
-              <div class="skeleton-pill w-30 h-30 skeleton-shimmer"></div>
-            </div>
-
-            @for (task of [1, 2]; track task) {
-              <div class="surface-block surface-block--compact mobile-task">
-                <div class="mobile-task__head">
-                  <div class="skeleton-circle size-42 skeleton-shimmer"></div>
-                  <div class="mobile-task__meta">
-                    <div class="skeleton-line skeleton-shimmer h-12 w-40"></div>
-                    <div class="skeleton-line w-30 skeleton-shimmer h-11"></div>
-                  </div>
-                </div>
-                <div class="skeleton-line w-82 skeleton-shimmer h-14"></div>
-                <div class="skeleton-line w-100 skeleton-shimmer h-12"></div>
-                <div class="skeleton-pill w-100 h-38 skeleton-shimmer"></div>
-                <div class="mobile-task__actions">
-                  <div class="skeleton-pill skeleton-shimmer h-32 w-48"></div>
-                  <div class="skeleton-pill skeleton-shimmer h-32 w-48"></div>
-                </div>
-              </div>
-            }
-          </section>
-
-          <section class="mobile-chips">
-            <div class="mobile-chips__scroll">
-              @for (chip of [1, 2, 3, 4]; track chip) {
-                <div class="skeleton-pill w-30 h-38 skeleton-shimmer"></div>
-              }
-            </div>
-          </section>
-
-          <section class="mobile-composer surface-block">
-            <div class="skeleton-pill w-100 skeleton-shimmer h-44"></div>
-          </section>
+        <div class="mobile-loading-container">
+          <div class="mobile-loading-beacon">
+            <div class="mobile-loading-glow"></div>
+            <svg
+              class="mobile-loading-logo"
+              viewBox="0 0 612 792"
+              fill="currentColor"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path [attr.d]="agentXLogoPath" />
+              <polygon [attr.points]="agentXLogoPolygon" />
+            </svg>
+          </div>
         </div>
       }
     </div>
@@ -401,105 +354,95 @@ import { CommonModule } from '@angular/common';
         height: 42px;
       }
 
-      .mobile-stack {
+      /* ══════════════════════════════════════════
+         MOBILE AGENT X ICON LOADING STATE
+         ══════════════════════════════════════════ */
+      .mobile-loading-container {
         display: flex;
         flex-direction: column;
-        gap: 14px;
-        padding: 2px 0 14px;
-      }
-
-      .mobile-briefing {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        padding-top: 6px;
-      }
-
-      .mobile-status-row {
-        display: flex;
         align-items: center;
-        gap: 8px;
-      }
-
-      .mobile-briefing__copy {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-
-      .mobile-goals-row {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-      }
-
-      .mobile-plan {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-      }
-
-      .mobile-plan__header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-      }
-
-      .mobile-progress {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        align-items: flex-end;
-      }
-
-      .mobile-pill-row {
-        display: flex;
-        gap: 8px;
-      }
-
-      .mobile-task {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .mobile-task__head {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .mobile-task__meta {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
+        justify-content: center;
+        min-height: clamp(240px, 45vh, 380px);
         width: 100%;
+        padding: 32px 16px;
+        pointer-events: none;
+        user-select: none;
+        animation: mobileLoadingFadeIn 0.25s ease-out forwards;
       }
 
-      .mobile-task__actions {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-      }
-
-      .mobile-chips {
-        overflow: hidden;
-      }
-
-      .mobile-chips__scroll {
+      .mobile-loading-beacon {
+        position: relative;
         display: flex;
-        gap: 8px;
-        overflow-x: auto;
-        scrollbar-width: none;
+        align-items: center;
+        justify-content: center;
+        width: 80px;
+        height: 80px;
       }
 
-      .mobile-chips__scroll::-webkit-scrollbar {
-        display: none;
+      .mobile-loading-glow {
+        position: absolute;
+        inset: -14px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle,
+          var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2)) 0%,
+          var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.08)) 45%,
+          transparent 72%
+        );
+        animation: beaconGlow 2.4s ease-in-out infinite;
       }
 
-      .mobile-composer {
-        padding: 10px;
+      .mobile-loading-logo {
+        width: 44px;
+        height: 44px;
+        color: var(--agent-primary, var(--nxt1-color-primary, #ccff00));
+        filter: drop-shadow(0 0 16px var(--nxt1-color-alpha-primary40, rgba(204, 255, 0, 0.4)));
+        animation: beaconPulse 2.4s ease-in-out infinite;
+        position: relative;
+        z-index: 1;
+      }
+
+      @keyframes mobileLoadingFadeIn {
+        from {
+          opacity: 0;
+          transform: scale(0.95);
+        }
+        to {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      @keyframes beaconPulse {
+        0%,
+        100% {
+          transform: scale(0.96);
+          opacity: 0.85;
+        }
+        50% {
+          transform: scale(1.04);
+          opacity: 1;
+        }
+      }
+
+      @keyframes beaconGlow {
+        0%,
+        100% {
+          transform: scale(0.9);
+          opacity: 0.5;
+        }
+        50% {
+          transform: scale(1.15);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .mobile-loading-container,
+        .mobile-loading-logo,
+        .mobile-loading-glow {
+          animation: none;
+        }
       }
 
       .desktop-grid {
@@ -695,16 +638,6 @@ import { CommonModule } from '@angular/common';
           width: 100%;
         }
       }
-
-      @media (max-width: 420px) {
-        .mobile-goals-row {
-          grid-template-columns: 1fr;
-        }
-
-        .mobile-task__actions {
-          grid-template-columns: 1fr;
-        }
-      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -714,6 +647,9 @@ export class AgentXDashboardSkeletonComponent {
   readonly showSessionsRail = input(false);
   readonly showActionPlan = input(false);
   readonly showExpandedPanel = input(false);
+
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   protected readonly showRightPanel = computed(
     () => this.showActionPlan() || this.showExpandedPanel()

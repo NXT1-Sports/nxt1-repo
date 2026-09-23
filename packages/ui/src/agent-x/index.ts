@@ -92,6 +92,10 @@ export {
   type AttachmentSheetResult,
 } from './components/modals/agent-x-attachments-sheet.component';
 export {
+  AgentXLabSheetComponent,
+  type AgentXLabSheetCloseResult,
+} from './components/modals/agent-x-lab-sheet.component';
+export {
   AgentXControlPanelStateService,
   AGENT_X_STATUS_DEFINITIONS,
   AGENT_X_GOAL_OPTIONS,

@@ -14,10 +14,24 @@ import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component'
       [role]="role"
       [sport]="sport"
       [enableDrawTool]="enableDrawTool"
+      [compact]="compact"
       (askAgentPromptRequested)="askAgentPromptRequested.emit($event)"
       (inlineVideoViewChange)="inlineVideoViewChange.emit($event)"
     />
   `,
+  styles: [
+    `
+      :host {
+        display: block;
+        width: 100%;
+      }
+
+      nxt1-agent-x-files-panel-inner {
+        display: block;
+        width: 100%;
+      }
+    `,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXFilesPanelComponent {
@@ -25,6 +39,8 @@ export class AgentXFilesPanelComponent {
   @Input() role: string | null = null;
   @Input() sport = '';
   @Input() enableDrawTool = false;
+  /** Forces the compact mobile toolbar/search layout regardless of container width. */
+  @Input() compact = false;
 
   readonly askAgentPromptRequested = output<string>();
   readonly inlineVideoViewChange = output<boolean>();
@@ -49,6 +65,10 @@ export class AgentXFilesPanelComponent {
 
   public getInlineHeaderTitle(): string {
     return this.innerPanel()?.getInlineHeaderTitle() ?? AGENT_X_WORKSPACE_TERMS.workspaceTitle;
+  }
+
+  public selectedAgentContexts() {
+    return this.innerPanel()?.selectedAgentContexts() ?? [];
   }
 
   public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
