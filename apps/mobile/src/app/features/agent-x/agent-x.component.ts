@@ -97,6 +97,7 @@ export class AgentXComponent implements OnInit, OnDestroy {
   private readonly shell = viewChild<AgentXShellComponent>('shell');
 
   private resumeSub?: Subscription;
+  private focusTimeout?: ReturnType<typeof setTimeout>;
 
   constructor() {
     afterNextRender(() => {
@@ -230,6 +231,9 @@ export class AgentXComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.resumeSub?.unsubscribe();
+    if (this.focusTimeout) {
+      clearTimeout(this.focusTimeout);
+    }
   }
 
   /**
@@ -247,8 +251,13 @@ export class AgentXComponent implements OnInit, OnDestroy {
       return;
     }
 
+    if (this.focusTimeout) {
+      clearTimeout(this.focusTimeout);
+    }
+
     const triggerFocus = () => {
       if (this.isOverlayOrSidenavOpen()) {
+        this.focusTimeout = setTimeout(triggerFocus, 500);
         return;
       }
       this.shell()?.focusInput();
@@ -257,9 +266,7 @@ export class AgentXComponent implements OnInit, OnDestroy {
 
     // Do NOT call triggerFocus() synchronously — the keyboard-offset listener
     // may not be registered yet at this point.
-    setTimeout(triggerFocus, 100);
-    setTimeout(triggerFocus, 300);
-    setTimeout(triggerFocus, 500);
+    this.focusTimeout = setTimeout(triggerFocus, 100);
   }
 
   /**
@@ -271,7 +278,7 @@ export class AgentXComponent implements OnInit, OnDestroy {
     }
     if (typeof document !== 'undefined') {
       const activeOverlay = document.querySelector(
-        'ion-modal.show-modal, ion-action-sheet, ion-alert, ion-popover, .nxt1-bottom-sheet'
+        'ion-modal.show-modal, ion-action-sheet, ion-alert, ion-popover, .nxt1-bottom-sheet, .app-access-gate'
       );
       if (activeOverlay) {
         return true;
