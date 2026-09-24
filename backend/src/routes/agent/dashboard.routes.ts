@@ -1745,20 +1745,39 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     }
 
     const { db } = req.firebase!;
-    const userDoc = await db.collection('Users').doc(user.uid).get();
+
+    // Fetch all necessary dashboard data concurrently for optimal performance
+    const [userDoc, appConfig, suggestedActionsDoc, briefingDoc, playbookDoc] = await Promise.all([
+      db.collection('Users').doc(user.uid).get(),
+      getAgentAppConfig(db),
+      db
+        .collection('Users')
+        .doc(user.uid)
+        .collection('agent_suggested_actions')
+        .orderBy('generatedAt', 'desc')
+        .limit(1)
+        .get(),
+      db
+        .collection('Users')
+        .doc(user.uid)
+        .collection('agent_briefings')
+        .orderBy('generatedAt', 'desc')
+        .limit(1)
+        .get(),
+      db
+        .collection('Users')
+        .doc(user.uid)
+        .collection('agent_playbooks')
+        .orderBy('generatedAt', 'desc')
+        .limit(10)
+        .get(),
+    ]);
+
     const userData = userDoc.data() ?? {};
     const role: string = userData['role'] ?? 'athlete';
     const agentGoals: AgentDashboardGoal[] = userData['agentGoals'] ?? [];
 
-    const appConfig = await getAgentAppConfig(db);
     const dynamicCoordinators = resolveConfiguredCoordinatorsForRole(role, appConfig);
-    const suggestedActionsDoc = await db
-      .collection('Users')
-      .doc(user.uid)
-      .collection('agent_suggested_actions')
-      .orderBy('generatedAt', 'desc')
-      .limit(1)
-      .get();
 
     const suggestedActionsPayload: Record<string, unknown> | null = suggestedActionsDoc.empty
       ? null
@@ -1805,14 +1824,6 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       suggestedActions: suggestedActionsByCoordinator.get(coordinator.id) ?? [],
     }));
 
-    const briefingDoc = await db
-      .collection('Users')
-      .doc(user.uid)
-      .collection('agent_briefings')
-      .orderBy('generatedAt', 'desc')
-      .limit(1)
-      .get();
-
     let briefingInsights: ShellBriefingInsight[] = [];
     let briefingPreviewText = '';
     let briefingGeneratedAt: string | null = null;
@@ -1827,14 +1838,6 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       }
       briefingGeneratedAt = (bData['generatedAt'] as string) ?? briefingGeneratedAt;
     }
-
-    const playbookDoc = await db
-      .collection('Users')
-      .doc(user.uid)
-      .collection('agent_playbooks')
-      .orderBy('generatedAt', 'desc')
-      .limit(10)
-      .get();
 
     let playbookItems: ShellWeeklyPlaybookItem[] = [];
     let playbookGeneratedAt: string | null = null;
