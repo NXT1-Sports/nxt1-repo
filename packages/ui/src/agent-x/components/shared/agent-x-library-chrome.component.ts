@@ -132,12 +132,14 @@ import { ChangeDetectionStrategy, Component, ViewEncapsulation } from '@angular/
       }
 
       .film-playlist-create__btn--primary {
-        border-color: var(--nxt1-color-border-primary);
-        color: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       .film-playlist-create__btn--primary:hover:not(:disabled) {
-        background: var(--nxt1-color-alpha-primary10);
+        background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+        border-color: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
       }
 
       .film-playbook-nav-btn {
@@ -226,7 +228,7 @@ import { ChangeDetectionStrategy, Component, ViewEncapsulation } from '@angular/
         top: 1px;
         width: 5px;
         height: 9px;
-        border: solid var(--nxt1-color-surface-100);
+        border: solid var(--nxt1-color-text-onPrimary);
         border-width: 0 2px 2px 0;
         transform: rotate(45deg);
       }
@@ -239,7 +241,7 @@ import { ChangeDetectionStrategy, Component, ViewEncapsulation } from '@angular/
         top: 6px;
         height: 2px;
         border-radius: 2px;
-        background: var(--nxt1-color-surface-100);
+        background: var(--nxt1-color-text-onPrimary);
       }
 
       .film-playbook-checkbox:focus,

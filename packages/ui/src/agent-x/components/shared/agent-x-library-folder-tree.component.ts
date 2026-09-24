@@ -574,7 +574,7 @@ export interface AgentXLibraryFolderTreeController {
         top: 1px;
         width: 5px;
         height: 9px;
-        border: solid var(--nxt1-color-surface-100);
+        border: solid var(--nxt1-color-text-onPrimary);
         border-width: 0 2px 2px 0;
         transform: rotate(45deg);
       }
@@ -587,7 +587,7 @@ export interface AgentXLibraryFolderTreeController {
         top: 6px;
         height: 2px;
         border-radius: 2px;
-        background: var(--nxt1-color-surface-100);
+        background: var(--nxt1-color-text-onPrimary);
       }
 
       .film-playbook-checkbox:focus,
@@ -886,7 +886,15 @@ export interface AgentXLibraryFolderTreeController {
       }
 
       .agent-x-library-folder-tree .film-list-item__menu-action--primary {
-        color: var(--log-primary, var(--nxt1-color-primary));
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
+      }
+
+      .agent-x-library-folder-tree .film-list-item__menu-action--primary:hover,
+      .agent-x-library-folder-tree .film-list-item__menu-action--primary:focus-visible,
+      .agent-x-library-folder-tree .film-list-item__menu-action--primary:active {
+        background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+        color: var(--nxt1-color-text-onPrimary);
       }
 
       .agent-x-library-folder-tree .film-list-item__menu-rename,

@@ -2146,6 +2146,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       showHandle: true,
       handleBehavior: 'cycle',
       backdropDismiss: true,
+      focusTrap: false,
       cssClass: 'agent-x-lab-sheet-modal',
     });
 

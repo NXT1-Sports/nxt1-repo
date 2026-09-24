@@ -3202,7 +3202,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         top: 1px;
         width: 5px;
         height: 9px;
-        border: solid var(--nxt1-color-surface-100);
+        border: solid var(--nxt1-color-text-onPrimary);
         border-width: 0 2px 2px 0;
         transform: rotate(45deg);
       }
@@ -3215,7 +3215,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         top: 6px;
         height: 2px;
         border-radius: 2px;
-        background: var(--nxt1-color-surface-100);
+        background: var(--nxt1-color-text-onPrimary);
       }
 
       .film-playbook-checkbox:focus,
@@ -3298,14 +3298,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         min-height: 20px;
         padding: 0 8px;
         border-radius: 999px;
-        background: color-mix(
-          in srgb,
-          var(--nxt1-color-primary) 12%,
-          var(--nxt1-color-surface-100)
-        );
-        border: 1px solid
-          color-mix(in srgb, var(--nxt1-color-primary) 20%, var(--nxt1-color-border-default));
-        color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
+        border: 1px solid var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
         font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.04em;
@@ -7663,6 +7658,11 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
+    if (this.compact) {
+      this.toast.info('Preview is not available on mobile yet. Use desktop or tablet for preview.');
+      return;
+    }
+
     const teamId = this.resolveFileContextTeamId(file);
     const inlineFilmReviewId = this.getInlineFilmReviewId(file);
     let viewerFile = file;
