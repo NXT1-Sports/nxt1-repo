@@ -3785,7 +3785,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
       })
       .filter((tab): tab is AgentXLibraryFile => tab !== null);
   });
-  protected readonly selectedViewerFile = computed(() => {
+  public readonly selectedViewerFile = computed(() => {
     const inlineViewerFile = this.inlineMarkdownViewerFile();
     if (inlineViewerFile && this.selectedInlineMarkdownViewerId() === inlineViewerFile.id) {
       return inlineViewerFile;

@@ -5062,7 +5062,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
   protected readonly reviews = this.service.reviews;
   public readonly selectedId = this.service.selectedId;
-  protected readonly selectedReview = this.service.selectedReview;
+  public readonly selectedReview = this.service.selectedReview;
   protected readonly loading = this.service.loading;
   protected readonly saving = this.service.saving;
   protected readonly error = this.service.error;

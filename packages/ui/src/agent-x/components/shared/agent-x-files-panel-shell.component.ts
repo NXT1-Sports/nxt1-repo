@@ -59,6 +59,10 @@ export class AgentXFilesPanelComponent {
     return this.innerPanel()?.selectedTabId() ?? null;
   }
 
+  public activeViewerFile(): AgentXLibraryFile | null {
+    return this.innerPanel()?.selectedViewerFile() ?? null;
+  }
+
   public isInlineVideoView(): boolean {
     return this.innerPanel()?.isInlineVideoView() ?? false;
   }

@@ -126,6 +126,12 @@ import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-play
 import { AgentXFilesPanelComponent } from '../components/shared/agent-x-files-panel-shell.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
+import {
+  AgentXShareMenuComponent,
+  type AgentXShareMenuAccessResult,
+  type AgentXShareMenuTarget,
+} from '../components/shared/agent-x-share-menu.component';
+import { AgentXFilmReviewService } from '../services/agent-x-film-review.service';
 import type { AgentXLibraryFile } from '../services/agent-x-files.service';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
@@ -275,6 +281,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
     AgentXFilesPanelComponent,
     AgentXFilmReviewPanelComponent,
     AgentXDiagramsPanelComponent,
+    AgentXShareMenuComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -1323,6 +1330,12 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   <h2 class="agent-column-title">{{ filesPanelLabel }}</h2>
                 }
                 <div class="agent-column-header-actions">
+                  @if (filesPanel()?.activeViewerFile(); as activeFile) {
+                    <nxt1-agent-x-share-menu
+                      [target]="mapFileToShareTarget(activeFile)"
+                      triggerAriaLabel="Share file"
+                    />
+                  }
                   <button
                     type="button"
                     class="agent-column-icon-btn"
@@ -1507,6 +1520,13 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   <h2 class="agent-column-title">{{ filmReviewPanelLabel }}</h2>
                 }
                 <div class="agent-column-header-actions">
+                  @if (filmReviewPanel()?.selectedReview(); as activeReview) {
+                    <nxt1-agent-x-share-menu
+                      [target]="mapReviewToShareTarget(activeReview)"
+                      triggerAriaLabel="Share film review"
+                      (accessChanged)="onFilmReviewShared(activeReview.id, $event)"
+                    />
+                  }
                   <button
                     type="button"
                     class="agent-column-icon-btn"
@@ -4852,6 +4872,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly operationEventService = inject(AgentXOperationEventService);
+  private readonly filmReviewService = inject(AgentXFilmReviewService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
@@ -6782,6 +6803,32 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
 
     this.filesInlineVideoViewState.set(isInline);
+  }
+
+  protected mapFileToShareTarget(file: AgentXLibraryFile): AgentXShareMenuTarget {
+    return {
+      shareId: file.id,
+      ownerUserId: file.ownerUserId,
+      teamId: file.teamId ?? null,
+      organizationId: file.organizationId ?? null,
+      readAccessKeys: file.readAccessKeys,
+      writeAccessKeys: file.writeAccessKeys,
+    };
+  }
+
+  protected mapReviewToShareTarget(review: TeamFilmReviewDoc): AgentXShareMenuTarget {
+    return {
+      shareId: review.fileId?.trim() || review.id,
+      ownerUserId: review.createdBy,
+      teamId: review.teamId ?? null,
+      organizationId: review.organizationId ?? null,
+      readAccessKeys: review.readAccessKeys,
+      writeAccessKeys: review.writeAccessKeys,
+    };
+  }
+
+  protected onFilmReviewShared(reviewId: string, access: AgentXShareMenuAccessResult): void {
+    this.filmReviewService.applyReviewAccessKeys(reviewId, access);
   }
 
   protected onFilmReviewInlineVideoViewChange(isInline: boolean): void {
