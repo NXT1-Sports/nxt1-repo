@@ -468,22 +468,25 @@ export class ScrapeTwitterTool extends BaseTool {
     tweets: readonly ScweetTweet[],
     media: readonly PersistedMedia[] = []
   ): unknown[] {
-    return tweets.slice(0, MAX_TWEETS_IN_RESPONSE).map((t) => ({
-      id: t.id,
-      text: t.text,
-      username: t.username,
-      timestamp: t.timestamp,
-      likes: t.likes ?? 0,
-      retweets: t.retweets ?? 0,
-      replies: t.replies ?? 0,
-      url: t.url,
-      imageUrls: t.imageUrls.length > 0 ? this.mapImageUrls(t.imageUrls, media) : undefined,
-      videoUrl: t.videoUrl ? (this.stagedUrlFor(media, t.videoUrl) ?? t.videoUrl) : undefined,
-      profileImageUrl: t.profileImageUrl
-        ? (this.stagedUrlFor(media, t.profileImageUrl) ?? t.profileImageUrl)
-        : undefined,
-      authorName: t.authorName || undefined,
-    }));
+    return tweets.slice(0, MAX_TWEETS_IN_RESPONSE).map((t) => {
+      const normalizedProfileImage = this.normalizeTwitterProfileImageUrl(t.profileImageUrl);
+      return {
+        id: t.id,
+        text: t.text,
+        username: t.username,
+        timestamp: t.timestamp,
+        likes: t.likes ?? 0,
+        retweets: t.retweets ?? 0,
+        replies: t.replies ?? 0,
+        url: t.url,
+        imageUrls: t.imageUrls.length > 0 ? this.mapImageUrls(t.imageUrls, media) : undefined,
+        videoUrl: t.videoUrl ? (this.stagedUrlFor(media, t.videoUrl) ?? t.videoUrl) : undefined,
+        profileImageUrl: normalizedProfileImage
+          ? (this.stagedUrlFor(media, normalizedProfileImage) ?? normalizedProfileImage)
+          : undefined,
+        authorName: t.authorName || undefined,
+      };
+    });
   }
 
   private collectProfileImageUrls(
@@ -493,7 +496,8 @@ export class ScrapeTwitterTool extends BaseTool {
     const seen = new Set<string>();
     const urls: string[] = [];
     for (const tweet of tweets) {
-      const url = typeof tweet.profileImageUrl === 'string' ? tweet.profileImageUrl.trim() : '';
+      const rawUrl = typeof tweet.profileImageUrl === 'string' ? tweet.profileImageUrl.trim() : '';
+      const url = this.normalizeTwitterProfileImageUrl(rawUrl);
       if (!url || seen.has(url)) continue;
       seen.add(url);
       urls.push(this.stagedUrlFor(media, url) ?? url);
@@ -530,9 +534,10 @@ export class ScrapeTwitterTool extends BaseTool {
     const inputs: MediaInput[] = [];
 
     for (const tweet of tweets.slice(0, MAX_TWEETS_IN_RESPONSE)) {
-      if (includeProfileImage && tweet.profileImageUrl) {
+      const normalizedProfileImageUrl = this.normalizeTwitterProfileImageUrl(tweet.profileImageUrl);
+      if (includeProfileImage && normalizedProfileImageUrl) {
         inputs.push({
-          url: tweet.profileImageUrl,
+          url: normalizedProfileImageUrl,
           type: 'image',
           platform: 'twitter',
           sourceUrl: tweet.url || `https://x.com/${tweet.username}`,
@@ -603,6 +608,33 @@ export class ScrapeTwitterTool extends BaseTool {
     media: readonly PersistedMedia[]
   ): readonly string[] {
     return imageUrls.map((imageUrl) => this.stagedUrlFor(media, imageUrl) ?? imageUrl);
+  }
+
+  private normalizeTwitterProfileImageUrl(url: string | undefined): string {
+    if (typeof url !== 'string') return '';
+    const trimmed = url.trim();
+    if (!trimmed) return '';
+
+    try {
+      const parsed = new URL(trimmed);
+      if (!parsed.hostname.endsWith('pbs.twimg.com')) {
+        return trimmed;
+      }
+
+      parsed.pathname = parsed.pathname.replace(
+        /_(?:normal|bigger|mini|200x200|400x400)(\.[a-z0-9]+)$/i,
+        '$1'
+      );
+
+      const name = parsed.searchParams.get('name');
+      if (name && ['small', 'normal', 'bigger', '200x200', '400x400'].includes(name)) {
+        parsed.searchParams.set('name', 'orig');
+      }
+
+      return parsed.toString();
+    } catch {
+      return trimmed;
+    }
   }
 
   /**
