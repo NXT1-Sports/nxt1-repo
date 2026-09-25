@@ -143,14 +143,14 @@ describe('agent-app-config', () => {
             thinkingBudgetTokens: 8000,
           },
           medium: {
-            model: 'deepseek/deepseek-v4-pro',
+            model: '~deepseek/deepseek-pro-latest',
             reasoningEffort: 'medium',
             maxTokens: 8192,
             temperature: 0.4,
             thinkingBudgetTokens: 4000,
           },
           low: {
-            model: 'google/gemini-3.6-flash',
+            model: '~google/gemini-flash-latest',
             reasoningEffort: 'low',
             maxTokens: 4096,
             temperature: 0.5,
@@ -163,13 +163,13 @@ describe('agent-app-config', () => {
     setCachedAgentAppConfig(config);
 
     const expectedCandidateModels = [
-      'google/gemini-3.6-flash',
+      '~google/gemini-flash-latest',
       ...resolveModelFallbackChain('text', config).filter(
-        (slug) => slug !== 'google/gemini-3.6-flash'
+        (slug) => slug !== '~google/gemini-flash-latest'
       ),
     ];
 
-    expect(resolveEffortProfile('medium').model).toBe('deepseek/deepseek-v4-pro');
+    expect(resolveEffortProfile('medium').model).toBe('~deepseek/deepseek-pro-latest');
     expect(resolveModelRoutingForEffort({ tier: 'text', temperature: 0 }, 'low')).toMatchObject({
       candidateModels: expectedCandidateModels,
       reasoningEffort: 'low',

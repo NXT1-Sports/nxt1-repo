@@ -88,7 +88,7 @@ const PROMPT_ONLY_TITLE_GENERATION_PROMPT = `You are a concise title generator f
 
 const TITLE_GENERATION_CANDIDATE_MODELS = Object.freeze([
   '~anthropic/claude-haiku-latest',
-  'google/gemini-3.6-flash',
+  '~google/gemini-flash-latest',
 ] as const);
 
 /**

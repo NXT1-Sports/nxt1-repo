@@ -563,7 +563,7 @@ describe('AgentChatService', () => {
       expect.objectContaining({
         maxTokens: 50,
         temperature: 0.3,
-        candidateModels: ['~anthropic/claude-haiku-latest', 'google/gemini-3.6-flash'],
+        candidateModels: ['~anthropic/claude-haiku-latest', '~google/gemini-flash-latest'],
       })
     );
   });
@@ -586,7 +586,7 @@ describe('AgentChatService', () => {
       expect.objectContaining({
         maxTokens: 60,
         temperature: 0.3,
-        candidateModels: ['~anthropic/claude-haiku-latest', 'google/gemini-3.6-flash'],
+        candidateModels: ['~anthropic/claude-haiku-latest', '~google/gemini-flash-latest'],
       })
     );
   });

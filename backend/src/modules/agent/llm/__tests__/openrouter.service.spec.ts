@@ -216,14 +216,14 @@ describe('OpenRouterService', () => {
 
   it('should use effort-only reasoning for non-Anthropic thinking models', async () => {
     await service.complete([{ role: 'user', content: 'test' }], {
-      modelOverride: 'google/gemini-3.6-flash',
+      modelOverride: 'google/gemini-3.8-flash',
       enableThinking: true,
       reasoningEffort: 'low',
       thinkingBudgetTokens: 2048,
     });
 
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
-    expect(body.model).toBe('google/gemini-3.6-flash');
+    expect(body.model).toBe('google/gemini-3.8-flash');
     expect(body.reasoning).toEqual({ effort: 'low' });
   });
 
@@ -1133,7 +1133,7 @@ describe('OpenRouterService', () => {
       );
 
     const result = await service.complete([{ role: 'user', content: 'test' }], {
-      candidateModels: ['google/gemini-3.6-flash', '~anthropic/claude-sonnet-latest'],
+      candidateModels: ['google/gemini-3.8-flash', '~anthropic/claude-sonnet-latest'],
     });
 
     const firstBody = JSON.parse(
@@ -1143,7 +1143,7 @@ describe('OpenRouterService', () => {
       (fetchSpy.mock.calls[1] as [string, RequestInit])[1].body as string
     );
 
-    expect(firstBody.model).toBe('google/gemini-3.6-flash');
+    expect(firstBody.model).toBe('google/gemini-3.8-flash');
     expect(secondBody.model).toBe('~anthropic/claude-sonnet-latest');
     expect(result.content).toBe('Hello from the mock LLM.');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
