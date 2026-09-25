@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
 import { ElementRef } from '@angular/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
+import { AGENT_X_INPUT_TEST_IDS } from '@nxt1/core/testing';
 
 describe('AgentXInputBarComponent', () => {
   let fixture: ComponentFixture<AgentXInputBarComponent>;
@@ -92,6 +93,83 @@ describe('AgentXInputBarComponent', () => {
     });
 
     expect(layout.offsetX).toBe(-92);
+  });
+
+  it('shows coordinator mention options when typing @', async () => {
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    textarea.value = '@';
+    textarea.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const menu = fixture.nativeElement.querySelector(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_MENU}"]`
+    );
+    const options = fixture.nativeElement.querySelectorAll(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_OPTION}"]`
+    );
+
+    expect(menu).toBeTruthy();
+    expect(options).toHaveLength(6);
+    expect(menu.textContent).toContain('Brand Coordinator');
+    expect(menu.textContent).toContain('@brand');
+  });
+
+  it('filters mentions and turns the selection into a removable UI pill', async () => {
+    const messageValues: string[] = [];
+    component.messageChange.subscribe((value) => messageValues.push(value));
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    textarea.value = '@br';
+    textarea.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const options = fixture.nativeElement.querySelectorAll(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_OPTION}"]`
+    );
+    expect(options).toHaveLength(1);
+
+    (options[0] as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const pill = fixture.nativeElement.querySelector(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_PILL}"]`
+    ) as HTMLElement | null;
+    expect(messageValues.at(-1)).toBe('');
+    expect(pill?.textContent).toContain('Brand Coordinator');
+    expect(pill?.textContent).toContain('@brand');
+
+    const removeButton = fixture.nativeElement.querySelector(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_REMOVE}"]`
+    ) as HTMLButtonElement;
+    removeButton.click();
+    fixture.detectChanges();
+
+    expect(
+      fixture.nativeElement.querySelector(
+        `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_PILL}"]`
+      )
+    ).toBeNull();
+  });
+
+  it('supports keyboard navigation and selection in the mention menu', async () => {
+    const textarea = fixture.nativeElement.querySelector('textarea') as HTMLTextAreaElement;
+
+    textarea.value = '@';
+    textarea.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    fixture.detectChanges();
+
+    const pill = fixture.nativeElement.querySelector(
+      `[data-testid="${AGENT_X_INPUT_TEST_IDS.COORDINATOR_MENTION_PILL}"]`
+    ) as HTMLElement | null;
+    expect(pill?.textContent).toContain('Performance Coordinator');
   });
 
   it('falls back to a Cloudflare poster when the selected context thumbnail fails', () => {

@@ -229,6 +229,37 @@ interface AgentXDesktopResizeState {
   readonly startWidth: number;
 }
 
+export const AGENT_X_DESKTOP_HUB_ACTIONS: readonly OperationQuickAction[] = [
+  {
+    id: 'agent-hub-agents',
+    label: 'Agents',
+    icon: 'people',
+    description: 'Choose a specialist agent',
+    promptText: '@',
+  },
+  {
+    id: 'agent-hub-skills',
+    label: 'Skills',
+    icon: 'sparkles',
+    description: 'Explore what Agent X can do',
+    promptText: 'Show me the skills you can use.',
+  },
+  {
+    id: 'agent-hub-connectors',
+    label: 'Connectors',
+    icon: 'link',
+    description: 'Work with connected apps',
+    promptText: 'Show me the connectors available to use.',
+  },
+  {
+    id: 'agent-hub-scheduled',
+    label: 'Scheduled',
+    icon: 'time',
+    description: 'Review scheduled work',
+    promptText: 'Show me my scheduled tasks.',
+  },
+] as const;
+
 const COORDINATOR_ORDER: readonly string[] = [
   'performance coordinator',
   'brand coordinator',
@@ -5458,19 +5489,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       : 'Direct chat with Agent X';
   });
 
-  protected readonly commandQuickActions = computed<readonly OperationQuickAction[]>(() =>
-    this.commandCategories().map((coord, index) => ({
-      id: coord.id || `coord-${index}`,
-      label: coord.label,
-      icon: coord.icon || 'sparkles',
-      description: coord.description,
-      selectedAction: {
-        coordinatorId: coord.id,
-        actionId: coord.id,
-        surface: 'command',
-        label: coord.label,
-      },
-    }))
+  protected readonly commandQuickActions = computed<readonly OperationQuickAction[]>(
+    () => AGENT_X_DESKTOP_HUB_ACTIONS
   );
 
   /** Playbook-derived progress: count of completed items. */
@@ -7618,7 +7638,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextTitle: 'Agent X',
       contextIcon: 'bolt',
       contextType: 'command',
-      contextDescription: 'Use Coordinators to plan, create, and review work in one session.',
+      contextDescription: 'Use Agents, Skills, Connectors, or Scheduled to start your work.',
       quickActions: this.commandQuickActions(),
     });
   }

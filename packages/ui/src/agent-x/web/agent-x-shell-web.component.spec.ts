@@ -1,5 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentXShellWebComponent } from './agent-x-shell-web.component';
+import {
+  AGENT_X_DESKTOP_HUB_ACTIONS,
+  AgentXShellWebComponent,
+} from './agent-x-shell-web.component';
+
+describe('AgentXShellWebComponent desktop hub actions', () => {
+  it('shows product-level actions instead of coordinator buttons', () => {
+    expect(AGENT_X_DESKTOP_HUB_ACTIONS.map((action) => action.label)).toEqual([
+      'Agents',
+      'Skills',
+      'Connectors',
+      'Scheduled',
+    ]);
+    expect(AGENT_X_DESKTOP_HUB_ACTIONS.every((action) => !action.selectedAction)).toBe(true);
+  });
+});
 
 describe('AgentXShellWebComponent onResponseComplete', () => {
   function createComponent(activeThreadId?: string) {
