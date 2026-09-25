@@ -3996,22 +3996,10 @@ export class AgentXOperationChatSessionFacade {
         this.messageFacade.messages.update((messages) =>
           messages.map((message) => {
             if (message.id !== 'typing') return message;
-            const prevParts = message.parts ?? [];
-            const existingThinkingIndex = prevParts.findIndex((part) => part.type === 'thinking');
-            const nextParts = [...prevParts];
-            if (existingThinkingIndex >= 0) {
-              const existing = nextParts[existingThinkingIndex];
-              if (existing?.type === 'thinking') {
-                nextParts[existingThinkingIndex] = {
-                  type: 'thinking' as const,
-                  content: existing.content + content,
-                  ...(existing.done ? { done: true as const } : {}),
-                };
-              }
-            } else {
-              nextParts.push({ type: 'thinking' as const, content });
-            }
-            return { ...message, parts: nextParts };
+            return {
+              ...message,
+              parts: this.messageFacade.withAppendedThinkingPart(message.parts, content),
+            };
           })
         );
       },

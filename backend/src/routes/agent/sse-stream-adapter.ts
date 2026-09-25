@@ -19,7 +19,7 @@
 import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
 import { extractMediaPayloads } from '../../modules/agent/stream-media-payloads.js';
-import { forceProxyFlush } from './shared.js';
+import { flushSseFrame, forceProxyFlush } from './shared.js';
 import { logger } from '../../utils/logger.js';
 import { createStreamingSanitizer, isUserAttachmentUrl, type StreamingSanitizer } from '@nxt1/core';
 
@@ -169,6 +169,20 @@ export function buildSseStreamCallback(
         if (!safeText) return;
         try {
           res.write(`event: delta\ndata: ${JSON.stringify({ content: safeText })}\n\n`);
+          flushSseFrame(res);
+        } catch {
+          // Client disconnected — handled by abort signal
+        }
+        return;
+      }
+
+      case 'thinking': {
+        if (!event.thinkingText) return;
+        try {
+          res.write(
+            `event: thinking\ndata: ${JSON.stringify({ content: event.thinkingText })}\n\n`
+          );
+          flushSseFrame(res);
         } catch {
           // Client disconnected — handled by abort signal
         }

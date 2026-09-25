@@ -423,7 +423,30 @@ export class AgentXOperationChatMessageFacade {
       return nextParts;
     }
 
+    for (let index = 0; index < nextParts.length; index += 1) {
+      const part = nextParts[index];
+      if (part?.type === 'thinking' && !part.done) {
+        nextParts[index] = { type: 'thinking', content: part.content, done: true };
+      }
+    }
     nextParts.push({ type: 'tool-steps', steps: [step] });
+    return nextParts;
+  }
+
+  withAppendedThinkingPart(
+    parts: readonly AgentXMessagePart[] | undefined,
+    content: string
+  ): AgentXMessagePart[] {
+    const nextParts = [...(parts ?? [])];
+    const last = nextParts[nextParts.length - 1];
+    if (last?.type === 'thinking' && !last.done) {
+      nextParts[nextParts.length - 1] = {
+        type: 'thinking',
+        content: last.content + content,
+      };
+    } else {
+      nextParts.push({ type: 'thinking', content });
+    }
     return nextParts;
   }
 
@@ -460,6 +483,12 @@ export class AgentXOperationChatMessageFacade {
         if (last?.type === 'text') {
           nextParts[nextParts.length - 1] = { type: 'text', content: last.content + delta };
         } else {
+          for (let index = 0; index < nextParts.length; index += 1) {
+            const part = nextParts[index];
+            if (part?.type === 'thinking' && !part.done) {
+              nextParts[index] = { type: 'thinking', content: part.content, done: true };
+            }
+          }
           nextParts.push({ type: 'text', content: delta });
         }
         return { ...message, content: message.content + delta, isTyping: false, parts: nextParts };

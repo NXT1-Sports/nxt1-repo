@@ -74,6 +74,7 @@ import {
   activeAbortControllers,
   getAuthUser,
   resolveThread,
+  flushSseFrame,
   forceProxyFlush,
 } from './shared.js';
 import { resolveAppBaseUrl } from '../../utils/app-url.js';
@@ -1959,6 +1960,15 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
         );
       }
       break;
+    case 'thinking':
+      if (typeof evt['thinkingText'] === 'string') {
+        res.write(
+          `event: thinking\ndata: ${JSON.stringify(
+            withEnvelope({ content: evt['thinkingText'] })
+          )}\n\n`
+        );
+      }
+      break;
     case 'step_active':
     case 'step_done':
     case 'step_error': {
@@ -2447,6 +2457,7 @@ async function streamOperationToSse(params: {
       }
 
       res.write(`event: ${msg.event}\ndata: ${JSON.stringify(normalizedPayload)}\n\n`);
+      flushSseFrame(res);
       if (isTerminal) {
         streamTerminalSeen = true;
         streamObservability.streamCompletedTotal += 1;
@@ -2502,6 +2513,7 @@ async function streamOperationToSse(params: {
       });
     }
     emitReplayEvent(res, evt);
+    flushSseFrame(res);
     streamObservability.replayCountTotal += 1;
     if (seq > lastSeq) lastSeq = seq;
     // Accumulate delta chars so the live-buffer drain can skip events
@@ -2619,6 +2631,7 @@ async function streamOperationToSse(params: {
           });
         }
         emitReplayEvent(res, evt);
+        flushSseFrame(res);
         lastSeq = Math.max(lastSeq, seq);
 
         if (STREAM_TERMINAL_EVENTS.has(String(evt['type'] ?? ''))) {

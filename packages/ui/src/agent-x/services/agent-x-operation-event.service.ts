@@ -958,16 +958,10 @@ export class AgentXOperationEventService {
       let maxSeq = -1;
 
       const appendThinkingPart = (thinkingText: string): void => {
-        const existingThinkingIndex = parts.findIndex((part) => part.type === 'thinking');
-        if (existingThinkingIndex >= 0) {
-          const existing = parts[existingThinkingIndex];
-          if (existing?.type === 'thinking') {
-            parts[existingThinkingIndex] = {
-              type: 'thinking',
-              content: existing.content + thinkingText,
-              ...(existing.done ? { done: true as const } : {}),
-            };
-          }
+        const lastIndex = parts.length - 1;
+        const last = parts[lastIndex];
+        if (last?.type === 'thinking' && !last.done) {
+          parts[lastIndex] = { type: 'thinking', content: last.content + thinkingText };
           return;
         }
 
@@ -988,6 +982,12 @@ export class AgentXOperationEventService {
             parts[parts.length - 1] = { type: 'tool-steps', steps: [...last.steps, step] };
           }
         } else {
+          for (let index = 0; index < parts.length; index += 1) {
+            const part = parts[index];
+            if (part.type === 'thinking' && !part.done) {
+              parts[index] = { type: 'thinking', content: part.content, done: true };
+            }
+          }
           parts.push({ type: 'tool-steps', steps: [step] });
         }
       };

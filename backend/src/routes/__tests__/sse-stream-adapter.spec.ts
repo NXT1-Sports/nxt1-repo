@@ -38,6 +38,28 @@ function parseMediaPayloads(writes: readonly string[]): Array<Record<string, unk
 }
 
 describe('buildSseStreamCallback', () => {
+  it('flushes text and thinking frames immediately', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef);
+
+    onStreamEvent({ type: 'thinking', thinkingText: 'Checking context. ' });
+    onStreamEvent({ type: 'delta', text: 'Here is the answer.' });
+
+    expect(writes).toEqual([
+      'event: thinking\ndata: {"content":"Checking context. "}\n\n',
+      'event: delta\ndata: {"content":"Here is the answer."}\n\n',
+    ]);
+    expect(response.flush).toHaveBeenCalledTimes(2);
+  });
+
   it('renders canonical step ids and labels while ignoring tool_call placeholder events', () => {
     const { writes, response } = createResponseRecorder();
     const streamRef: SseStreamRef = {
