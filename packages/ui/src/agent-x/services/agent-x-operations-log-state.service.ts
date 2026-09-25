@@ -9,9 +9,12 @@ import type {
   OperationsLogResponse,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { TRACE_NAMES } from '@nxt1/core/performance';
+import type { ActiveTrace } from '@nxt1/core/performance';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
+import { PERFORMANCE_ADAPTER } from '../../services/performance/performance-adapter.token';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import { AgentXOperationEventService } from './agent-x-operation-event.service';
 
@@ -32,6 +35,7 @@ const OPERATIONS_LOG_NO_CACHE_OPTIONS = {
 export class AgentXOperationsLogStateService {
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationsLogState');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
@@ -44,6 +48,7 @@ export class AgentXOperationsLogStateService {
   private readonly _initialized = signal(false);
   private readonly _history = signal<readonly OperationLogEntry[]>([]);
   private readonly _scheduled = signal<readonly OperationLogEntry[]>([]);
+  private readonly _pinned = signal<readonly OperationLogEntry[]>([]);
   private readonly _error = signal<string | null>(null);
   private readonly _hasMore = signal(false);
   private readonly _nextCursor = signal<string | null>(null);
@@ -67,7 +72,12 @@ export class AgentXOperationsLogStateService {
   readonly initialized = computed(() => this._initialized());
   readonly history = computed(() => this._history());
   readonly scheduled = computed(() => this._scheduled());
-  readonly operations = computed(() => [...this._scheduled(), ...this._history()]);
+  readonly pinned = computed(() => this._pinned());
+  readonly operations = computed(() => [
+    ...this._scheduled(),
+    ...this._pinned(),
+    ...this._history(),
+  ]);
   readonly error = computed(() => this._error());
   readonly hasMore = computed(() => this._hasMore());
   readonly nextCursor = computed(() => this._nextCursor());
@@ -105,7 +115,7 @@ export class AgentXOperationsLogStateService {
         if (evt.operationId) {
           this._sseGeneratedTitlesByOperation.set(evt.operationId, evt.title);
         }
-        this.updateHistory((ops) => {
+        const updateTitle = (ops: readonly OperationLogEntry[]): readonly OperationLogEntry[] => {
           const matchesTitleEvent = (op: OperationLogEntry): boolean =>
             evt.operationId
               ? op.operationId === evt.operationId ||
@@ -114,7 +124,9 @@ export class AgentXOperationsLogStateService {
           const target = ops.find(matchesTitleEvent);
           if (!target || target.title === evt.title) return ops;
           return ops.map((op) => (matchesTitleEvent(op) ? { ...op, title: evt.title } : op));
-        });
+        };
+        this.updatePinned(updateTitle);
+        this.updateHistory(updateTitle);
       });
 
     this.operationEventService.operationStatusUpdated$
@@ -268,6 +280,26 @@ export class AgentXOperationsLogStateService {
           });
         }
 
+        this.updatePinned((pinnedOps) => {
+          const eventThreadId = evt.threadId.trim();
+          const targetIdx = pinnedOps.findIndex(
+            (op) =>
+              (eventOperationId && op.operationId?.trim() === eventOperationId) ||
+              op.threadId?.trim() === eventThreadId
+          );
+          if (targetIdx < 0) return pinnedOps;
+          const prior = pinnedOps[targetIdx];
+          if (!prior) return pinnedOps;
+          const resolvedTitle = evt.title?.trim() || prior.title;
+          const updatedEntry: OperationLogEntry = {
+            ...prior,
+            status: effectiveStatus,
+            timestamp: evt.timestamp,
+            title: resolvedTitle,
+          };
+          return pinnedOps.map((op, i) => (i === targetIdx ? updatedEntry : op));
+        });
+
         const liveEventKey = this.getLiveEventKey(evt.operationId);
         if (terminalLogStatuses.has(effectiveStatus)) {
           if (liveEventKey) {
@@ -307,7 +339,7 @@ export class AgentXOperationsLogStateService {
 
   async ensureLoaded(force = false): Promise<void> {
     if (this._initialized() && !force) {
-      if (this._history().length > 0 || this._scheduled().length > 0) {
+      if (this._history().length > 0 || this._scheduled().length > 0 || this._pinned().length > 0) {
         void this.silentRefresh();
       }
       return;
@@ -333,8 +365,12 @@ export class AgentXOperationsLogStateService {
       }
 
       const nextEntries = response.data;
+      const scheduled = response.scheduled ?? this._scheduled();
+      const pinned = response.pinned ?? this._pinned();
+      this._scheduled.set(this.normalizeScheduled(scheduled));
+      this._pinned.set(this.normalizePinned(pinned));
       const merged = this.mergePagedHistory(this._history(), nextEntries);
-      this._history.set(merged);
+      this._history.set(this.normalizeHistory(merged, scheduled, pinned));
       this.applyPageInfo(response.pageInfo);
     } finally {
       this._loadingMore.set(false);
@@ -365,12 +401,142 @@ export class AgentXOperationsLogStateService {
     );
   }
 
+  isThreadPinned(threadId: string | null | undefined): boolean {
+    const resolvedThreadId = threadId?.trim();
+    if (!resolvedThreadId) {
+      return false;
+    }
+
+    return this._pinned().some(
+      (entry) =>
+        entry.threadId?.trim() === resolvedThreadId ||
+        this.getManageableThreadId(entry) === resolvedThreadId
+    );
+  }
+
+  async pinThread(threadId: string, pinned: boolean): Promise<boolean> {
+    const resolvedThreadId = threadId.trim();
+    if (!resolvedThreadId) {
+      return false;
+    }
+
+    const previousPinned = this._pinned();
+    const previousHistory = this._history();
+
+    const matchesThread = (entry: OperationLogEntry): boolean =>
+      entry.threadId?.trim() === resolvedThreadId ||
+      this.getManageableThreadId(entry) === resolvedThreadId;
+
+    if (pinned) {
+      const target = previousHistory.find(matchesThread);
+      if (target) {
+        const optimisticPinnedEntry: OperationLogEntry = {
+          ...target,
+          pinnedAt: new Date().toISOString(),
+        };
+        this._pinned.set(this.normalizePinned([...previousPinned, optimisticPinnedEntry]));
+        this._history.set(previousHistory.filter((entry) => !matchesThread(entry)));
+      }
+    } else {
+      const target = previousPinned.find(matchesThread);
+      if (target) {
+        const optimisticUnpinnedEntry: OperationLogEntry = {
+          ...target,
+          pinnedAt: null,
+        };
+        this._pinned.set(previousPinned.filter((entry) => !matchesThread(entry)));
+        this._history.set(
+          this.normalizeHistory(
+            [optimisticUnpinnedEntry, ...previousHistory],
+            this._scheduled(),
+            this._pinned()
+          )
+        );
+      }
+    }
+
+    this.logger.info(pinned ? 'Pinning thread' : 'Unpinning thread', {
+      threadId: resolvedThreadId,
+    });
+    this.breadcrumb.trackStateChange(
+      pinned ? 'operations-log:pin-thread' : 'operations-log:unpin-thread',
+      { threadId: resolvedThreadId }
+    );
+
+    let trace: ActiveTrace | undefined;
+    try {
+      trace = await this.performance?.startTrace(TRACE_NAMES.AGENT_X_THREAD_PIN_UPDATE);
+      await trace?.putAttribute('action', pinned ? 'pin' : 'unpin');
+    } catch (traceError) {
+      this.logger.warn('Failed to start session pin performance trace', {
+        threadId: resolvedThreadId,
+        error: traceError instanceof Error ? traceError.message : String(traceError),
+      });
+    }
+
+    try {
+      const url = `${this.baseUrl}/agent-x/threads/${encodeURIComponent(resolvedThreadId)}/pin`;
+      const response = await firstValueFrom(
+        this.http.put<{
+          success: boolean;
+          data?: { threadId: string; pinned: boolean; pinnedAt: string | null };
+          error?: string;
+        }>(url, { pinned })
+      );
+
+      if (
+        !response.success ||
+        !response.data ||
+        response.data.threadId !== resolvedThreadId ||
+        response.data.pinned !== pinned
+      ) {
+        throw new Error(response.error ?? `Failed to ${pinned ? 'pin' : 'unpin'} thread`);
+      }
+
+      const serverPinnedAt = response.data.pinnedAt;
+      if (pinned && serverPinnedAt) {
+        this._pinned.update((entries) =>
+          entries.map((entry) =>
+            matchesThread(entry) ? { ...entry, pinnedAt: serverPinnedAt } : entry
+          )
+        );
+      }
+
+      this.analytics?.trackEvent(
+        pinned ? APP_EVENTS.AGENT_X_SESSION_PINNED : APP_EVENTS.AGENT_X_SESSION_UNPINNED,
+        { thread_id: resolvedThreadId, source: 'operations_log' }
+      );
+
+      return true;
+    } catch (err) {
+      this._pinned.set(previousPinned);
+      this._history.set(previousHistory);
+      const message =
+        err instanceof Error ? err.message : `Failed to ${pinned ? 'pin' : 'unpin'} thread`;
+      this.logger.error('Failed to update thread pin state', {
+        threadId: resolvedThreadId,
+        error: message,
+      });
+      throw err;
+    } finally {
+      try {
+        await trace?.stop();
+      } catch (traceError) {
+        this.logger.warn('Failed to stop session pin performance trace', {
+          threadId: resolvedThreadId,
+          error: traceError instanceof Error ? traceError.message : String(traceError),
+        });
+      }
+    }
+  }
+
   replaceOperations(
     updater: (entries: readonly OperationLogEntry[]) => readonly OperationLogEntry[]
   ): void {
     const next = this.normalizeOperations(updater(this.operations()));
     const split = this.partitionOperations(next);
     this._scheduled.set(split.scheduled);
+    this._pinned.set(split.pinned);
     this._history.set(split.history);
   }
 
@@ -385,22 +551,27 @@ export class AgentXOperationsLogStateService {
       const response = await this.fetchOperations(INITIAL_HISTORY_LIMIT);
       if (response.success && response.data) {
         const scheduled = response.scheduled ?? [];
+        const pinned = response.pinned ?? [];
         this._scheduled.set(this.normalizeScheduled(scheduled));
-        this._history.set(this.normalizeHistory(response.data, scheduled));
+        this._pinned.set(this.normalizePinned(pinned));
+        this._history.set(this.normalizeHistory(response.data, scheduled, pinned));
         this.applyPageInfo(response.pageInfo);
         this._initialized.set(true);
         this.logger.info('Operations log loaded', {
           historyCount: response.data.length,
           scheduledCount: scheduled.length,
+          pinnedCount: pinned.length,
         });
         this.breadcrumb.trackStateChange('operations-log: loaded', {
           count: response.data.length,
           scheduledCount: scheduled.length,
+          pinnedCount: pinned.length,
         });
       } else {
         this.logger.warn('Operations log returned empty', { error: response.error });
         this._error.set(response.error ?? 'No data returned');
         this._scheduled.set([]);
+        this._pinned.set([]);
         this._history.set([]);
         this.applyPageInfo(undefined);
       }
@@ -409,6 +580,7 @@ export class AgentXOperationsLogStateService {
       this.logger.error('Failed to load operations log', { error: msg });
       this._error.set(msg);
       this._scheduled.set([]);
+      this._pinned.set([]);
       this._history.set([]);
       this.applyPageInfo(undefined);
     } finally {
@@ -441,8 +613,10 @@ export class AgentXOperationsLogStateService {
       const response = await this.fetchOperations(INITIAL_HISTORY_LIMIT);
       if (response.success && response.data) {
         const scheduled = response.scheduled ?? [];
+        const pinned = response.pinned ?? [];
         this._scheduled.set(this.normalizeScheduled(scheduled));
-        let entries = this.normalizeHistory(response.data, scheduled);
+        this._pinned.set(this.normalizePinned(pinned));
+        let entries = this.normalizeHistory(response.data, scheduled, pinned);
 
         if (liveStatuses.size > 0 || this._sseGeneratedTitles.size > 0) {
           const terminalStates = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
@@ -513,7 +687,8 @@ export class AgentXOperationsLogStateService {
         const mergedEntries = this.mergeRefreshedHistory(
           previousEntries,
           entries,
-          response.pageInfo?.hasMore ?? false
+          response.pageInfo?.hasMore ?? false,
+          pinned
         );
         const preservedLoadedHistory = mergedEntries.length > entries.length;
 
@@ -572,7 +747,8 @@ export class AgentXOperationsLogStateService {
   private mergeRefreshedHistory(
     existing: readonly OperationLogEntry[],
     refreshed: readonly OperationLogEntry[],
-    hasMoreFromFirstPage: boolean
+    hasMoreFromFirstPage: boolean,
+    pinnedEntries: readonly OperationLogEntry[]
   ): readonly OperationLogEntry[] {
     if (!hasMoreFromFirstPage || existing.length === 0 || refreshed.length === 0) {
       return refreshed;
@@ -584,9 +760,18 @@ export class AgentXOperationsLogStateService {
     }
 
     const refreshedKeys = new Set(refreshed.map((entry) => this.getEntryKey(entry)));
+    const pinnedThreadIds = new Set(
+      pinnedEntries
+        .map((entry) => entry.threadId?.trim() || this.getManageableThreadId(entry))
+        .filter((threadId): threadId is string => !!threadId)
+    );
     const preservedOlderEntries = existing.filter((entry) => {
       const key = this.getEntryKey(entry);
       if (refreshedKeys.has(key)) {
+        return false;
+      }
+      const threadId = entry.threadId?.trim() || this.getManageableThreadId(entry);
+      if (entry.pinnedAt || (threadId && pinnedThreadIds.has(threadId))) {
         return false;
       }
 
@@ -597,8 +782,10 @@ export class AgentXOperationsLogStateService {
       return refreshed;
     }
 
-    return this.normalizeOperations([...refreshed, ...preservedOlderEntries]).filter(
-      (entry) => entry.isScheduled !== true
+    return this.normalizeHistory(
+      [...refreshed, ...preservedOlderEntries],
+      this._scheduled(),
+      pinnedEntries
     );
   }
 
@@ -606,13 +793,45 @@ export class AgentXOperationsLogStateService {
     return [...entries].sort((a, b) => this.compareEntries(a, b));
   }
 
+  private comparePinnedEntries(a: OperationLogEntry, b: OperationLogEntry): number {
+    const pinA = a.pinnedAt ? Date.parse(a.pinnedAt) : 0;
+    const pinB = b.pinnedAt ? Date.parse(b.pinnedAt) : 0;
+    const normalizedPinA = Number.isFinite(pinA) ? pinA : 0;
+    const normalizedPinB = Number.isFinite(pinB) ? pinB : 0;
+    if (normalizedPinA !== normalizedPinB) {
+      return normalizedPinB - normalizedPinA;
+    }
+    return this.compareEntries(a, b);
+  }
+
+  private normalizePinned(entries: readonly OperationLogEntry[]): readonly OperationLogEntry[] {
+    return [...entries].sort((a, b) => this.comparePinnedEntries(a, b));
+  }
+
   private normalizeHistory(
     historyEntries: readonly OperationLogEntry[],
-    scheduledEntries: readonly OperationLogEntry[]
+    scheduledEntries: readonly OperationLogEntry[],
+    pinnedEntries?: readonly OperationLogEntry[]
   ): readonly OperationLogEntry[] {
-    return this.normalizeOperations([...scheduledEntries, ...historyEntries]).filter(
-      (entry) => entry.isScheduled !== true
-    );
+    const pinnedThreadIds = new Set<string>();
+    for (const entry of pinnedEntries ?? this._pinned()) {
+      if (entry.threadId?.trim()) {
+        pinnedThreadIds.add(entry.threadId.trim());
+      }
+      const threadId = this.getManageableThreadId(entry);
+      if (threadId) {
+        pinnedThreadIds.add(threadId);
+      }
+    }
+
+    return this.normalizeOperations([...scheduledEntries, ...historyEntries]).filter((entry) => {
+      if (entry.isScheduled === true) return false;
+      if (entry.pinnedAt) return false;
+      if (entry.threadId?.trim() && pinnedThreadIds.has(entry.threadId.trim())) return false;
+      const threadId = this.getManageableThreadId(entry);
+      if (threadId && pinnedThreadIds.has(threadId)) return false;
+      return true;
+    });
   }
 
   private normalizeOperations(entries: readonly OperationLogEntry[]): readonly OperationLogEntry[] {
@@ -646,26 +865,42 @@ export class AgentXOperationsLogStateService {
 
   private partitionOperations(entries: readonly OperationLogEntry[]): {
     readonly scheduled: readonly OperationLogEntry[];
+    readonly pinned: readonly OperationLogEntry[];
     readonly history: readonly OperationLogEntry[];
   } {
     const scheduled: OperationLogEntry[] = [];
+    const pinned: OperationLogEntry[] = [];
     const history: OperationLogEntry[] = [];
 
     for (const entry of entries) {
       if (entry.isScheduled === true) {
         scheduled.push(entry);
+      } else if (entry.pinnedAt) {
+        pinned.push(entry);
       } else {
         history.push(entry);
       }
     }
 
-    return { scheduled, history };
+    return {
+      scheduled: this.normalizeScheduled(scheduled),
+      pinned: this.normalizePinned(pinned),
+      history: this.normalizeHistory(history, scheduled, pinned),
+    };
+  }
+
+  private updatePinned(
+    updater: (entries: readonly OperationLogEntry[]) => readonly OperationLogEntry[]
+  ): void {
+    this._pinned.set(this.normalizePinned(updater(this._pinned())));
   }
 
   private updateHistory(
     updater: (entries: readonly OperationLogEntry[]) => readonly OperationLogEntry[]
   ): void {
-    this._history.set(this.normalizeHistory(updater(this._history()), this._scheduled()));
+    this._history.set(
+      this.normalizeHistory(updater(this._history()), this._scheduled(), this._pinned())
+    );
   }
 
   private compareEntries(a: OperationLogEntry, b: OperationLogEntry): number {

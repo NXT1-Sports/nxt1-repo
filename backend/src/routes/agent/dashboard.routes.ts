@@ -19,6 +19,7 @@ import { validateBody } from '../../middleware/validation/validation.middleware.
 import { SetGoalsDto, CompleteGoalDto } from '../../dtos/agent-x.dto.js';
 import type {
   AgentDashboardGoal,
+  AgentThread,
   ShellActionChip,
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
@@ -761,25 +762,43 @@ function filterOperationsAfterCursor(
   });
 }
 
+function comparePinnedOperationsLogEntries(a: OperationLogEntry, b: OperationLogEntry): number {
+  const pinA = a.pinnedAt ? Date.parse(a.pinnedAt) : 0;
+  const pinB = b.pinnedAt ? Date.parse(b.pinnedAt) : 0;
+  const normalizedPinA = Number.isFinite(pinA) ? pinA : 0;
+  const normalizedPinB = Number.isFinite(pinB) ? pinB : 0;
+
+  if (normalizedPinA !== normalizedPinB) {
+    return normalizedPinB - normalizedPinA;
+  }
+
+  return compareOperationsLogEntries(a, b);
+}
+
 function splitOperationsLogEntries(entries: readonly OperationLogEntry[]): {
   readonly scheduled: readonly OperationLogEntry[];
+  readonly pinned: readonly OperationLogEntry[];
   readonly history: readonly OperationLogEntry[];
 } {
   const scheduled: OperationLogEntry[] = [];
+  const pinned: OperationLogEntry[] = [];
   const history: OperationLogEntry[] = [];
 
   for (const entry of entries) {
     if (entry.isScheduled === true) {
       scheduled.push(entry);
+    } else if (entry.pinnedAt) {
+      pinned.push(entry);
     } else {
       history.push(entry);
     }
   }
 
   scheduled.sort(compareOperationsLogEntries);
+  pinned.sort(comparePinnedOperationsLogEntries);
   history.sort(compareOperationsLogEntries);
 
-  return { scheduled, history };
+  return { scheduled, pinned, history };
 }
 
 function countOperationsLogJobHistoryCandidates(
@@ -789,6 +808,7 @@ function countOperationsLogJobHistoryCandidates(
     readonly threadFilterIsAuthoritative: boolean;
     readonly activeRecurringTaskKeys: ReadonlySet<string>;
     readonly activeRecurringSourceIds: ReadonlySet<string>;
+    readonly pinnedThreadIds?: ReadonlySet<string>;
   }
 ): number {
   const seenThreadIds = new Set<string>();
@@ -829,6 +849,10 @@ function countOperationsLogJobHistoryCandidates(
 
     const threadId = (job['threadId'] as string) ?? undefined;
     if (threadId) {
+      if (options.pinnedThreadIds && options.pinnedThreadIds.has(threadId)) {
+        continue;
+      }
+
       if (options.threadFilterIsAuthoritative && !options.activeThreadIds.has(threadId)) {
         continue;
       }
@@ -982,6 +1006,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         })
       : null;
 
+    const pinnedThreadsPromise =
+      chatService && typeof chatService.getPinnedThreads === 'function'
+        ? chatService.getPinnedThreads(user.uid)
+        : null;
+
     const recurringTasksPromise = db
       .collection(RECURRING_TASKS_COLLECTION)
       .where('userId', '==', user.uid)
@@ -993,6 +1022,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       ReturnType<NonNullable<typeof chatService>['getUserThreads']>
     > | null = null;
     let threadPrefetchFailed = false;
+    let prefetchedPinnedThreads: Awaited<
+      ReturnType<NonNullable<typeof chatService>['getPinnedThreads']>
+    > | null = null;
+    let pinnedPrefetchFailed = false;
     let prefetchedRecurringSnapshot: {
       empty: boolean;
       docs: FirestoreDocLike[];
@@ -1033,6 +1066,21 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           }
         }
 
+        if (pinnedThreadsPromise && !prefetchedPinnedThreads && !pinnedPrefetchFailed) {
+          try {
+            prefetchedPinnedThreads = await withOperationsLogDependencyTimeout(
+              pinnedThreadsPromise,
+              'Mongo pinned threads query'
+            );
+          } catch (pinnedErr) {
+            pinnedPrefetchFailed = true;
+            logger.warn('Failed to prefetch pinned threads for operations log filtering', {
+              userId: user.uid,
+              error: pinnedErr instanceof Error ? pinnedErr.message : String(pinnedErr),
+            });
+          }
+        }
+
         if (!prefetchedRecurringSnapshot && !recurringPrefetchFailed) {
           try {
             const snapshot = await withOperationsLogDependencyTimeout(
@@ -1063,6 +1111,14 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             earlyThreadTitleById.set(thread.id, thread.title);
           }
 
+          const earlyPinnedThreadIds = new Set<string>();
+          for (const thread of prefetchedPinnedThreads ?? []) {
+            if (!thread.id) continue;
+            earlyPinnedThreadIds.add(thread.id);
+            earlyActiveThreadIds.add(thread.id);
+            earlyThreadTitleById.set(thread.id, thread.title);
+          }
+
           const earlyActiveRecurringTaskKeys = new Set<string>();
           const earlyActiveRecurringSourceIds = new Set<string>();
           for (const doc of prefetchedRecurringSnapshot?.docs ?? []) {
@@ -1079,6 +1135,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             threadFilterIsAuthoritative: earlyThreadFilterIsAuthoritative,
             activeRecurringTaskKeys: earlyActiveRecurringTaskKeys,
             activeRecurringSourceIds: earlyActiveRecurringSourceIds,
+            pinnedThreadIds: earlyPinnedThreadIds,
           });
 
           if (candidateCount >= limit + 1) {
@@ -1143,6 +1200,35 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           error: threadErr instanceof Error ? threadErr.message : String(threadErr),
         });
       }
+    }
+
+    let pinnedThreads: Awaited<ReturnType<NonNullable<typeof chatService>['getPinnedThreads']>> =
+      [];
+    const pinnedThreadById = new Map<string, AgentThread>();
+    const pinnedThreadIds = new Set<string>();
+
+    if (prefetchedPinnedThreads) {
+      pinnedThreads = prefetchedPinnedThreads;
+    } else if (pinnedThreadsPromise && !pinnedPrefetchFailed) {
+      try {
+        pinnedThreads = await withOperationsLogDependencyTimeout(
+          pinnedThreadsPromise,
+          'Mongo pinned threads query'
+        );
+      } catch (pinnedErr) {
+        logger.warn('Failed to fetch pinned threads for operations log filtering', {
+          userId: user.uid,
+          error: pinnedErr instanceof Error ? pinnedErr.message : String(pinnedErr),
+        });
+      }
+    }
+
+    for (const thread of pinnedThreads) {
+      if (!thread.id) continue;
+      pinnedThreadById.set(thread.id, thread);
+      pinnedThreadIds.add(thread.id);
+      activeThreadIds.add(thread.id);
+      threadTitleById.set(thread.id, thread.title);
     }
 
     let recurringTasksSnapshot: {
@@ -1292,6 +1378,10 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const intentFirstLine = intent.split('\n')[0] ?? intent;
       const displayTitle = resolvedTitle || intentFirstLine;
 
+      const isPinned = Boolean(threadId && pinnedThreadById.has(threadId));
+      const pinnedAt =
+        isPinned && threadId ? (pinnedThreadById.get(threadId)?.pinnedAt ?? undefined) : undefined;
+
       entries.push({
         id: (job['operationId'] as string) ?? threadId ?? '',
         operationId: (job['operationId'] as string) ?? undefined,
@@ -1309,6 +1399,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         threadId,
         origin: jobOrigin,
         isScheduled,
+        pinnedAt,
         metadata: {
           agent: (result as Record<string, unknown> | null)?.['agent'] ?? null,
         },
@@ -1419,7 +1510,16 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           if (tid && oid) threadIdToOperationId.set(tid, oid);
         }
 
-        for (const thread of activeThreads) {
+        const candidateThreads: AgentThread[] = [];
+        const seenCandidateThreadIds = new Set<string>();
+        for (const t of [...pinnedThreads, ...activeThreads]) {
+          if (t.id && !seenCandidateThreadIds.has(t.id)) {
+            seenCandidateThreadIds.add(t.id);
+            candidateThreads.push(t);
+          }
+        }
+
+        for (const thread of candidateThreads) {
           if (
             !thread.id ||
             representedThreadIds.has(thread.id) ||
@@ -1445,6 +1545,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             threadId: thread.id,
             origin: 'user',
             isScheduled: false,
+            pinnedAt: thread.pinnedAt ?? undefined,
             metadata: {
               source: 'thread',
               messageCount: thread.messageCount,
@@ -1460,7 +1561,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    const { scheduled, history } = splitOperationsLogEntries(entries);
+    const { scheduled, pinned, history } = splitOperationsLogEntries(entries);
     const cursorFilteredHistory = filterOperationsAfterCursor(history, cursor);
     const pagedHistory = cursorFilteredHistory.slice(0, limit + 1);
     const hasMore = pagedHistory.length > limit;
@@ -1471,12 +1572,14 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       userId: user.uid,
       historyCount: data.length,
       scheduledCount: scheduled.length,
+      pinnedCount: pinned.length,
       hasMore,
     });
     res.json({
       success: true,
       data,
       scheduled,
+      pinned,
       pageInfo: {
         hasMore,
         ...(nextCursor ? { nextCursor } : {}),

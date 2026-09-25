@@ -56,6 +56,7 @@ import { AgentXOperationEventService } from '../../services/agent-x-operation-ev
 import { AgentXOperationsLogStateService } from '../../services/agent-x-operations-log-state.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AGENT_X_OPERATIONS_LOG_TEST_IDS } from '@nxt1/core/testing';
 import type { OperationLogEntry, OperationLogStatus } from '@nxt1/core';
 import { NxtToastService } from '../../../services/toast/toast.service';
 
@@ -114,21 +115,7 @@ const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 // ============================================
 
 /** Test IDs for Operations Log (used by E2E Page Objects). */
-export const OPERATIONS_LOG_TEST_IDS = {
-  HEADER: 'operations-log-header',
-  CLOSE_BUTTON: 'operations-log-close',
-  SUMMARY_BAR: 'operations-log-summary',
-  FILTER_CHIP: 'operations-log-filter',
-  SCROLL_CONTAINER: 'operations-log-scroll',
-  DAY_GROUP: 'operations-log-day-group',
-  ENTRY: 'operations-log-entry',
-  EMPTY_STATE: 'operations-log-empty',
-  ERROR_STATE: 'operations-log-error',
-  SKELETON: 'operations-log-skeleton',
-  ENTRY_MENU_BUTTON: 'operations-log-entry-menu-button',
-  ENTRY_MENU: 'operations-log-entry-menu',
-  ENTRY_RENAME_INPUT: 'operations-log-entry-rename-input',
-} as const;
+export const OPERATIONS_LOG_TEST_IDS = AGENT_X_OPERATIONS_LOG_TEST_IDS;
 
 @Component({
   selector: 'nxt1-agent-x-operations-log',
@@ -198,7 +185,11 @@ export const OPERATIONS_LOG_TEST_IDS = {
             Retry
           </button>
         </div>
-      } @else if (scheduledEntries().length === 0 && filteredGroups().length === 0) {
+      } @else if (
+        scheduledEntries().length === 0 &&
+        pinnedEntries().length === 0 &&
+        filteredGroups().length === 0
+      ) {
         <!-- Empty State -->
         <div class="log-empty" [attr.data-testid]="testIds.EMPTY_STATE">
           <div class="log-empty-icon">
@@ -314,6 +305,111 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 </div>
               }
             </div>
+          </div>
+        }
+
+        @if (pinnedEntries().length > 0) {
+          <div
+            class="log-day-group log-day-group--pinned"
+            [attr.data-testid]="testIds.PINNED_GROUP"
+          >
+            <div class="log-day-label" [class.log-day-label--static]="!stickyDayLabels()">
+              Pinned
+            </div>
+            @for (entry of pinnedEntries(); track entry.id) {
+              <div
+                class="log-entry log-entry--pinned"
+                [attr.data-testid]="testIds.ENTRY"
+                [class.log-entry--menu-open]="isMenuOpen(entry)"
+                [class.log-entry--unread]="isUnread(entry)"
+                [class.log-entry--error]="entry.status === 'error'"
+                [class.log-entry--cancelled]="entry.status === 'cancelled'"
+                [class.log-entry--active]="
+                  entry.status === 'in-progress' && highlightActiveEntries()
+                "
+                [class.log-entry--awaiting]="
+                  entry.status === 'paused' ||
+                  entry.status === 'awaiting_input' ||
+                  entry.status === 'awaiting_approval'
+                "
+                [class.log-entry--current]="
+                  !!entry.threadId && currentThreadId() === entry.threadId
+                "
+              >
+                <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
+                  @if (entry.status !== 'complete') {
+                    <span
+                      class="log-entry-status"
+                      [class.log-entry-status--error]="entry.status === 'error'"
+                      [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
+                      [class.log-entry-status--active]="
+                        entry.status === 'in-progress' && highlightActiveEntries()
+                      "
+                      [class.log-entry-status--awaiting]="
+                        entry.status === 'paused' ||
+                        entry.status === 'awaiting_input' ||
+                        entry.status === 'awaiting_approval'
+                      "
+                    >
+                      @switch (entry.status) {
+                        @case ('error') {
+                          <nxt1-icon name="alertCircle" [size]="14" />
+                        }
+                        @case ('cancelled') {
+                          <nxt1-icon name="close" [size]="14" />
+                        }
+                        @case ('in-progress') {
+                          <span
+                            class="log-entry-spinner"
+                            [class.log-entry-spinner--alt]="animationResetKey() % 2 === 1"
+                          >
+                            <nxt1-icon name="refresh" [size]="14" />
+                          </span>
+                        }
+                        @case ('paused') {
+                          <nxt1-icon name="time" [size]="14" />
+                        }
+                        @case ('awaiting_input') {
+                          <nxt1-icon name="handLeft" [size]="14" />
+                        }
+                        @case ('awaiting_approval') {
+                          <nxt1-icon name="shieldCheck" [size]="14" />
+                        }
+                      }
+                    </span>
+                  }
+
+                  <div class="log-entry-content">
+                    <h4 class="log-entry-title">{{ entry.title }}</h4>
+                    <div class="log-entry-meta">
+                      <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
+                      @if (entry.duration) {
+                        <span class="log-entry-duration">
+                          <nxt1-icon name="time" [size]="10" />
+                          {{ entry.duration }}
+                        </span>
+                      }
+                    </div>
+                  </div>
+                </button>
+
+                <div class="log-entry-actions">
+                  <button
+                    type="button"
+                    class="log-entry-menu-trigger"
+                    [attr.data-menu-anchor-id]="entry.id"
+                    [attr.data-testid]="testIds.ENTRY_MENU_BUTTON"
+                    [attr.aria-expanded]="isMenuOpen(entry)"
+                    aria-haspopup="menu"
+                    aria-label="Open session actions"
+                    [disabled]="isMutationBusy(entry)"
+                    (click)="onEntryMenuToggle(entry, $event)"
+                  >
+                    <nxt1-icon name="moreHorizontal" [size]="18" />
+                  </button>
+                </div>
+              </div>
+            }
           </div>
         }
 
@@ -511,6 +607,19 @@ export const OPERATIONS_LOG_TEST_IDS = {
             </div>
           </div>
         } @else {
+          @if (canPinEntry(menuEntry)) {
+            <button
+              type="button"
+              class="log-entry-menu-item"
+              role="menuitem"
+              [attr.data-testid]="testIds.ENTRY_PIN_BUTTON"
+              [disabled]="isMutationBusy(menuEntry)"
+              (click)="onPinToggle(menuEntry, $event)"
+            >
+              <nxt1-icon [name]="isEntryPinned(menuEntry) ? 'close' : 'pin'" [size]="16" />
+              {{ isEntryPinned(menuEntry) ? 'Unpin' : 'Pin' }}
+            </button>
+          }
           <button
             type="button"
             class="log-entry-menu-item"
@@ -1056,6 +1165,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
         text-transform: uppercase;
       }
 
+      .log-day-group--pinned {
+        margin-bottom: var(--nxt1-spacing-4, 16px);
+      }
+
       .log-entry-scheduled--card {
         color: #d8c5ff;
         background: color-mix(in srgb, #a882ff 18%, transparent);
@@ -1390,6 +1503,22 @@ export class AgentXOperationsLogComponent {
     return ops.filter((o) => o.status === filter);
   });
 
+  /** Pinned sessions displayed directly below scheduled tasks. */
+  protected readonly pinnedEntries = computed(() => {
+    const filter = this._activeFilter();
+    const ops = this.operationsLogState.pinned();
+
+    if (filter === 'all') {
+      return ops;
+    }
+
+    if (filter === 'scheduled') {
+      return [];
+    }
+
+    return ops.filter((o) => o.status === filter);
+  });
+
   /**
    * Filtered operations based on the active filter chip.
    *
@@ -1469,6 +1598,47 @@ export class AgentXOperationsLogComponent {
 
   protected canManageEntry(entry: OperationLogEntry): boolean {
     return this.getRecurringTaskKey(entry) !== null || this.getManageableThreadId(entry) !== null;
+  }
+
+  protected canPinEntry(entry: OperationLogEntry): boolean {
+    if (entry.isScheduled === true) {
+      return false;
+    }
+    return this.getManageableThreadId(entry) !== null;
+  }
+
+  protected isEntryPinned(entry: OperationLogEntry): boolean {
+    const threadId = this.getManageableThreadId(entry);
+    return Boolean(entry.pinnedAt) || this.operationsLogState.isThreadPinned(threadId);
+  }
+
+  protected async onPinToggle(entry: OperationLogEntry, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const threadId = this.getManageableThreadId(entry);
+    if (!threadId) {
+      this.toast.error('This session cannot be pinned');
+      return;
+    }
+
+    const currentlyPinned = this.isEntryPinned(entry);
+    const targetPinned = !currentlyPinned;
+
+    await this.haptics.impact('light');
+    this.markMutationBusy(entry.id, true);
+
+    try {
+      await this.operationsLogState.pinThread(threadId, targetPinned);
+      this.toast.success(targetPinned ? 'Session pinned' : 'Session unpinned');
+      this.resetMenuState();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : `Failed to ${targetPinned ? 'pin' : 'unpin'} session`;
+      this.toast.error(message);
+    } finally {
+      this.markMutationBusy(entry.id, false);
+    }
   }
 
   protected isMenuOpen(entry: OperationLogEntry): boolean {

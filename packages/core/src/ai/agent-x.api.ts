@@ -170,6 +170,13 @@ export interface AgentXThreadActionResponse {
   readonly resolvedOperationId?: string;
 }
 
+/** Response from pinning or unpinning a thread. */
+export interface PinThreadResponse {
+  readonly threadId: string;
+  readonly pinned: boolean;
+  readonly pinnedAt: string | null;
+}
+
 // ============================================
 // API FACTORY
 // ============================================
@@ -522,6 +529,22 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
       } catch {
         return null;
       }
+    },
+
+    /**
+     * Pin or unpin an Agent X session thread.
+     *
+     * @param threadId - The MongoDB thread ID
+     * @param pinned - Whether to pin (true) or unpin (false)
+     * @returns Pin result with threadId, pinned boolean, and timestamp
+     */
+    async pinThread(threadId: string, pinned: boolean): Promise<PinThreadResponse> {
+      const url = `${endpoint(AGENT_X_ENDPOINTS.THREADS)}/${encodeURIComponent(threadId)}/pin`;
+      const response = await http.put<ApiResponse<PinThreadResponse>>(url, { pinned });
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? `Failed to ${pinned ? 'pin' : 'unpin'} thread`);
+      }
+      return response.data;
     },
 
     /**

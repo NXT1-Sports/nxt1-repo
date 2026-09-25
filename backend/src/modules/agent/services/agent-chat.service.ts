@@ -217,6 +217,15 @@ function mergeUniqueAttachments(
   return merged;
 }
 
+export interface PinThreadResult {
+  readonly success: boolean;
+  readonly threadId?: string;
+  readonly pinned?: boolean;
+  readonly pinnedAt?: string | null;
+  readonly errorCode?: 'THREAD_NOT_FOUND';
+  readonly error?: string;
+}
+
 type ThreadMapperInput = Pick<
   AgentThread,
   | 'userId'
@@ -226,6 +235,7 @@ type ThreadMapperInput = Pick<
   | 'lastMessageAt'
   | 'messageCount'
   | 'archived'
+  | 'pinnedAt'
   | 'createdAt'
   | 'updatedAt'
 > & {
@@ -386,12 +396,13 @@ export class AgentChatService {
   /**
    * Archive (soft-hide) a thread. Does NOT delete messages.
    * Also clears the Redis session cache for this thread so stale state
-   * never lingers after the thread is removed from the user's view.
+   * never lingers after the thread is removed from the user's view,
+   * and clears any active pin on the thread.
    */
   async archiveThread(threadId: string, userId: string): Promise<boolean> {
     const result = await AgentThreadModel.updateOne(
       { _id: threadId, userId },
-      { $set: { archived: true, updatedAt: new Date().toISOString() } }
+      { $set: { archived: true, pinnedAt: null, updatedAt: new Date().toISOString() } }
     ).exec();
 
     if (result.modifiedCount > 0 && this.sessionMemory) {
@@ -406,6 +417,118 @@ export class AgentChatService {
     }
 
     return result.modifiedCount > 0;
+  }
+
+  /**
+   * Pin or unpin a conversation thread.
+   * - Enforces user ownership and non-archived state.
+   * - Idempotent: repeated pin/unpin returns success with preserved/cleared timestamp.
+   * - Enforces a maximum of 10 pinned threads per user.
+   */
+  async pinThread(threadId: string, userId: string, pinned: boolean): Promise<PinThreadResult> {
+    if (pinned) {
+      const pinnedAt = new Date().toISOString();
+      const updated = await AgentThreadModel.findOneAndUpdate(
+        { _id: threadId, userId, archived: false, pinnedAt: null },
+        { $set: { pinnedAt, updatedAt: pinnedAt } },
+        { new: true }
+      )
+        .lean()
+        .exec();
+
+      if (updated) {
+        logger.info('[AgentChatService] Thread pinned', { threadId, userId, pinnedAt });
+        return {
+          success: true,
+          threadId: String(updated._id),
+          pinned: true,
+          pinnedAt: updated.pinnedAt ?? pinnedAt,
+        };
+      }
+
+      const current = await AgentThreadModel.findOne({
+        _id: threadId,
+        userId,
+        archived: false,
+      })
+        .lean()
+        .exec();
+      if (!current) {
+        return {
+          success: false,
+          errorCode: 'THREAD_NOT_FOUND',
+          error: 'Thread not found',
+        };
+      }
+
+      if (current.pinnedAt) {
+        return {
+          success: true,
+          threadId: String(current._id),
+          pinned: true,
+          pinnedAt: current.pinnedAt,
+        };
+      }
+
+      return {
+        success: false,
+        errorCode: 'THREAD_NOT_FOUND',
+        error: 'Thread not found',
+      };
+    }
+
+    const result = await AgentThreadModel.updateOne(
+      { _id: threadId, userId, archived: false, pinnedAt: { $ne: null } },
+      { $set: { pinnedAt: null, updatedAt: new Date().toISOString() } }
+    ).exec();
+
+    if (result.modifiedCount > 0) {
+      logger.info('[AgentChatService] Thread unpinned', { threadId, userId });
+      return {
+        success: true,
+        threadId,
+        pinned: false,
+        pinnedAt: null,
+      };
+    }
+
+    const current = await AgentThreadModel.findOne({
+      _id: threadId,
+      userId,
+      archived: false,
+    })
+      .lean()
+      .exec();
+    if (!current) {
+      return {
+        success: false,
+        errorCode: 'THREAD_NOT_FOUND',
+        error: 'Thread not found',
+      };
+    }
+
+    return {
+      success: true,
+      threadId: String(current._id),
+      pinned: false,
+      pinnedAt: null,
+    };
+  }
+
+  /**
+   * Get all pinned, non-archived threads for a user ordered by pinnedAt descending.
+   */
+  async getPinnedThreads(userId: string): Promise<AgentThread[]> {
+    const docs = await AgentThreadModel.find({
+      userId,
+      archived: false,
+      pinnedAt: { $ne: null },
+    })
+      .sort({ pinnedAt: -1, _id: -1 })
+      .lean()
+      .exec();
+
+    return docs.map((d) => this.toThread(d));
   }
 
   /**
@@ -1734,6 +1857,7 @@ export class AgentChatService {
       lastMessageAt: doc.lastMessageAt,
       messageCount: doc.messageCount,
       archived: doc.archived,
+      pinnedAt: doc.pinnedAt ?? null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };

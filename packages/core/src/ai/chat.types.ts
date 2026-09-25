@@ -45,6 +45,8 @@ export interface AgentThread {
   readonly messageCount: number;
   /** Whether the user has archived (hidden) this thread. */
   readonly archived: boolean;
+  /** ISO-8601 timestamp when this thread was pinned, or null/undefined if unpinned. */
+  readonly pinnedAt?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   /** Backend-only: MongoDB TTL expiration date. */
