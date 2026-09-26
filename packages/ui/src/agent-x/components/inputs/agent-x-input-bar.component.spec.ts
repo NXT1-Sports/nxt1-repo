@@ -1,12 +1,42 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentXInputBarComponent } from './agent-x-input-bar.component';
-import { ElementRef } from '@angular/core';
+import { ElementRef, signal } from '@angular/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
+import { AgentXVoiceInputService } from '../../services/voice/agent-x-voice-input.service';
+
+interface TestSignal<T> {
+  set(value: T): void;
+}
+
+interface VoiceServiceMock {
+  readonly available: TestSignal<boolean> & (() => boolean);
+  readonly listening: TestSignal<boolean> & (() => boolean);
+  readonly levels: TestSignal<readonly number[]> & (() => readonly number[]);
+  readonly composedPrompt: TestSignal<string> & (() => string);
+  readonly initialize: ReturnType<typeof vi.fn>;
+  readonly start: ReturnType<typeof vi.fn>;
+  readonly stop: ReturnType<typeof vi.fn>;
+  readonly destroy: ReturnType<typeof vi.fn>;
+}
+
+function createVoiceServiceMock(): VoiceServiceMock {
+  return {
+    available: signal(false),
+    listening: signal(false),
+    levels: signal([0.12, 0.12, 0.12, 0.12, 0.12, 0.12, 0.12]),
+    composedPrompt: signal(''),
+    initialize: vi.fn(),
+    start: vi.fn(),
+    stop: vi.fn(),
+    destroy: vi.fn(),
+  };
+}
 
 describe('AgentXInputBarComponent', () => {
   let fixture: ComponentFixture<AgentXInputBarComponent>;
   let component: AgentXInputBarComponent;
+  let voiceService: VoiceServiceMock;
   let rafQueue: FrameRequestCallback[];
   let originalInnerHeight: PropertyDescriptor | undefined;
   let originalInnerWidth: PropertyDescriptor | undefined;
@@ -26,8 +56,11 @@ describe('AgentXInputBarComponent', () => {
       rafQueue[handle - 1] = () => 0;
     });
 
+    voiceService = createVoiceServiceMock();
+
     await TestBed.configureTestingModule({
       imports: [AgentXInputBarComponent],
+      providers: [{ provide: AgentXVoiceInputService, useValue: voiceService }],
     }).compileComponents();
 
     fixture = TestBed.createComponent(AgentXInputBarComponent);
@@ -136,6 +169,68 @@ describe('AgentXInputBarComponent', () => {
 
     expect(getContextPreviewUrl(component, context)).toBeNull();
     expect(getContextVideoUrl(component, context)).toBe('https://cdn.example.com/source-1.mp4');
+  });
+
+  it('fills the prompt with voice dictation from the input bar button', () => {
+    const emittedMessages: string[] = [];
+    const subscription = component.messageChange.subscribe((message) => {
+      emittedMessages.push(message);
+    });
+
+    try {
+      setVoiceInputAvailable(voiceService, true);
+      fixture.detectChanges();
+
+      const voiceButton = fixture.nativeElement.querySelector(
+        'button[aria-label="Start voice input"]'
+      ) as HTMLButtonElement | null;
+      expect(voiceButton).not.toBeNull();
+
+      voiceButton?.click();
+      fixture.detectChanges();
+
+      expect(voiceService.start).toHaveBeenCalledWith({ basePrompt: '' });
+
+      voiceService.composedPrompt.set('for varsity receivers');
+      fixture.detectChanges();
+
+      expect(emittedMessages).toEqual(['for varsity receivers']);
+    } finally {
+      subscription.unsubscribe();
+    }
+  });
+
+  it('shows only the voice button while the idle composer has no sendable text', () => {
+    setVoiceInputAvailable(voiceService, true);
+    fixture.detectChanges();
+
+    const voiceButton = fixture.nativeElement.querySelector(
+      'button[aria-label="Start voice input"]'
+    ) as HTMLButtonElement | null;
+    const sendButton = fixture.nativeElement.querySelector(
+      'button[aria-label="Send"]'
+    ) as HTMLButtonElement | null;
+
+    expect(voiceButton).not.toBeNull();
+    expect(sendButton).toBeNull();
+  });
+
+  it('renders the voice waveform bars only while actively listening', () => {
+    setVoiceInputAvailable(voiceService, true);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.input-voice-wave')).toBeNull();
+
+    setVoiceInputListening(voiceService, true);
+    fixture.detectChanges();
+
+    const bars = fixture.nativeElement.querySelectorAll('.input-voice-wave__bar');
+    expect(bars.length).toBe(7);
+
+    setVoiceInputListening(voiceService, false);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.input-voice-wave')).toBeNull();
   });
 
   function flushAnimationFrames(): void {
@@ -251,6 +346,14 @@ function getContextVideoUrl(
       contextVideoUrl: (context: AgentXSelectedContext) => string | null;
     }
   ).contextVideoUrl(context);
+}
+
+function setVoiceInputAvailable(service: VoiceServiceMock, available: boolean): void {
+  service.available.set(available);
+}
+
+function setVoiceInputListening(service: VoiceServiceMock, listening: boolean): void {
+  service.listening.set(listening);
 }
 
 function markContextPreviewFailed(
