@@ -72,7 +72,7 @@ interface AgentXShareMenuGrant {
           aria-haspopup="menu"
           (click)="onToggleMenu($event)"
         >
-          <nxt1-icon name="share" [size]="14"></nxt1-icon>
+          <nxt1-icon name="lock" [size]="14"></nxt1-icon>
           <span>Share</span>
         </button>
 
