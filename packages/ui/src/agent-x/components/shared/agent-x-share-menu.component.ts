@@ -64,7 +64,7 @@ interface AgentXShareMenuGrant {
       <div class="agent-x-share-menu">
         <button
           type="button"
-          class="agent-column-icon-btn"
+          class="agent-column-icon-btn agent-x-share-menu__trigger"
           [class.agent-column-icon-btn--active]="isOpen()"
           [attr.aria-expanded]="isOpen()"
           [attr.aria-label]="triggerAriaLabel"
@@ -72,7 +72,8 @@ interface AgentXShareMenuGrant {
           aria-haspopup="menu"
           (click)="onToggleMenu($event)"
         >
-          <nxt1-icon name="share" [size]="16"></nxt1-icon>
+          <nxt1-icon name="share" [size]="14"></nxt1-icon>
+          <span>Share</span>
         </button>
 
         @if (isOpen()) {
@@ -143,6 +144,14 @@ interface AgentXShareMenuGrant {
       .agent-column-icon-btn--active {
         background: color-mix(in srgb, var(--agent-primary) 12%, transparent);
         color: var(--agent-primary);
+      }
+
+      .agent-x-share-menu__trigger {
+        width: auto;
+        gap: 6px;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 600;
       }
 
       .agent-x-share-menu__backdrop {
