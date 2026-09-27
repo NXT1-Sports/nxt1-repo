@@ -42,8 +42,11 @@ import type { IconName } from '@nxt1/design-tokens/assets/icons';
 import type { Subscription } from 'rxjs';
 
 import { NxtIconComponent } from '../../../components/icon/icon.component';
-import { NxtMarkdownComponent } from '../../../components/markdown';
 import type { MarkdownMediaRequestedEvent } from '../../../components/markdown/markdown.component';
+import {
+  NxtMarkdownEditorComponent,
+  type NxtMarkdownEditorSaveStatus,
+} from '../../../components/markdown-editor';
 import { NxtSearchBarComponent } from '../../../components/search-bar/search-bar.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtCtaButtonComponent } from '../../../components/cta-button/cta-button.component';
@@ -554,7 +557,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
     OverlayModule,
     NxtCtaButtonComponent,
     NxtIconComponent,
-    NxtMarkdownComponent,
+    NxtMarkdownEditorComponent,
     NxtSearchBarComponent,
     NxtStateViewComponent,
     AgentXLibraryFolderTreeComponent,
@@ -590,10 +593,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
             or organization files will appear here automatically.
           </p>
         </div>
-      } @else {
-        @if (filesService.loading()) {
-          <nxt1-agent-x-library-loading-state />
-        } @else if (filesService.error()) {
+      } @else if (filesService.loading()) {
+        <nxt1-agent-x-library-loading-state />
+      } @else if (filesService.error()) {
           <nxt1-state-view
             variant="error"
             title="Could not load files"
@@ -1565,6 +1567,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
               <div
                 viewer-context
                 class="agent-x-files-viewer__context"
+                [class.agent-x-files-viewer__context--document]="usesDocumentContextStyle(file)"
                 aria-label="File context panel"
               >
                 <div class="agent-x-files-viewer__context-header">
@@ -1572,59 +1575,106 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     <div class="agent-x-files-viewer__context-heading">
                       <div class="agent-x-files-viewer__title-row">
                         @if (isEditingFile(file.id)) {
-                          <div class="agent-x-files-viewer__title-edit-card">
-                            <div class="agent-x-files-viewer__title-edit-copy">
-                              <span class="agent-x-files-viewer__title-eyebrow"
-                                >Document title</span
+                          <div class="agent-x-files-viewer__title-edit-row">
+                            <input
+                              type="text"
+                              class="agent-x-files-viewer__title-input"
+                              aria-label="Document title"
+                              [value]="fileRenameDraft()"
+                              (input)="onFileRenameInput($any($event.target).value)"
+                              (keydown.enter)="onFileRenameConfirm(file, $event)"
+                              (keydown.escape)="onFileRenameCancel($event)"
+                            />
+                            <div class="agent-x-files-viewer__title-edit-actions">
+                              <button
+                                type="button"
+                                class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--confirm"
+                                aria-label="Confirm title"
+                                title="Confirm title"
+                                (click)="onFileRenameConfirm(file, $event)"
                               >
-                              <p class="agent-x-files-viewer__title-edit-hint">
-                                Keep it short and specific so the file stays easy to scan.
-                              </p>
-                            </div>
-                            <div class="agent-x-files-viewer__title-edit-row">
-                              <input
-                                type="text"
-                                class="agent-x-files-viewer__title-input"
-                                [value]="fileRenameDraft()"
-                                (input)="onFileRenameInput($any($event.target).value)"
-                                (keydown.enter)="onFileRenameConfirm(file, $event)"
-                                (keydown.escape)="onFileRenameCancel($event)"
-                              />
-                              <div class="agent-x-files-viewer__title-edit-actions">
-                                <button
-                                  type="button"
-                                  class="agent-x-files-viewer__title-action agent-x-files-viewer__title-action--primary"
-                                  (click)="onFileRenameConfirm(file, $event)"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  class="agent-x-files-viewer__title-action"
-                                  (click)="onFileRenameCancel($event)"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
+                                <nxt1-icon name="checkmark" [size]="14"></nxt1-icon>
+                              </button>
+                              <button
+                                type="button"
+                                class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--cancel"
+                                aria-label="Cancel title edit"
+                                title="Cancel title edit"
+                                (click)="onFileRenameCancel($event)"
+                              >
+                                <nxt1-icon name="close" [size]="14"></nxt1-icon>
+                              </button>
                             </div>
                           </div>
                         } @else {
                           <div class="agent-x-files-viewer__title-display-row">
                             <div class="agent-x-files-viewer__title-copy">
-                              <span class="agent-x-files-viewer__title-eyebrow"
-                                >Document title</span
-                              >
                               <h3 class="agent-x-files-viewer__title">{{ file.name }}</h3>
                             </div>
                             <button
                               type="button"
                               class="agent-x-files-viewer__title-edit-trigger"
-                              aria-label="Edit title"
-                              title="Edit title"
-                              (click)="onFileRenameStart(file, $event)"
+                              cdkOverlayOrigin
+                              #viewerActionsOrigin="cdkOverlayOrigin"
+                              aria-label="File actions"
+                              title="File actions"
+                              aria-haspopup="menu"
+                              [attr.aria-expanded]="openViewerActionsFileId() === file.id"
+                              (click)="toggleViewerActions(file.id, $event)"
                             >
-                              <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
+                              <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
                             </button>
+                            <ng-template
+                              cdkConnectedOverlay
+                              [cdkConnectedOverlayOrigin]="viewerActionsOrigin"
+                              [cdkConnectedOverlayOpen]="openViewerActionsFileId() === file.id"
+                              [cdkConnectedOverlayHasBackdrop]="true"
+                              cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                              [cdkConnectedOverlayPositions]="viewerActionsMenuPositions"
+                              [cdkConnectedOverlayPush]="true"
+                              [cdkConnectedOverlayViewportMargin]="8"
+                              (backdropClick)="closeViewerActions()"
+                              (overlayKeydown)="$event.key === 'Escape' && closeViewerActions()"
+                              (detach)="closeViewerActions()"
+                            >
+                              <div class="agent-x-files-viewer__actions-menu" role="menu" aria-label="File actions">
+                                <button type="button" role="menuitem" [disabled]="!hasWriteAccess" (click)="onViewerRename(file, $event)">
+                                  <nxt1-icon name="pencil" [size]="16" /> Rename
+                                </button>
+                                @if (shouldShowViewerFileActions(file)) {
+                                  <button type="button" role="menuitem" (click)="onViewerOpen(file)">
+                                    <nxt1-icon name="openInNew" [size]="16" /> {{ openActionLabelForFile(file) }}
+                                  </button>
+                                  <button type="button" role="menuitem" (click)="onViewerDownload(file)">
+                                    <nxt1-icon name="download" [size]="16" /> Download file
+                                  </button>
+                                  <button type="button" role="menuitem" (click)="onViewerCopy(file, 'link')">
+                                    <nxt1-icon name="copyDocs" [size]="16" /> Copy file link
+                                  </button>
+                                }
+                                @if (isTextDocument(file)) {
+                                  <button type="button" role="menuitem" (click)="onViewerCopy(file, isMarkdownDocument(file) ? 'markdown' : 'text')">
+                                    <nxt1-icon name="copyDocs" [size]="16" /> {{ viewerCopyActionLabel(file) }}
+                                  </button>
+                                } @else if (hasMarkdownNotes(file)) {
+                                  <button type="button" role="menuitem" (click)="onViewerCopy(file, 'markdown')">
+                                    <nxt1-icon name="copyDocs" [size]="16" /> Copy Markdown
+                                  </button>
+                                } @else if (file.rawData) {
+                                  <button type="button" role="menuitem" (click)="onViewerCopy(file, 'json')">
+                                    <nxt1-icon name="copyDocs" [size]="16" /> Copy as JSON
+                                  </button>
+                                }
+                                @if (canExportViewerContent(file)) {
+                                  <button type="button" role="menuitem" (click)="onViewerExport(file)">
+                                    <nxt1-icon name="download" [size]="16" /> Export
+                                  </button>
+                                }
+                                <button type="button" role="menuitem" [disabled]="refreshingViewerFileId() === file.id" (click)="onViewerRefresh(file)">
+                                  <nxt1-icon name="refresh" [size]="16" /> {{ refreshingViewerFileId() === file.id ? 'Refreshing...' : 'Refresh' }}
+                                </button>
+                              </div>
+                            </ng-template>
                           </div>
                         }
                       </div>
@@ -1649,92 +1699,22 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       }
                     </div>
 
-                    @if (shouldShowViewerFileActions(file)) {
-                      <div class="agent-x-files-viewer__context-actions">
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__icon-action"
-                          [attr.aria-label]="openActionLabelForFile(file)"
-                          [attr.title]="openActionLabelForFile(file)"
-                          (click)="openFileInNewTab(file)"
-                        >
-                          <nxt1-icon name="openInNew" [size]="16"></nxt1-icon>
-                        </button>
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__icon-action"
-                          aria-label="Download"
-                          title="Download"
-                          (click)="downloadFile(file)"
-                        >
-                          <nxt1-icon name="download" [size]="16"></nxt1-icon>
-                        </button>
-                      </div>
-                    }
                   </div>
                 </div>
 
                 <section class="agent-x-files-viewer__content-section">
                   @if (!shouldShowGenerateNotes(file)) {
                     @if (supportsTabbedTextEditor(file)) {
-                      <div
-                        class="agent-x-files-viewer__editor-tabs"
-                        role="tablist"
-                        aria-label="Document editor mode"
-                      >
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__editor-tab"
-                          [class.agent-x-files-viewer__editor-tab--active]="
-                            textDocumentEditorMode(file.id) === 'preview'
-                          "
-                          [attr.aria-selected]="textDocumentEditorMode(file.id) === 'preview'"
-                          (click)="setTextDocumentEditorMode(file.id, 'preview')"
-                        >
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__editor-tab"
-                          [class.agent-x-files-viewer__editor-tab--active]="
-                            textDocumentEditorMode(file.id) === 'write'
-                          "
-                          [attr.aria-selected]="textDocumentEditorMode(file.id) === 'write'"
-                          (click)="setTextDocumentEditorMode(file.id, 'write')"
-                        >
-                          Write
-                        </button>
-                      </div>
-
-                      @if (textDocumentEditorMode(file.id) === 'write') {
-                        <textarea
-                          class="agent-x-files-viewer__content-textarea agent-x-files-viewer__content-textarea--document"
-                          spellcheck="true"
-                          [placeholder]="contentEditorPlaceholder(file)"
-                          [value]="editingTextContent(file)"
-                          (input)="onTextContentEdit($event, file.id)"
-                        ></textarea>
-                      } @else {
-                        <div class="agent-x-files-viewer__document-preview">
-                          @if (editingTextContent(file).trim().length > 0) {
-                            @if (shouldRenderMarkdownPreview(file)) {
-                              <nxt1-markdown
-                                class="agent-x-files-viewer__markdown"
-                                [content]="editingTextContent(file)"
-                                (mediaRequested)="onMarkdownMediaRequested($event)"
-                              />
-                            } @else {
-                              <pre class="agent-x-files-viewer__plain-text">{{
-                                editingTextContent(file)
-                              }}</pre>
-                            }
-                          } @else {
-                            <p class="agent-x-files-viewer__preview-empty">
-                              {{ contentEditorEmptyState(file) }}
-                            </p>
-                          }
-                        </div>
-                      }
+                      <nxt1-markdown-editor
+                        class="agent-x-files-viewer__native-editor"
+                        [content]="editingTextContent(file)"
+                        [placeholder]="contentEditorPlaceholder(file)"
+                        [readOnly]="!hasWriteAccess"
+                        [saveStatus]="textContentSaveStatus(file.id)"
+                        [ariaLabel]="'Edit ' + file.name"
+                        (contentChange)="onTextContentEdit($event, file.id)"
+                        (saveRequested)="saveTextContentDraft(file.id, $event)"
+                      />
                     }
                     <div class="agent-x-files-viewer__content-actions">
                       @if (hasWriteAccess) {
@@ -1746,20 +1726,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                           [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
                           (clicked)="generateNotes(file)"
                         />
-                        <nxt1-cta-button
-                          variant="primary"
-                          [label]="
-                            isSavingTextContent()
-                              ? 'Saving...'
-                              : isTextDocument(file)
-                                ? 'Save Document'
-                                : 'Save File Notes'
-                          "
-                          [disabled]="
-                            isSavingTextContent() || textContentDrafts()[file.id] === undefined
-                          "
-                          (clicked)="saveTextContent(file.id)"
-                        />
                       }
                     </div>
                   }
@@ -1768,7 +1734,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
             </nxt1-agent-x-viewer-surface>
           }
         }
-      }
     </section>
   `,
   styles: [
@@ -2060,6 +2025,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         overflow: hidden;
       }
 
+      .agent-x-files-viewer__context--document {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        overflow: visible;
+      }
+
       .agent-x-files-viewer__stage.agent-x-context-drag-source {
         cursor: grab;
       }
@@ -2193,9 +2165,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
       .agent-x-files-viewer__context {
         display: grid;
-        gap: 18px;
+        gap: 12px;
         padding: 20px;
         min-height: 180px;
+      }
+
+      .agent-x-files-viewer__context--document {
+        padding: 4px 0 0;
       }
 
       .agent-x-files-viewer__context-header {
@@ -2231,65 +2207,42 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         justify-content: flex-start;
       }
 
-      .agent-x-files-viewer__title-copy,
-      .agent-x-files-viewer__title-edit-copy {
+      .agent-x-files-viewer__title-copy {
         display: grid;
         gap: 4px;
         min-width: 0;
       }
 
-      .agent-x-files-viewer__title-edit-card {
-        width: min(100%, 640px);
-        display: grid;
-        gap: 12px;
-        padding: 14px;
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 72%, transparent);
-        border-radius: 16px;
-        background: color-mix(
-          in srgb,
-          var(--nxt1-color-surface-100) 94%,
-          var(--nxt1-color-surface-200) 6%
-        );
-        box-shadow: 0 12px 30px color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent);
-      }
-
-      .agent-x-files-viewer__title-eyebrow {
-        font-size: 11px;
-        line-height: 1.2;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .agent-x-files-viewer__title-edit-hint {
-        margin: 0;
-        font-size: 12px;
-        line-height: 1.45;
-        color: var(--nxt1-color-text-secondary);
+      .agent-x-files-viewer__title-edit-row {
+        width: 100%;
+        max-width: 480px;
+        gap: 6px;
       }
 
       .agent-x-files-viewer__title {
         margin: 0;
         min-width: 0;
-        font-size: 18px;
-        line-height: 1.25;
+        font-size: 16px;
+        line-height: 1.35;
         font-weight: 700;
+        letter-spacing: -0.01em;
         color: var(--nxt1-color-text-primary);
       }
 
       .agent-x-files-viewer__title-input {
-        flex: 1 1 260px;
+        flex: 1 1 240px;
         min-width: 0;
-        min-height: 48px;
-        padding: 0 16px;
-        border-radius: 14px;
+        min-height: 36px;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: 10px;
         border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 74%, transparent);
         background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-primary);
         font: inherit;
         font-size: 15px;
         font-weight: 600;
+        letter-spacing: -0.01em;
         box-shadow: inset 0 1px 0 color-mix(in srgb, var(--nxt1-color-surface-200) 72%, transparent);
       }
 
@@ -2306,40 +2259,44 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       .agent-x-files-viewer__title-edit-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
+        gap: 4px;
+        flex-shrink: 0;
       }
 
-      .agent-x-files-viewer__title-action {
-        min-height: 40px;
-        padding: 0 14px;
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 74%, transparent);
-        background: color-mix(in srgb, var(--nxt1-color-surface-100) 94%, transparent);
+      .agent-x-files-viewer__title-icon-btn {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 72%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 65%, transparent);
         color: var(--nxt1-color-text-secondary);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
         cursor: pointer;
         transition:
-          border-color 0.18s ease,
-          background 0.18s ease,
-          color 0.18s ease,
-          transform 0.18s ease;
+          background-color 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
       }
 
-      .agent-x-files-viewer__title-action--primary {
-        border-color: color-mix(in srgb, var(--nxt1-color-primary) 34%, transparent);
+      .agent-x-files-viewer__title-icon-btn:hover,
+      .agent-x-files-viewer__title-icon-btn:focus-visible {
+        outline: none;
+      }
+
+      .agent-x-files-viewer__title-icon-btn--confirm:hover,
+      .agent-x-files-viewer__title-icon-btn--confirm:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 40%, transparent);
         background: color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
         color: var(--nxt1-color-primary);
       }
 
-      .agent-x-files-viewer__title-action:hover,
-      .agent-x-files-viewer__title-action:focus-visible {
-        outline: none;
-        transform: translateY(-1px);
-        border-color: color-mix(in srgb, var(--nxt1-color-primary) 40%, transparent);
-        color: var(--nxt1-color-text-primary);
+      .agent-x-files-viewer__title-icon-btn--cancel:hover,
+      .agent-x-files-viewer__title-icon-btn--cancel:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-error, #ff5f57) 40%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ff5f57) 12%, transparent);
+        color: var(--nxt1-color-error, #ff5f57);
       }
 
       .agent-x-files-viewer__title-edit-trigger {
@@ -2357,6 +2314,44 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           border-color 0.18s ease,
           color 0.18s ease,
           background 0.18s ease;
+      }
+
+      .agent-x-files-viewer__actions-menu {
+        display: grid;
+        gap: 2px;
+        min-width: 168px;
+        padding: 6px;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 8px;
+        background: var(--nxt1-color-surface-100);
+        box-shadow: var(--nxt1-navigation-dropdown);
+      }
+
+      .agent-x-files-viewer__actions-menu button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 36px;
+        padding: 6px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .agent-x-files-viewer__actions-menu button:hover,
+      .agent-x-files-viewer__actions-menu button:focus-visible {
+        background: var(--nxt1-color-surface-200);
+        outline: none;
+      }
+
+      .agent-x-files-viewer__actions-menu button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
 
       .film-upload-menu-anchor {
@@ -3545,6 +3540,8 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   protected readonly openingFilmReviewTeamId = signal<string | null>(null);
   protected readonly sharingFileId = signal<string | null>(null);
   protected readonly editingFileId = signal<string | null>(null);
+  protected readonly openViewerActionsFileId = signal<string | null>(null);
+  protected readonly refreshingViewerFileId = signal<string | null>(null);
   protected readonly deleteFileConfirmId = signal<string | null>(null);
   protected readonly fileRenameDraft = signal('');
   protected readonly fileSharePrincipalType = signal<FileSharePrincipalType>('user');
@@ -3562,6 +3559,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   protected readonly summaryDrafts = signal<Record<string, string>>({});
   protected readonly isSavingMetadata = signal(false);
   protected readonly textContentDrafts = signal<Record<string, string>>({});
+  protected readonly textContentSaveErrors = signal<Record<string, string>>({});
   protected readonly textDocumentEditorModes = signal<Record<string, 'write' | 'preview'>>({});
   protected readonly isSavingTextContent = signal(false);
   protected readonly generatingNotesFileIds = signal<ReadonlySet<string>>(new Set());
@@ -3594,6 +3592,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   private activeFilesUploadHandle: AgentXFilesUploadHandle | null = null;
   private activeLibraryUploadHandle: VideoUploadHandle | null = null;
   private activeFilesUploadSubscription: Subscription | null = null;
+  private readonly textContentAutosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly dragAutoScrollEdgePx = 88;
   private readonly dragAutoScrollMinStepPx = 4;
   private readonly dragAutoScrollMaxStepPx = 24;
@@ -3632,6 +3631,10 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   );
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+  protected readonly viewerActionsMenuPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 6 },
+    { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -6 },
+  ];
   protected readonly askAgentMenuPositions: ConnectedPosition[] = [
     {
       originX: 'end',
@@ -3785,7 +3788,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
       })
       .filter((tab): tab is AgentXLibraryFile => tab !== null);
   });
-  protected readonly selectedViewerFile = computed(() => {
+  public readonly selectedViewerFile = computed(() => {
     const inlineViewerFile = this.inlineMarkdownViewerFile();
     if (inlineViewerFile && this.selectedInlineMarkdownViewerId() === inlineViewerFile.id) {
       return inlineViewerFile;
@@ -4094,6 +4097,10 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     this.activeFilesUploadHandle?.cancel();
     this.activeLibraryUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
+    for (const timer of this.textContentAutosaveTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.textContentAutosaveTimers.clear();
     this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
     this.clearSelectedPdfPreviewResource();
@@ -5628,6 +5635,160 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     this.fileRenameDraft.set(value);
   }
 
+  protected viewerCopyActionLabel(file: AgentXLibraryFile): string {
+    if (this.isTextDocument(file)) {
+      return this.isMarkdownDocument(file) ? 'Copy Markdown' : 'Copy text';
+    }
+
+    return file.rawData ? 'Copy as JSON' : 'Copy file link';
+  }
+
+  protected hasMarkdownNotes(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): boolean {
+    return (
+      typeof file.textContent === 'string' &&
+      file.textContent.trim().length > 0 &&
+      (this.isMarkdownDocument(file) || !this.isTextDocument(file))
+    );
+  }
+
+  protected canExportViewerContent(file: AgentXLibraryFile): boolean {
+    return this.isTextDocument(file) || this.hasMarkdownNotes(file) || !!file.rawData;
+  }
+
+  protected toggleViewerActions(fileId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openViewerActionsFileId.update((current) => (current === fileId ? null : fileId));
+  }
+
+  protected closeViewerActions(): void {
+    this.openViewerActionsFileId.set(null);
+  }
+
+  protected onViewerRename(file: AgentXLibraryFile, event: Event): void {
+    this.closeViewerActions();
+    this.onFileRenameStart(file, event);
+  }
+
+  protected async onViewerCopy(
+    file: AgentXLibraryFile,
+    mode?: 'link' | 'markdown' | 'text' | 'json'
+  ): Promise<void> {
+    this.closeViewerActions();
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      this.toast.error('Clipboard is unavailable');
+      return;
+    }
+
+    const copyMode =
+      mode ??
+      (this.isTextDocument(file)
+        ? this.isMarkdownDocument(file)
+          ? 'markdown'
+          : 'text'
+        : file.rawData
+          ? 'json'
+          : 'link');
+    const content =
+      copyMode === 'link'
+        ? await this.resolveFileUrlForAction(file, 'open')
+        : copyMode === 'json'
+          ? file.rawData
+            ? JSON.stringify(file.rawData, null, 2)
+            : null
+          : this.editingTextContent(file);
+    if (content === null) return;
+
+    try {
+      await navigator.clipboard.writeText(content);
+      this.toast.success(copyMode === 'link' ? 'File link copied' : 'Document copied');
+    } catch {
+      this.toast.error('Could not copy file');
+    }
+  }
+
+  protected async onViewerOpen(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    await this.openViewerFileInTab(file, 'open');
+  }
+
+  protected async onViewerDownload(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    await this.openViewerFileInTab(file, 'download');
+  }
+
+  private async openViewerFileInTab(
+    file: AgentXLibraryFile,
+    action: 'open' | 'download'
+  ): Promise<void> {
+    if (typeof window === 'undefined') return;
+
+    const actionWindow = window.open('', '_blank');
+    if (!actionWindow) {
+      this.toast.error('Allow pop-ups to open this file');
+      return;
+    }
+
+    const fileUrl = await this.resolveFileUrlForAction(file, action);
+    if (!fileUrl) {
+      actionWindow.close();
+      return;
+    }
+
+    actionWindow.opener = null;
+    const targetUrl = action === 'open' ? this.buildOpenTargetUrl(file, fileUrl) : fileUrl;
+    actionWindow.location.replace(targetUrl);
+  }
+
+  protected async onViewerExport(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    const isText = this.isTextDocument(file);
+    const hasMarkdownNotes = this.hasMarkdownNotes(file);
+    if (!isText && !hasMarkdownNotes && !file.rawData) return;
+
+    if (typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+    const isMarkdown = this.isMarkdownDocument(file) || hasMarkdownNotes;
+    const extension = isMarkdown ? '.md' : isText ? '.txt' : '.json';
+    const exportName = hasMarkdownNotes && !isText ? file.name.replace(/\.[^.]+$/, '') : file.name;
+    const filename = exportName.toLowerCase().endsWith(extension)
+      ? exportName
+      : `${exportName}${extension}`;
+    const content = isText || hasMarkdownNotes
+      ? this.editingTextContent(file)
+      : JSON.stringify(file.rawData, null, 2);
+    const mimeType = isMarkdown ? 'text/markdown;charset=utf-8' : isText ? file.mimeType : 'application/json';
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.replace(/[\\/:*?"<>|]/g, '_');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  protected async onViewerRefresh(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    if (this.textContentDrafts()[file.id] !== undefined || this.isSavingTextContent()) {
+      this.toast.info('Wait for changes to save before refreshing');
+      return;
+    }
+    if (this.refreshingViewerFileId() === file.id) return;
+
+    this.refreshingViewerFileId.set(file.id);
+    try {
+      await this.filesService.refreshFile(file.id, this.resolveFileContextTeamId(file));
+      this.toast.success('File refreshed');
+    } catch {
+      this.toast.error('Failed to refresh file');
+    } finally {
+      this.refreshingViewerFileId.set(null);
+    }
+  }
+
   protected onFileRenameStart(file: AgentXLibraryFile, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
@@ -7111,7 +7272,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   protected thumbnailUrlForListItem(
     file: Pick<
       AgentXLibraryFile,
-      'id' | 'kind' | 'name' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'
+      'id' | 'kind' | 'mimeType' | 'name' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'
     >
   ): string | null {
     const failedKeys = this.failedListThumbnailKeys();
@@ -7185,9 +7346,9 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   private buildGeneratedListThumbnailUrl(
-    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'name'>
+    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'mimeType' | 'name'>
   ): string {
-    const cacheKey = `${file.id}:${file.kind}:${file.name.trim().toLowerCase()}`;
+    const cacheKey = `${file.id}:${file.kind}:${file.mimeType}:${file.name.trim().toLowerCase()}`;
     const cached = this.generatedListThumbnailUrls.get(cacheKey);
     if (cached) {
       return cached;
@@ -7214,12 +7375,16 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   private resolveGeneratedListThumbnailLabel(
-    file: Pick<AgentXLibraryFile, 'kind' | 'name'>
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'name'>
   ): string {
     const extensionMatch = /\.([a-z0-9]+)$/i.exec(file.name.trim());
     const extensionLabel = extensionMatch?.[1]?.trim().toUpperCase() ?? '';
     if (extensionLabel) {
       return extensionLabel.slice(0, 4);
+    }
+
+    if (file.mimeType.trim().toLowerCase() === 'text/markdown') {
+      return 'MD';
     }
 
     switch (file.kind) {
@@ -7658,8 +7823,10 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
-    if (this.compact) {
-      this.toast.info('Preview is not available on mobile yet. Use desktop or tablet for preview.');
+    if (this.compact && !this.isTextDocument(file)) {
+      this.toast.info(
+        'Preview is not available on mobile yet. Documents open directly in The Lab.'
+      );
       return;
     }
 
@@ -8519,9 +8686,15 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     }
   }
 
-  protected onTextContentEdit(event: Event, fileId: string): void {
-    const value = (event.target as HTMLTextAreaElement).value;
+  protected onTextContentEdit(value: string, fileId: string): void {
     this.textContentDrafts.update((drafts) => ({ ...drafts, [fileId]: value }));
+    this.textContentSaveErrors.update((errors) => {
+      if (!errors[fileId]) return errors;
+      const next = { ...errors };
+      delete next[fileId];
+      return next;
+    });
+    this.scheduleTextContentAutosave(fileId);
   }
 
   protected editingTextContent(file: Pick<AgentXLibraryFile, 'id' | 'textContent'>): string {
@@ -8543,29 +8716,82 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     }));
   }
 
+  protected textContentSaveStatus(fileId: string): NxtMarkdownEditorSaveStatus {
+    if (this.textContentSaveErrors()[fileId]) {
+      return 'error';
+    }
+
+    if (this.textContentDrafts()[fileId] === undefined) {
+      return 'saved';
+    }
+
+    return this.isSavingTextContent() ? 'saving' : 'dirty';
+  }
+
+  protected saveTextContentDraft(fileId: string, draft: string): void {
+    this.textContentDrafts.update((drafts) => ({ ...drafts, [fileId]: draft }));
+    this.clearTextContentAutosave(fileId);
+    void this.saveTextContent(fileId, { suppressSuccessToast: true });
+  }
+
   protected buildFileNotesDragContext(file: AgentXLibraryFile): AgentXSelectedContext | null {
     const notes = this.editingTextContent(file).trim();
     return this.buildViewerFieldDragContext(file, 'notes', notes);
   }
 
-  protected async saveTextContent(fileId: string): Promise<void> {
+  protected async saveTextContent(
+    fileId: string,
+    options?: { readonly suppressSuccessToast?: boolean }
+  ): Promise<void> {
     const draft = this.textContentDrafts()[fileId];
     if (draft === undefined) return;
 
+    this.clearTextContentAutosave(fileId);
     this.isSavingTextContent.set(true);
     try {
       await this.filesService.updateFileTextContent(fileId, this.teamId ?? null, draft);
-      this.toast.success('Document content updated');
+      if (!options?.suppressSuccessToast) {
+        this.toast.success('Document content updated');
+      }
+      this.textContentSaveErrors.update((errors) => {
+        if (!errors[fileId]) return errors;
+        const next = { ...errors };
+        delete next[fileId];
+        return next;
+      });
       this.textContentDrafts.update((drafts) => {
+        if (drafts[fileId] !== draft) return drafts;
         const next = { ...drafts };
         delete next[fileId];
         return next;
       });
-    } catch {
-      this.toast.error('Failed to update document content');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update document content';
+      if (this.textContentDrafts()[fileId] === draft) {
+        this.textContentSaveErrors.update((errors) => ({ ...errors, [fileId]: message }));
+        this.toast.error('Failed to update document content');
+      }
     } finally {
       this.isSavingTextContent.set(false);
     }
+  }
+
+  private scheduleTextContentAutosave(fileId: string): void {
+    this.clearTextContentAutosave(fileId);
+    this.textContentAutosaveTimers.set(
+      fileId,
+      setTimeout(() => {
+        this.textContentAutosaveTimers.delete(fileId);
+        void this.saveTextContent(fileId, { suppressSuccessToast: true });
+      }, 1200)
+    );
+  }
+
+  private clearTextContentAutosave(fileId: string): void {
+    const timer = this.textContentAutosaveTimers.get(fileId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.textContentAutosaveTimers.delete(fileId);
   }
 
   protected shouldShowGenerateNotes(
@@ -8577,6 +8803,14 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     ).trim();
 
     return summary.length === 0 && textContent.length === 0;
+  }
+
+  protected usesDocumentContextStyle(file: AgentXLibraryFile): boolean {
+    return (
+      this.isTextDocument(file) ||
+      !this.shouldShowGenerateNotes(file) ||
+      (!this.isImageFile(file) && !this.isVideoFile(file))
+    );
   }
 
   protected isGeneratingNotes(fileId: string): boolean {

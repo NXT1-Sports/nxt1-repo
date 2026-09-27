@@ -89,6 +89,7 @@ type FilesPanelTestAccess = {
   buildFileNotesDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
   shouldShowFilmReviewBadge: (file: AgentXLibraryFile) => boolean;
   isTextDocument: (file: AgentXLibraryFile) => boolean;
+  usesDocumentContextStyle: (file: AgentXLibraryFile) => boolean;
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerFileActions: (file: AgentXLibraryFile) => boolean;
@@ -99,6 +100,26 @@ type FilesPanelTestAccess = {
   safeSelectedPdfPreviewUrl: Signal<string | null>;
   textDocumentEditorMode: (fileId: string) => 'write' | 'preview';
   setTextDocumentEditorMode: (fileId: string, mode: 'write' | 'preview') => void;
+  textContentSaveStatus: (fileId: string) => 'saved' | 'dirty' | 'saving' | 'error';
+  onTextContentEdit: (value: string, fileId: string) => void;
+  saveTextContentDraft: (fileId: string, draft: string) => void;
+  textContentDrafts: WritableSignal<Record<string, string>>;
+  openViewerActionsFileId: Signal<string | null>;
+  editingFileId: Signal<string | null>;
+  fileRenameDraft: Signal<string>;
+  toggleViewerActions: (fileId: string, event: Event) => void;
+  onViewerRename: (file: AgentXLibraryFile, event: Event) => void;
+  viewerCopyActionLabel: (file: AgentXLibraryFile) => string;
+  hasMarkdownNotes: (file: AgentXLibraryFile) => boolean;
+  canExportViewerContent: (file: AgentXLibraryFile) => boolean;
+  onViewerCopy: (
+    file: AgentXLibraryFile,
+    mode?: 'link' | 'markdown' | 'text' | 'json'
+  ) => Promise<void>;
+  onViewerOpen: (file: AgentXLibraryFile) => Promise<void>;
+  onViewerDownload: (file: AgentXLibraryFile) => Promise<void>;
+  onViewerExport: (file: AgentXLibraryFile) => Promise<void>;
+  onViewerRefresh: (file: AgentXLibraryFile) => Promise<void>;
   onMarkdownMediaRequested: (event: {
     url: string;
     type: 'image' | 'video';
@@ -147,6 +168,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const shareFile = vi.fn<AgentXFilesService['shareFile']>();
   const shareFolder = vi.fn<AgentXFilesService['shareFolder']>();
   const refreshFile = vi.fn<AgentXFilesService['refreshFile']>();
+  const updateFileTextContent = vi.fn<AgentXFilesService['updateFileTextContent']>();
   const getLinkedFilmReviewId = vi.fn<AgentXFilesService['getLinkedFilmReviewId']>();
   const uploadVideo = vi.fn<AgentXVideoUploadService['uploadVideo']>();
   const enqueue = vi.fn<AgentXJobService['enqueue']>();
@@ -322,6 +344,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
       readAccessKeys: ['user:user-1', 'user:user-2'],
       writeAccessKeys: ['user:user-1'],
     });
+    updateFileTextContent.mockResolvedValue(undefined);
     filesState.set([file, videoFile]);
     foldersState.set([folder]);
     reviewState.set([]);
@@ -387,6 +410,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
             shareFile,
             shareFolder,
             refreshFile,
+            updateFileTextContent,
             getLinkedFilmReviewId,
             selectFile,
             files: computed(() => filesState()),
@@ -469,6 +493,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     Object.defineProperty(URL, 'createObjectURL', {
       value: originalCreateObjectURL,
@@ -488,7 +513,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     await component.refreshData();
 
-    expect(loadFiles).toHaveBeenCalledWith(null);
+    expect(loadFiles).toHaveBeenCalledWith(null, undefined);
   });
 
   it('routes file uploads to the explicitly chosen destination folder', async () => {
@@ -784,6 +809,24 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(thumbnailUrl).toContain('data:image/svg+xml');
     expect(componentAccess.thumbnailUrlForListItem(pdfFile)).toBe(thumbnailUrl);
+  });
+
+  it('labels extensionless Markdown files as MD in the Lab library', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const markdownFile = {
+      ...generatedTextFile,
+      id: 'markdown-thumbnail-1',
+      name: 'Agent Notes',
+      mimeType: 'text/markdown',
+    } as AgentXLibraryFile;
+
+    const thumbnailUrl = componentAccess.thumbnailUrlForListItem(markdownFile);
+    const encodedSvg = thumbnailUrl?.split(',')[1];
+    const svg = encodedSvg ? decodeURIComponent(encodedSvg) : '';
+
+    expect(svg).toContain('>MD</text>');
+    expect(svg).not.toContain('>DOC</text>');
   });
 
   it('opens the file picker after confirming the chosen upload destination', () => {
@@ -1511,6 +1554,44 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(componentAccess.shouldShowViewerFileActions(spreadsheetWithNotes)).toBe(true);
   });
 
+  it('uses document styling for fallback-only documents without changing media styling', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const pdfWithMarkdownNotes = {
+      ...file,
+      id: 'pdf-with-markdown-notes',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      textContent: '# Film notes',
+    } as AgentXLibraryFile;
+    const pdfWithoutNotes = {
+      ...pdfWithMarkdownNotes,
+      id: 'pdf-without-notes',
+      textContent: undefined,
+      summary: undefined,
+    } as AgentXLibraryFile;
+    const imageWithoutNotes = {
+      ...pdfWithoutNotes,
+      id: 'image-without-notes',
+      kind: 'image',
+      mimeType: 'image/png',
+    } as AgentXLibraryFile;
+    const videoWithoutNotes = {
+      ...pdfWithoutNotes,
+      id: 'video-without-notes',
+      kind: 'video',
+      mimeType: 'video/mp4',
+    } as AgentXLibraryFile;
+
+    expect(componentAccess.usesDocumentContextStyle(uploadedTextFile as AgentXLibraryFile)).toBe(
+      true
+    );
+    expect(componentAccess.usesDocumentContextStyle(pdfWithMarkdownNotes)).toBe(true);
+    expect(componentAccess.usesDocumentContextStyle(pdfWithoutNotes)).toBe(true);
+    expect(componentAccess.usesDocumentContextStyle(imageWithoutNotes)).toBe(false);
+    expect(componentAccess.usesDocumentContextStyle(videoWithoutNotes)).toBe(false);
+  });
+
   it('uses presentation-specific external-open guidance for pptx assets', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
@@ -1529,15 +1610,340 @@ describe('AgentXFilesPanelInnerComponent', () => {
     );
   });
 
-  it('defaults text document editor tabs to preview mode and allows write switching', () => {
+  it('autosaves text document edits from the native document editor', async () => {
+    vi.useFakeTimers();
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
 
-    expect(componentAccess.textDocumentEditorMode(uploadedTextFile.id)).toBe('preview');
+    expect(componentAccess.textContentSaveStatus(uploadedTextFile.id)).toBe('saved');
 
-    componentAccess.setTextDocumentEditorMode(uploadedTextFile.id, 'write');
+    componentAccess.onTextContentEdit('# Updated Practice Plan', uploadedTextFile.id);
 
-    expect(componentAccess.textDocumentEditorMode(uploadedTextFile.id)).toBe('write');
+    expect(componentAccess.textContentSaveStatus(uploadedTextFile.id)).toBe('dirty');
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    expect(updateFileTextContent).toHaveBeenCalledWith(
+      uploadedTextFile.id,
+      'team-77',
+      '# Updated Practice Plan'
+    );
+    expect(componentAccess.textContentSaveStatus(uploadedTextFile.id)).toBe('saved');
+    expect(toastSuccess).not.toHaveBeenCalledWith('Document content updated');
+  });
+
+  it('flushes text document edits immediately when the editor requests a save', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+
+    componentAccess.saveTextContentDraft(uploadedTextFile.id, '# Sideline Notes');
+
+    await Promise.resolve();
+
+    expect(updateFileTextContent).toHaveBeenCalledWith(
+      uploadedTextFile.id,
+      'team-77',
+      '# Sideline Notes'
+    );
+    expect(componentAccess.textContentSaveStatus(uploadedTextFile.id)).toBe('saved');
+  });
+
+  it('keeps a newer text draft when an earlier save finishes after it changes', async () => {
+    let finishInitialSave: (() => void) | undefined;
+    updateFileTextContent.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishInitialSave = resolve;
+        })
+    );
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.teamId = 'team-77';
+
+    componentAccess.saveTextContentDraft(uploadedTextFile.id, '# Practice Plan');
+    componentAccess.onTextContentEdit('# Practice Plan\n- First drill', uploadedTextFile.id);
+    finishInitialSave?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(componentAccess.textContentDrafts()[uploadedTextFile.id]).toBe(
+      '# Practice Plan\n- First drill'
+    );
+    component.ngOnDestroy();
+  });
+
+  it('opens the viewer actions menu and renames from its Rename action', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    access.toggleViewerActions(generatedTextFile.id, new Event('click'));
+    expect(access.openViewerActionsFileId()).toBe(generatedTextFile.id);
+
+    access.onViewerRename(generatedTextFile as AgentXLibraryFile, new Event('click'));
+    expect(access.openViewerActionsFileId()).toBeNull();
+    expect(access.editingFileId()).toBe(generatedTextFile.id);
+    expect(access.fileRenameDraft()).toBe(generatedTextFile.name);
+  });
+
+  it('copies the current document draft instead of the last saved version', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    access.textContentDrafts.set({ [generatedTextFile.id]: '# Updated notes' });
+
+    await access.onViewerCopy(generatedTextFile as AgentXLibraryFile);
+
+    expect(writeText).toHaveBeenCalledWith('# Updated notes');
+    expect(toastSuccess).toHaveBeenCalledWith('Document copied');
+  });
+
+  it('labels copy actions according to the copied content type', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    const structuredFile = {
+      ...file,
+      mimeType: 'application/json',
+      rawData: { plays: 12 },
+    } as AgentXLibraryFile;
+
+    expect(access.viewerCopyActionLabel(generatedTextFile as AgentXLibraryFile)).toBe(
+      'Copy Markdown'
+    );
+    expect(access.viewerCopyActionLabel(videoFile as AgentXLibraryFile)).toBe('Copy file link');
+    expect(access.viewerCopyActionLabel(structuredFile)).toBe('Copy as JSON');
+  });
+
+  it('offers link and Markdown actions when an attached file has Markdown notes', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    const pdfWithNotes = {
+      ...file,
+      id: 'pdf-with-notes-1',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      url: 'https://cdn.example.com/game-report.pdf',
+      textContent: '# Coach notes',
+    } as AgentXLibraryFile;
+
+    expect(access.shouldShowViewerFileActions(pdfWithNotes)).toBe(true);
+    expect(access.hasMarkdownNotes(pdfWithNotes)).toBe(true);
+    expect(access.canExportViewerContent(pdfWithNotes)).toBe(true);
+  });
+
+  it('copies the attachment link and its Markdown notes as separate actions', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    const pdfWithNotes = {
+      ...file,
+      id: 'pdf-with-notes-copy-1',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      url: 'https://cdn.example.com/game-report.pdf',
+      textContent: '# Coach notes',
+    } as AgentXLibraryFile;
+    refreshFile.mockResolvedValueOnce({
+      ...pdfWithNotes,
+      url: 'https://api.nxt1.test/signed/game-report.pdf',
+    });
+
+    await access.onViewerCopy(pdfWithNotes, 'link');
+    await access.onViewerCopy(pdfWithNotes, 'markdown');
+
+    expect(writeText.mock.calls).toEqual([
+      ['https://api.nxt1.test/signed/game-report.pdf'],
+      ['# Coach notes'],
+    ]);
+    expect(refreshFile).toHaveBeenCalledWith(pdfWithNotes.id, pdfWithNotes.teamId, {
+      disposition: 'inline',
+    });
+  });
+
+  it('exports attached Markdown notes separately from their original file', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    const pdfWithNotes = {
+      ...file,
+      id: 'pdf-with-notes-export-1',
+      name: 'Game Report.pdf',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      textContent: '# Coach notes',
+    } as AgentXLibraryFile;
+
+    await access.onViewerExport(pdfWithNotes);
+
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0]?.download).toBe('Game Report.md');
+    const exported = createObjectUrlMock.mock.calls[0]?.[0];
+    expect(exported).toBeInstanceOf(Blob);
+    if (exported instanceof Blob) {
+      expect(await exported.text()).toBe('# Coach notes');
+    }
+  });
+
+  it('copies a fresh URL for binary files', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    await access.onViewerCopy(videoFile as AgentXLibraryFile);
+
+    expect(refreshFile).toHaveBeenCalledWith(videoFile.id, videoFile.teamId, {
+      disposition: 'inline',
+    });
+    expect(writeText).toHaveBeenCalledWith(videoFile.url);
+  });
+
+  it('copies structured document content instead of its inline URL', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    const structuredFile = {
+      ...file,
+      id: 'structured-1',
+      mimeType: 'application/json',
+      rawData: { plays: 12 },
+    } as AgentXLibraryFile;
+
+    await access.onViewerCopy(structuredFile);
+
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify({ plays: 12 }, null, 2));
+    expect(refreshFile).not.toHaveBeenCalled();
+    expect(toastSuccess).toHaveBeenCalledWith('Document copied');
+  });
+
+  it('opens an attached file from the dropdown using a refreshed inline URL', async () => {
+    const replace = vi.fn();
+    const close = vi.fn();
+    const openTab = { location: { replace }, close, opener: window } as unknown as Window;
+    const open = vi.spyOn(window, 'open').mockReturnValue(openTab);
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    await access.onViewerOpen(videoFile as AgentXLibraryFile);
+
+    expect(open).toHaveBeenCalledWith('', '_blank');
+    expect(refreshFile).toHaveBeenCalledWith(videoFile.id, videoFile.teamId, {
+      disposition: 'inline',
+    });
+    expect(openTab.opener).toBeNull();
+    expect(replace).toHaveBeenCalledWith(videoFile.url);
+  });
+
+  it('downloads an attached file from the dropdown using a refreshed attachment URL', async () => {
+    const replace = vi.fn();
+    const close = vi.fn();
+    const openTab = { location: { replace }, close, opener: window } as unknown as Window;
+    const open = vi.spyOn(window, 'open').mockReturnValue(openTab);
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    await access.onViewerDownload(videoFile as AgentXLibraryFile);
+
+    expect(open).toHaveBeenCalledWith('', '_blank');
+    expect(refreshFile).toHaveBeenCalledWith(videoFile.id, videoFile.teamId, {
+      disposition: 'attachment',
+    });
+    expect(openTab.opener).toBeNull();
+    expect(replace).toHaveBeenCalledWith(videoFile.url);
+  });
+
+  it('exports the current document draft as a markdown download', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    access.textContentDrafts.set({ [generatedTextFile.id]: '# Updated notes' });
+
+    await access.onViewerExport(generatedTextFile as AgentXLibraryFile);
+
+    expect(createObjectUrlMock).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0]?.download).toBe('Agent Notes.md');
+  });
+
+  it('exports structured files as JSON downloads', async () => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    const structuredFile = {
+      ...file,
+      id: 'structured-1',
+      name: 'Practice Data',
+      mimeType: 'application/json',
+      rawData: { plays: 12 },
+    } as AgentXLibraryFile;
+
+    await access.onViewerExport(structuredFile);
+
+    expect(click.mock.instances[0]?.download).toBe('Practice Data.json');
+    const exported = createObjectUrlMock.mock.calls[0]?.[0];
+    expect(exported).toBeInstanceOf(Blob);
+    if (exported instanceof Blob) {
+      expect(await exported.text()).toBe(JSON.stringify({ plays: 12 }, null, 2));
+    }
+  });
+
+  it('opens a tab before fetching the attached file download URL', async () => {
+    const replace = vi.fn();
+    const downloadTab = { location: { replace }, close: vi.fn(), opener: window } as unknown as Window;
+    const open = vi.spyOn(window, 'open').mockReturnValue(downloadTab);
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    await access.onViewerDownload(videoFile as AgentXLibraryFile);
+
+    expect(open).toHaveBeenCalledWith('', '_blank');
+    expect(refreshFile).toHaveBeenCalledWith(videoFile.id, videoFile.teamId, {
+      disposition: 'attachment',
+    });
+    expect(downloadTab.opener).toBeNull();
+    expect(replace).toHaveBeenCalledWith(videoFile.url);
+  });
+
+  it('does not refresh over unsaved text and refreshes after it is saved', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+    access.textContentDrafts.set({ [generatedTextFile.id]: '# Unsaved notes' });
+
+    await access.onViewerRefresh(generatedTextFile as AgentXLibraryFile);
+    expect(refreshFile).not.toHaveBeenCalled();
+    expect(toastInfo).toHaveBeenCalledWith('Wait for changes to save before refreshing');
+
+    access.textContentDrafts.set({});
+    await access.onViewerRefresh(generatedTextFile as AgentXLibraryFile);
+    expect(refreshFile).toHaveBeenCalledWith(generatedTextFile.id, generatedTextFile.teamId);
+    expect(toastSuccess).toHaveBeenCalledWith('File refreshed');
+  });
+
+  it('opens text documents in compact mode for the mobile Lab sheet', async () => {
+    refreshFile.mockImplementation(async (fileId: string) =>
+      fileId === uploadedTextFile.id
+        ? ({ ...uploadedTextFile } as AgentXLibraryFile)
+        : ({ ...file } as AgentXLibraryFile)
+    );
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.compact = true;
+    component.teamId = 'team-77';
+
+    await componentAccess.openFile(uploadedTextFile as AgentXLibraryFile);
+
+    expect(componentAccess.viewerMode()).toBe('generic');
+    expect(component.selectedId()).toBe(uploadedTextFile.id);
+    expect(component.selectedTabId()).toBe(`file:${uploadedTextFile.id}`);
+    expect(toastInfo).not.toHaveBeenCalledWith(
+      'Preview is not available on mobile yet. Use desktop or tablet for preview.'
+    );
   });
 
   it('transitions the uploaded film review directly into the review panel', async () => {
@@ -1725,6 +2131,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   });
 
   it('switches into the film review opening state before the files library refresh completes', async () => {
+    vi.useFakeTimers();
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
     const componentAccess = component as unknown as FilesPanelTestAccess;
     component.teamId = 'team-77';
@@ -1780,6 +2187,8 @@ describe('AgentXFilesPanelInnerComponent', () => {
       [new File(['video'], 'upload.mp4', { type: 'video/mp4' })],
       'full'
     );
+
+    await vi.advanceTimersByTimeAsync(3000);
 
     await vi.waitFor(() => {
       expect(loadFiles).toHaveBeenCalledWith('team-77');

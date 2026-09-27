@@ -102,6 +102,10 @@ export { NxtLogoComponent, type LogoSize, type LogoVariant } from './components/
 export { NxtChatBubbleComponent, type ChatBubbleVariant } from './components/chat-bubble';
 export { NxtMarkdownComponent } from './components/markdown';
 export {
+  NxtMarkdownEditorComponent,
+  type NxtMarkdownEditorSaveStatus,
+} from './components/markdown-editor';
+export {
   NxtInlineVideoPreviewDirective,
   buildInlineVideoPreviewSrc,
 } from './components/video-preview';
