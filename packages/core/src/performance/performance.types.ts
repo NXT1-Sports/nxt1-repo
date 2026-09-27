@@ -414,6 +414,7 @@ export const TRACE_NAMES = {
   AGENT_X_GOAL_COMPLETE: 'agent_x_goal_complete',
   AGENT_X_GOAL_HISTORY_LOAD: 'agent_x_goal_history_load',
   AGENT_X_THREAD_PIN_UPDATE: 'agent_x_thread_pin_update',
+  AGENT_X_MESSAGE_EDIT_RESEND: 'agent_x_message_edit_resend',
 
   // Phase I: thread-as-truth observability
   AGENT_THREAD_REPLAY_LOAD: 'agent_thread_replay_load',

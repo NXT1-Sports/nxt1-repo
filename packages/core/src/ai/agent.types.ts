@@ -26,9 +26,17 @@ export type AgentOperationStatus =
   | 'awaiting_approval'
   | 'awaiting_input'
   | 'streaming_result'
+  | 'cancelling'
   | 'completed'
   | 'failed'
   | 'cancelled';
+
+/** Machine-readable reason for cancelling an active or queued operation. */
+export type AgentOperationCancelReason =
+  | 'user_cancelled'
+  | 'superseded_by_edit'
+  | 'parent_cancelled'
+  | 'timeout';
 
 /** Which execution layer produced a structured progress event. */
 export type AgentProgressStageType = 'router' | 'tool';

@@ -3475,6 +3475,8 @@ export class AgentXOperationChatSessionFacade {
           ...(effectiveYieldResolvedText ? { yieldResolvedText: effectiveYieldResolvedText } : {}),
           ...(typeof message.seq === 'number' ? { seq: message.seq } : {}),
           ...(typeof message.turnSeq === 'number' ? { turnSeq: message.turnSeq } : {}),
+          ...(typeof message.revision === 'number' ? { revision: message.revision } : {}),
+          ...(message.editCapability ? { editCapability: message.editCapability } : {}),
           ...persistedMedia,
         };
       });

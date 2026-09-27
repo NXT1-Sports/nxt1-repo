@@ -109,6 +109,18 @@ export type AgentMessageActionType =
   | 'undone'
   | 'feedback_submitted';
 
+/** Server-derived capability information for editing a message. */
+export interface AgentMessageEditCapability {
+  readonly allowed: boolean;
+  readonly expiresAt?: string;
+  readonly reason?:
+    | 'expired'
+    | 'not_latest_turn'
+    | 'unsafe_operation'
+    | 'not_user_message'
+    | 'operation_in_progress';
+}
+
 /** Immutable record of a user edit to a message. */
 export interface AgentMessageEditRecord {
   readonly editedAt: string;
@@ -116,6 +128,9 @@ export interface AgentMessageEditRecord {
   readonly newContent: string;
   readonly reason?: string;
   readonly agentRerunId?: string;
+  readonly supersededOperationId?: string;
+  readonly replacementOperationId?: string;
+  readonly revision?: number;
 }
 
 /** Optional user feedback attached to a message. */
@@ -195,6 +210,10 @@ export interface AgentMessage {
   readonly parts?: readonly AgentXMessagePart[];
   /** Token usage for this message (for usage tracking in the UI). */
   readonly tokenUsage?: AgentMessageTokenUsage;
+  /** Monotonic edit revision (0 for initial message, increments with each edit). */
+  readonly revision?: number;
+  /** Server-derived capability indicating whether this message can be edited. */
+  readonly editCapability?: AgentMessageEditCapability;
   /** User edit history (most recent edit appended last). */
   readonly editHistory?: readonly AgentMessageEditRecord[];
   /** Optional user feedback for this message. */

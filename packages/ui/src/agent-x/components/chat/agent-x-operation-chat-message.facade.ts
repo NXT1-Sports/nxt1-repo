@@ -14,11 +14,13 @@ import {
   type AgentXRichCard,
 } from '@nxt1/core/ai';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ATTRIBUTE_NAMES, TRACE_NAMES } from '@nxt1/core/performance';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
+import { PERFORMANCE_ADAPTER } from '../../../services/performance';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import type { AgentXFeedbackSubmitEvent } from '../modals/agent-x-feedback-modal.component';
 import type { AgentYieldState } from '@nxt1/core';
@@ -53,6 +55,7 @@ export class AgentXOperationChatMessageFacade {
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChatMessage');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
+  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
 
   private readonly api: AgentXApi = createAgentXApi(
     {
@@ -68,18 +71,34 @@ export class AgentXOperationChatMessageFacade {
   readonly messages = signal<OperationMessage[]>([]);
   readonly editingMessageId = signal<string | null>(null);
   readonly editingMessageDraft = signal('');
+  readonly isSavingEditedMessage = signal(false);
   readonly feedbackTargetMessageId = signal<string | null>(null);
   readonly feedbackDefaultRating = signal<1 | 2 | 3 | 4 | 5>(5);
   readonly pendingUndoState = signal<PendingUndoState | null>(null);
   readonly undoBannerTriggerId = signal(0);
+  readonly now = signal(Date.now());
 
   private pendingTypingDelta = '';
   private pendingTypingFlushFrame: number | null = null;
   private readonly pendingTypingFlushCallbacks = new Set<() => void>();
   private host: AgentXOperationChatMessageFacadeHost | null = null;
+  private countdownTimer: ReturnType<typeof setInterval> | null = null;
 
   configure(host: AgentXOperationChatMessageFacadeHost): void {
     this.host = host;
+    if (!this.countdownTimer && typeof setInterval !== 'undefined') {
+      this.countdownTimer = setInterval(() => {
+        this.now.set(Date.now());
+      }, 1000);
+    }
+  }
+
+  destroy(): void {
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer);
+      this.countdownTimer = null;
+    }
+    this.clearPendingTypingDelta();
   }
 
   pushMessage(message: OperationMessage): void {
@@ -156,9 +175,9 @@ export class AgentXOperationChatMessageFacade {
   stampLatestUserMessageOperationId(params: {
     readonly operationId: string;
     readonly idempotencyKey?: string;
+    readonly messageId?: string;
   }): void {
     const operationId = params.operationId.trim();
-    if (!operationId) return;
 
     const findLastMatchingIndex = (
       messages: readonly OperationMessage[],
@@ -186,10 +205,20 @@ export class AgentXOperationChatMessageFacade {
       if (targetIndex < 0) return previous;
 
       const target = previous[targetIndex];
-      if (!target || target.operationId === operationId) return previous;
+      if (!target) return previous;
+
+      const shouldUpdateOp = operationId && target.operationId !== operationId;
+      const shouldUpdateId = params.messageId && target.id !== params.messageId;
+      if (!shouldUpdateOp && !shouldUpdateId) return previous;
 
       return previous.map((message, index) =>
-        index === targetIndex ? { ...message, operationId } : message
+        index === targetIndex
+          ? {
+              ...message,
+              ...(operationId ? { operationId } : {}),
+              ...(params.messageId ? { id: params.messageId } : {}),
+            }
+          : message
       );
     });
   }
@@ -698,7 +727,7 @@ export class AgentXOperationChatMessageFacade {
 
   startEditingMessage(message: OperationMessage): void {
     const host = this.requireHost();
-    if (message.role !== 'user' || !this.isPersistedMessageId(message.id)) return;
+    if (!this.canEditMessage(message)) return;
 
     this.logger.info('Opening inline message editor', {
       contextId: host.contextId(),
@@ -717,6 +746,34 @@ export class AgentXOperationChatMessageFacade {
 
     this.editingMessageId.set(message.id);
     this.editingMessageDraft.set(message.content);
+  }
+
+  canEditMessage(message: OperationMessage): boolean {
+    if (message.role !== 'user') {
+      return false;
+    }
+
+    // Only allow editing the latest user turn in the chat session
+    const userMessages = this.messages().filter((m) => m.role === 'user');
+    const isLatest = userMessages.at(-1)?.id === message.id;
+    if (!isLatest) {
+      return false;
+    }
+
+    const now = this.now();
+    if (message.editCapability) {
+      if (!message.editCapability.allowed) return false;
+      if (message.editCapability.expiresAt) {
+        return Date.parse(message.editCapability.expiresAt) > now;
+      }
+      return true;
+    }
+    const createdAtMs =
+      message.timestamp instanceof Date
+        ? message.timestamp.getTime()
+        : Date.parse(String(message.timestamp));
+    if (!Number.isFinite(createdAtMs)) return false;
+    return now - createdAtMs <= 5 * 60 * 1000;
   }
 
   cancelEditingMessage(): void {
@@ -752,12 +809,28 @@ export class AgentXOperationChatMessageFacade {
       threadId,
     });
 
+    this.isSavingEditedMessage.set(true);
     try {
-      const result = await this.api.editMessage(message.id, {
-        message: trimmed,
-        threadId,
-        reason: 'user_edit',
-      });
+      const editTask = () =>
+        this.api.editAndResendMessage(message.id, {
+          message: trimmed,
+          threadId,
+          reason: 'user_edit',
+          expectedRevision: message.revision,
+        });
+
+      const result = await (this.performance?.trace(
+        TRACE_NAMES.AGENT_X_MESSAGE_EDIT_RESEND,
+        editTask,
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_message_edit',
+          },
+          onSuccess: async (traceResult, trace) => {
+            await trace.putMetric('success', traceResult.success ? 1 : 0);
+          },
+        }
+      ) ?? editTask());
 
       if (!result.success || !result.data) {
         this.logger.warn('Message edit rejected by backend', {
@@ -771,8 +844,20 @@ export class AgentXOperationChatMessageFacade {
         return;
       }
 
+      const deletedIds = new Set(result.data.deletedAssistantMessageIds ?? []);
       this.messages.update((messages) =>
-        messages.map((entry) => (entry.id === message.id ? { ...entry, content: trimmed } : entry))
+        messages
+          .filter((entry) => !deletedIds.has(entry.id))
+          .map((entry) =>
+            entry.id === message.id
+              ? {
+                  ...entry,
+                  content: trimmed,
+                  operationId: result.data?.operationId,
+                  revision: result.data?.message?.revision ?? (entry.revision ?? 0) + 1,
+                }
+              : entry
+          )
       );
       this.cancelEditingMessage();
 
@@ -798,6 +883,8 @@ export class AgentXOperationChatMessageFacade {
         threadId,
       });
       this.toast.error('Failed to edit message');
+    } finally {
+      this.isSavingEditedMessage.set(false);
     }
   }
 

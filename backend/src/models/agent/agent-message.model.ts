@@ -90,6 +90,9 @@ const MessageEditRecordSchema = new Schema(
     newContent: { type: String, required: true },
     reason: { type: String },
     agentRerunId: { type: String },
+    supersededOperationId: { type: String },
+    replacementOperationId: { type: String },
+    revision: { type: Number },
   },
   { _id: false, versionKey: false }
 );
@@ -155,6 +158,7 @@ const AgentMessageSchema = new Schema<AgentMessage>(
     selectedContexts: { type: [Schema.Types.Mixed] },
     cards: { type: [Schema.Types.Mixed] },
     tokenUsage: { type: TokenUsageSchema },
+    revision: { type: Number, default: 0 },
     editHistory: { type: [MessageEditRecordSchema], default: [] },
     feedback: { type: MessageFeedbackSchema },
     actions: { type: [MessageActionRecordSchema], default: [] },

@@ -2095,6 +2095,8 @@ describe('Agent X Routes', () => {
         content: 'Old prompt',
         origin: 'user',
         createdAt: nowIso,
+        operationId: 'op-original-1',
+        revision: 0,
       }),
       editUserMessage: vi.fn().mockResolvedValue({
         id: messageId,
@@ -2104,17 +2106,23 @@ describe('Agent X Routes', () => {
         content: 'Updated prompt',
         origin: 'user',
         createdAt: nowIso,
+        revision: 1,
       }),
-      getNextAssistantMessage: vi.fn().mockResolvedValue(null),
-      softDeleteMessage: vi.fn(),
+      isLatestUserTurn: vi.fn().mockResolvedValue(true),
+      softDeleteAssistantMessagesForOperation: vi.fn().mockResolvedValue(['asst-1']),
     };
     const queueService = {
       enqueue: vi.fn().mockResolvedValue('job-123'),
+      cancel: vi.fn().mockResolvedValue(true),
     };
 
     setAgentDependencies({
       queueService: queueService as never,
-      jobRepository: createMockJobRepository() as never,
+      jobRepository: createMockJobRepository({
+        operationId: 'op-original-1',
+        userId: 'test-user',
+        status: 'acting',
+      }) as never,
       chatService: chatService as never,
       contextBuilder: {
         buildContext: vi.fn(),
@@ -2140,6 +2148,20 @@ describe('Agent X Routes', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.data.rerunEnqueued).toBe(true);
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
+
+    // Also verify POST /messages/:messageId/edit-and-resend
+    const resendResponse = await request(app)
+      .post(`/api/v1/agent-x/messages/${messageId}/edit-and-resend`)
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        message: 'Another updated prompt',
+        threadId,
+        expectedRevision: 0,
+      });
+
+    expect(resendResponse.status).toBe(200);
+    expect(resendResponse.body.success).toBe(true);
+    expect(resendResponse.body.data.rerunEnqueued).toBe(true);
   });
 
   it('should delete, undo, submit feedback, and annotate message', async () => {
@@ -3775,7 +3797,14 @@ describe('Agent X Routes', () => {
     expect(response.status).toBe(200);
     expect(jobRepository.findActiveByThread).toHaveBeenCalledWith(threadId);
     expect(queueService.cancel).toHaveBeenCalledWith('op-awaiting-input');
-    expect(jobRepository.markCancelled).toHaveBeenCalledWith('op-awaiting-input');
+    expect(jobRepository.requestCancellation).toHaveBeenCalledWith(
+      'op-awaiting-input',
+      expect.objectContaining({ reason: 'superseded_by_edit' })
+    );
+    expect(jobRepository.acknowledgeCancellation).toHaveBeenCalledWith(
+      'op-awaiting-input',
+      expect.anything()
+    );
     expect(jobRepository.create).toHaveBeenCalledTimes(1);
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
     expect(chatService.addMessage).toHaveBeenCalledWith(
@@ -6483,7 +6512,10 @@ describe('Agent X Routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(cancelAbortController.signal.aborted).toBe(true);
-    expect(jobRepository.markCancelled).toHaveBeenCalledWith(operationId);
+    expect(jobRepository.requestCancellation).toHaveBeenCalledWith(
+      operationId,
+      expect.objectContaining({ reason: 'user_cancelled' })
+    );
     expect(jobRepository.writeJobEvent).toHaveBeenCalledTimes(2);
 
     const operationEventWrite = vi.mocked(jobRepository.writeJobEvent).mock.calls[0]?.[1] as {
@@ -6998,6 +7030,8 @@ function createMockJobRepository(jobDoc?: Record<string, unknown>) {
     markPaused: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markCancelled: vi.fn().mockResolvedValue(undefined),
+    requestCancellation: vi.fn().mockResolvedValue({ wasActive: true, status: 'cancelling' }),
+    acknowledgeCancellation: vi.fn().mockResolvedValue(undefined),
     markDetached: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     patchContext: vi.fn().mockResolvedValue(undefined),

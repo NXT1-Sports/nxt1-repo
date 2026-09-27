@@ -211,6 +211,8 @@ export {
   type AgentXThreadActionRequest,
   type AgentXThreadActionResponse,
   type PinThreadResponse,
+  type EditAndResendPayload,
+  type EditAndResendResult,
 } from './agent-x.api';
 
 export {
@@ -339,6 +341,7 @@ export type {
   AgentMessageFeedback,
   AgentMessageActionRecord,
   AgentMessageEditRecord,
+  AgentMessageEditCapability,
   AgentMessage,
   AgentMessageTokenUsage,
   AgentThreadQuery,
@@ -353,6 +356,7 @@ export { SEMANTIC_PHASE_PRIORITY } from './chat.types';
 // Agentic types
 export type {
   AgentOperationStatus,
+  AgentOperationCancelReason,
   AgentProgressStageType,
   AgentRouterStage,
   ToolStage,

@@ -1181,6 +1181,8 @@ export interface AgentXStreamThreadEvent {
   readonly threadId: string;
   /** The backend operation ID for this chat request. Used for explicit cancellation via POST /cancel/:operationId. */
   readonly operationId?: string;
+  /** The persisted MongoDB message ID for the user's prompt on this turn. */
+  readonly userMessageId?: string;
 }
 
 /**

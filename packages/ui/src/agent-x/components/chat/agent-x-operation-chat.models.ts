@@ -76,6 +76,8 @@ export interface OperationMessage {
    */
   readonly seq?: number;
   readonly turnSeq?: number;
+  readonly revision?: number;
+  readonly editCapability?: import('@nxt1/core').AgentMessageEditCapability;
 }
 
 export interface StreamTurnWatermark {

@@ -780,4 +780,39 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.progress?.status).toBe('cancelled');
     expect(job?.progress?.percent).toBe(100);
   });
+
+  it('transitions active job to cancelling and acknowledges cancellation with executionStoppedAt', async () => {
+    const requestResult = await repository.requestCancellation('op-seq-1', {
+      reason: 'superseded_by_edit',
+      supersededByOperationId: 'op-replacement-1',
+    });
+
+    expect(requestResult.wasActive).toBe(true);
+    expect(requestResult.status).toBe('cancelling');
+
+    const cancellingJob = await repository.getById('op-seq-1');
+    expect(cancellingJob?.status).toBe('cancelling');
+    expect(cancellingJob?.cancelReason).toBe('superseded_by_edit');
+    expect(cancellingJob?.supersededByOperationId).toBe('op-replacement-1');
+
+    // Late markCompleted should not overwrite cancelling state
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Late completion result',
+      data: { success: true },
+    });
+
+    const stillCancelling = await repository.getById('op-seq-1');
+    expect(stillCancelling?.status).toBe('cancelling');
+
+    // Worker acknowledges cancellation
+    await repository.acknowledgeCancellation('op-seq-1', {
+      message: 'Superseded by edited prompt',
+    });
+
+    const cancelledJob = await repository.getById('op-seq-1');
+    expect(cancelledJob?.status).toBe('cancelled');
+    expect(cancelledJob?.executionStoppedAt).toBeTruthy();
+    expect(cancelledJob?.completedAt).toBeTruthy();
+    expect(cancelledJob?.progress?.status).toBe('cancelled');
+  });
 });

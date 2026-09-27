@@ -710,6 +710,14 @@ export class ToolRegistry {
       }
     }
 
+    if (context?.signal?.aborted) {
+      logger.info('[ToolRegistry] Suppressed post-mutation pipelines: operation cancelled', {
+        toolName: normalizedName,
+        operationId: context?.operationId,
+      });
+      return result;
+    }
+
     if (result.success && tool.isMutation) {
       await getAgentMutationPolicyService()
         .apply({

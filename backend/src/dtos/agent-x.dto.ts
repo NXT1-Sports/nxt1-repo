@@ -646,6 +646,43 @@ export class UpdateAgentMessageDto {
   @IsOptional()
   @Length(0, 120)
   reason?: string;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  expectedRevision?: number;
+
+  @IsString()
+  @IsOptional()
+  @Length(8, 128)
+  idempotencyKey?: string;
+}
+
+export class EditAndResendMessageDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 5000, { message: 'Message must be between 1 and 5000 characters' })
+  message!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-f0-9]{24}$/i, { message: 'threadId must be a valid 24-character hex string' })
+  threadId!: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 120)
+  reason?: string;
+
+  @IsInt()
+  @Min(0)
+  @IsOptional()
+  expectedRevision?: number;
+
+  @IsString()
+  @IsOptional()
+  @Length(8, 128)
+  idempotencyKey?: string;
 }
 
 export class DeleteAgentMessageDto {

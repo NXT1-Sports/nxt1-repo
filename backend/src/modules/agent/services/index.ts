@@ -5,6 +5,12 @@
 
 export { ApprovalGateService } from './approval-gate.service.js';
 export {
+  AgentOperationCancellationService,
+  type CancelOperationParams,
+  type CancelOperationResult,
+} from './agent-operation-cancellation.service.js';
+export { AgentMessageEditService, type EditAndResendInput } from './agent-message-edit.service.js';
+export {
   logAgentTaskCompletion,
   logAgentTaskFailure,
   type AgentActivityInput,

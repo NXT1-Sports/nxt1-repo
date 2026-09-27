@@ -121,6 +121,25 @@ export interface EditMessageResult extends AgentMessageActionResult {
   };
 }
 
+export interface EditAndResendPayload {
+  readonly message: string;
+  readonly threadId: string;
+  readonly reason?: string;
+  readonly expectedRevision?: number;
+  readonly idempotencyKey?: string;
+}
+
+export interface EditAndResendResult extends AgentMessageActionResult {
+  readonly data?: {
+    readonly message: AgentMessage;
+    readonly operationId: string;
+    readonly supersededOperationId?: string;
+    readonly rerunEnqueued: boolean;
+    readonly handoffStatus?: 'stopping_previous' | 'queued';
+    readonly deletedAssistantMessageIds?: readonly string[];
+  };
+}
+
 export interface DeleteMessageResult extends AgentMessageActionResult {
   readonly data?: {
     readonly messageId: string;
@@ -588,6 +607,44 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         };
       } catch {
         return { success: false, error: 'Failed to edit message' };
+      }
+    },
+
+    /**
+     * Atomically edit a user message and supersede the prior operation with a replacement.
+     */
+    async editAndResendMessage(
+      messageId: string,
+      payload: EditAndResendPayload
+    ): Promise<EditAndResendResult> {
+      try {
+        const response = await http.post<
+          ApiResponse<{
+            message: AgentMessage;
+            operationId: string;
+            supersededOperationId?: string;
+            rerunEnqueued: boolean;
+            handoffStatus?: 'stopping_previous' | 'queued';
+            deletedAssistantMessageIds?: readonly string[];
+          }>
+        >(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}/edit-and-resend`,
+          payload
+        );
+
+        if (!response.success) {
+          return {
+            success: false,
+            error: response.error ?? 'Failed to edit and resend message',
+          };
+        }
+
+        return {
+          success: true,
+          data: response.data,
+        };
+      } catch {
+        return { success: false, error: 'Failed to edit and resend message' };
       }
     },
 

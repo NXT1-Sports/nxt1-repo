@@ -26,6 +26,7 @@ vi.mock('../../../../models/agent/agent-message.model.js', () => ({
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
+    updateMany: vi.fn(),
     find: vi.fn(),
     countDocuments: vi.fn(),
   },
@@ -762,6 +763,148 @@ describe('AgentChatService', () => {
         archived: false,
         pinnedAt: { $ne: null },
       });
+    });
+  });
+
+  describe('edit capability and message supersession', () => {
+    it('isLatestUserTurn returns true when message is the latest user turn', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        sortedLeanExecResult({
+          _id: 'msg-latest',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'latest prompt',
+          createdAt: new Date().toISOString(),
+        }) as never
+      );
+
+      const result = await service.isLatestUserTurn('t1', 'msg-latest');
+      expect(result).toBe(true);
+    });
+
+    it('isLatestUserTurn returns false when another user prompt is newer', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        sortedLeanExecResult({
+          _id: 'msg-newer',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'newer prompt',
+          createdAt: new Date().toISOString(),
+        }) as never
+      );
+
+      const result = await service.isLatestUserTurn('t1', 'msg-older');
+      expect(result).toBe(false);
+    });
+
+    it('softDeleteAssistantMessagesForOperation soft-deletes assistant and tool rows for an operation', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.find).mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockReturnThis(),
+        exec: vi.fn().mockResolvedValue([{ _id: 'asst-1' }, { _id: 'tool-1' }]),
+      } as never);
+      vi.mocked(AgentMessageModel.updateMany).mockReturnValueOnce(
+        execResult({ modifiedCount: 2 }) as never
+      );
+
+      const deletedIds = await service.softDeleteAssistantMessagesForOperation(
+        'thread-1',
+        'op-old-1',
+        'user-1'
+      );
+
+      expect(deletedIds).toEqual(['asst-1', 'tool-1']);
+      expect(AgentMessageModel.updateMany).toHaveBeenCalledWith(
+        { _id: { $in: ['asst-1', 'tool-1'] } },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            deletedBy: 'user-1',
+          }),
+          $push: expect.objectContaining({
+            actions: expect.objectContaining({
+              type: 'deleted',
+              metadata: { reason: 'superseded_by_edit' },
+            }),
+          }),
+        })
+      );
+    });
+
+    it('editUserMessage guards the write with the revision just read to prevent a lost update', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        leanExecResult({
+          _id: 'msg-1',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'original prompt',
+          revision: 2,
+        }) as never
+      );
+      vi.mocked(AgentMessageModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult({
+          _id: 'msg-1',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'edited prompt',
+          revision: 3,
+        }) as never
+      );
+
+      const result = await service.editUserMessage({
+        messageId: 'msg-1',
+        userId: 'u1',
+        threadId: 't1',
+        newContent: 'edited prompt',
+        expectedRevision: 2,
+        replacementOperationId: 'op-new',
+      });
+
+      expect(result).not.toBeNull();
+      expect(AgentMessageModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'msg-1', revision: 2 },
+        expect.objectContaining({
+          $set: expect.objectContaining({ revision: 3, operationId: 'op-new' }),
+        }),
+        expect.anything()
+      );
+    });
+
+    it('editUserMessage returns null when a concurrent edit already advanced the revision', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        leanExecResult({
+          _id: 'msg-1',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'original prompt',
+          revision: 2,
+        }) as never
+      );
+      // Simulate a concurrent winner already bumped the revision: the
+      // revision-guarded update matches nothing and returns null.
+      vi.mocked(AgentMessageModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult(null) as never
+      );
+
+      const result = await service.editUserMessage({
+        messageId: 'msg-1',
+        userId: 'u1',
+        threadId: 't1',
+        newContent: 'edited prompt',
+        expectedRevision: 2,
+        replacementOperationId: 'op-new',
+      });
+
+      expect(result).toBeNull();
     });
   });
 });

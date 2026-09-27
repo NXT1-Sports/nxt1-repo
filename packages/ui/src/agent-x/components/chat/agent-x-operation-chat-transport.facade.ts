@@ -547,10 +547,11 @@ export class AgentXOperationChatTransportFacade {
         {
           onThread: (event) => {
             host.resolvedThreadId.set(event.threadId);
-            if (event.operationId) {
-              host.setCurrentOperationId(event.operationId);
+            if (event.operationId || event.userMessageId) {
+              if (event.operationId) host.setCurrentOperationId(event.operationId);
               this.messageFacade.stampLatestUserMessageOperationId({
-                operationId: event.operationId,
+                operationId: event.operationId ?? '',
+                ...(event.userMessageId ? { messageId: event.userMessageId } : {}),
                 ...(idempotencyKey ? { idempotencyKey } : {}),
               });
             }

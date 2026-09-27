@@ -11,23 +11,31 @@
 
 import crypto from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
-import type { AgentJobPayload, AgentXAttachment } from '@nxt1/core';
+import type { AgentXAttachment } from '@nxt1/core';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import {
   SyncAgentMessageAttachmentDto,
   UpdateAgentMessageDto,
+  EditAndResendMessageDto,
   DeleteAgentMessageDto,
   UndoAgentMessageDto,
   AgentMessageFeedbackDto,
   AgentMessageAnnotationDto,
 } from '../../dtos/agent-x.dto.js';
 import { logger } from '../../utils/logger.js';
-import { chatService, isValidObjectId, queueService } from './shared.js';
+import {
+  chatService,
+  isValidObjectId,
+  queueService,
+  jobRepository,
+  pubsubService,
+  activeAbortControllers,
+} from './shared.js';
+import { AgentMessageEditService } from '../../modules/agent/services/agent-message-edit.service.js';
+import { AgentOperationCancellationService } from '../../modules/agent/services/agent-operation-cancellation.service.js';
 
 const router = Router();
-
-const EDIT_WINDOW_MS = 5 * 60 * 1000;
 
 function toAgentXAttachment(
   attachment: SyncAgentMessageAttachmentDto['attachment']
@@ -48,11 +56,6 @@ function toAgentXAttachment(
 function getAuthUser(req: Request): { uid: string } | null {
   const user = (req as Request & { user?: { uid?: string } }).user;
   return user?.uid ? { uid: user.uid } : null;
-}
-
-function parseIsoTimestamp(value: string): number | null {
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : null;
 }
 
 router.get('/messages/:messageId', appGuard, async (req: Request, res: Response) => {
@@ -147,128 +150,106 @@ router.post(
   }
 );
 
+async function handleEditAndResend(
+  req: Request,
+  res: Response,
+  body: UpdateAgentMessageDto | EditAndResendMessageDto
+) {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const auth = getAuthUser(req);
+    if (!auth) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const rawMessageId = req.params['messageId'] as string;
+    let messageId = rawMessageId;
+
+    if (!isValidObjectId(rawMessageId)) {
+      const resolved = await chatService.getMessageByOperationOrId(
+        rawMessageId,
+        auth.uid,
+        body.threadId
+      );
+      if (resolved) {
+        messageId = resolved.id;
+      } else {
+        res.status(400).json({ success: false, error: 'Invalid message ID format' });
+        return;
+      }
+    }
+
+    const db = req.firebase?.db;
+    if (!db || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent persistence unavailable' });
+      return;
+    }
+
+    const cancellationService = new AgentOperationCancellationService(
+      jobRepository,
+      queueService,
+      pubsubService,
+      chatService
+    );
+    const editService = new AgentMessageEditService(
+      chatService,
+      jobRepository,
+      queueService,
+      cancellationService
+    );
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const result = await editService.editAndResend(db, {
+      messageId,
+      userId: auth.uid,
+      threadId: body.threadId,
+      message: body.message,
+      reason: body.reason,
+      expectedRevision: body.expectedRevision,
+      idempotencyKey: body.idempotencyKey,
+      environment,
+      activeAbortControllers,
+    });
+
+    if (!result.success) {
+      const isNotFound = result.error === 'Message not found';
+      const isConflict = result.error?.includes('already been modified');
+      const statusCode = isNotFound ? 404 : isConflict ? 409 : 400;
+      res.status(statusCode).json({ success: false, error: result.error });
+      return;
+    }
+
+    res.json(result);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to edit and resend Agent X message', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to edit message' });
+  }
+}
+
 router.put(
   '/messages/:messageId',
   appGuard,
   validateBody(UpdateAgentMessageDto),
   async (req: Request, res: Response) => {
-    try {
-      if (!chatService) {
-        res.status(503).json({ success: false, error: 'Chat service not initialized' });
-        return;
-      }
+    await handleEditAndResend(req, res, req.body as UpdateAgentMessageDto);
+  }
+);
 
-      const auth = getAuthUser(req);
-      if (!auth) {
-        res.status(401).json({ success: false, error: 'Unauthorized' });
-        return;
-      }
-
-      const messageId = req.params['messageId'] as string;
-      if (!isValidObjectId(messageId)) {
-        res.status(400).json({ success: false, error: 'Invalid message ID format' });
-        return;
-      }
-
-      const body = req.body as UpdateAgentMessageDto;
-      const current = await chatService.getMessageById(messageId, auth.uid);
-      if (!current) {
-        res.status(404).json({ success: false, error: 'Message not found' });
-        return;
-      }
-
-      if (current.threadId !== body.threadId) {
-        res.status(400).json({ success: false, error: 'Thread mismatch for message' });
-        return;
-      }
-
-      if (current.role !== 'user') {
-        res.status(400).json({ success: false, error: 'Only user messages can be edited' });
-        return;
-      }
-
-      const createdAtMs = parseIsoTimestamp(current.createdAt);
-      if (createdAtMs === null) {
-        res.status(400).json({ success: false, error: 'Message has invalid timestamp' });
-        return;
-      }
-
-      if (Date.now() - createdAtMs > EDIT_WINDOW_MS) {
-        res
-          .status(400)
-          .json({ success: false, error: 'Only messages from the last 5 minutes can be edited' });
-        return;
-      }
-
-      const operationId = crypto.randomUUID();
-      const edited = await chatService.editUserMessage({
-        messageId,
-        userId: auth.uid,
-        threadId: body.threadId,
-        newContent: body.message.trim(),
-        reason: body.reason,
-        agentRerunId: operationId,
-      });
-
-      if (!edited) {
-        res.status(404).json({ success: false, error: 'Message could not be updated' });
-        return;
-      }
-
-      const nextAssistant = await chatService.getNextAssistantMessage(
-        edited.threadId,
-        edited.createdAt
-      );
-      let deletedAssistantMessageId: string | undefined;
-      if (nextAssistant) {
-        const deleteToken = crypto.randomUUID();
-        const deleted = await chatService.softDeleteMessage({
-          messageId: nextAssistant.id,
-          userId: auth.uid,
-          restoreTokenId: deleteToken,
-        });
-        if (deleted) {
-          deletedAssistantMessageId = deleted.id;
-        }
-      }
-
-      let rerunEnqueued = false;
-      if (queueService) {
-        const environment = req.isStaging ? 'staging' : 'production';
-        const payload: AgentJobPayload = {
-          operationId,
-          userId: auth.uid,
-          intent: body.message.trim(),
-          sessionId: crypto.randomUUID(),
-          origin: 'user',
-          context: {
-            threadId: edited.threadId,
-            editedMessageId: edited.id,
-            editReason: body.reason ?? null,
-          },
-        };
-
-        await queueService.enqueue(payload, environment);
-        rerunEnqueued = true;
-      }
-
-      res.json({
-        success: true,
-        data: {
-          message: edited,
-          operationId,
-          rerunEnqueued,
-          deletedAssistantMessageId,
-        },
-      });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to edit Agent X message', {
-        error: error.message,
-        stack: error.stack,
-      });
-      res.status(500).json({ success: false, error: 'Failed to edit message' });
-    }
+router.post(
+  '/messages/:messageId/edit-and-resend',
+  appGuard,
+  validateBody(EditAndResendMessageDto),
+  async (req: Request, res: Response) => {
+    await handleEditAndResend(req, res, req.body as EditAndResendMessageDto);
   }
 );
 
