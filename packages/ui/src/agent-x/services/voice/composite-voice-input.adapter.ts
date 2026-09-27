@@ -28,6 +28,7 @@ export class CompositeVoiceInputAdapter implements AgentXVoiceInputAdapter {
 
   start(options?: AgentXVoiceInputStartOptions): void | Promise<void> {
     const adapter = this.browserAdapter.available() ? this.browserAdapter : this.backendAdapter;
+
     if (!adapter.available()) {
       return;
     }

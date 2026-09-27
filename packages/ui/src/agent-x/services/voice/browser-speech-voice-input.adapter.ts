@@ -56,6 +56,7 @@ export class BrowserSpeechVoiceInputAdapter implements AgentXVoiceInputAdapter {
   private waveSampleData: Uint8Array<ArrayBuffer> | null = null;
   private waveHistory = createIdleVoiceLevels();
   private waveFrameId: number | null = null;
+  private isFakeWaveformActive = false;
 
   readonly available = signal(false);
   readonly listening = signal(false);
@@ -108,28 +109,32 @@ export class BrowserSpeechVoiceInputAdapter implements AgentXVoiceInputAdapter {
   }
 
   stop(options: { readonly abort?: boolean } = {}): void {
-    this.stopWaveform();
+    if (options.abort) {
+      this.stopWaveform();
+      const recognition = this.recognition;
+      this.recognition = null;
+      this.listening.set(false);
 
-    const recognition = this.recognition;
-    this.recognition = null;
-    this.listening.set(false);
-
-    if (!recognition) {
+      if (recognition) {
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        try {
+          recognition.abort();
+        } catch {
+          // Ignore
+        }
+      }
       return;
     }
 
-    recognition.onresult = null;
-    recognition.onerror = null;
-    recognition.onend = null;
-
-    try {
-      if (options.abort) {
-        recognition.abort();
-      } else {
-        recognition.stop();
+    // Normal stop: just tell it to stop, let onend handle cleanup and onresult capture the final text.
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch {
+        this.handleRecognitionFinished();
       }
-    } catch {
-      // Browser speech engines can throw when already inactive.
     }
   }
 
@@ -194,6 +199,24 @@ export class BrowserSpeechVoiceInputAdapter implements AgentXVoiceInputAdapter {
       return;
     }
 
+    let isMobile = false;
+    try {
+      if (typeof globalThis !== 'undefined' && 'Capacitor' in globalThis) {
+        const cap = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+        if (cap && typeof cap.isNativePlatform === 'function') {
+          isMobile = cap.isNativePlatform();
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    if (isMobile) {
+      this.isFakeWaveformActive = true;
+      this.scheduleWaveFrame();
+      return;
+    }
+
     const mediaDevices = globalThis.navigator?.mediaDevices;
     const AudioContextCtor = this.resolveAudioContextConstructor();
     if (!mediaDevices?.getUserMedia || !AudioContextCtor) {
@@ -243,10 +266,27 @@ export class BrowserSpeechVoiceInputAdapter implements AgentXVoiceInputAdapter {
   }
 
   private readWaveFrame(): void {
+    if (!this.listening()) {
+      return;
+    }
+
+    if (this.isFakeWaveformActive) {
+      const time = Date.now() / 150;
+      const level = 0.2 + Math.sin(time) * 0.15 + Math.cos(time * 1.3) * 0.15 + Math.random() * 0.2;
+      const normalized = Math.max(0, Math.min(1, level));
+
+      this.waveHistory = [...this.waveHistory.slice(1), normalized];
+      this.levels.set(this.waveHistory);
+
+      // Throttle
+      setTimeout(() => this.scheduleWaveFrame(), 50);
+      return;
+    }
+
     const analyser = this.analyser;
     const data = this.waveSampleData;
 
-    if (!analyser || !data || !this.listening()) {
+    if (!analyser || !data) {
       return;
     }
 
@@ -258,6 +298,7 @@ export class BrowserSpeechVoiceInputAdapter implements AgentXVoiceInputAdapter {
   }
 
   private stopWaveform(): void {
+    this.isFakeWaveformActive = false;
     if (this.waveFrameId !== null && typeof cancelAnimationFrame === 'function') {
       cancelAnimationFrame(this.waveFrameId);
     }

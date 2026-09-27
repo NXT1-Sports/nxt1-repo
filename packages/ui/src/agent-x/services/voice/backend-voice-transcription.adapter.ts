@@ -119,6 +119,13 @@ export class BackendVoiceTranscriptionAdapter implements AgentXVoiceInputAdapter
 
     if (options.abort) {
       recorder.onstop = null;
+      try {
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        }
+      } catch {
+        // ignore
+      }
       this.cleanupRecording();
       return;
     }
