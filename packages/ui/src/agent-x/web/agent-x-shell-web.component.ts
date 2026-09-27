@@ -1254,10 +1254,10 @@ const AGENT_X_GOOGLE_PLAY_URL =
                     type="button"
                     class="agent-column-back-btn"
                     (click)="onFilesHeaderBack()"
-                    aria-label="Back to file library"
+                    aria-label="Go back"
                   >
                     <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                    <span>Library</span>
+                    <span>Go back</span>
                   </button>
                   @if ((filesPanel()?.visibleOpenTabs()?.length ?? 0) > 0) {
                     <div
