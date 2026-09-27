@@ -862,6 +862,24 @@ export const AGENT_X_SHELL_TEST_IDS = {
   DOWNLOAD_APP_ANDROID: 'agent-x-shell-download-app-android',
 } as const;
 
+export const AGENT_X_OPERATIONS_LOG_TEST_IDS = {
+  HEADER: 'operations-log-header',
+  CLOSE_BUTTON: 'operations-log-close',
+  SUMMARY_BAR: 'operations-log-summary',
+  FILTER_CHIP: 'operations-log-filter',
+  SCROLL_CONTAINER: 'operations-log-scroll',
+  DAY_GROUP: 'operations-log-day-group',
+  PINNED_GROUP: 'operations-log-pinned-group',
+  ENTRY: 'operations-log-entry',
+  EMPTY_STATE: 'operations-log-empty',
+  ERROR_STATE: 'operations-log-error',
+  SKELETON: 'operations-log-skeleton',
+  ENTRY_MENU_BUTTON: 'operations-log-entry-menu-button',
+  ENTRY_MENU: 'operations-log-entry-menu',
+  ENTRY_RENAME_INPUT: 'operations-log-entry-rename-input',
+  ENTRY_PIN_BUTTON: 'operations-log-entry-pin-button',
+} as const;
+
 /**
  * All test IDs combined for easy import
  */
@@ -1609,6 +1627,7 @@ export const TEST_IDS = {
   AGENT_X_INPUT: AGENT_X_INPUT_TEST_IDS,
   AGENT_X_ATTACHMENTS_SHEET: AGENT_X_ATTACHMENTS_SHEET_TEST_IDS,
   AGENT_X_SHELL: AGENT_X_SHELL_TEST_IDS,
+  AGENT_X_OPERATIONS_LOG: AGENT_X_OPERATIONS_LOG_TEST_IDS,
   AGENT_X_GOALS: AGENT_X_GOALS_TEST_IDS,
   FEED_CARD: FEED_CARD_TEST_IDS,
   PROFILE_TIMELINE: PROFILE_TIMELINE_TEST_IDS,

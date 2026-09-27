@@ -29,6 +29,9 @@ export { InvitePage } from './invite.page';
 // Add Sport page
 export { AddSportPage } from './add-sport.page';
 
+// Operations Log page
+export { AgentXOperationsLogPage } from './agent-x-operations-log.page';
+
 // Connected Accounts pages
 export { ConnectedAccountsPage } from './connected-accounts.page';
 

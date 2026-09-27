@@ -11,6 +11,7 @@
  *   threads       — /threads, /threads/:threadId, /threads/:threadId/messages
  *   firecrawl     — /firecrawl/session/*, /firecrawl/accounts
  *   live-view     — /live-view/start, /live-view/navigate, /live-view/refresh, /live-view/close, /health
+ *   voice         — /voice/transcribe
  *   tasks         — /tasks
  */
 
@@ -30,6 +31,7 @@ import mediaProxyRoutes from './media-proxy.routes.js';
 import referenceAssetsRoutes from './reference-assets.routes.js';
 import tasksRoutes from './tasks.routes.js';
 import reviewsRoutes from './reviews.routes.js';
+import voiceRoutes from './voice.routes.js';
 
 const router = Router();
 
@@ -45,6 +47,7 @@ router.use(liveViewRoutes);
 router.use(knowledgeAdminRoutes);
 router.use(messagesRoutes);
 router.use(reviewsRoutes);
+router.use(voiceRoutes);
 router.use(mediaProxyRoutes);
 router.use(tasksRoutes);
 router.use(referenceAssetsRoutes);

@@ -192,6 +192,8 @@ export const AGENT_X_ENDPOINTS = {
   BRIEFING_GENERATE: '/agent-x/briefing/generate',
   /** Operations activity log (paginated job history) */
   OPERATIONS_LOG: '/agent-x/operations-log',
+  /** Thread management base endpoint */
+  THREADS: '/agent-x/threads',
   /** Get messages for a specific thread */
   THREAD_MESSAGES: '/agent-x/threads',
   /** Submit a semantic thread action (ask_user reply / approval decision) */

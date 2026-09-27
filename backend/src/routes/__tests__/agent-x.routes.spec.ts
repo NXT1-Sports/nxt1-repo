@@ -6806,6 +6806,175 @@ describe('Agent X Routes', () => {
     });
     expect(__getMockFirestoreWrites()).toHaveLength(0);
   });
+
+  describe('thread pin route and operations log integration', () => {
+    it('should reject invalid thread ID format on pin request', async () => {
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/not-an-objectid/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: true });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('Invalid thread ID format');
+    });
+
+    it('should reject non-boolean pinned field', async () => {
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/507f1f77bcf86cd799439011/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: 'yes' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('must be a boolean');
+    });
+
+    it('should return 404 when pinThread returns THREAD_NOT_FOUND', async () => {
+      setAgentDependencies({
+        queueService: { enqueue: vi.fn(), cancel: vi.fn() } as never,
+        jobRepository: createMockJobRepository() as never,
+        chatService: {
+          pinThread: vi.fn().mockResolvedValue({
+            success: false,
+            errorCode: 'THREAD_NOT_FOUND',
+            error: 'Thread not found',
+          }),
+        } as never,
+      });
+
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/507f1f77bcf86cd799439011/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: true });
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should successfully pin a thread and return 200 with data', async () => {
+      const pinnedAt = '2026-06-25T12:00:00.000Z';
+      setAgentDependencies({
+        queueService: { enqueue: vi.fn(), cancel: vi.fn() } as never,
+        jobRepository: createMockJobRepository() as never,
+        chatService: {
+          pinThread: vi.fn().mockResolvedValue({
+            success: true,
+            threadId: '507f1f77bcf86cd799439011',
+            pinned: true,
+            pinnedAt,
+          }),
+        } as never,
+      });
+
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/507f1f77bcf86cd799439011/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toEqual({
+        threadId: '507f1f77bcf86cd799439011',
+        pinned: true,
+        pinnedAt,
+      });
+    });
+
+    it('should return pinned sessions separately in /operations-log and exclude them from history', async () => {
+      const now = Date.parse('2026-06-25T12:00:00.000Z');
+      const pinnedThreadId = '507f1f77bcf86cd799439011';
+      const normalThreadId = '507f1f77bcf86cd799439022';
+
+      const jobRepository = createMockJobRepository();
+      jobRepository.getByUserPage.mockResolvedValue({
+        jobs: [
+          {
+            operationId: 'op-pinned',
+            threadId: pinnedThreadId,
+            userId: 'test-user',
+            intent: 'Pinned film breakdown',
+            status: 'completed',
+            origin: 'user',
+            createdAt: { toMillis: () => now },
+          },
+          {
+            operationId: 'op-normal',
+            threadId: normalThreadId,
+            userId: 'test-user',
+            intent: 'Normal outreach plan',
+            status: 'completed',
+            origin: 'user',
+            createdAt: { toMillis: () => now - 60_000 },
+          },
+        ],
+        hasMore: false,
+        nextCreatedAt: undefined,
+      });
+
+      const chatService = {
+        getUserThreads: vi.fn().mockResolvedValue({
+          items: [
+            {
+              id: pinnedThreadId,
+              title: 'Pinned film breakdown',
+              lastMessageAt: new Date(now).toISOString(),
+              messageCount: 3,
+              archived: false,
+              pinnedAt: '2026-06-25T12:00:00.000Z',
+              category: 'film',
+              createdAt: new Date(now).toISOString(),
+              updatedAt: new Date(now).toISOString(),
+            },
+            {
+              id: normalThreadId,
+              title: 'Normal outreach plan',
+              lastMessageAt: new Date(now - 60_000).toISOString(),
+              messageCount: 2,
+              archived: false,
+              pinnedAt: null,
+              category: 'outreach',
+              createdAt: new Date(now - 60_000).toISOString(),
+              updatedAt: new Date(now - 60_000).toISOString(),
+            },
+          ],
+          hasMore: false,
+        }),
+        getPinnedThreads: vi.fn().mockResolvedValue([
+          {
+            id: pinnedThreadId,
+            title: 'Pinned film breakdown',
+            lastMessageAt: new Date(now).toISOString(),
+            messageCount: 3,
+            archived: false,
+            pinnedAt: '2026-06-25T12:00:00.000Z',
+            category: 'film',
+            createdAt: new Date(now).toISOString(),
+            updatedAt: new Date(now).toISOString(),
+          },
+        ]),
+      };
+
+      setAgentDependencies({
+        queueService: { enqueue: vi.fn(), cancel: vi.fn() } as never,
+        jobRepository: jobRepository as never,
+        chatService: chatService as never,
+      });
+
+      const response = await request(app)
+        .get('/api/v1/agent-x/operations-log?limit=50')
+        .set('Authorization', 'Bearer test-token');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.pinned).toHaveLength(1);
+      expect(response.body.pinned[0].threadId).toBe(pinnedThreadId);
+      expect(response.body.pinned[0].pinnedAt).toBe('2026-06-25T12:00:00.000Z');
+
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].threadId).toBe(normalThreadId);
+    });
+  });
 });
 
 function createMockJobRepository(jobDoc?: Record<string, unknown>) {

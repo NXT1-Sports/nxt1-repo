@@ -210,6 +210,7 @@ export {
   type AgentXThreadActionType,
   type AgentXThreadActionRequest,
   type AgentXThreadActionResponse,
+  type PinThreadResponse,
 } from './agent-x.api';
 
 export {

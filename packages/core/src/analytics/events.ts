@@ -810,6 +810,10 @@ export const APP_EVENTS = {
   AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',
   /** User tapped an entry in the operations log */
   AGENT_X_OPERATIONS_LOG_ENTRY_TAPPED: 'agent_x_operations_log_entry_tapped',
+  /** User pinned a session in the operations log */
+  AGENT_X_SESSION_PINNED: 'agent_x_session_pinned',
+  /** User unpinned a session in the operations log */
+  AGENT_X_SESSION_UNPINNED: 'agent_x_session_unpinned',
   /** User approved or rejected a yielded operation (HITL) */
   AGENT_X_OPERATION_APPROVED: 'agent_x_operation_approved',
   /** User replied with text to a yielded operation (HITL) */

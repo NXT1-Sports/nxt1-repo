@@ -87,6 +87,10 @@ const AgentThreadSchema = new Schema<AgentThreadDocument>(
     lastMessageAt: { type: String, required: true },
     messageCount: { type: Number, required: true, default: 0 },
     archived: { type: Boolean, required: true, default: false },
+    /**
+     * ISO-8601 timestamp when this thread was pinned, or null if unpinned.
+     */
+    pinnedAt: { type: String, default: null },
     createdAt: { type: String, required: true },
     updatedAt: { type: String, required: true },
     /**
@@ -140,6 +144,9 @@ AgentThreadSchema.index({ userId: 1, lastMessageAt: -1 });
 
 // Archived filter
 AgentThreadSchema.index({ userId: 1, archived: 1 });
+
+// Pinned listing per user
+AgentThreadSchema.index({ userId: 1, archived: 1, pinnedAt: -1 });
 
 // TTL index — MongoDB automatically deletes threads once expiresAt is in the past.
 AgentThreadSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });

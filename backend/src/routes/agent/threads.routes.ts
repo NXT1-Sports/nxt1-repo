@@ -657,6 +657,58 @@ router.post('/threads/:threadId/archive', appGuard, async (req: Request, res: Re
   }
 });
 
+// ─── PUT /threads/:threadId/pin ───────────────────────────────────────────
+
+router.put('/threads/:threadId/pin', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!chatService) {
+      res.status(503).json({ success: false, error: 'Chat service not initialized' });
+      return;
+    }
+
+    const user = (req as Request & { user?: { uid: string } }).user;
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadId = req.params['threadId'] as string;
+    if (!isValidObjectId(threadId)) {
+      res.status(400).json({ success: false, error: 'Invalid thread ID format' });
+      return;
+    }
+
+    const { pinned } = req.body as { pinned?: unknown };
+    if (typeof pinned !== 'boolean') {
+      res.status(400).json({ success: false, error: 'Field "pinned" must be a boolean' });
+      return;
+    }
+
+    const result = await chatService.pinThread(threadId, user.uid, pinned);
+    if (!result.success) {
+      res.status(404).json({
+        success: false,
+        errorCode: result.errorCode ?? 'THREAD_NOT_FOUND',
+        error: result.error ?? 'Thread not found',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        threadId: result.threadId,
+        pinned: result.pinned,
+        pinnedAt: result.pinnedAt,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to pin/unpin thread', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to update thread pin state' });
+  }
+});
+
 // ─── POST /threads ────────────────────────────────────────────────────────
 
 router.post('/threads', appGuard, async (req: Request, res: Response) => {
