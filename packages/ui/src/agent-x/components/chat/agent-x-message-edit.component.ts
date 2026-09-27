@@ -90,6 +90,8 @@ import { NxtIconComponent } from '../../../components/icon';
         padding: 0;
         border: 0;
         outline: none;
+        -webkit-appearance: none;
+        appearance: none;
         background: transparent;
         color: var(--nxt1-color-text-primary, var(--op-text));
         font: inherit;
@@ -98,10 +100,25 @@ import { NxtIconComponent } from '../../../components/icon';
         resize: none;
         overflow-y: auto;
         caret-color: var(--nxt1-color-primary);
+        accent-color: var(--nxt1-color-primary);
+        box-shadow: none;
+        -webkit-tap-highlight-color: transparent;
       }
 
+      .msg-edit__textarea:focus,
       .msg-edit__textarea:focus-visible {
         outline: none;
+        box-shadow: none;
+      }
+
+      .msg-edit__textarea::selection {
+        color: var(--nxt1-color-text-primary, var(--op-text));
+        background: color-mix(in srgb, var(--nxt1-color-primary) 24%, transparent);
+      }
+
+      .msg-edit__textarea::-moz-selection {
+        color: var(--nxt1-color-text-primary, var(--op-text));
+        background: color-mix(in srgb, var(--nxt1-color-primary) 24%, transparent);
       }
 
       .msg-edit__textarea::placeholder {

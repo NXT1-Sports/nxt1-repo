@@ -537,6 +537,7 @@ export function normalizeExecutionPlanItemsForActiveResume(
               [class.msg-system]="msg.role === 'system'"
               [class.msg-error]="msg.error"
               [class.msg-row--wide]="!!msg.yieldState"
+              [class.msg-row--editing]="editingMessageId() === msg.id"
             >
               @if (editingMessageId() === msg.id) {
                 <nxt1-agent-x-message-edit
@@ -1816,6 +1817,10 @@ export function normalizeExecutionPlanItemsForActiveResume(
         gap: 4px;
         max-width: 88%;
         animation: fadeSlideIn 0.25s ease-out;
+      }
+
+      .msg-row--editing {
+        width: 100%;
       }
 
       /* Full-width row for messages containing data tables */
