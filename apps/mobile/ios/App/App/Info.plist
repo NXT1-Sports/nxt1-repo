@@ -98,6 +98,11 @@
 	<string>NXT1 needs photo library access to select profile photos and highlight videos.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>NXT1 saves photos and videos to your photo library.</string>
+	<!-- Voice dictation for the Agent X prompt input -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>NXT1 uses your microphone so you can speak your requests to Agent X instead of typing.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>NXT1 converts your speech to text so you can dictate requests to Agent X.</string>
 	<!-- Biometric Authentication (Face ID / Touch ID) -->
 	<key>NSFaceIDUsageDescription</key>
 	<string>NXT1 uses Face ID for quick and secure sign-in to your account.</string>

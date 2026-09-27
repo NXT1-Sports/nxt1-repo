@@ -170,6 +170,11 @@
     android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- Voice dictation for the Agent X prompt input (WebView mic capture). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
     <!-- Use Android Photo Picker/Capacitor Camera picker instead of broad media-library access. -->
     <uses-permission
         android:name="android.permission.READ_MEDIA_IMAGES"
