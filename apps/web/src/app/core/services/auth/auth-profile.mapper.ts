@@ -151,6 +151,16 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
   const canonicalTeamIdentifier = resolvedTeamRoute?.teamIdentifier ?? fallbackDocumentIdentifier;
   const organizationAccess = buildOrganizationAccessSummary(sports);
 
+  const sportTeamWithLogo = sports.find((sport) => sport.team?.logoUrl || sport.team?.logo)?.team;
+  const orgLogoMap = new Map<string, string>();
+  for (const s of sports) {
+    const orgId = s.team?.organizationId?.trim();
+    const logo = s.team?.logoUrl || s.team?.logo;
+    if (orgId && logo && !orgLogoMap.has(orgId)) {
+      orgLogoMap.set(orgId, logo);
+    }
+  }
+
   return {
     uid: user.id,
     email: user.email ?? '',
@@ -185,6 +195,8 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
               normalizedTeamCode?.teamLogoImg ??
               sportTeam?.logoUrl ??
               sportTeam?.logo ??
+              sportTeamWithLogo?.logoUrl ??
+              sportTeamWithLogo?.logo ??
               rawTopTeam?.logoUrl ??
               rawTopTeam?.logo ??
               null,
@@ -207,6 +219,13 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
       team: sport.team
         ? {
             ...sport.team,
+            logoUrl:
+              sport.team.logoUrl ??
+              sport.team.logo ??
+              (sport.team.organizationId
+                ? orgLogoMap.get(sport.team.organizationId.trim())
+                : undefined) ??
+              null,
             organizationId: sport.team.organizationId,
             primaryColor: sport.team.primaryColor ?? null,
             secondaryColor: sport.team.secondaryColor ?? null,

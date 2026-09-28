@@ -211,7 +211,7 @@ function convertValidationErrors(
 export function validateBody<T extends object>(
   dtoClass: ClassConstructor<T>,
   options?: ValidationOptions
-) {
+): RequestHandler {
   return validateRequest(dtoClass, 'body', options);
 }
 
@@ -221,7 +221,7 @@ export function validateBody<T extends object>(
 export function validateQuery<T extends object>(
   dtoClass: ClassConstructor<T>,
   options?: ValidationOptions
-) {
+): RequestHandler {
   return validateRequest(dtoClass, 'query', options);
 }
 
@@ -231,7 +231,7 @@ export function validateQuery<T extends object>(
 export function validateParams<T extends object>(
   dtoClass: ClassConstructor<T>,
   options?: ValidationOptions
-) {
+): RequestHandler {
   return validateRequest(dtoClass, 'params', options);
 }
 

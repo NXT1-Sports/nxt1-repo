@@ -460,6 +460,7 @@ export async function createTeamCode(
     level: input.level ?? '',
     division: input.division ?? '',
     conference: input.conference ?? '',
+    ...(input.logoUrl ? { logoUrl: input.logoUrl, teamLogoImg: input.logoUrl } : {}),
   };
 
   const docRef = db.collection('Teams').doc();
@@ -480,6 +481,7 @@ export async function createTeamCode(
       athleteMember: 0,
       panelMember: 0,
       isActive: true,
+      ...(input.logoUrl ? { logoUrl: input.logoUrl, teamLogoImg: input.logoUrl } : {}),
       createdAt: new Date(),
     } as TeamCode;
   }

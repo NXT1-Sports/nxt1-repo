@@ -20,6 +20,7 @@ import { UpdateProfileDto, UploadProfileImageDto } from '../../dtos/profile.dto.
 import { provisionOnboardingPrograms } from '../../services/platform/onboarding-program-provisioning.service.js';
 import { assertCanMutateOwnSports } from '../../services/profile/profile-sport-governance.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import { createOrganizationService } from '../../services/team/organization.service.js';
 import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-scrape.service.js';
 import * as teamCodeService from '../../services/team/team-code.service.js';
 import { mergeConnectedSources, normalizeConnectedPlatform } from '@nxt1/core/profile';
@@ -799,7 +800,9 @@ router.post(
       existingSports.find((entry) => entry.team?.title)?.team?.title ||
       (currentData['coachTitle'] as string | undefined);
 
-    let provisionedTeam: { teamId: string; organizationId: string; orgName: string } | undefined;
+    let provisionedTeam:
+      | { teamId: string; organizationId: string; orgName: string; logoUrl?: string }
+      | undefined;
     let provisionedTeamIds: string[] = [];
     let membershipTransitions: Array<{
       teamId: string;
@@ -855,15 +858,67 @@ router.post(
 
         if (provisionedTeam) {
           const primarySelection = teamSelection.teams[0];
+          let resolvedLogoUrl = primarySelection?.logoUrl || provisionedTeam.logoUrl;
+          if (!resolvedLogoUrl && provisionedTeam.organizationId) {
+            try {
+              const orgDoc = await db
+                .collection('Organizations')
+                .doc(provisionedTeam.organizationId)
+                .get();
+              if (orgDoc.exists && orgDoc.data()?.['logoUrl']) {
+                resolvedLogoUrl = orgDoc.data()?.['logoUrl'] as string;
+              }
+            } catch (err) {
+              logger.warn('[Profile] Failed to fetch organization for teamSelection logo', {
+                orgId: provisionedTeam.organizationId,
+                err,
+              });
+            }
+          }
+          if (!resolvedLogoUrl) {
+            for (const existingSport of existingSports) {
+              const sLogo =
+                existingSport.team?.logoUrl ??
+                (existingSport.team as { logo?: string } | undefined)?.logo;
+              if (sLogo) {
+                resolvedLogoUrl = sLogo;
+                break;
+              }
+            }
+          }
+          if (!resolvedLogoUrl) {
+            const teamCodeObj = currentData['teamCode'] as Record<string, unknown> | undefined;
+            resolvedLogoUrl =
+              ((teamCodeObj?.['logoUrl'] as string | undefined) ||
+                (teamCodeObj?.['teamLogoImg'] as string | undefined)) ??
+              undefined;
+          }
+
           newSport.team = {
             ...(newSport.team ?? {}),
             name: provisionedTeam.orgName,
             teamId: provisionedTeam.teamId,
             organizationId: provisionedTeam.organizationId,
+            ...(resolvedLogoUrl ? { logoUrl: resolvedLogoUrl, logo: resolvedLogoUrl } : {}),
             type: (newSport.team?.type ||
               primarySelection?.teamType ||
               (isTeamRoleUser ? 'organization' : 'high-school')) as import('@nxt1/core').TeamType,
           };
+
+          if (resolvedLogoUrl && provisionedTeam.teamId) {
+            try {
+              await db.collection('Teams').doc(provisionedTeam.teamId).update({
+                logoUrl: resolvedLogoUrl,
+                teamLogoImg: resolvedLogoUrl,
+                updatedAt: FieldValue.serverTimestamp(),
+              });
+            } catch (err) {
+              logger.warn('[Profile] Failed to update team logoUrl', {
+                teamId: provisionedTeam.teamId,
+                err,
+              });
+            }
+          }
         }
       } catch (err) {
         logger.error('[Profile] Failed to provision selected organization for new sport', {
@@ -923,6 +978,16 @@ router.post(
 
         const currentUnicode = currentData['unicode'] as string | null | undefined;
         await invalidateProfileCaches(userId, currentUnicode);
+        if (provisionedTeam?.organizationId) {
+          try {
+            await createOrganizationService(db).invalidateCache(provisionedTeam.organizationId);
+          } catch (orgErr) {
+            logger.warn(
+              '[Profile] Failed to invalidate organization cache after teamSelection add-sport',
+              { orgId: provisionedTeam.organizationId, orgErr }
+            );
+          }
+        }
 
         const scrapeMeta = await enqueueAddSportScrape({
           db,
@@ -956,6 +1021,7 @@ router.post(
       let inheritedTeamName = '';
       let inheritedTeamType = 'club';
       let inheritedOrgId = '';
+      let inheritedLogoUrl = '';
 
       if (!rosterEntries.empty) {
         const entryData = rosterEntries.docs[0].data();
@@ -963,9 +1029,14 @@ router.post(
         if (entryData['teamId']) {
           const primaryTeamDoc = await db.collection('Teams').doc(entryData['teamId']).get();
           if (primaryTeamDoc.exists) {
-            inheritedTeamName = primaryTeamDoc.data()?.['teamName'] || '';
-            inheritedTeamType = primaryTeamDoc.data()?.['teamType'] || 'club';
-            inheritedOrgId = inheritedOrgId || primaryTeamDoc.data()?.['organizationId'] || '';
+            const ptData = primaryTeamDoc.data();
+            inheritedTeamName = ptData?.['teamName'] || '';
+            inheritedTeamType = ptData?.['teamType'] || 'club';
+            inheritedOrgId = inheritedOrgId || ptData?.['organizationId'] || '';
+            inheritedLogoUrl =
+              (ptData?.['logoUrl'] as string | undefined) ||
+              (ptData?.['teamLogoImg'] as string | undefined) ||
+              '';
           }
         }
       } else {
@@ -974,12 +1045,40 @@ router.post(
           inheritedTeamName = teamCodeObj['teamName'] as string;
           inheritedTeamType = (teamCodeObj['teamType'] as string) || 'club';
           inheritedOrgId = (teamCodeObj['organizationId'] as string) || '';
+          inheritedLogoUrl =
+            (teamCodeObj?.['logoUrl'] as string | undefined) ||
+            (teamCodeObj?.['teamLogoImg'] as string | undefined) ||
+            '';
         }
       }
 
       if (!inheritedTeamName && sport.teamName?.trim()) {
         inheritedTeamName = sport.teamName.trim();
         inheritedTeamType = sport.teamType?.trim() || 'club';
+      }
+
+      if (inheritedOrgId) {
+        try {
+          const orgDoc = await db.collection('Organizations').doc(inheritedOrgId).get();
+          if (orgDoc.exists) {
+            const orgData = orgDoc.data();
+            if (orgData?.['logoUrl'] && !inheritedLogoUrl) {
+              inheritedLogoUrl = orgData['logoUrl'] as string;
+            }
+            if (!inheritedTeamName) {
+              inheritedTeamName =
+                (orgData?.['name'] as string | undefined) ||
+                (orgData?.['teamName'] as string | undefined) ||
+                (orgData?.['organizationName'] as string | undefined) ||
+                '';
+            }
+          }
+        } catch (err) {
+          logger.warn('[Profile] Failed to fetch organization for inherited data', {
+            inheritedOrgId,
+            err,
+          });
+        }
       }
 
       if (!inheritedTeamName && userRole === 'director') {
@@ -1004,7 +1103,29 @@ router.post(
             (orgData['organizationName'] as string | undefined) ||
             '';
           inheritedTeamType = (orgData['teamType'] as string | undefined) || 'organization';
+          if (orgData['logoUrl'] && !inheritedLogoUrl) {
+            inheritedLogoUrl = orgData['logoUrl'] as string;
+          }
         }
+      }
+
+      if (!inheritedLogoUrl) {
+        for (const existingSport of existingSports) {
+          const sLogo =
+            existingSport.team?.logoUrl ??
+            (existingSport.team as { logo?: string } | undefined)?.logo;
+          if (sLogo) {
+            inheritedLogoUrl = sLogo;
+            break;
+          }
+        }
+      }
+      if (!inheritedLogoUrl) {
+        const teamCodeObj = currentData['teamCode'] as Record<string, unknown> | undefined;
+        inheritedLogoUrl =
+          ((teamCodeObj?.['logoUrl'] as string | undefined) ||
+            (teamCodeObj?.['teamLogoImg'] as string | undefined)) ??
+          '';
       }
 
       if (!inheritedTeamName) {
@@ -1068,15 +1189,21 @@ router.post(
                   `${currentData['firstName'] || ''} ${currentData['lastName'] || ''}`.trim(),
                 creatorEmail: currentData['email'] || '',
                 creatorPhoneNumber: currentData['phoneNumber'] || '',
+                logoUrl: inheritedLogoUrl || undefined,
               },
               batch
             );
 
-        if (inheritedOrgId && !reusedTeamId) {
-          batch.update(db.collection('Teams').doc(team.id!), {
-            organizationId: inheritedOrgId,
-            isClaimed: true,
-          });
+        if (!reusedTeamId) {
+          const teamUpdates: Record<string, unknown> = {
+            ...(inheritedOrgId ? { organizationId: inheritedOrgId, isClaimed: true } : {}),
+            ...(inheritedLogoUrl
+              ? { logoUrl: inheritedLogoUrl, teamLogoImg: inheritedLogoUrl }
+              : {}),
+          };
+          if (Object.keys(teamUpdates).length > 0) {
+            batch.update(db.collection('Teams').doc(team.id!), teamUpdates);
+          }
         }
 
         // Backfill newSport.team so the sport switcher / team route resolution
@@ -1089,6 +1216,7 @@ router.post(
           teamId: team.id!,
           ...(inheritedOrgId ? { organizationId: inheritedOrgId } : {}),
           ...(team.teamCode ? { teamCode: team.teamCode } : {}),
+          ...(inheritedLogoUrl ? { logoUrl: inheritedLogoUrl, logo: inheritedLogoUrl } : {}),
           type: (newSport.team?.type || inheritedTeamType) as import('@nxt1/core').TeamType,
         };
 
@@ -1178,6 +1306,16 @@ router.post(
 
         const currentUnicode = currentData['unicode'] as string | null | undefined;
         await invalidateProfileCaches(userId, currentUnicode);
+        if (inheritedOrgId) {
+          try {
+            await createOrganizationService(db).invalidateCache(inheritedOrgId);
+          } catch (orgErr) {
+            logger.warn('[Profile] Failed to invalidate organization cache after adding team', {
+              orgId: inheritedOrgId,
+              orgErr,
+            });
+          }
+        }
 
         const scrapeMeta = await enqueueAddSportScrape({
           db,

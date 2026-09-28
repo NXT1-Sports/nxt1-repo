@@ -318,9 +318,34 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
     : '/team';
   const sport =
     activeSport?.sport?.trim() || rawTopLevelTeamCode?.sport?.trim() || user.primarySport?.trim();
+
+  // Find fallback logo across user's sports/teams:
+  // 1. Same organization sibling team
+  // 2. Any other sport team belonging to the user
+  const activeOrgId = activeTeam?.organizationId?.trim();
+  const orgSiblingTeam = activeOrgId
+    ? user.sports?.find(
+        (s) =>
+          s.team?.organizationId?.trim() === activeOrgId &&
+          (s.team?.logoUrl || (s.team as { logo?: string })?.logo)
+      )?.team
+    : undefined;
+
+  const anySportTeamWithLogo = user.sports?.find(
+    (s) => s.team?.logoUrl || (s.team as { logo?: string })?.logo
+  )?.team;
+
+  const fallbackOrgLogo =
+    orgSiblingTeam?.logoUrl ??
+    (orgSiblingTeam as { logo?: string })?.logo ??
+    anySportTeamWithLogo?.logoUrl ??
+    (anySportTeamWithLogo as { logo?: string })?.logo ??
+    null;
+
   const logoUrl =
     activeTeam?.logoUrl ??
     activeTeam?.logo ??
+    fallbackOrgLogo ??
     rawTopLevelTeamCode?.logoUrl ??
     rawTopLevelTeamCode?.teamLogoImg ??
     null;
@@ -380,6 +405,14 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
           const additionalLegacyLogo = (s.team as Record<string, unknown> | undefined)?.['logo'] as
             | string
             | undefined;
+          const additionalOrgId = (s.team as Record<string, unknown> | undefined)?.['organizationId'] as
+            | string
+            | undefined;
+          const additionalOrgSiblingLogo =
+            additionalOrgId && activeOrgId && additionalOrgId === activeOrgId
+              ? fallbackOrgLogo
+              : undefined;
+
           return {
             id: `team-sport-${i}`,
             originalIndex: i,
@@ -391,7 +424,12 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
             profileImg: additionalIsPersonalFallback
               ? undefined
               : withNavImageCacheBuster(
-                  additionalLogoUrl || additionalLegacyLogo || profileImgRaw || undefined
+                  additionalLogoUrl ||
+                    additionalLegacyLogo ||
+                    additionalOrgSiblingLogo ||
+                    fallbackOrgLogo ||
+                    profileImgRaw ||
+                    undefined
                 ),
           };
         }) ?? [])
