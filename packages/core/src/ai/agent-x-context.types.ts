@@ -4,6 +4,11 @@
  * Portable, backend-first context payloads attached to a chat turn.
  */
 
+import {
+  type DocumentPreviewAnchor,
+  formatDocumentAnchorLabel,
+} from '../models/team/universal-file.model.js';
+
 /** Domain of context selected by the user for the next chat turn. */
 export type AgentXSelectedContextKind =
   | 'film_play'
@@ -496,4 +501,55 @@ function isFiniteNonNegativeNumber(value: unknown): value is number {
 
 function isNormalizedNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+}
+
+/**
+ * Constructs an AgentXSelectedContext representing a pinned document anchor (page, slide, or cell range).
+ */
+export function buildDocumentAnchorSelectedContext(options: {
+  readonly file: { readonly id: string; readonly name: string };
+  readonly anchor: DocumentPreviewAnchor;
+  readonly excerpt?: string;
+  readonly thumbnailUrl?: string;
+}): AgentXSelectedContext {
+  const { file, anchor, excerpt, thumbnailUrl } = options;
+  const label = formatDocumentAnchorLabel(anchor);
+  const title = `${file.name} — ${label}`;
+
+  const anchorId = `doc-anchor:${file.id}:${anchor.anchorType}:${anchor.pageNumber ?? anchor.slideNumber ?? anchor.sheetId ?? 'root'}`;
+
+  return {
+    id: anchorId,
+    kind: 'document',
+    title,
+    summary: excerpt?.trim() ? excerpt.trim() : `Referencing ${label} in ${file.name}.`,
+    source: {
+      type: 'agent_x',
+      id: file.id,
+      label: file.name,
+    },
+    entityRefs: [
+      {
+        type: 'team_file',
+        id: file.id,
+        label: file.name,
+      },
+      {
+        type: 'team_file_document_anchor',
+        id: `${file.id}:${anchor.anchorType}:${anchor.pageNumber ?? anchor.slideNumber ?? anchor.sheetId ?? '0'}`,
+        label,
+      },
+    ],
+    ...(thumbnailUrl ? { media: { thumbnailUrl } } : {}),
+    metadata: {
+      documentFileId: file.id,
+      documentRevision: anchor.documentRevision ?? null,
+      anchorType: anchor.anchorType,
+      pageNumber: anchor.pageNumber ?? null,
+      slideNumber: anchor.slideNumber ?? null,
+      sheetId: anchor.sheetId ?? null,
+      sheetName: anchor.sheetName ?? null,
+      rangeA1: anchor.rangeA1 ?? null,
+    },
+  };
 }

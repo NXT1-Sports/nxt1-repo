@@ -4,9 +4,10 @@ import { TestBed } from '@angular/core/testing';
 import { DomSanitizer } from '@angular/platform-browser';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Observable, Subject, of } from 'rxjs';
-import type { TeamFileFolderDoc, TeamFilmReviewDoc } from '@nxt1/core';
+import type { TeamFileFolderDoc, TeamFilmReviewDoc, DocumentPreviewAnchor } from '@nxt1/core';
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtMediaViewerService } from '../../../components/media-viewer';
+import { DocumentPreviewClientService } from '../../../components/document-viewer/document-preview-client.service';
 import { NxtArchiveService } from '../../../services/archive';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component';
@@ -93,6 +94,10 @@ type FilesPanelTestAccess = {
   shouldRenderViewerStage: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerUploadAction: (file: AgentXLibraryFile) => boolean;
   shouldShowViewerFileActions: (file: AgentXLibraryFile) => boolean;
+  isDocumentPreviewableFile: (
+    file: Pick<AgentXLibraryFile, 'mimeType' | 'kind' | 'name'>
+  ) => boolean;
+  onDocumentAskAgentRequested: (anchor: DocumentPreviewAnchor, file: AgentXLibraryFile) => void;
   supportsTabbedTextEditor: (file: AgentXLibraryFile) => boolean;
   shouldRenderMarkdownPreview: (file: AgentXLibraryFile) => boolean;
   openActionLabelForFile: (file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>) => string;
@@ -486,6 +491,13 @@ describe('AgentXFilesPanelInnerComponent', () => {
           provide: NxtMediaViewerService,
           useValue: {
             open: openMediaViewer,
+          },
+        },
+        {
+          provide: DocumentPreviewClientService,
+          useValue: {
+            getPreviewSession: vi.fn().mockResolvedValue({ available: false }),
+            getSpreadsheetRange: vi.fn().mockResolvedValue(null),
           },
         },
       ],
@@ -2355,5 +2367,128 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(component.visibleOpenTabs()).toHaveLength(1);
     expect(component.visibleOpenTabs()[0]?.id).toBe('review:review-file-1');
     expect(component.selectedTabId()).toBe('review:review-file-1');
+  });
+
+  it('identifies PDF, presentation, spreadsheet, and word files as document previewable', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+
+    expect(
+      componentAccess.isDocumentPreviewableFile({
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        name: 'Playbook.pdf',
+      })
+    ).toBe(true);
+    expect(
+      componentAccess.isDocumentPreviewableFile({
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        kind: 'pptx',
+        name: 'Install.pptx',
+      })
+    ).toBe(true);
+    expect(
+      componentAccess.isDocumentPreviewableFile({
+        mimeType: 'text/csv',
+        kind: 'csv',
+        name: 'Roster.csv',
+      })
+    ).toBe(true);
+    expect(
+      componentAccess.isDocumentPreviewableFile({
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        kind: 'doc',
+        name: 'Depth.xlsx',
+      })
+    ).toBe(true);
+    expect(
+      componentAccess.isDocumentPreviewableFile({
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        kind: 'doc',
+        name: 'Notes.docx',
+      })
+    ).toBe(true);
+    expect(
+      componentAccess.isDocumentPreviewableFile({
+        mimeType: 'image/png',
+        kind: 'image',
+        name: 'Logo.png',
+      })
+    ).toBe(false);
+  });
+
+  it('queues document anchor context and emits prompt on document ask-agent request', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const agentXService = TestBed.inject(AgentXService);
+    const askAgentPromptSpy = vi.fn();
+    component.askAgentPromptRequested.subscribe(askAgentPromptSpy);
+
+    const docFile = {
+      ...file,
+      id: 'doc-file-1',
+      name: 'Spring Playbook.pdf',
+      thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+    } as AgentXLibraryFile;
+
+    const anchor: DocumentPreviewAnchor = {
+      documentFileId: 'doc-file-1',
+      anchorType: 'page',
+      pageNumber: 7,
+      label: 'Page 7',
+    };
+
+    componentAccess.onDocumentAskAgentRequested(anchor, docFile);
+
+    expect(agentXService.queueSelectedContexts).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'doc-anchor:doc-file-1:page:7',
+        kind: 'document',
+        title: 'Spring Playbook.pdf — Page 7',
+        metadata: expect.objectContaining({
+          documentFileId: 'doc-file-1',
+          anchorType: 'page',
+          pageNumber: 7,
+        }),
+      }),
+    ]);
+
+    expect(askAgentPromptSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Review Page 7 in "Spring Playbook.pdf"')
+    );
+  });
+
+  it('allows document previewable files to open in compact mobile mode without blocking toast', async () => {
+    refreshFile.mockImplementation(
+      async (fileId: string) =>
+        ({
+          ...file,
+          id: fileId,
+          kind: 'pdf',
+          mimeType: 'application/pdf',
+          name: 'Plan.pdf',
+        }) as AgentXLibraryFile
+    );
+
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    component.compact = true;
+    component.teamId = 'team-77';
+
+    const pdfFile = {
+      ...file,
+      id: 'pdf-mobile-1',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+      name: 'Plan.pdf',
+    } as AgentXLibraryFile;
+
+    await componentAccess.openFile(pdfFile);
+
+    expect(componentAccess.viewerMode()).toBe('generic');
+    expect(component.selectedId()).toBe('pdf-mobile-1');
+    expect(toastInfo).not.toHaveBeenCalledWith(
+      'Preview is not available on mobile yet. Documents open directly in The Lab.'
+    );
   });
 });

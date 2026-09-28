@@ -28,6 +28,9 @@ import {
   type TeamFileFolderDoc,
   type TeamFilmReviewDoc,
   type TeamFilmReviewSourceVideo,
+  isDocumentPreviewSupported,
+  formatDocumentAnchorLabel,
+  type DocumentPreviewAnchor,
 } from '@nxt1/core';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
@@ -36,12 +39,14 @@ import {
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   type AgentXSelectedContext,
   type AgentXSelectedContextEntityRef,
+  buildDocumentAnchorSelectedContext,
 } from '@nxt1/core/ai';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
 import type { Subscription } from 'rxjs';
 
 import { NxtIconComponent } from '../../../components/icon/icon.component';
+import { NxtDocumentViewerComponent } from '../../../components/document-viewer/document-viewer.component';
 import type { MarkdownMediaRequestedEvent } from '../../../components/markdown/markdown.component';
 import {
   NxtMarkdownEditorComponent,
@@ -568,6 +573,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
     AgentXLibraryLoadingStateComponent,
     AgentXFilmReviewPanelComponent,
     AgentXViewerSurfaceComponent,
+    NxtDocumentViewerComponent,
   ],
   template: `
     <nxt1-agent-x-library-chrome></nxt1-agent-x-library-chrome>
@@ -1438,23 +1444,6 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     draggable="false"
                     (dragstart)="$event.preventDefault()"
                   />
-                } @else if (safeSelectedPdfPreviewUrl(); as previewUrl) {
-                  <div class="agent-x-files-viewer__frame-shell">
-                    <button
-                      type="button"
-                      class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
-                      aria-label="Drag PDF to chat"
-                      title="Drag PDF to chat"
-                      [nxtAgentXContextDrag]="buildFileDragContext(file)"
-                    >
-                      Drag PDF
-                    </button>
-                    <iframe
-                      class="agent-x-files-viewer__frame"
-                      [src]="previewUrl"
-                      [title]="file.name"
-                    ></iframe>
-                  </div>
                 } @else if (
                   isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
                   as videoIframeUrl
@@ -1527,6 +1516,14 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                       />
                     </div>
                   </div>
+                } @else if (isDocumentPreviewableFile(file)) {
+                  <nxt1-document-viewer
+                    [file]="file"
+                    [compact]="compact"
+                    (askAgentRequested)="onDocumentAskAgentRequested($event, file)"
+                    (openOriginalRequested)="openFileInNewTab($event)"
+                    (downloadRequested)="downloadFile($event)"
+                  />
                 } @else {
                   <div class="agent-x-files-viewer__fallback">
                     <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
@@ -7878,7 +7875,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
-    if (this.compact && !this.isTextDocument(file)) {
+    if (this.compact && !this.isTextDocument(file) && !this.isDocumentPreviewableFile(file)) {
       this.toast.info(
         'Preview is not available on mobile yet. Documents open directly in The Lab.'
       );
@@ -8487,6 +8484,33 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
       normalizedMimeType.includes('presentationml.presentation') ||
       normalizedMimeType.includes('powerpoint')
     );
+  }
+
+  protected isDocumentPreviewableFile(
+    file: Pick<AgentXLibraryFile, 'mimeType' | 'kind' | 'name'>
+  ): boolean {
+    return (
+      isDocumentPreviewSupported(file.mimeType, file.name) ||
+      this.isPdfFile(file) ||
+      this.isSpreadsheetFile(file) ||
+      this.isPresentationFile(file)
+    );
+  }
+
+  protected onDocumentAskAgentRequested(
+    anchor: DocumentPreviewAnchor,
+    file: AgentXLibraryFile
+  ): void {
+    const selectedContext = buildDocumentAnchorSelectedContext({
+      file: { id: file.id, name: file.name },
+      anchor,
+      thumbnailUrl: file.thumbnailUrl,
+    });
+
+    this.agentXService.queueSelectedContexts([selectedContext]);
+    const label = formatDocumentAnchorLabel(anchor);
+    const prompt = `Review ${label} in "${file.name}" and provide key analysis, takeaways, and next steps.`;
+    this.askAgentPromptRequested.emit(prompt);
   }
 
   protected openActionLabelForFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): string {

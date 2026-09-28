@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
 import { scheduleUniversalFileSemanticSync } from '../../services/team/universal-file-semantic.service.js';
+import { resetFeatureFlagsService } from '../../config/feature-flags/feature-flags.service.js';
 
 const getSignedUrlWithTimeoutMock = vi.fn();
 const notifyDirectFileShareMock = vi.fn().mockResolvedValue({
@@ -296,6 +297,227 @@ function createApp(
   app.use('/api/v1/agent', filesRoutes);
   return app;
 }
+
+describe('POST /api/v1/agent/files/:fileId/preview-sessions', () => {
+  beforeEach(() => {
+    resetFeatureFlagsService();
+  });
+
+  it('returns feature_disabled when the preview sessions feature flag is disabled', async () => {
+    const db = createMockFirestore({
+      AppConfig: {
+        featureFlags: {
+          flags: {
+            'agent.files.preview.sessions.enabled': false,
+          },
+        },
+      },
+      UniversalFiles: {
+        document1: {
+          title: 'Practice Report.pdf',
+          normalizedTitle: 'practice report.pdf',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: 'application/pdf',
+              kind: 'pdf',
+              origin: 'files_upload',
+              sizeBytes: 1024,
+              url: 'https://example.com/practice-report.pdf',
+              storagePath: 'users/owner-1/practice-report.pdf',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db)).post(
+      '/api/v1/agent/files/document1/preview-sessions'
+    );
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body).toEqual({
+      success: true,
+      data: {
+        available: false,
+        reason: 'feature_disabled',
+      },
+    });
+  });
+
+  it('authorizes and returns a preview manifest when preview sessions are active', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        document1: {
+          title: 'Practice Report.pdf',
+          normalizedTitle: 'practice report.pdf',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: 'application/pdf',
+              kind: 'pdf',
+              origin: 'files_upload',
+              sizeBytes: 1024,
+              url: 'https://example.com/practice-report.pdf',
+              storagePath: 'users/owner-1/practice-report.pdf',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db)).post(
+      '/api/v1/agent/files/document1/preview-sessions'
+    );
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.data.available).toBe(true);
+    expect(response.body.data.manifest).toMatchObject({
+      documentId: 'document1',
+      documentType: 'pdf',
+      fileName: 'Practice Report.pdf',
+      mimeType: 'application/pdf',
+    });
+    expect(response.body.data.preview).toMatchObject({
+      documentType: 'pdf',
+      status: 'ready',
+    });
+  });
+
+  it('rejects forbidden users attempting to negotiate a preview session', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        documentSecret: {
+          title: 'Classified.pdf',
+          normalizedTitle: 'classified.pdf',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'other-user',
+          readAccessKeys: ['user:other-user'],
+          writeAccessKeys: ['user:other-user'],
+          payload: {
+            asset: {
+              mimeType: 'application/pdf',
+              kind: 'pdf',
+              origin: 'files_upload',
+              sizeBytes: 1024,
+              url: 'https://example.com/secret.pdf',
+              storagePath: 'users/other-user/secret.pdf',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db)).post(
+      '/api/v1/agent/files/documentSecret/preview-sessions'
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+});
+
+describe('GET /api/v1/agent/files/:fileId/preview/spreadsheet-range', () => {
+  it('returns spreadsheet range data for authorized users', async () => {
+    const csvContent = 'Name,Position\nJohn,QB\nMarcus,WR\n';
+    const db = createMockFirestore({
+      UniversalFiles: {
+        sheet1: {
+          title: 'Roster.csv',
+          normalizedTitle: 'roster.csv',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: 'text/csv',
+              kind: 'csv',
+              origin: 'files_upload',
+              sizeBytes: csvContent.length,
+              url: 'https://example.com/roster.csv',
+              storagePath: 'users/owner-1/roster.csv',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+
+    const mockBucket: MockSignedUrlBucket = {
+      file: vi.fn().mockReturnValue({
+        download: vi.fn().mockResolvedValue([Buffer.from(csvContent, 'utf-8')]),
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/roster.csv']),
+      }),
+    };
+
+    const response = await request(createApp(db, mockBucket)).get(
+      '/api/v1/agent/files/sheet1/preview/spreadsheet-range?startRow=1&endRow=3&startCol=1&endCol=2'
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.cells).toHaveLength(6);
+    expect(response.body.data.cells[0]).toMatchObject({ row: 1, col: 1, value: 'Name' });
+  });
+
+  it('rejects unauthorized users requesting spreadsheet range', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        sheetSecret: {
+          title: 'Secret.csv',
+          normalizedTitle: 'secret.csv',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'other-user',
+          readAccessKeys: ['user:other-user'],
+          writeAccessKeys: ['user:other-user'],
+          payload: {
+            asset: {
+              mimeType: 'text/csv',
+              kind: 'csv',
+              origin: 'files_upload',
+              sizeBytes: 10,
+              url: 'https://example.com/secret.csv',
+              storagePath: 'users/other-user/secret.csv',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(createApp(db)).get(
+      '/api/v1/agent/files/sheetSecret/preview/spreadsheet-range'
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.body.success).toBe(false);
+  });
+});
 
 describe('POST /api/v1/agent/files/folders/:folderId/share', () => {
   beforeEach(() => {

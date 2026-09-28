@@ -261,6 +261,16 @@ const AGENT_GAMEPLANS_ENABLED_FLAG: FeatureFlagDefinition<boolean> = {
   tags: ['agent-x', 'premium', 'game-plans'],
 };
 
+const AGENT_FILES_PREVIEW_SESSIONS_ENABLED_FLAG: FeatureFlagDefinition<boolean> = {
+  key: 'agent.files.preview.sessions.enabled',
+  title: 'Agent X File Preview Sessions',
+  description: 'Enable authenticated document-preview session negotiation for Agent X Files.',
+  scope: 'agent',
+  type: 'boolean',
+  defaultValue: true,
+  tags: ['agent-x', 'files', 'document-preview'],
+};
+
 // ============================================
 // AI FLAGS
 // ============================================
@@ -468,6 +478,7 @@ const ALL_FLAGS = {
   'agent.image.generation.disabled': AGENT_IMAGE_GENERATION_DISABLED_FLAG,
   'agent.email.sending.disabled': AGENT_EMAIL_SENDING_DISABLED_FLAG,
   'agent.gameplans.enabled': AGENT_GAMEPLANS_ENABLED_FLAG,
+  'agent.files.preview.sessions.enabled': AGENT_FILES_PREVIEW_SESSIONS_ENABLED_FLAG,
 
   // AI
   'ai.play.diagram.extended.sports.enabled': AI_PLAY_DIAGRAM_EXTENDED_SPORTS_FLAG,
@@ -610,6 +621,7 @@ export const AGENT_FLAGS = {
   toolsDisabled: AGENT_TOOLS_DISABLED_FLAG,
   imageGenerationDisabled: AGENT_IMAGE_GENERATION_DISABLED_FLAG,
   emailSendingDisabled: AGENT_EMAIL_SENDING_DISABLED_FLAG,
+  filesPreviewSessionsEnabled: AGENT_FILES_PREVIEW_SESSIONS_ENABLED_FLAG,
 } as const;
 
 /** All AI-related feature flags */

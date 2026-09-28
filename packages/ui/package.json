@@ -60,6 +60,7 @@
     "hls.js": "^1.6.16",
     "jszip": "^3.10.1",
     "marked": "^18.0.5",
+    "pdfjs-dist": "^6.3.289",
     "zod": "^4.4.3"
   },
   "peerDependencies": {

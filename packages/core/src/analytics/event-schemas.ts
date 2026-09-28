@@ -312,6 +312,60 @@ export interface EventPayloadMap {
   session_started: SessionEvent;
   session_ended: SessionEvent;
   app_opened: AppOpenedEvent;
+
+  // Document Viewer
+  document_preview_opened: DocumentPreviewOpenedEvent;
+  document_preview_failed: DocumentPreviewFailedEvent;
+  document_page_changed: DocumentPageChangedEvent;
+  document_slide_changed: DocumentSlideChangedEvent;
+  document_sheet_changed: DocumentSheetChangedEvent;
+  document_range_selected: DocumentRangeSelectedEvent;
+  document_ask_agent: DocumentAskAgentEvent;
+}
+
+export interface DocumentPreviewOpenedEvent extends BaseEventProperties {
+  document_id: string;
+  document_type: string;
+  file_name: string;
+  page_count?: number;
+}
+
+export interface DocumentPreviewFailedEvent extends BaseEventProperties {
+  document_id: string;
+  document_type: string;
+  error_message?: string;
+  failure_code?: string;
+}
+
+export interface DocumentPageChangedEvent extends BaseEventProperties {
+  document_id: string;
+  page_number: number;
+  total_pages: number;
+}
+
+export interface DocumentSlideChangedEvent extends BaseEventProperties {
+  document_id: string;
+  slide_number: number;
+  total_slides: number;
+}
+
+export interface DocumentSheetChangedEvent extends BaseEventProperties {
+  document_id: string;
+  sheet_id: string;
+  sheet_name: string;
+}
+
+export interface DocumentRangeSelectedEvent extends BaseEventProperties {
+  document_id: string;
+  sheet_name: string;
+  range_a1: string;
+  cell_count: number;
+}
+
+export interface DocumentAskAgentEvent extends BaseEventProperties {
+  document_id: string;
+  anchor_type: string;
+  anchor_label: string;
 }
 
 /**

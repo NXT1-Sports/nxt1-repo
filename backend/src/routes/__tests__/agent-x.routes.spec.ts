@@ -1295,6 +1295,52 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should negotiate a document preview session through the mounted agent-x route', async () => {
+    __seedMockFirestoreDocument('Teams/team-123', {
+      adminIds: ['test-user'],
+      name: 'Test Team',
+    });
+    __seedMockFirestoreDocument('UniversalFiles/file-preview-123', {
+      teamId: 'team-123',
+      type: 'file',
+      title: 'Install Sheet.pdf',
+      normalizedTitle: 'install sheet.pdf',
+      status: 'ready',
+      ownerUserId: 'test-user',
+      createdByUserId: 'test-user',
+      updatedByUserId: 'test-user',
+      payloadKind: 'native',
+      payload: {
+        mimeType: 'application/pdf',
+        kind: 'pdf',
+        origin: 'agent_chat_output',
+        sizeBytes: 4096,
+        url: 'https://expired.example.com/install-sheet.pdf',
+        storagePath: 'Teams/team-123/files/install-sheet.pdf',
+      },
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+      lastSeenAt: '2026-06-03T00:00:00.000Z',
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/files/file-preview-123/preview-sessions')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data.available).toBe(true);
+    expect(response.body.data.manifest).toEqual(
+      expect.objectContaining({
+        documentId: 'file-preview-123',
+        documentType: 'pdf',
+        fileName: 'Install Sheet.pdf',
+        mimeType: 'application/pdf',
+        pdfUrl: expect.stringContaining('response-content-disposition=inline'),
+      })
+    );
+  });
+
   it('should promote a stored assistant chat attachment as an agent output', async () => {
     __seedMockFirestoreDocument('Teams/team-123', {
       adminIds: ['test-user'],

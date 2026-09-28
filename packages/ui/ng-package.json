@@ -25,7 +25,8 @@
     "zod",
     "marked",
     "dompurify",
-    "@zip.js/zip.js"
+    "@zip.js/zip.js",
+    "pdfjs-dist"
   ],
   "assets": []
 }

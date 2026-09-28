@@ -473,3 +473,15 @@ export { NxtListSectionComponent } from './list-section';
 // MEDIA GALLERY (Shared photo gallery)
 // ============================================
 export { NxtMediaGalleryComponent } from './media-gallery';
+
+// ============================================
+// DOCUMENT VIEWER (Universal In-App Document Previewer)
+// ============================================
+export {
+  NxtDocumentViewerComponent,
+  DocumentPreviewClientService,
+  type DocumentViewerMode,
+  type DocumentPreviewSession,
+  type DocumentCellSelection,
+  type DocumentZoomMode,
+} from './document-viewer';

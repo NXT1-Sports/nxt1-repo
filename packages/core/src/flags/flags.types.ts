@@ -74,7 +74,8 @@ export type AgentFlagKey =
   | 'agent.tools.disabled'
   | 'agent.image.generation.disabled'
   | 'agent.email.sending.disabled'
-  | 'agent.gameplans.enabled';
+  | 'agent.gameplans.enabled'
+  | 'agent.files.preview.sessions.enabled';
 
 /** AI integration flags */
 export type AiFlagKey =
