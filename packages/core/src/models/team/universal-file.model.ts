@@ -61,6 +61,123 @@ export type UniversalFilePayloadKind = 'native' | 'pointer';
 export type UniversalPointerBackedFileType = never;
 export type UniversalPointerCompatibleFileType = 'file';
 export type UniversalNativeFileType = UniversalFileType;
+export type UniversalFilePreviewStatus =
+  | 'not_requested'
+  | 'queued'
+  | 'processing'
+  | 'ready'
+  | 'failed'
+  | 'unsupported';
+
+export type UniversalFileDocumentType =
+  | 'pdf'
+  | 'presentation'
+  | 'spreadsheet'
+  | 'word'
+  | 'image'
+  | 'video'
+  | 'text'
+  | 'unsupported';
+
+/** Metadata for individual presentation slides extracted from Office files. */
+export interface DocumentSlideMetadata {
+  readonly slideNumber: number;
+  readonly title?: string;
+  readonly slideText?: string;
+  readonly speakerNotes?: string;
+  readonly hasVisualElements?: boolean;
+  readonly visualElementCount?: number;
+}
+
+/** Metadata for spreadsheet sheets extracted from Office workbooks or CSV files. */
+export interface DocumentSheetMetadata {
+  readonly sheetId: string;
+  readonly name: string;
+  readonly rowCount: number;
+  readonly columnCount: number;
+  readonly hasCharts?: boolean;
+  readonly isProtected?: boolean;
+}
+
+/** Individual cell representation for virtualized spreadsheet preview grids. */
+export interface DocumentSpreadsheetCell {
+  readonly row: number;
+  readonly col: number;
+  readonly value: string | number | boolean | null;
+  readonly formattedValue?: string;
+  readonly formula?: string;
+  readonly isBold?: boolean;
+  readonly isHeader?: boolean;
+}
+
+/** Bounded chunk of cell data for viewport-based spreadsheet streaming. */
+export interface DocumentSpreadsheetRangeData {
+  readonly sheetId: string;
+  readonly startRow: number;
+  readonly endRow: number;
+  readonly startCol: number;
+  readonly endCol: number;
+  readonly totalRows: number;
+  readonly totalCols: number;
+  readonly cells: readonly DocumentSpreadsheetCell[];
+}
+
+/** Complete versioned manifest for a pre-rendered or normalized document preview. */
+export interface DocumentPreviewManifest {
+  readonly schemaVersion: 1;
+  readonly documentId: string;
+  readonly documentType: UniversalFileDocumentType;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly sizeBytes: number;
+  readonly pageCount: number;
+  readonly pdfStoragePath?: string;
+  readonly pdfUrl?: string;
+  readonly thumbnailUrls?: readonly string[];
+  readonly slides?: readonly DocumentSlideMetadata[];
+  readonly sheets?: readonly DocumentSheetMetadata[];
+  readonly generatedAt: PortableTimestamp;
+}
+
+export type DocumentPreviewAnchorType = 'page' | 'slide' | 'cell_range' | 'sheet';
+
+/** Bounded document anchor representing a specific page, slide, or cell range for Agent X context. */
+export interface DocumentPreviewAnchor {
+  readonly documentFileId: string;
+  readonly documentRevision?: string;
+  readonly anchorType: DocumentPreviewAnchorType;
+  readonly pageNumber?: number;
+  readonly slideNumber?: number;
+  readonly sheetId?: string;
+  readonly sheetName?: string;
+  readonly rangeA1?: string;
+  readonly label?: string;
+}
+
+/** URL-free metadata for a private, derived document preview on the UniversalFiles record. */
+export interface UniversalFilePreviewMetadata {
+  readonly schemaVersion: 1;
+  readonly status: UniversalFilePreviewStatus;
+  readonly sourceRevision: string;
+  readonly artifactId?: string;
+  readonly documentType?: UniversalFileDocumentType;
+  readonly pageCount?: number;
+  readonly slideCount?: number;
+  readonly sheetCount?: number;
+  readonly manifestStoragePath?: string;
+  readonly pdfStoragePath?: string;
+  readonly rendererVersion?: string;
+  readonly requestedAt?: PortableTimestamp;
+  readonly generatedAt?: PortableTimestamp;
+  readonly failureCode?:
+    | 'renderer_unavailable'
+    | 'render_failed'
+    | 'source_changed'
+    | 'unsupported_format'
+    | 'file_too_large';
+  readonly failedAt?: PortableTimestamp;
+}
+
 export const UNIVERSAL_STRUCTURED_DOCUMENT_SUBTYPES = [
   'game_plan',
   'playbook',
@@ -408,6 +525,7 @@ export interface UniversalFileDocBase<TType extends UniversalFileType = Universa
   readonly acl?: AgentFileAcl;
   readonly readAccessKeys?: readonly string[];
   readonly writeAccessKeys?: readonly string[];
+  readonly preview?: UniversalFilePreviewMetadata;
   readonly semanticSync?: UniversalFileSemanticSync;
   readonly sourceRef?: UniversalFileSourceReference;
   readonly artifactRole?: UniversalFileArtifactRole;
@@ -1023,4 +1141,92 @@ export function toUniversalFileFromTeamPracticeScript(
     createdAt: script.createdAt,
     updatedAt: script.updatedAt,
   };
+}
+
+/**
+ * Resolves a high-level document viewing format category from MIME type, file name, and kind.
+ */
+export function resolveUniversalFileDocumentType(
+  mimeType?: string,
+  fileName?: string,
+  kind?: TeamFileKind
+): UniversalFileDocumentType {
+  const normMime = (mimeType ?? '').trim().toLowerCase();
+  const normName = (fileName ?? '').trim().toLowerCase();
+
+  if (kind === 'image' || normMime.startsWith('image/')) {
+    return 'image';
+  }
+  if (kind === 'video' || normMime.startsWith('video/')) {
+    return 'video';
+  }
+  if (kind === 'pdf' || normMime === 'application/pdf' || normName.endsWith('.pdf')) {
+    return 'pdf';
+  }
+  if (
+    kind === 'pptx' ||
+    normMime.includes('presentation') ||
+    normMime.includes('powerpoint') ||
+    /\.(pptx|ppt|ppsx|odp)$/i.test(normName)
+  ) {
+    return 'presentation';
+  }
+  if (
+    kind === 'csv' ||
+    normMime.includes('spreadsheet') ||
+    normMime.includes('excel') ||
+    normMime === 'text/csv' ||
+    /\.(xlsx|xls|csv|tsv|ods)$/i.test(normName)
+  ) {
+    return 'spreadsheet';
+  }
+  if (
+    normMime.includes('wordprocessingml') ||
+    normMime.includes('msword') ||
+    /\.(docx|doc|rtf|odt)$/i.test(normName)
+  ) {
+    return 'word';
+  }
+  if (normMime.startsWith('text/') || /\.(txt|md|markdown|json|yaml|yml)$/i.test(normName)) {
+    return 'text';
+  }
+
+  return 'unsupported';
+}
+
+/**
+ * Returns true if the file type can be rendered in the native document previewer.
+ */
+export function isDocumentPreviewSupported(mimeType?: string, fileName?: string): boolean {
+  const docType = resolveUniversalFileDocumentType(mimeType, fileName);
+  return (
+    docType === 'pdf' ||
+    docType === 'presentation' ||
+    docType === 'spreadsheet' ||
+    docType === 'word'
+  );
+}
+
+/**
+ * Formats a human-readable label for a document anchor (e.g. "Page 4", "Slide 2", "Sheet 1 (A1:C10)").
+ */
+export function formatDocumentAnchorLabel(anchor: DocumentPreviewAnchor): string {
+  if (anchor.label?.trim()) {
+    return anchor.label.trim();
+  }
+
+  switch (anchor.anchorType) {
+    case 'page':
+      return anchor.pageNumber ? `Page ${anchor.pageNumber}` : 'Document page';
+    case 'slide':
+      return anchor.slideNumber ? `Slide ${anchor.slideNumber}` : 'Slide';
+    case 'sheet':
+      return anchor.sheetName ? `Sheet: ${anchor.sheetName}` : 'Spreadsheet';
+    case 'cell_range': {
+      const sheet = anchor.sheetName ? `${anchor.sheetName}!` : '';
+      return anchor.rangeA1 ? `${sheet}${anchor.rangeA1}` : 'Cell range';
+    }
+    default:
+      return 'Document selection';
+  }
 }

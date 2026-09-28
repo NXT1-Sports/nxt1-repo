@@ -140,6 +140,14 @@ export {
   type MediaViewerResult,
 } from './components/media-viewer';
 export {
+  NxtDocumentViewerComponent,
+  DocumentPreviewClientService,
+  type DocumentViewerMode,
+  type DocumentPreviewSession,
+  type DocumentCellSelection,
+  type DocumentZoomMode,
+} from './components/document-viewer';
+export {
   NxtHistoryTimelineComponent,
   type HistoryTimelineEntry,
   type HistoryTimelineEmptyConfig,

@@ -847,6 +847,23 @@ export const APP_EVENTS = {
   /** Auth token missing when user has staged files for Agent X chat */
   AGENT_X_ERROR_AUTH_MISSING: 'agent_x_error_auth_missing',
 
+  // DOCUMENT VIEWER EVENTS
+  // ============================================
+  /** User opened a document in the native viewer */
+  DOCUMENT_PREVIEW_OPENED: 'document_preview_opened',
+  /** Document preview failed to load or convert */
+  DOCUMENT_PREVIEW_FAILED: 'document_preview_failed',
+  /** User changed the active page in a PDF/document */
+  DOCUMENT_PAGE_CHANGED: 'document_page_changed',
+  /** User changed the active slide in a presentation */
+  DOCUMENT_SLIDE_CHANGED: 'document_slide_changed',
+  /** User switched the active sheet in a spreadsheet */
+  DOCUMENT_SHEET_CHANGED: 'document_sheet_changed',
+  /** User selected a cell range in a spreadsheet */
+  DOCUMENT_RANGE_SELECTED: 'document_range_selected',
+  /** User clicked Ask Agent for a specific document anchor */
+  DOCUMENT_ASK_AGENT: 'document_ask_agent',
+
   // USAGE / BILLING DASHBOARD EVENTS
   // ============================================
   /** User viewed the usage dashboard */

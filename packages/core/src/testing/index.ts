@@ -1602,6 +1602,44 @@ export const DEMO_REQUEST_TEST_IDS = {
   ERROR_STATE: 'demo-request-error-state',
 } as const;
 
+// ============================================
+// DOCUMENT VIEWER TEST IDS
+// ============================================
+
+export const DOCUMENT_VIEWER_TEST_IDS = {
+  CONTAINER: 'document-viewer-container',
+  LOADING: 'document-viewer-loading',
+  ERROR: 'document-viewer-error',
+  FALLBACK: 'document-viewer-fallback',
+  TOOLBAR: 'document-viewer-toolbar',
+  STAGE: 'document-viewer-stage',
+  PAGINATION: 'document-viewer-pagination',
+  PAGE_INPUT: 'document-viewer-page-input',
+  PREV_PAGE_BTN: 'document-viewer-prev-page-btn',
+  NEXT_PAGE_BTN: 'document-viewer-next-page-btn',
+  ZOOM_IN_BTN: 'document-viewer-zoom-in-btn',
+  ZOOM_OUT_BTN: 'document-viewer-zoom-out-btn',
+  FIT_WIDTH_BTN: 'document-viewer-fit-width-btn',
+  FIT_PAGE_BTN: 'document-viewer-fit-page-btn',
+  FULLSCREEN_BTN: 'document-viewer-fullscreen-btn',
+  ROTATE_BTN: 'document-viewer-rotate-btn',
+  SEARCH_INPUT: 'document-viewer-search-input',
+  SEARCH_NEXT_BTN: 'document-viewer-search-next-btn',
+  SEARCH_PREV_BTN: 'document-viewer-search-prev-btn',
+  THUMBNAILS_SIDEBAR: 'document-viewer-thumbnails-sidebar',
+  THUMBNAILS_TOGGLE: 'document-viewer-thumbnails-toggle',
+  SLIDE_STAGE: 'document-viewer-slide-stage',
+  SLIDE_THUMB_STRIP: 'document-viewer-slide-thumb-strip',
+  SPEAKER_NOTES_DRAWER: 'document-viewer-speaker-notes-drawer',
+  SPEAKER_NOTES_TOGGLE: 'document-viewer-speaker-notes-toggle',
+  GRID_CONTAINER: 'document-viewer-grid-container',
+  SHEET_TABS: 'document-viewer-sheet-tabs',
+  RANGE_STATS: 'document-viewer-range-stats',
+  ASK_AGENT_BTN: 'document-viewer-ask-agent-btn',
+  OPEN_ORIGINAL_BTN: 'document-viewer-open-original-btn',
+  DOWNLOAD_BTN: 'document-viewer-download-btn',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1635,6 +1673,7 @@ export const TEST_IDS = {
   ADD_SPORT: ADD_SPORT_TEST_IDS,
   INTEL: INTEL_TEST_IDS,
   MEDIA_VIEWER: MEDIA_VIEWER_TEST_IDS,
+  DOCUMENT_VIEWER: DOCUMENT_VIEWER_TEST_IDS,
   LIVE_VIEW: LIVE_VIEW_TEST_IDS,
   LIVE_VIEW_LAUNCHER: LIVE_VIEW_LAUNCHER_TEST_IDS,
   TEAM_TIMELINE: TEAM_TIMELINE_TEST_IDS,

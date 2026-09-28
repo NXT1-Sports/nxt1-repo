@@ -26,7 +26,7 @@ describe('Feature Flag Registry', () => {
     it('should have all flags defined', () => {
       const flags = Object.values(FEATURE_FLAG_REGISTRY.flags);
       expect(flags.length).toBeGreaterThan(0);
-      expect(flags.length).toBe(35); // Keep in sync when feature flags are added or removed intentionally.
+      expect(flags.length).toBe(36); // Keep in sync when feature flags are added or removed intentionally.
     });
 
     it('should have unique flag keys', () => {
@@ -137,6 +137,7 @@ describe('Feature Flag Registry', () => {
       expect(AGENT_FLAGS.primaryEnabled).toBeDefined();
       expect(AGENT_FLAGS.coordinatorScout).toBeDefined();
       expect(AGENT_FLAGS.toolsDisabled).toBeDefined();
+      expect(AGENT_FLAGS.filesPreviewSessionsEnabled.defaultValue).toBe(true);
     });
 
     it('should export CONTENT_FLAGS', () => {

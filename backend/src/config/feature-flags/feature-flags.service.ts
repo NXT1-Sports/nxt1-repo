@@ -57,6 +57,8 @@ const LEGACY_ENV_READERS: Partial<Record<FeatureFlagKey, () => FlagValue | undef
   'ai.model.prod.catalog.in.dev.enabled': () =>
     parseBooleanEnv(process.env['USE_PROD_MODELS_IN_DEV']),
   'billing.stripe.enabled': () => parseBooleanEnv(process.env['STRIPE_ENABLED']),
+  'agent.files.preview.sessions.enabled': () =>
+    parseBooleanEnv(process.env['AGENT_FILES_PREVIEW_ENABLED']),
 };
 
 // ============================================

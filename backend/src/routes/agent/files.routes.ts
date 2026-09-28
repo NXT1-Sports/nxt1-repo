@@ -39,6 +39,7 @@ import {
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { logger } from '../../utils/logger.js';
+import { getFeatureFlagsService } from '../../config/feature-flags/index.js';
 import {
   sendAgentXFilmReviewFailureAlert,
   type AgentXFilmReviewFailureStage,
@@ -91,6 +92,7 @@ import {
   listFilmReviewDrawings,
   updateFilmReviewDrawing,
 } from '../../services/team/film-review-annotation-sidecar.service.js';
+import { DocumentPreviewService } from '../../modules/document-preview/index.js';
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -3598,6 +3600,236 @@ router.get('/files/:fileId', appGuard, async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to fetch file' });
   }
 });
+
+router.post('/files/:fileId/preview-sessions', appGuard, async (req: Request, res: Response) => {
+  try {
+    const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+    if (!fileId) {
+      res.status(400).json({ success: false, error: 'fileId is required' });
+      return;
+    }
+
+    const auth = getAuthUser(req);
+    if (!auth) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const db = req.firebase?.db;
+    if (!db) {
+      res.status(500).json({ success: false, error: 'Firestore unavailable' });
+      return;
+    }
+
+    const fileDoc = await db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId).get();
+    if (!fileDoc.exists) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const fileData = fileDoc.data() as Record<string, unknown>;
+    const grantedAccessKeys = buildGrantedAccessKeys(await resolveFileAccessContext(db, auth.uid));
+    if (
+      !canReadAccessControlledRecord(fileData, {
+        grantedAccessKeys,
+        acl: getUniversalFileAcl(fileData),
+      })
+    ) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const universalFile = toUniversalFileDoc(
+      fileDoc.id,
+      normalizeOptionalString(fileData['teamId']) ?? null,
+      fileData
+    );
+    const preview = universalFile.preview;
+    const sessionsEnabled = await getFeatureFlagsService(db).isEnabled(
+      'agent.files.preview.sessions.enabled'
+    );
+
+    if (!sessionsEnabled) {
+      res.json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'feature_disabled',
+          ...(preview ? { preview } : {}),
+        },
+      });
+      return;
+    }
+
+    if (
+      universalFile.payloadKind !== 'native' ||
+      !isUniversalBinaryFilePayload(universalFile.payload)
+    ) {
+      res.json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'unsupported',
+          ...(preview ? { preview } : {}),
+        },
+      });
+      return;
+    }
+
+    const binaryPayload = getUniversalBinaryFilePayload(universalFile.payload);
+    if (universalFile.status !== 'ready') {
+      res.json({
+        success: true,
+        data: {
+          available: false,
+          reason: 'source_not_ready',
+          ...(preview ? { preview } : {}),
+        },
+      });
+      return;
+    }
+
+    const bucket = req.firebase!.storage.bucket();
+    let pdfUrl: string | undefined = binaryPayload?.url;
+
+    if (binaryPayload?.storagePath) {
+      try {
+        pdfUrl = await refreshFileUrl(
+          bucket,
+          {
+            url: binaryPayload.url,
+            storagePath: binaryPayload.storagePath,
+            kind: binaryPayload.kind,
+            mimeType: binaryPayload.mimeType,
+          },
+          {
+            disposition: 'inline',
+            fileName: universalFile.title,
+          }
+        );
+      } catch (err) {
+        logger.warn('Failed to refresh PDF preview URL for preview session', {
+          fileId: universalFile.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const manifest = await DocumentPreviewService.getPreviewManifest({
+      file: universalFile,
+      fileId,
+      bucket,
+      pdfUrl,
+    });
+    const responseManifest = {
+      ...manifest,
+      documentId: fileId,
+    };
+
+    res.json({
+      success: true,
+      data: {
+        available: true,
+        manifest: responseManifest,
+        preview: {
+          schemaVersion: 1,
+          status: 'ready',
+          sourceRevision: toPortableTimestamp(universalFile.updatedAt || universalFile.createdAt),
+          documentType: responseManifest.documentType,
+          pageCount: responseManifest.pageCount,
+          slideCount: responseManifest.slides?.length,
+          sheetCount: responseManifest.sheets?.length,
+          generatedAt: responseManifest.generatedAt,
+        },
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to negotiate Universal File preview session', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to negotiate file preview session' });
+  }
+});
+
+router.get(
+  '/files/:fileId/preview/spreadsheet-range',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      if (!fileId) {
+        res.status(400).json({ success: false, error: 'fileId is required' });
+        return;
+      }
+
+      const auth = getAuthUser(req);
+      if (!auth) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const db = req.firebase?.db;
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      const fileDoc = await db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId).get();
+      if (!fileDoc.exists) {
+        res.status(404).json({ success: false, error: 'File not found' });
+        return;
+      }
+
+      const fileData = fileDoc.data() as Record<string, unknown>;
+      const grantedAccessKeys = buildGrantedAccessKeys(
+        await resolveFileAccessContext(db, auth.uid)
+      );
+      if (
+        !canReadAccessControlledRecord(fileData, {
+          grantedAccessKeys,
+          acl: getUniversalFileAcl(fileData),
+        })
+      ) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      const universalFile = toUniversalFileDoc(
+        fileDoc.id,
+        normalizeOptionalString(fileData['teamId']) ?? null,
+        fileData
+      );
+
+      const bucket = req.firebase!.storage.bucket();
+      const sheetId = typeof req.query['sheetId'] === 'string' ? req.query['sheetId'] : undefined;
+      const startRow = req.query['startRow'] ? Number(req.query['startRow']) : undefined;
+      const endRow = req.query['endRow'] ? Number(req.query['endRow']) : undefined;
+      const startCol = req.query['startCol'] ? Number(req.query['startCol']) : undefined;
+      const endCol = req.query['endCol'] ? Number(req.query['endCol']) : undefined;
+
+      const rangeData = await DocumentPreviewService.getSpreadsheetRange({
+        file: universalFile,
+        bucket,
+        sheetId,
+        startRow,
+        endRow,
+        startCol,
+        endCol,
+      });
+
+      res.json({ success: true, data: rangeData });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to get spreadsheet range data', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
 
 router.post('/files/index', appGuard, async (req, res) => {
   try {

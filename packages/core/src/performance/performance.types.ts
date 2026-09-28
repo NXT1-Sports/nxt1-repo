@@ -251,6 +251,11 @@ export const TRACE_NAMES = {
   LOCATION_SEARCH: 'location_search',
   RANKINGS_LOAD: 'rankings_load',
 
+  // Document preview traces
+  DOCUMENT_PREVIEW_LOAD: 'document_preview_load',
+  DOCUMENT_PREVIEW_GENERATE: 'document_preview_generate',
+  DOCUMENT_SPREADSHEET_RANGE_LOAD: 'document_spreadsheet_range_load',
+
   // Activity traces
   ACTIVITY_FEED_LOAD: 'activity_feed_load',
   ACTIVITY_ITEM_LOAD: 'activity_item_load',
