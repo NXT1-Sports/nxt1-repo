@@ -110,8 +110,9 @@ async function mockThread(page: PW, override?: object) {
 }
 
 async function mockEdit(page: PW, override?: object) {
-  await page.route(`**/agent-x/messages/${USER_MSG_ID}`, async (route) => {
-    if (route.request().method() === 'PUT') {
+  await page.route(`**/agent-x/messages/${USER_MSG_ID}*`, async (route) => {
+    const method = route.request().method();
+    if (method === 'PUT' || method === 'POST') {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -216,12 +217,14 @@ test.describe('Agent X — Message Interactions', () => {
     await expect(chatPage.editPanel).toBeHidden();
   });
 
-  test('save edit calls PUT endpoint and updates message in-place', async ({ page }) => {
+  test('save edit calls endpoint and updates message in-place', async ({ page }) => {
     await mockThread(page);
     await mockEdit(page);
 
     const editRequest = page.waitForRequest(
-      (req) => req.url().includes(`/messages/${USER_MSG_ID}`) && req.method() === 'PUT'
+      (req) =>
+        req.url().includes(`/messages/${USER_MSG_ID}`) &&
+        (req.method() === 'PUT' || req.method() === 'POST')
     );
 
     await chatPage.goto();

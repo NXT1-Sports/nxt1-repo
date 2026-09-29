@@ -25,9 +25,11 @@
  * 3. User archives thread   → archiveThread()
  */
 
+import crypto from 'node:crypto';
 import type {
   AgentThread,
   AgentMessage,
+  AgentMessageEditCapability,
   AgentMessageRole,
   AgentMessageActionType,
   AgentMessageFeedback,
@@ -88,7 +90,7 @@ const PROMPT_ONLY_TITLE_GENERATION_PROMPT = `You are a concise title generator f
 
 const TITLE_GENERATION_CANDIDATE_MODELS = Object.freeze([
   '~anthropic/claude-haiku-latest',
-  'google/gemini-3.6-flash',
+  '~google/gemini-flash-latest',
 ] as const);
 
 /**
@@ -217,6 +219,15 @@ function mergeUniqueAttachments(
   return merged;
 }
 
+export interface PinThreadResult {
+  readonly success: boolean;
+  readonly threadId?: string;
+  readonly pinned?: boolean;
+  readonly pinnedAt?: string | null;
+  readonly errorCode?: 'THREAD_NOT_FOUND';
+  readonly error?: string;
+}
+
 type ThreadMapperInput = Pick<
   AgentThread,
   | 'userId'
@@ -226,6 +237,7 @@ type ThreadMapperInput = Pick<
   | 'lastMessageAt'
   | 'messageCount'
   | 'archived'
+  | 'pinnedAt'
   | 'createdAt'
   | 'updatedAt'
 > & {
@@ -261,6 +273,8 @@ type MessageMapperInput = Pick<
   | 'semanticPhase'
   | 'seq'
   | 'turnSeq'
+  | 'revision'
+  | 'editCapability'
 > & {
   _id: unknown;
   deletedAt?: Date | string | null;
@@ -386,12 +400,13 @@ export class AgentChatService {
   /**
    * Archive (soft-hide) a thread. Does NOT delete messages.
    * Also clears the Redis session cache for this thread so stale state
-   * never lingers after the thread is removed from the user's view.
+   * never lingers after the thread is removed from the user's view,
+   * and clears any active pin on the thread.
    */
   async archiveThread(threadId: string, userId: string): Promise<boolean> {
     const result = await AgentThreadModel.updateOne(
       { _id: threadId, userId },
-      { $set: { archived: true, updatedAt: new Date().toISOString() } }
+      { $set: { archived: true, pinnedAt: null, updatedAt: new Date().toISOString() } }
     ).exec();
 
     if (result.modifiedCount > 0 && this.sessionMemory) {
@@ -406,6 +421,118 @@ export class AgentChatService {
     }
 
     return result.modifiedCount > 0;
+  }
+
+  /**
+   * Pin or unpin a conversation thread.
+   * - Enforces user ownership and non-archived state.
+   * - Idempotent: repeated pin/unpin returns success with preserved/cleared timestamp.
+   * - Enforces a maximum of 10 pinned threads per user.
+   */
+  async pinThread(threadId: string, userId: string, pinned: boolean): Promise<PinThreadResult> {
+    if (pinned) {
+      const pinnedAt = new Date().toISOString();
+      const updated = await AgentThreadModel.findOneAndUpdate(
+        { _id: threadId, userId, archived: false, pinnedAt: null },
+        { $set: { pinnedAt, updatedAt: pinnedAt } },
+        { new: true }
+      )
+        .lean()
+        .exec();
+
+      if (updated) {
+        logger.info('[AgentChatService] Thread pinned', { threadId, userId, pinnedAt });
+        return {
+          success: true,
+          threadId: String(updated._id),
+          pinned: true,
+          pinnedAt: updated.pinnedAt ?? pinnedAt,
+        };
+      }
+
+      const current = await AgentThreadModel.findOne({
+        _id: threadId,
+        userId,
+        archived: false,
+      })
+        .lean()
+        .exec();
+      if (!current) {
+        return {
+          success: false,
+          errorCode: 'THREAD_NOT_FOUND',
+          error: 'Thread not found',
+        };
+      }
+
+      if (current.pinnedAt) {
+        return {
+          success: true,
+          threadId: String(current._id),
+          pinned: true,
+          pinnedAt: current.pinnedAt,
+        };
+      }
+
+      return {
+        success: false,
+        errorCode: 'THREAD_NOT_FOUND',
+        error: 'Thread not found',
+      };
+    }
+
+    const result = await AgentThreadModel.updateOne(
+      { _id: threadId, userId, archived: false, pinnedAt: { $ne: null } },
+      { $set: { pinnedAt: null, updatedAt: new Date().toISOString() } }
+    ).exec();
+
+    if (result.modifiedCount > 0) {
+      logger.info('[AgentChatService] Thread unpinned', { threadId, userId });
+      return {
+        success: true,
+        threadId,
+        pinned: false,
+        pinnedAt: null,
+      };
+    }
+
+    const current = await AgentThreadModel.findOne({
+      _id: threadId,
+      userId,
+      archived: false,
+    })
+      .lean()
+      .exec();
+    if (!current) {
+      return {
+        success: false,
+        errorCode: 'THREAD_NOT_FOUND',
+        error: 'Thread not found',
+      };
+    }
+
+    return {
+      success: true,
+      threadId: String(current._id),
+      pinned: false,
+      pinnedAt: null,
+    };
+  }
+
+  /**
+   * Get all pinned, non-archived threads for a user ordered by pinnedAt descending.
+   */
+  async getPinnedThreads(userId: string): Promise<AgentThread[]> {
+    const docs = await AgentThreadModel.find({
+      userId,
+      archived: false,
+      pinnedAt: { $ne: null },
+    })
+      .sort({ pinnedAt: -1, _id: -1 })
+      .lean()
+      .exec();
+
+    return docs.map((d) => this.toThread(d));
   }
 
   /**
@@ -1098,7 +1225,63 @@ export class AgentChatService {
     const hasMore = docs.length > limit;
     const page = docs.slice(0, limit);
     const nextCursor = hasMore ? page[page.length - 1]?.createdAt : undefined;
-    const items = this.orderMessagesForDisplay(page.reverse().map((d) => this.toMessage(d)));
+
+    // Resolve latest user turn in this thread for edit capability
+    let latestUserId: string | null = null;
+    try {
+      const queryResult = AgentMessageModel.findOne?.({
+        threadId: query.threadId,
+        role: 'user',
+        deletedAt: null,
+      });
+      if (queryResult && typeof queryResult.sort === 'function') {
+        const latestUserDoc = await queryResult
+          .sort({ createdAt: -1 })
+          .select({ _id: 1, createdAt: 1 })
+          .lean()
+          .exec();
+        latestUserId = latestUserDoc ? String(latestUserDoc._id) : null;
+      }
+    } catch {
+      // Fallback below
+    }
+
+    if (!latestUserId) {
+      const latestFromPage = page.find((d) => d.role === 'user');
+      latestUserId = latestFromPage ? String(latestFromPage._id) : null;
+    }
+    const now = Date.now();
+    const EDIT_WINDOW_MS = 5 * 60 * 1000;
+
+    const mapped = page.reverse().map((d) => {
+      const msg = this.toMessage(d);
+      if (msg.role === 'user') {
+        const isLatest = latestUserId === msg.id;
+        const createdAtMs = Date.parse(msg.createdAt);
+        const expiresAtMs = Number.isFinite(createdAtMs) ? createdAtMs + EDIT_WINDOW_MS : 0;
+        const isExpired = now > expiresAtMs;
+
+        let editCapability: AgentMessageEditCapability;
+        if (!isLatest) {
+          editCapability = { allowed: false, reason: 'not_latest_turn' };
+        } else if (isExpired) {
+          editCapability = {
+            allowed: false,
+            expiresAt: new Date(expiresAtMs).toISOString(),
+            reason: 'expired',
+          };
+        } else {
+          editCapability = {
+            allowed: true,
+            expiresAt: new Date(expiresAtMs).toISOString(),
+          };
+        }
+        return { ...msg, editCapability };
+      }
+      return msg;
+    });
+
+    const items = this.orderMessagesForDisplay(mapped);
 
     return { items, hasMore, nextCursor };
   }
@@ -1135,6 +1318,49 @@ export class AgentChatService {
     })
       .lean()
       .exec();
+
+    return doc ? this.toMessage(doc) : null;
+  }
+
+  /**
+   * Resolve an active user message by ID, operationId, or thread context.
+   */
+  async getMessageByOperationOrId(
+    identifier: string,
+    userId: string,
+    threadId: string
+  ): Promise<AgentMessage | null> {
+    const isHex = /^[a-f0-9]{24}$/i.test(identifier);
+    const orConditions: Array<Record<string, unknown>> = [
+      { operationId: identifier },
+      { idempotencyKey: identifier },
+    ];
+    if (isHex) {
+      orConditions.push({ _id: identifier });
+    }
+
+    let doc = await AgentMessageModel.findOne({
+      threadId,
+      userId,
+      role: 'user',
+      deletedAt: null,
+      $or: orConditions,
+    })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    if (!doc) {
+      doc = await AgentMessageModel.findOne({
+        threadId,
+        userId,
+        role: 'user',
+        deletedAt: null,
+      })
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec();
+    }
 
     return doc ? this.toMessage(doc) : null;
   }
@@ -1412,6 +1638,83 @@ export class AgentChatService {
   }
 
   /**
+   * Find the latest active user-authored message in a thread.
+   */
+  async getLatestUserMessage(threadId: string): Promise<AgentMessage | null> {
+    const doc = await AgentMessageModel.findOne({
+      threadId,
+      role: 'user',
+      deletedAt: null,
+    })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    return doc ? this.toMessage(doc) : null;
+  }
+
+  /**
+   * Check whether a specific user message is the most recent user turn in the thread.
+   */
+  async isLatestUserTurn(threadId: string, messageId: string): Promise<boolean> {
+    const latest = await this.getLatestUserMessage(threadId);
+    return latest?.id === messageId;
+  }
+
+  /**
+   * Soft-delete all assistant and tool messages generated by a superseded operation.
+   */
+  async softDeleteAssistantMessagesForOperation(
+    threadId: string,
+    operationId: string,
+    userId: string
+  ): Promise<string[]> {
+    const docs = await AgentMessageModel.find({
+      threadId,
+      operationId,
+      role: { $in: ['assistant', 'tool'] },
+      deletedAt: null,
+    })
+      .select({ _id: 1 })
+      .lean()
+      .exec();
+
+    if (docs.length === 0) return [];
+
+    const ids = docs.map((d) => String(d._id));
+    const nowIso = new Date().toISOString();
+    const deleteToken = crypto.randomUUID();
+
+    await AgentMessageModel.updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          deletedAt: nowIso,
+          deletedBy: userId,
+          restoreTokenId: deleteToken,
+        },
+        $push: {
+          actions: {
+            type: 'deleted' as AgentMessageActionType,
+            userId,
+            timestamp: nowIso,
+            metadata: { reason: 'superseded_by_edit' },
+          },
+        },
+      }
+    ).exec();
+
+    logger.info('[AgentChatService] Soft-deleted superseded assistant messages for operation', {
+      threadId,
+      operationId,
+      deletedCount: ids.length,
+      deletedIds: ids,
+    });
+
+    return ids;
+  }
+
+  /**
    * Resolve the latest persisted assistant message linked to an operation.
    * Used by SSE fallback/synthetic terminal paths to preserve canonical
    * MongoDB message IDs even when the terminal event must be reconstructed.
@@ -1505,7 +1808,7 @@ export class AgentChatService {
   }
 
   /**
-   * Update a user-authored message and append immutable edit history.
+   * Update a user-authored message, advance revision, and append immutable edit history.
    */
   async editUserMessage(params: {
     messageId: string;
@@ -1514,40 +1817,66 @@ export class AgentChatService {
     newContent: string;
     reason?: string;
     agentRerunId?: string;
+    supersededOperationId?: string;
+    replacementOperationId?: string;
+    expectedRevision?: number;
   }): Promise<AgentMessage | null> {
-    const existing = await AgentMessageModel.findOne({
+    const query: Record<string, unknown> = {
       _id: params.messageId,
       userId: params.userId,
       threadId: params.threadId,
       role: 'user',
       deletedAt: null,
-    })
-      .lean()
-      .exec();
+    };
+    if (typeof params.expectedRevision === 'number') {
+      query['revision'] = params.expectedRevision;
+    }
+
+    const existing = await AgentMessageModel.findOne(query).lean().exec();
 
     if (!existing) return null;
 
+    const currentRevision = (existing.revision as number | undefined) ?? 0;
+    const nextRevision = currentRevision + 1;
     const nowIso = new Date().toISOString();
+
+    const updateSet: Record<string, unknown> = {
+      content: params.newContent,
+      revision: nextRevision,
+    };
+    if (params.replacementOperationId) {
+      updateSet['operationId'] = params.replacementOperationId;
+    }
+
+    const editRecord = {
+      editedAt: nowIso,
+      originalContent: existing.content,
+      newContent: params.newContent,
+      revision: nextRevision,
+      ...(params.reason ? { reason: params.reason } : {}),
+      ...(params.agentRerunId ? { agentRerunId: params.agentRerunId } : {}),
+      ...(params.supersededOperationId
+        ? { supersededOperationId: params.supersededOperationId }
+        : {}),
+      ...(params.replacementOperationId
+        ? { replacementOperationId: params.replacementOperationId }
+        : {}),
+    };
+
+    // Guard the write with the revision just read so a concurrent editor
+    // that already advanced the revision loses this race instead of both
+    // updates silently applying out of order.
     const doc = await AgentMessageModel.findOneAndUpdate(
-      { _id: params.messageId },
+      { _id: params.messageId, revision: currentRevision },
       {
-        $set: { content: params.newContent },
+        $set: updateSet,
         $push: {
-          editHistory: {
-            editedAt: nowIso,
-            originalContent: existing.content,
-            newContent: params.newContent,
-            ...(params.reason ? { reason: params.reason } : {}),
-            ...(params.agentRerunId ? { agentRerunId: params.agentRerunId } : {}),
-          },
+          editHistory: editRecord,
           actions: {
             type: 'edited' as AgentMessageActionType,
             userId: params.userId,
             timestamp: nowIso,
-            metadata: {
-              ...(params.reason ? { reason: params.reason } : {}),
-              ...(params.agentRerunId ? { agentRerunId: params.agentRerunId } : {}),
-            },
+            metadata: editRecord,
           },
         },
       },
@@ -1734,6 +2063,7 @@ export class AgentChatService {
       lastMessageAt: doc.lastMessageAt,
       messageCount: doc.messageCount,
       archived: doc.archived,
+      pinnedAt: doc.pinnedAt ?? null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
     };
@@ -1769,6 +2099,8 @@ export class AgentChatService {
       steps: doc.steps,
       parts: doc.parts,
       tokenUsage: doc.tokenUsage,
+      revision: (doc.revision as number | undefined) ?? 0,
+      editCapability: doc.editCapability as AgentMessageEditCapability | undefined,
       editHistory: doc.editHistory,
       feedback: doc.feedback,
       actions: doc.actions,

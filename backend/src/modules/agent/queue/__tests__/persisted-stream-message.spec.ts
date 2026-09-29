@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PersistedAssistantStreamBuilder } from '../persisted-stream-message.js';
 
 describe('PersistedAssistantStreamBuilder', () => {
-  it('merges interleaved thinking chunks into one reasoning part per agent', () => {
+  it('keeps interleaved reasoning in separate blocks', () => {
     const builder = new PersistedAssistantStreamBuilder();
 
     builder.process({
@@ -29,8 +29,10 @@ describe('PersistedAssistantStreamBuilder', () => {
     const snapshot = builder.snapshot();
 
     expect(snapshot.parts).toEqual([
-      { type: 'thinking', content: 'Plan first. Plan second. ', done: true },
-      { type: 'text', content: 'Here is the first point. Here is the second point.' },
+      { type: 'thinking', content: 'Plan first. ', done: true },
+      { type: 'text', content: 'Here is the first point. ' },
+      { type: 'thinking', content: 'Plan second. ', done: true },
+      { type: 'text', content: 'Here is the second point.' },
     ]);
   });
 

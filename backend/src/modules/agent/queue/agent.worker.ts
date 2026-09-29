@@ -1762,7 +1762,9 @@ export class AgentWorker {
     const parentOperationId =
       typeof (contextObj as Record<string, unknown>)['parentOperationId'] === 'string'
         ? String((contextObj as Record<string, unknown>)['parentOperationId']).trim()
-        : '';
+        : typeof (contextObj as Record<string, unknown>)['supersedesOperationId'] === 'string'
+          ? String((contextObj as Record<string, unknown>)['supersedesOperationId']).trim()
+          : '';
 
     if (!parentOperationId || parentOperationId === payload.operationId) {
       return;
@@ -1876,9 +1878,11 @@ export class AgentWorker {
       const explicitPaused = persistedStatus === 'paused';
       const inferredPaused =
         persistedStatus === 'awaiting_input' && isPauseYieldState(latest.yieldState ?? undefined);
+      const isCancelledOrCancelling =
+        persistedStatus === 'cancelling' || persistedStatus === 'cancelled';
 
       return {
-        suppressed: explicitPaused || inferredPaused,
+        suppressed: explicitPaused || inferredPaused || isCancelledOrCancelling,
         persistedStatus,
       };
     } catch (err) {
@@ -3006,9 +3010,21 @@ export class AgentWorker {
         const abortedAsPaused =
           persistedStatus === 'paused' ||
           (persistedStatus === 'awaiting_input' && isPauseYieldState(latest?.yieldState));
-        const abortedAsCancelled = persistedStatus === 'cancelled';
+        const abortedAsCancelled =
+          persistedStatus === 'cancelled' ||
+          persistedStatus === 'cancelling' ||
+          jobAbortController.signal.aborted;
 
         if (abortedAsPaused || abortedAsCancelled) {
+          if (abortedAsCancelled && persistedStatus === 'cancelling') {
+            await repo.acknowledgeCancellation(payload.operationId).catch((ackErr) => {
+              logger.warn('Failed to acknowledge cancellation in worker abort catch', {
+                operationId: payload.operationId,
+                error: ackErr instanceof Error ? ackErr.message : String(ackErr),
+              });
+            });
+          }
+
           await eventWriter.dispose();
 
           const controlledStatus = abortedAsPaused ? 'paused' : 'cancelled';
@@ -3569,23 +3585,44 @@ export class AgentWorker {
       payload.operationId
     );
     if (pauseCompletionGuard.suppressed) {
+      const isCancelled =
+        pauseCompletionGuard.persistedStatus === 'cancelling' ||
+        pauseCompletionGuard.persistedStatus === 'cancelled';
+
+      if (isCancelled && pauseCompletionGuard.persistedStatus === 'cancelling') {
+        await repo.acknowledgeCancellation(payload.operationId).catch((ackErr) => {
+          logger.warn('Failed to acknowledge cancellation in terminal guard', {
+            operationId: payload.operationId,
+            error: ackErr instanceof Error ? ackErr.message : String(ackErr),
+          });
+        });
+      }
+
       await eventWriter.flush().catch(() => undefined);
       await eventWriter.dispose();
-      await this.persistPostRunPausedSnapshot(
-        payload,
-        completionStreamSnapshot,
-        result.summary,
-        resultData,
-        userAttachmentUrlSet
-      );
+
+      if (!isCancelled) {
+        await this.persistPostRunPausedSnapshot(
+          payload,
+          completionStreamSnapshot,
+          result.summary,
+          resultData,
+          userAttachmentUrlSet
+        );
+      }
+
+      const terminalStatus = isCancelled ? 'cancelled' : 'paused';
+      const terminalMsg = isCancelled ? 'Operation cancelled by user' : 'Operation paused by user';
+      const outcomeCode = isCancelled ? 'cancelled' : 'input_required';
+      const reasonCode = isCancelled ? 'cancelled_by_user' : 'paused_by_user';
 
       await job.updateProgress({
-        status: 'paused',
-        message: 'Operation paused by user',
+        status: terminalStatus,
+        message: terminalMsg,
         agentId: 'router',
-        outcomeCode: 'input_required',
+        outcomeCode,
         metadata: {
-          reason: 'paused_by_user',
+          reason: reasonCode,
           persistedStatus: pauseCompletionGuard.persistedStatus,
         },
         percent: Math.min(99, Math.round((stepIndex / Math.max(totalSteps, 1)) * 100)),
@@ -3596,26 +3633,32 @@ export class AgentWorker {
 
       if (iapHoldId) {
         releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
-          logger.warn('[billing] Failed to release IAP hold for paused operation', {
+          logger.warn('[billing] Failed to release IAP hold for suppressed operation', {
             holdId: iapHoldId,
             error: e instanceof Error ? e.message : String(e),
           });
         });
       }
 
-      logger.info('Pause guard suppressed terminal completion and side effects', {
+      logger.info('Termination guard suppressed terminal completion and side effects', {
         operationId: payload.operationId,
         userId: payload.userId,
         persistedStatus: pauseCompletionGuard.persistedStatus,
+        isCancelled,
       });
 
-      this.discardConnectedSourceTracking(payload.operationId, 'pause_completion_guard');
+      this.discardConnectedSourceTracking(
+        payload.operationId,
+        isCancelled ? 'controlled_cancel' : 'pause_completion_guard'
+      );
 
       return {
         result: {
-          summary: 'Operation paused. Resume whenever you are ready.',
+          summary: isCancelled
+            ? 'Operation cancelled by user.'
+            : 'Operation paused. Resume whenever you are ready.',
           data: {
-            paused: true,
+            [isCancelled ? 'cancelled' : 'paused']: true,
             suppressedTerminalCompletion: true,
             persistedStatus: pauseCompletionGuard.persistedStatus,
           },

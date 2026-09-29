@@ -281,10 +281,15 @@ export function agentSingleFileUpload(req: Request, res: Response, next: NextFun
  * Helper to bypass Google App Engine / Firebase HTTP proxy buffering.
  */
 export function forceProxyFlush(res: Response & { flush?: () => void }) {
+  flushSseFrame(res);
+  res.write(`: ${' '.repeat(4096)}\n\n`);
+}
+
+/** Flush a completed SSE frame through Express compression without padding it. */
+export function flushSseFrame(res: Response & { flush?: () => void }): void {
   if (typeof res.flush === 'function') {
     res.flush();
   }
-  res.write(`: ${' '.repeat(4096)}\n\n`);
 }
 
 /** Extract the authenticated user from the request (set by appGuard). */

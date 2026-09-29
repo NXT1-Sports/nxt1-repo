@@ -48,6 +48,7 @@ import {
   type PubSubUnsubscribe,
 } from '../../modules/agent/queue/pubsub.service.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
+import { AgentOperationCancellationService } from '../../modules/agent/services/agent-operation-cancellation.service.js';
 import { logger } from '../../utils/logger.js';
 import {
   resolveBillingTarget,
@@ -74,6 +75,7 @@ import {
   activeAbortControllers,
   getAuthUser,
   resolveThread,
+  flushSseFrame,
   forceProxyFlush,
 } from './shared.js';
 import { resolveAppBaseUrl } from '../../utils/app-url.js';
@@ -1766,7 +1768,19 @@ async function enforceThreadConcurrencyPolicy(
 
   const cancelled: string[] = [];
   const yieldedStatuses = new Set(['paused', 'awaiting_input', 'awaiting_approval']);
-  const runningStatuses = new Set(['queued', 'thinking', 'acting', 'streaming_result']);
+  const runningStatuses = new Set([
+    'queued',
+    'thinking',
+    'acting',
+    'streaming_result',
+    'cancelling',
+  ]);
+  const cancellationService = new AgentOperationCancellationService(
+    jobRepository,
+    queueService,
+    pubsubService,
+    chatService
+  );
 
   for (const op of active) {
     if (!op.operationId || op.operationId === newOperationId) continue;
@@ -1774,40 +1788,18 @@ async function enforceThreadConcurrencyPolicy(
     if (!supersedeOnYield) continue;
 
     try {
-      // Cancel BullMQ side first so the worker aborts mid-flight or the queued
-      // yielded continuation is removed before we mark Firestore terminal.
-      await queueService.cancel(op.operationId).catch((err) => {
-        logger.warn('Concurrency-policy: queue cancel failed (non-fatal)', {
-          operationId: op.operationId,
-          error: err instanceof Error ? err.message : String(err),
-        });
+      const cancelResult = await cancellationService.cancelOperation(db, {
+        operationId: op.operationId,
+        userId: op.userId,
+        reason: 'superseded_by_edit',
+        supersededByOperationId: newOperationId,
+        message: 'Superseded by new turn',
+        activeAbortControllers,
       });
-      // Then mark Firestore as cancelled so resume guards see the new state.
-      await jobRepository.withDb(db).markCancelled(op.operationId);
-      cancelled.push(op.operationId);
 
-      if (op.threadId && chatService) {
-        try {
-          await chatService.clearThreadPausedYieldState(op.threadId);
-        } catch (err) {
-          logger.warn('Concurrency-policy: failed to clear paused yield state', {
-            threadId: op.threadId,
-            operationId: op.operationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
+      if (cancelResult.success) {
+        cancelled.push(op.operationId);
       }
-
-      // Notify any active SSE client subscribed to the cancelled op.
-      void pubsubService
-        ?.publish(op.operationId, 'cancelled', {
-          operationId: op.operationId,
-          threadId,
-          reason: 'superseded',
-          supersededBy: newOperationId,
-          timestamp: new Date().toISOString(),
-        })
-        .catch(() => undefined);
 
       logger.info('Concurrency-policy: superseded prior thread operation', {
         threadId,
@@ -1956,6 +1948,15 @@ function emitReplayEvent(res: Response, rawEvt: unknown): void {
       if (typeof evt['text'] === 'string') {
         res.write(
           `event: delta\ndata: ${JSON.stringify(withEnvelope({ content: evt['text'] }))}\n\n`
+        );
+      }
+      break;
+    case 'thinking':
+      if (typeof evt['thinkingText'] === 'string') {
+        res.write(
+          `event: thinking\ndata: ${JSON.stringify(
+            withEnvelope({ content: evt['thinkingText'] })
+          )}\n\n`
         );
       }
       break;
@@ -2175,6 +2176,7 @@ async function streamOperationToSse(params: {
   userId: string;
   afterSeq?: number;
   initialThreadId?: string;
+  initialUserMessageId?: string | null;
   initialOperationStatus?: AgentXOperationLifecycleStatus;
   streamDebug?: boolean;
 }): Promise<void> {
@@ -2186,6 +2188,7 @@ async function streamOperationToSse(params: {
     userId,
     afterSeq = -1,
     initialThreadId,
+    initialUserMessageId,
     initialOperationStatus,
     streamDebug = false,
   } = params;
@@ -2269,6 +2272,7 @@ async function streamOperationToSse(params: {
         ...buildStreamEnvelope(),
         threadId: initialThreadId,
         operationId,
+        ...(initialUserMessageId ? { userMessageId: initialUserMessageId } : {}),
       })}\n\n`
     );
     forceProxyFlush(res);
@@ -2447,6 +2451,7 @@ async function streamOperationToSse(params: {
       }
 
       res.write(`event: ${msg.event}\ndata: ${JSON.stringify(normalizedPayload)}\n\n`);
+      flushSseFrame(res);
       if (isTerminal) {
         streamTerminalSeen = true;
         streamObservability.streamCompletedTotal += 1;
@@ -2502,6 +2507,7 @@ async function streamOperationToSse(params: {
       });
     }
     emitReplayEvent(res, evt);
+    flushSseFrame(res);
     streamObservability.replayCountTotal += 1;
     if (seq > lastSeq) lastSeq = seq;
     // Accumulate delta chars so the live-buffer drain can skip events
@@ -2619,6 +2625,7 @@ async function streamOperationToSse(params: {
           });
         }
         emitReplayEvent(res, evt);
+        flushSseFrame(res);
         lastSeq = Math.max(lastSeq, seq);
 
         if (STREAM_TERMINAL_EVENTS.has(String(evt['type'] ?? ''))) {
@@ -3011,151 +3018,36 @@ router.post('/cancel/:id', appGuard, async (req: Request, res: Response) => {
     return;
   }
 
-  const persistedJob = await jobRepository.withDb(db).getById(operationId);
-  if (!persistedJob || persistedJob.userId !== user.uid) {
-    logger.warn('Forbidden cancel attempt: operation belongs to another user or missing', {
-      operationId,
-      requesterUserId: user.uid,
+  const cancellationService = new AgentOperationCancellationService(
+    jobRepository,
+    queueService,
+    pubsubService,
+    chatService
+  );
+
+  const result = await cancellationService.cancelOperation(db, {
+    operationId,
+    userId: user.uid,
+    reason: 'user_cancelled',
+    activeAbortControllers,
+  });
+
+  if (!result.success) {
+    res.status(result.error === 'Unauthorized' ? 403 : 404).json({
+      success: false,
+      error: result.error ?? 'Failed to cancel operation',
     });
-    res.status(404).json({ success: false, error: 'Operation not found' });
     return;
   }
 
-  const entry = activeAbortControllers.get(operationId);
-  if (entry) {
-    entry.controller.abort();
-    activeAbortControllers.delete(operationId);
-  }
-
-  // Cross-instance cancel propagation (mirrors pause). Required when the
-  // worker runs on a different backend instance than the one handling the
-  // HTTP request — see comment in pause endpoint above.
-  let controlBroadcast = false;
-  if (pubsubService) {
-    try {
-      await pubsubService.publishControl({
-        action: 'cancel',
-        operationId,
-        issuedAt: new Date().toISOString(),
-        issuedBy: user.uid,
-      });
-      controlBroadcast = true;
-    } catch (err) {
-      logger.warn('Failed to broadcast cancel control message', {
-        operationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  let queueCancelled = false;
-  if (queueService) {
-    try {
-      queueCancelled = await queueService.cancel(operationId);
-    } catch (err) {
-      // Expected when worker holds BullMQ lock on a different instance —
-      // the control broadcast above handles the actual abort.
-      logger.warn('Queue cancellation call failed', {
-        operationId,
-        error: err instanceof Error ? err.message : String(err),
-        controlBroadcast,
-      });
-    }
-  }
-
-  await jobRepository
-    .withDb(db)
-    .markCancelled(operationId)
-    .catch((err: unknown) => {
-      logger.warn('Failed to mark operation cancelled in repository', {
-        operationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
-
-  const threadId = persistedJob.threadId ?? undefined;
-
-  // Clear paused yield state from thread so stale Resume card doesn't appear
-  if (threadId && chatService) {
-    try {
-      await chatService.clearThreadPausedYieldState(threadId);
-    } catch (err) {
-      logger.warn('Failed to clear thread paused yield state on cancel', {
-        threadId,
-        operationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-
-  const repo = jobRepository.withDb(db);
-  const nowIso = new Date().toISOString();
-
-  const cancellationOperationEvent = {
-    userId: user.uid,
-    type: 'operation' as const,
+  res.json({
+    success: true,
+    cancelled: true,
+    queueCancelled: result.queueCancelled,
+    controlBroadcast: result.controlBroadcast,
+    status: 'cancelled',
     operationId,
-    ...(threadId ? { threadId } : {}),
-    status: 'cancelled' as const,
-    timestamp: nowIso,
-  };
-
-  const cancellationDoneEvent = {
-    userId: user.uid,
-    type: 'done' as const,
-    operationId,
-    ...(threadId ? { threadId } : {}),
-    status: 'cancelled' as const,
-    success: false,
-    message: 'Operation cancelled by user',
-    timestamp: nowIso,
-  };
-  let cancellationOperationSeq = -1;
-  let cancellationDoneSeq = -1;
-
-  try {
-    const startSeq = await repo.allocateEventSeqRange(operationId, 2);
-    cancellationOperationSeq = startSeq;
-    cancellationDoneSeq = startSeq + 1;
-
-    await repo.writeJobEvent(operationId, {
-      seq: cancellationOperationSeq,
-      ...cancellationOperationEvent,
-    });
-    await repo.writeJobEvent(operationId, {
-      seq: cancellationDoneSeq,
-      ...cancellationDoneEvent,
-    });
-  } catch (err) {
-    logger.warn('Failed to persist cancellation stream events', {
-      operationId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  }
-
-  if (pubsubService) {
-    void pubsubService
-      .publish(operationId, 'operation', {
-        ...cancellationOperationEvent,
-        ...(cancellationOperationSeq >= 0 ? { seq: cancellationOperationSeq } : {}),
-      })
-      .catch(() => undefined);
-    void pubsubService
-      .publish(operationId, 'done', {
-        ...cancellationDoneEvent,
-        ...(cancellationDoneSeq >= 0 ? { seq: cancellationDoneSeq } : {}),
-      })
-      .catch(() => undefined);
-  }
-
-  logger.info('Agent X operation cancelled via explicit endpoint', {
-    operationId,
-    userId: user.uid,
-    queueCancelled,
-    controlBroadcast,
   });
-
-  res.json({ success: true, cancelled: true, queueCancelled, controlBroadcast });
 });
 
 // ─── POST /resume-job/:operationId — Resume a yielded agent job ───────────
@@ -6146,6 +6038,7 @@ router.post(
               ...buildPreEnvelope(),
               threadId: effectiveThreadId,
               operationId,
+              ...(persistedUserMessageId ? { userMessageId: persistedUserMessageId } : {}),
             })}\n\n`
           );
           forceProxyFlush(res);
@@ -6482,6 +6375,7 @@ router.post(
         userId: user.uid,
         afterSeq,
         initialThreadId: effectiveThreadId,
+        initialUserMessageId: persistedUserMessageId,
         initialOperationStatus: 'queued',
         streamDebug,
       });

@@ -276,6 +276,15 @@ export class ProfileHydrationService {
       const org = orgMap.get(team.organizationId);
       const governance = resolveOrganizationGovernance(org, userId);
 
+      // Sibling team logo fallback if this specific team and org lack logoUrl
+      const siblingTeamLogo = team.organizationId
+        ? Array.from(teamMap.values()).find(
+            (t) => t.organizationId === team.organizationId && t.logoUrl
+          )?.logoUrl
+        : undefined;
+      const anyTeamLogo = Array.from(teamMap.values()).find((t) => t.logoUrl)?.logoUrl;
+      const effectiveLogoUrl = org?.logoUrl ?? team.logoUrl ?? siblingTeamLogo ?? anyTeamLogo;
+
       resolved.push({
         sport: team.sport,
         teamId: entry.teamId,
@@ -290,7 +299,7 @@ export class ProfileHydrationService {
         isUserOrganizationAdmin: governance.isUserOrganizationAdmin,
         org: {
           name: org?.name ?? team.teamName,
-          logoUrl: org?.logoUrl ?? team.logoUrl,
+          logoUrl: effectiveLogoUrl,
           primaryColor: org?.primaryColor ?? team.primaryColor,
           secondaryColor: org?.secondaryColor ?? team.secondaryColor,
           mascot: org?.mascot ?? team.mascot,
@@ -348,6 +357,11 @@ export class ProfileHydrationService {
 
       matchedTeamIds.add(match.teamId);
 
+      const existingTeamLogo =
+        (sport.team as { logoUrl?: string; logo?: string } | undefined)?.logoUrl ??
+        (sport.team as { logoUrl?: string; logo?: string } | undefined)?.logo;
+      const resolvedLogo = match.org.logoUrl ?? existingTeamLogo;
+
       const hydratedTeam = {
         ...(sport.team ?? {}),
         name: match.org.name,
@@ -358,7 +372,7 @@ export class ProfileHydrationService {
         unicode: match.unicode ?? (sport.team as { unicode?: string } | undefined)?.unicode,
         isOrganizationClaimed: match.isOrganizationClaimed,
         isUserOrganizationAdmin: match.isUserOrganizationAdmin,
-        logoUrl: match.org.logoUrl,
+        logoUrl: resolvedLogo,
         primaryColor: match.org.primaryColor,
         secondaryColor: match.org.secondaryColor,
         mascot: match.org.mascot,
@@ -379,6 +393,12 @@ export class ProfileHydrationService {
     for (const rt of resolvedTeams) {
       if (matchedTeamIds.has(rt.teamId)) continue;
 
+      const orgFallbackLogo =
+        rt.org.logoUrl ??
+        resolvedTeams.find((t) => t.organizationId === rt.organizationId && t.org.logoUrl)?.org
+          .logoUrl ??
+        resolvedTeams.find((t) => t.org.logoUrl)?.org.logoUrl;
+
       const synthesized: SportProfile = {
         sport: rt.sport,
         order: hydratedSports.length,
@@ -392,7 +412,7 @@ export class ProfileHydrationService {
           unicode: rt.unicode,
           isOrganizationClaimed: rt.isOrganizationClaimed,
           isUserOrganizationAdmin: rt.isUserOrganizationAdmin,
-          logoUrl: rt.org.logoUrl,
+          logoUrl: orgFallbackLogo,
           primaryColor: rt.org.primaryColor,
           secondaryColor: rt.org.secondaryColor,
           mascot: rt.org.mascot,

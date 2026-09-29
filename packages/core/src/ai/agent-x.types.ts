@@ -1181,6 +1181,8 @@ export interface AgentXStreamThreadEvent {
   readonly threadId: string;
   /** The backend operation ID for this chat request. Used for explicit cancellation via POST /cancel/:operationId. */
   readonly operationId?: string;
+  /** The persisted MongoDB message ID for the user's prompt on this turn. */
+  readonly userMessageId?: string;
 }
 
 /**
@@ -1855,6 +1857,8 @@ export interface OperationLogEntry {
    * One-off backend-triggered jobs like welcome-graphic generation should remain `false`.
    */
   readonly isScheduled?: boolean;
+  /** ISO-8601 timestamp when this session was pinned, or null/undefined if unpinned. */
+  readonly pinnedAt?: string | null;
   /**
    * Supplementary context for this entry. Shape varies by source:
    *
@@ -1889,6 +1893,7 @@ export interface OperationsLogResponse {
   readonly success: boolean;
   readonly data?: readonly OperationLogEntry[];
   readonly scheduled?: readonly OperationLogEntry[];
+  readonly pinned?: readonly OperationLogEntry[];
   readonly pageInfo?: OperationsLogPageInfo;
   readonly error?: string;
 }

@@ -12,13 +12,18 @@
 import {
   Component,
   ChangeDetectionStrategy,
+  OnDestroy,
   input,
   output,
   viewChild,
   ElementRef,
   effect,
   signal,
+  inject,
+  PLATFORM_ID,
+  afterNextRender,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
 import type { AgentXEffortLevel, AgentXExecutionMode, AgentXSelectedContext } from '@nxt1/core/ai';
@@ -26,6 +31,7 @@ import { AGENT_X_INPUT_TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
+import { AgentXVoiceInputService } from '../../services/voice/agent-x-voice-input.service';
 
 interface PendingConnectedSource {
   readonly platform: string;
@@ -230,6 +236,7 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
           #messageInput
           class="input-textarea"
           rows="1"
+          [autofocus]="autoFocus()"
           [ngModel]="userMessage()"
           (ngModelChange)="onMessageInputChange($event)"
           (focus)="onInputFocus()"
@@ -385,16 +392,38 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
                 </div>
               </button>
             } @else {
-              <button
-                type="button"
-                class="input-btn input-btn--circle input-send-btn"
-                [class.active]="canSend()"
-                [disabled]="!canSend()"
-                (click)="send.emit()"
-                aria-label="Send"
-              >
-                <nxt1-icon name="arrowUp" [size]="18" />
-              </button>
+              @if (voiceInputListening()) {
+                <div class="input-voice-wave" aria-hidden="true">
+                  @for (level of voiceLevels(); track $index) {
+                    <span class="input-voice-wave__bar" [style.--voice-bar-scale]="level"></span>
+                  }
+                </div>
+              }
+
+              @if (voiceInputAvailable()) {
+                <button
+                  type="button"
+                  class="input-voice-btn"
+                  [class.listening]="voiceInputListening()"
+                  [class.input-voice-btn--with-send]="canSend()"
+                  (click)="toggleVoiceInput()"
+                  [attr.aria-label]="voiceButtonAriaLabel()"
+                  [attr.aria-pressed]="voiceInputListening()"
+                >
+                  <nxt1-icon name="microphone" [size]="20" />
+                </button>
+              }
+
+              @if (canSend()) {
+                <button
+                  type="button"
+                  class="input-btn input-btn--circle input-send-btn"
+                  (click)="send.emit()"
+                  aria-label="Send"
+                >
+                  <nxt1-icon name="arrowUp" [size]="18" />
+                </button>
+              }
             }
           </div>
         </div>
@@ -413,7 +442,18 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
         --input-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
         --input-attach-fg: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
         --input-primary: var(--nxt1-color-primary, #ccff00);
+        --input-primary-light: var(--nxt1-color-primaryLight, var(--input-primary));
+        --input-primary-dark: var(--nxt1-color-primaryDark, var(--input-primary));
+        --input-on-primary: var(--nxt1-color-text-onPrimary, #000000);
         --input-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --input-action-gradient: linear-gradient(
+          135deg,
+          var(--input-primary-dark) 0%,
+          var(--input-primary) 45%,
+          var(--input-primary-light) 100%
+        );
+        --input-action-shadow: var(--nxt1-glow-sm, 0 0 8px var(--input-primary-glow));
+        --input-action-shadow-hover: var(--nxt1-glow-md, 0 0 16px var(--input-primary-glow));
         --input-caret: var(--nxt1-color-primary, #ccff00);
         --input-selection-bg: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --input-surface-hover: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.1));
@@ -772,7 +812,110 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
       .input-actions-right {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
+      }
+
+      .input-voice-btn {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        flex: 0 0 36px;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--input-attach-fg);
+        -webkit-tap-highlight-color: transparent;
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          border-color 0.15s ease,
+          transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      .input-voice-btn--with-send {
+        transform: translateX(-2px);
+      }
+
+      .input-voice-btn.listening {
+        background: var(--input-primary-glow);
+        border: 1px solid var(--nxt1-color-alpha-primary50, var(--input-primary));
+        color: var(--input-primary);
+      }
+
+      .input-voice-btn.listening::after {
+        content: '';
+        position: absolute;
+        inset: -4px;
+        border-radius: inherit;
+        border: 1px solid var(--nxt1-color-alpha-primary50, var(--input-primary));
+        animation: voicePulse 1.2s ease-out infinite;
+        pointer-events: none;
+      }
+
+      .input-voice-btn:active {
+        transform: scale(0.94);
+      }
+
+      .input-voice-btn--with-send:active {
+        transform: translateX(-2px) scale(0.94);
+      }
+
+      .input-voice-wave {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2.5px;
+        width: 44px;
+        height: 28px;
+        flex: 0 0 auto;
+        padding: 0 8px;
+        border: 1px solid var(--nxt1-color-alpha-primary20, var(--input-border));
+        border-radius: 999px;
+        background:
+          linear-gradient(
+            135deg,
+            var(--nxt1-color-alpha-primary10, transparent),
+            color-mix(in srgb, var(--input-surface-hover) 82%, transparent)
+          ),
+          var(--input-surface);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.08),
+          0 4px 12px color-mix(in srgb, var(--input-primary) 10%, transparent);
+      }
+
+      .input-voice-wave__bar {
+        width: 2.5px;
+        height: 16px;
+        border-radius: 999px;
+        background: linear-gradient(180deg, var(--input-primary-light), var(--input-primary));
+        opacity: 0.92;
+        box-shadow: 0 0 8px color-mix(in srgb, var(--input-primary) 24%, transparent);
+        transform: scaleY(var(--voice-bar-scale, 0.08));
+        transform-origin: center;
+        transition:
+          transform 0.09s ease-out,
+          opacity 0.09s ease-out;
+        will-change: transform;
+      }
+
+      .input-voice-wave__bar:nth-child(1),
+      .input-voice-wave__bar:nth-child(7) {
+        opacity: 0.58;
+      }
+
+      .input-voice-wave__bar:nth-child(2),
+      .input-voice-wave__bar:nth-child(6) {
+        opacity: 0.72;
+      }
+
+      @media (max-width: 767px) {
+        .input-voice-wave {
+          display: none;
+        }
       }
 
       .input-mode-picker {
@@ -1039,23 +1182,28 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
       }
 
       .input-send-btn {
+        background: var(--input-action-gradient);
+        background-size: 220% 220%;
+        border-color: var(--input-primary);
+        color: var(--input-on-primary);
+        box-shadow: var(--input-action-shadow);
         transition:
           background 0.15s ease,
           color 0.15s ease,
           border-color 0.15s ease,
           opacity 0.15s ease,
-          box-shadow 0.15s ease;
+          box-shadow 0.15s ease,
+          transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+        animation:
+          inputSendEnter 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+          inputGradientFlow 4.2s ease-in-out infinite 0.26s;
       }
 
-      .input-send-btn.active {
-        background: var(--input-primary-glow);
-        color: var(--input-primary);
-        border-color: var(--input-primary);
-        box-shadow: 0 4px 12px rgba(204, 255, 0, 0.15);
-      }
-
-      .input-send-btn:disabled {
-        opacity: 0.25;
+      @media (hover: hover) and (pointer: fine) {
+        .input-send-btn:hover {
+          transform: translateY(-1px) scale(1.03);
+          box-shadow: var(--input-action-shadow-hover);
+        }
       }
 
       /* ── Stop spinner ── */
@@ -1097,15 +1245,65 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
           transform: rotate(360deg);
         }
       }
+
+      @keyframes voicePulse {
+        from {
+          opacity: 0.65;
+          transform: scale(0.92);
+        }
+
+        to {
+          opacity: 0;
+          transform: scale(1.18);
+        }
+      }
+
+      @keyframes inputGradientFlow {
+        0%,
+        100% {
+          background-position: 0% 50%;
+        }
+
+        50% {
+          background-position: 100% 50%;
+        }
+      }
+
+      @keyframes inputSendEnter {
+        from {
+          opacity: 0;
+          transform: translateX(2px) scale(0.96);
+        }
+
+        to {
+          opacity: 1;
+          transform: translateX(0) scale(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .input-send-btn,
+        .input-voice-btn.listening,
+        .input-voice-btn.listening::after {
+          animation: none;
+        }
+
+        .input-voice-wave__bar {
+          transition: none;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXInputBarComponent {
+export class AgentXInputBarComponent implements OnDestroy {
   private static readonly SWIPE_DISMISS_THRESHOLD_PX = 36;
   private static readonly SWIPE_VERTICAL_RATIO = 1.2;
   private static readonly MENU_GAP_PX = 10;
   private static readonly MENU_VIEWPORT_MARGIN_PX = 12;
+
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly voiceInput = inject(AgentXVoiceInputService);
 
   // ── Ref for auto-resize ──
   private readonly textareaRef = viewChild<ElementRef<HTMLTextAreaElement>>('messageInput');
@@ -1124,6 +1322,7 @@ export class AgentXInputBarComponent {
   private menuLayoutFrameId: number | null = null;
   private readonly settledAttachmentPreviewKeys = signal<ReadonlySet<string>>(new Set());
   private readonly failedContextPreviewUrls = signal<ReadonlySet<string>>(new Set());
+  private lastEmittedVoicePrompt = '';
 
   // ── Inputs ──
   readonly userMessage = input('');
@@ -1138,6 +1337,8 @@ export class AgentXInputBarComponent {
   readonly pendingContexts = input<readonly AgentXSelectedContext[]>([]);
   /** String label of the currently selected task (null = none). */
   readonly selectedTask = input<string | null>(null);
+  /** Whether the textarea should automatically receive focus upon mounting. */
+  readonly autoFocus = input(false);
 
   // ── Outputs ──
   readonly messageChange = output<string>();
@@ -1198,6 +1399,9 @@ export class AgentXInputBarComponent {
   protected readonly effortMenuOpen = signal(false);
   protected readonly modeMenuLayout = signal<InputMenuLayout>(DEFAULT_INPUT_MENU_LAYOUT);
   protected readonly effortMenuLayout = signal<InputMenuLayout>(DEFAULT_INPUT_MENU_LAYOUT);
+  protected readonly voiceInputAvailable = this.voiceInput.available;
+  protected readonly voiceInputListening = this.voiceInput.listening;
+  protected readonly voiceLevels = this.voiceInput.levels;
 
   constructor() {
     // Auto-resize textarea when message changes
@@ -1313,6 +1517,54 @@ export class AgentXInputBarComponent {
         viewport?.removeEventListener('scroll', syncLayout);
       });
     });
+
+    effect(() => {
+      const prompt = this.voiceInput.composedPrompt();
+      if (!prompt || prompt === this.lastEmittedVoicePrompt) {
+        return;
+      }
+
+      this.lastEmittedVoicePrompt = prompt;
+      this.messageChange.emit(prompt);
+    });
+
+    afterNextRender(() => {
+      if (!isPlatformBrowser(this.platformId)) {
+        return;
+      }
+      this.voiceInput.initialize();
+      if (this.autoFocus()) {
+        setTimeout(() => {
+          this.focus();
+        }, 100);
+      }
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.voiceInput.destroy();
+  }
+
+  /**
+   * Programmatically focuses the textarea input and places the cursor at the end.
+   */
+  public focus(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+    const textarea = this.textareaRef()?.nativeElement;
+    if (!textarea) {
+      return;
+    }
+    textarea.focus();
+    const length = textarea.value.length;
+    if (length > 0) {
+      try {
+        textarea.setSelectionRange(length, length);
+      } catch {
+        // Ignored if not supported by browser/platform
+      }
+    }
   }
 
   protected onEnterKey(event: Event): void {
@@ -1337,6 +1589,20 @@ export class AgentXInputBarComponent {
   protected onInputFocus(): void {
     this.closeMenus();
     this.focusInput.emit();
+  }
+
+  protected toggleVoiceInput(): void {
+    if (this.voiceInputListening()) {
+      this.voiceInput.stop();
+      return;
+    }
+
+    this.lastEmittedVoicePrompt = '';
+    this.voiceInput.start({ basePrompt: this.userMessage().trim() });
+  }
+
+  protected voiceButtonAriaLabel(): string {
+    return this.voiceInputListening() ? 'Stop voice input' : 'Start voice input';
   }
 
   protected executionModeLabel(): string {

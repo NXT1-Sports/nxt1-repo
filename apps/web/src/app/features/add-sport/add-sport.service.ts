@@ -28,7 +28,7 @@ import { ProfileGenerationStateService } from '@nxt1/ui/profile';
 
 import type { SportFormData, LinkSourcesFormData, TeamSelectionFormData } from '@nxt1/core/api';
 import type { OnboardingUserType } from '@nxt1/core';
-import { DEFAULT_SPORTS, isTeamRole, type SportCell } from '@nxt1/core/constants';
+import { AUTH_REDIRECTS, DEFAULT_SPORTS, isTeamRole, type SportCell } from '@nxt1/core/constants';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { validateTeamSelection } from '@nxt1/core/api';
 import { mapToConnectedSources } from '@nxt1/core/profile';
@@ -364,7 +364,7 @@ export class AddSportService {
 
   onBack(): void {
     if (this._currentStepIndex() === 0) {
-      void this.router.navigate(['/']);
+      void this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
       return;
     }
 
@@ -494,7 +494,7 @@ export class AddSportService {
       this.toast.success(`${primarySport.sport} added to your profile!`);
       this.logger.info(`${label} added successfully`, { sport: primarySport.sport });
 
-      await this.router.navigate(['/']);
+      await this.router.navigate([AUTH_REDIRECTS.DEFAULT]);
     } catch (err) {
       this.logger.error('AddSport save error', err);
       this.breadcrumb.trackStateChange('add-sport:error');

@@ -126,6 +126,12 @@ import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-play
 import { AgentXFilesPanelComponent } from '../components/shared/agent-x-files-panel-shell.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
+import {
+  AgentXShareMenuComponent,
+  type AgentXShareMenuAccessResult,
+  type AgentXShareMenuTarget,
+} from '../components/shared/agent-x-share-menu.component';
+import { AgentXFilmReviewService } from '../services/agent-x-film-review.service';
 import type { AgentXLibraryFile } from '../services/agent-x-files.service';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
@@ -275,6 +281,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
     AgentXFilesPanelComponent,
     AgentXFilmReviewPanelComponent,
     AgentXDiagramsPanelComponent,
+    AgentXShareMenuComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -1247,10 +1254,10 @@ const AGENT_X_GOOGLE_PLAY_URL =
                     type="button"
                     class="agent-column-back-btn"
                     (click)="onFilesHeaderBack()"
-                    aria-label="Back to file library"
+                    aria-label="Go back"
                   >
                     <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                    <span>Library</span>
+                    <span>Go back</span>
                   </button>
                   @if ((filesPanel()?.visibleOpenTabs()?.length ?? 0) > 0) {
                     <div
@@ -1323,6 +1330,12 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   <h2 class="agent-column-title">{{ filesPanelLabel }}</h2>
                 }
                 <div class="agent-column-header-actions">
+                  @if (filesPanel()?.activeViewerFile(); as activeFile) {
+                    <nxt1-agent-x-share-menu
+                      [target]="mapFileToShareTarget(activeFile)"
+                      triggerAriaLabel="Share file"
+                    />
+                  }
                   <button
                     type="button"
                     class="agent-column-icon-btn"
@@ -1507,6 +1520,13 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   <h2 class="agent-column-title">{{ filmReviewPanelLabel }}</h2>
                 }
                 <div class="agent-column-header-actions">
+                  @if (filmReviewPanel()?.selectedReview(); as activeReview) {
+                    <nxt1-agent-x-share-menu
+                      [target]="mapReviewToShareTarget(activeReview)"
+                      triggerAriaLabel="Share film review"
+                      (accessChanged)="onFilmReviewShared(activeReview.id, $event)"
+                    />
+                  }
                   <button
                     type="button"
                     class="agent-column-icon-btn"
@@ -4323,6 +4343,24 @@ const AGENT_X_GOOGLE_PLAY_URL =
 
       .m-briefing {
         padding-top: var(--nxt1-spacing-5, 20px);
+        animation: mBriefingFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      }
+
+      @keyframes mBriefingFadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .m-briefing {
+          animation: none;
+        }
       }
 
       .m-briefing .inline-goals {
@@ -4675,41 +4713,21 @@ const AGENT_X_GOOGLE_PLAY_URL =
       }
 
       .m-coordinator-pill {
-        --coordinator-pill-accent: var(--agent-primary);
-        --coordinator-pill-text: var(--agent-text-primary);
-        --coordinator-pill-shadow: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 22%,
-          transparent
-        );
-        --coordinator-pill-surface: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 26%,
-          var(--agent-glass-bg)
-        );
-        --coordinator-pill-border: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 72%,
-          var(--agent-border)
-        );
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
-        border: 1px solid var(--coordinator-pill-border);
+        border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
-        background: var(--coordinator-pill-surface);
-        color: var(--coordinator-pill-text);
+        background: var(--agent-surface);
+        color: var(--agent-text-primary);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
         box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
-          0 10px 24px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+          0 2px 8px rgba(0, 0, 0, 0.12),
+          inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -4722,12 +4740,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
       }
 
       .m-coordinator-pill:active {
-        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 82%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 34%, var(--agent-glass-bg));
-        box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
-          0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 18%, white);
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-primary);
         transform: scale(0.98);
       }
 
@@ -4858,6 +4872,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly operationEventService = inject(AgentXOperationEventService);
+  private readonly filmReviewService = inject(AgentXFilmReviewService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
@@ -6788,6 +6803,32 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
 
     this.filesInlineVideoViewState.set(isInline);
+  }
+
+  protected mapFileToShareTarget(file: AgentXLibraryFile): AgentXShareMenuTarget {
+    return {
+      shareId: file.id,
+      ownerUserId: file.ownerUserId,
+      teamId: file.teamId ?? null,
+      organizationId: file.organizationId ?? null,
+      readAccessKeys: file.readAccessKeys,
+      writeAccessKeys: file.writeAccessKeys,
+    };
+  }
+
+  protected mapReviewToShareTarget(review: TeamFilmReviewDoc): AgentXShareMenuTarget {
+    return {
+      shareId: review.fileId?.trim() || review.id,
+      ownerUserId: review.createdBy,
+      teamId: review.teamId ?? null,
+      organizationId: review.organizationId ?? null,
+      readAccessKeys: review.readAccessKeys,
+      writeAccessKeys: review.writeAccessKeys,
+    };
+  }
+
+  protected onFilmReviewShared(reviewId: string, access: AgentXShareMenuAccessResult): void {
+    this.filmReviewService.applyReviewAccessKeys(reviewId, access);
   }
 
   protected onFilmReviewInlineVideoViewChange(isInline: boolean): void {

@@ -8,6 +8,7 @@ import {
   Input,
   OnChanges,
   OnDestroy,
+  OnInit,
   SimpleChanges,
   computed,
   effect,
@@ -41,8 +42,11 @@ import type { IconName } from '@nxt1/design-tokens/assets/icons';
 import type { Subscription } from 'rxjs';
 
 import { NxtIconComponent } from '../../../components/icon/icon.component';
-import { NxtMarkdownComponent } from '../../../components/markdown';
 import type { MarkdownMediaRequestedEvent } from '../../../components/markdown/markdown.component';
+import {
+  NxtMarkdownEditorComponent,
+  type NxtMarkdownEditorSaveStatus,
+} from '../../../components/markdown-editor';
 import { NxtSearchBarComponent } from '../../../components/search-bar/search-bar.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtCtaButtonComponent } from '../../../components/cta-button/cta-button.component';
@@ -553,7 +557,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
     OverlayModule,
     NxtCtaButtonComponent,
     NxtIconComponent,
-    NxtMarkdownComponent,
+    NxtMarkdownEditorComponent,
     NxtSearchBarComponent,
     NxtStateViewComponent,
     AgentXLibraryFolderTreeComponent,
@@ -567,7 +571,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   ],
   template: `
     <nxt1-agent-x-library-chrome></nxt1-agent-x-library-chrome>
-    <section class="agent-x-files-panel film-review-panel">
+    <section
+      class="agent-x-files-panel film-review-panel"
+      [class.agent-x-files-panel--compact]="compact"
+    >
       @if (
         !teamId?.trim() &&
         !filesService.loading() &&
@@ -586,22 +593,172 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
             or organization files will appear here automatically.
           </p>
         </div>
+      } @else if (filesService.loading()) {
+        <nxt1-agent-x-library-loading-state />
+      } @else if (filesService.error()) {
+        <nxt1-state-view
+          variant="error"
+          title="Could not load files"
+          [message]="filesService.error() ?? 'Unable to load files'"
+          actionLabel="Try Again"
+          actionIcon="refresh"
+          (action)="refreshData()"
+        />
       } @else {
-        @if (filesService.loading()) {
-          <nxt1-agent-x-library-loading-state />
-        } @else if (filesService.error()) {
-          <nxt1-state-view
-            variant="error"
-            title="Could not load files"
-            [message]="filesService.error() ?? 'Unable to load files'"
-            actionLabel="Try Again"
-            actionIcon="refresh"
-            (action)="refreshData()"
-          />
-        } @else {
-          @if (viewerMode() === 'library') {
+        @if (viewerMode() === 'library') {
+          @if (compact) {
+            <!-- Mobile Toolbar: 1. Search at top, 2. Ask Agent, New Folder & Upload side by side under that -->
+            <div class="film-mobile-toolbar">
+              <div class="film-mobile-search-row">
+                <nxt1-search-bar
+                  variant="desktop-centered"
+                  [desktopUsePlainSearchIcon]="true"
+                  placeholder="Search files, folders, and outputs"
+                  [value]="searchQuery()"
+                  (searchInput)="onSearchInput($event)"
+                  (searchClear)="onClearSearch()"
+                />
+                @if (hasSearchQuery()) {
+                  <span class="film-library-search-count" aria-live="polite">
+                    {{ filteredFileCount() }}
+                  </span>
+                }
+              </div>
+
+              <div class="film-mobile-actions-row">
+                <div class="film-mobile-action-item">
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn film-playbook-nav-btn--attach film-mobile-btn"
+                    cdkOverlayOrigin
+                    #filesAskAgentMenuOriginMobile="cdkOverlayOrigin"
+                    aria-label="Ask Agent X about files"
+                    [attr.aria-expanded]="isFilesAskAgentMenuOpen()"
+                    aria-haspopup="menu"
+                    (click)="onToggleFilesAskAgentMenu($event)"
+                  >
+                    <svg
+                      class="film-playbook-ask-agent__logo"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      stroke="currentColor"
+                      stroke-width="10"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
+                    <span>Ask Agent</span>
+                    @if (selectedSelectionCount() > 0) {
+                      <span class="film-playbook-ask-agent__count">
+                        {{ selectedSelectionCount() }}
+                      </span>
+                    }
+                    @if (isFilesAskAgentMenuOpen()) {
+                      <ng-template
+                        cdkConnectedOverlay
+                        [cdkConnectedOverlayOrigin]="filesAskAgentMenuOriginMobile"
+                        [cdkConnectedOverlayOpen]="true"
+                        [cdkConnectedOverlayHasBackdrop]="true"
+                        cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                        [cdkConnectedOverlayPositions]="askAgentMenuPositions"
+                        [cdkConnectedOverlayPush]="true"
+                        [cdkConnectedOverlayViewportMargin]="8"
+                        (backdropClick)="onCloseFilesAskAgentMenu($event)"
+                        (detach)="onCloseFilesAskAgentMenu()"
+                      >
+                        <ng-container *ngTemplateOutlet="askAgentDropdownContent" />
+                      </ng-template>
+                    }
+                  </button>
+                </div>
+
+                <div class="film-mobile-action-item">
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn film-mobile-btn"
+                    [disabled]="filesService.saving()"
+                    (click)="onFolderCreateToggle($event)"
+                  >
+                    <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                    <span>New Folder</span>
+                  </button>
+                </div>
+
+                <div class="film-upload-menu-anchor film-mobile-action-item">
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn film-mobile-btn"
+                    [disabled]="filesService.saving()"
+                    [attr.aria-expanded]="isUploadMenuOpen()"
+                    aria-haspopup="menu"
+                    (click)="onToggleUploadMenu($event)"
+                  >
+                    <span>
+                      @if (isPreparingUpload()) {
+                        Preparing...
+                      } @else if (isUploadingFiles()) {
+                        Uploading...
+                      } @else {
+                        Upload
+                      }
+                    </span>
+                  </button>
+                  @if (isUploadMenuOpen()) {
+                    <ng-container *ngTemplateOutlet="uploadDropdownContent" />
+                  }
+                </div>
+              </div>
+
+              @if (hasSelectedFiles() || hasDeletableSelection()) {
+                <div class="film-mobile-selection-row">
+                  @if (hasSelectedFiles()) {
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-mobile-btn"
+                      [attr.aria-label]="downloadSelectedFilesButtonAriaLabel()"
+                      (click)="onDownloadSelectedFiles($event)"
+                    >
+                      <nxt1-icon name="download" [size]="14"></nxt1-icon>
+                      <span>Download</span>
+                    </button>
+                  }
+
+                  @if (hasDeletableSelection()) {
+                    <button
+                      type="button"
+                      class="film-playbook-nav-btn film-playbook-nav-btn--danger film-mobile-btn"
+                      [disabled]="filesService.saving()"
+                      [attr.aria-label]="deleteSelectedFilesButtonAriaLabel()"
+                      (click)="onDeleteSelectedFiles($event)"
+                    >
+                      <nxt1-icon name="trash" [size]="14"></nxt1-icon>
+                      <span>Delete</span>
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          } @else {
             <header class="film-library-header agent-x-files-panel__toolbar">
               <div class="film-library-header__actions-primary">
+                <div class="film-library-search-wrap">
+                  <nxt1-search-bar
+                    variant="desktop"
+                    [desktopUsePlainSearchIcon]="true"
+                    placeholder="Search files, folders, and outputs"
+                    [value]="searchQuery()"
+                    (searchInput)="onSearchInput($event)"
+                    (searchClear)="onClearSearch()"
+                  />
+                  @if (hasSearchQuery()) {
+                    <span class="film-library-search-count" aria-live="polite">
+                      {{ filteredFileCount() }}
+                    </span>
+                  }
+                </div>
+
                 <div class="film-playbook-ask-agent">
                   <button
                     type="button"
@@ -631,86 +788,23 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                         {{ selectedSelectionCount() }}
                       </span>
                     }
-                    <svg
-                      class="film-playbook-ask-agent__caret"
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M3 4.5 6 7.5l3-3" />
-                    </svg>
-                  </button>
-
-                  @if (isFilesAskAgentMenuOpen()) {
-                    <ng-template
-                      cdkConnectedOverlay
-                      [cdkConnectedOverlayOrigin]="filesAskAgentMenuOrigin"
-                      [cdkConnectedOverlayOpen]="true"
-                      [cdkConnectedOverlayHasBackdrop]="true"
-                      cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                      [cdkConnectedOverlayPositions]="askAgentMenuPositions"
-                      [cdkConnectedOverlayPush]="true"
-                      [cdkConnectedOverlayViewportMargin]="8"
-                      (backdropClick)="onCloseFilesAskAgentMenu($event)"
-                      (detach)="onCloseFilesAskAgentMenu()"
-                    >
-                      <div
-                        class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
-                        role="menu"
+                    @if (isFilesAskAgentMenuOpen()) {
+                      <ng-template
+                        cdkConnectedOverlay
+                        [cdkConnectedOverlayOrigin]="filesAskAgentMenuOrigin"
+                        [cdkConnectedOverlayOpen]="true"
+                        [cdkConnectedOverlayHasBackdrop]="true"
+                        cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                        [cdkConnectedOverlayPositions]="askAgentMenuPositions"
+                        [cdkConnectedOverlayPush]="true"
+                        [cdkConnectedOverlayViewportMargin]="8"
+                        (backdropClick)="onCloseFilesAskAgentMenu($event)"
+                        (detach)="onCloseFilesAskAgentMenu()"
                       >
-                        @if (selectedSelectionCount() <= 0) {
-                          <p class="film-playbook-ask-agent-menu__empty">
-                            Select one or more items or folders to ask Agent... Or ask anything.
-                          </p>
-                        }
-                        @for (section of filesAskAgentPromptSections(); track section.title) {
-                          <div class="film-playbook-ask-agent-menu__section">
-                            <p class="film-playbook-ask-agent-menu__section-title">
-                              {{ section.title }}
-                            </p>
-                            <div class="film-playbook-ask-agent-menu__section-options">
-                              @for (option of section.options; track option.id) {
-                                <button
-                                  type="button"
-                                  class="film-playbook-ask-agent-menu__option"
-                                  role="menuitem"
-                                  [disabled]="selectedSelectionCount() <= 0"
-                                  (click)="onFilesAskAgentPromptSelect(option.id, $event)"
-                                >
-                                  <span class="film-playbook-ask-agent-menu__label">
-                                    {{ option.label }}
-                                  </span>
-                                  <span class="film-playbook-ask-agent-menu__hint">
-                                    {{ option.hint }}
-                                  </span>
-                                </button>
-                              }
-                            </div>
-                          </div>
-                        }
-                      </div>
-                    </ng-template>
-                  }
-                </div>
-
-                <div class="film-library-search-wrap">
-                  <nxt1-search-bar
-                    variant="desktop"
-                    [desktopUsePlainSearchIcon]="true"
-                    placeholder="Search files, folders, and outputs"
-                    [value]="searchQuery()"
-                    (searchInput)="onSearchInput($event)"
-                    (searchClear)="onClearSearch()"
-                  />
-                  @if (hasSearchQuery()) {
-                    <span class="film-library-search-count" aria-live="polite">
-                      {{ filteredFileCount() }}
-                    </span>
-                  }
+                        <ng-container *ngTemplateOutlet="askAgentDropdownContent" />
+                      </ng-template>
+                    }
+                  </button>
                 </div>
               </div>
 
@@ -766,884 +860,1033 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
                     }
                   </button>
                   @if (isUploadMenuOpen()) {
-                    <button
-                      type="button"
-                      class="film-list-item__menu-backdrop"
-                      aria-label="Close upload menu"
-                      (click)="onCloseUploadMenu($event)"
-                    ></button>
-                    <div class="film-upload-menu" role="menu" aria-label="Upload destination menu">
-                      <div class="film-upload-destination-menu">
-                        <div class="film-upload-destination-menu__header">
-                          <button
-                            type="button"
-                            class="film-upload-destination-menu__back"
-                            (click)="
-                              uploadDestinationMenuStep() === 'destination'
-                                ? onBackToUploadTypeMenu($event)
-                                : onCloseUploadMenu($event)
-                            "
-                          >
-                            <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                            {{ uploadDestinationMenuStep() === 'destination' ? 'Back' : 'Close' }}
-                          </button>
-                          <div class="film-upload-destination-menu__copy">
-                            <span class="film-upload-destination-menu__title">
-                              @if (uploadDestinationMenuStep() === 'menu') {
-                                Choose upload type
-                              } @else {
-                                Choose where the upload goes
-                              }
-                            </span>
-                            <span class="film-upload-destination-menu__subtitle">
-                              @if (uploadDestinationMenuStep() === 'menu') {
-                                Upload clips, breakdown sheets, single files, entire folders, or ZIP
-                                archives.
-                              } @else if (uploadSelectionSource() === 'folder') {
-                                Pick the folder in your library where the uploaded folder should
-                                land.
-                              } @else if (uploadSelectionSource() === 'zip') {
-                                Pick the folder in your library where the ZIP contents should land.
-                              } @else {
-                                Pick the folder in your library where these files should land.
-                              }
-                            </span>
-                          </div>
-                        </div>
-
-                        @if (uploadDestinationMenuStep() === 'menu') {
-                          <div class="film-upload-destination-menu__actions" role="none">
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__action"
-                              (click)="onUploadSourceSelect('files', $event)"
-                            >
-                              <nxt1-icon name="documentText" [size]="14"></nxt1-icon>
-                              <span>Upload Files</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__action"
-                              (click)="onUploadSourceSelect('folder', $event)"
-                            >
-                              <nxt1-icon name="folder" [size]="14"></nxt1-icon>
-                              <span>Upload Folder</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="film-upload-destination-menu__action"
-                              (click)="onUploadSourceSelect('zip', $event)"
-                            >
-                              <nxt1-icon name="archive" [size]="14"></nxt1-icon>
-                              <span>Upload ZIP</span>
-                            </button>
-                          </div>
-                        } @else {
-                          <label class="film-upload-destination-menu__search">
-                            <span class="film-upload-destination-menu__search-label">
-                              Destination folder
-                            </span>
-                            <input
-                              type="text"
-                              class="film-upload-destination-menu__search-input"
-                              placeholder="Search folders"
-                              [value]="uploadDestinationSearchQuery()"
-                              (input)="onUploadDestinationSearchInput($any($event.target).value)"
-                            />
-                          </label>
-
-                          <div class="film-upload-destination-menu__options" role="none">
-                            <button
-                              type="button"
-                              class="film-upload-destination-option"
-                              [class.film-upload-destination-option--selected]="
-                                uploadDestinationFolderId() === null
-                              "
-                              (click)="onUploadDestinationSelect(null, $event)"
-                            >
-                              <span class="film-upload-destination-option__row">
-                                <nxt1-icon
-                                  name="folder"
-                                  [size]="16"
-                                  class="film-upload-destination-option__icon"
-                                ></nxt1-icon>
-                                <span class="film-upload-destination-option__title"> Library </span>
-                              </span>
-                            </button>
-
-                            @for (option of visibleUploadDestinationOptions(); track option.id) {
-                              <button
-                                type="button"
-                                class="film-upload-destination-option"
-                                [class.film-upload-destination-option--selected]="
-                                  uploadDestinationFolderId() === option.id
-                                "
-                                (click)="onUploadDestinationSelect(option.id, $event)"
-                              >
-                                <span
-                                  class="film-upload-destination-option__row"
-                                  [style.padding-left.px]="option.depth * 16"
-                                >
-                                  <nxt1-icon
-                                    name="folder"
-                                    [size]="16"
-                                    class="film-upload-destination-option__icon"
-                                  ></nxt1-icon>
-                                  <span class="film-upload-destination-option__title">
-                                    {{ option.name }}
-                                  </span>
-                                </span>
-                              </button>
-                            }
-                          </div>
-
-                          @if (
-                            visibleUploadDestinationOptions().length === 0 &&
-                            uploadDestinationSearchQuery().trim().length > 0
-                          ) {
-                            <p class="film-upload-destination-menu__empty">
-                              No folders match that search yet.
-                            </p>
-                          }
-                        }
-                      </div>
-                    </div>
+                    <ng-container *ngTemplateOutlet="uploadDropdownContent" />
                   }
                 </div>
               </div>
-              <input
-                #fileUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedMimeTypes"
-                (change)="onFilesSelected($event)"
-              />
-              <input
-                #folderUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedMimeTypes"
-                webkitdirectory
-                directory
-                (change)="onFilesSelected($event)"
-              />
-              <input
-                #zipUploadInput
-                type="file"
-                class="film-library-file-input"
-                multiple
-                [attr.accept]="acceptedZipMimeTypes"
-                (change)="onFilesSelected($event)"
-              />
             </header>
+          }
 
-            @if (isPreparingUpload() || isUploadingFiles()) {
-              <div class="film-library-upload-status" aria-live="polite">
-                @if (isPreparingUpload()) {
-                  <div class="film-library-upload-status__row">
-                    <span class="film-library-upload-status__label">
-                      Preparing ZIP {{ uploadPreparationCurrentItem() }} of
-                      {{ uploadPreparationTotalItems() }} for upload.
-                    </span>
-                    <div class="film-library-upload-status__actions">
-                      <span class="film-library-upload-status__pct">Preparing...</span>
-                    </div>
+          <ng-template #askAgentDropdownContent>
+            <div
+              class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
+              role="menu"
+            >
+              @if (selectedSelectionCount() <= 0) {
+                <p class="film-playbook-ask-agent-menu__empty">
+                  Select one or more items or folders to ask Agent... Or ask anything.
+                </p>
+              }
+              @for (section of filesAskAgentPromptSections(); track section.title) {
+                <div class="film-playbook-ask-agent-menu__section">
+                  <p class="film-playbook-ask-agent-menu__section-title">
+                    {{ section.title }}
+                  </p>
+                  <div class="film-playbook-ask-agent-menu__section-options">
+                    @for (option of section.options; track option.id) {
+                      <button
+                        type="button"
+                        class="film-playbook-ask-agent-menu__option"
+                        role="menuitem"
+                        [disabled]="selectedSelectionCount() <= 0"
+                        (click)="onFilesAskAgentPromptSelect(option.id, $event)"
+                      >
+                        <span class="film-playbook-ask-agent-menu__label">
+                          {{ option.label }}
+                        </span>
+                        <span class="film-playbook-ask-agent-menu__hint">
+                          {{ option.hint }}
+                        </span>
+                      </button>
+                    }
                   </div>
-                  @if (uploadPreparationCurrentFileName(); as fileName) {
-                    <p class="film-library-upload-status__hint">{{ fileName }}</p>
-                  }
-                  <div class="film-library-upload-status__track">
-                    <div
-                      class="film-library-upload-status__fill film-library-upload-status__fill--indeterminate"
-                    ></div>
+                </div>
+              }
+            </div>
+          </ng-template>
+
+          <ng-template #uploadDropdownContent>
+            <button
+              type="button"
+              class="film-list-item__menu-backdrop"
+              aria-label="Close upload menu"
+              (click)="onCloseUploadMenu($event)"
+            ></button>
+            <div class="film-upload-menu" role="menu" aria-label="Upload destination menu">
+              <div class="film-upload-destination-menu">
+                <div class="film-upload-destination-menu__header">
+                  <button
+                    type="button"
+                    class="film-upload-destination-menu__back"
+                    (click)="
+                      uploadDestinationMenuStep() === 'destination'
+                        ? onBackToUploadTypeMenu($event)
+                        : onCloseUploadMenu($event)
+                    "
+                  >
+                    <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                    {{ uploadDestinationMenuStep() === 'destination' ? 'Back' : 'Close' }}
+                  </button>
+                  <div class="film-upload-destination-menu__copy">
+                    <span class="film-upload-destination-menu__title">
+                      @if (uploadDestinationMenuStep() === 'menu') {
+                        Choose upload type
+                      } @else {
+                        Choose where the upload goes
+                      }
+                    </span>
+                    <span class="film-upload-destination-menu__subtitle">
+                      @if (uploadDestinationMenuStep() === 'menu') {
+                        Upload clips, breakdown sheets, single files, entire folders, or ZIP
+                        archives.
+                      } @else if (uploadSelectionSource() === 'folder') {
+                        Pick the folder in your library where the uploaded folder should land.
+                      } @else if (uploadSelectionSource() === 'zip') {
+                        Pick the folder in your library where the ZIP contents should land.
+                      } @else {
+                        Pick the folder in your library where these files should land.
+                      }
+                    </span>
+                  </div>
+                </div>
+
+                @if (uploadDestinationMenuStep() === 'menu') {
+                  <div class="film-upload-destination-menu__actions" role="none">
+                    <button
+                      type="button"
+                      class="film-upload-destination-menu__action"
+                      (click)="onUploadSourceSelect('files', $event)"
+                    >
+                      <nxt1-icon name="documentText" [size]="14"></nxt1-icon>
+                      <span>Upload Files</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="film-upload-destination-menu__action"
+                      (click)="onUploadSourceSelect('folder', $event)"
+                    >
+                      <nxt1-icon name="folder" [size]="14"></nxt1-icon>
+                      <span>Upload Folder</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="film-upload-destination-menu__action"
+                      (click)="onUploadSourceSelect('zip', $event)"
+                    >
+                      <nxt1-icon name="archive" [size]="14"></nxt1-icon>
+                      <span>Upload ZIP</span>
+                    </button>
                   </div>
                 } @else {
-                  <div class="film-library-upload-status__row">
-                    <span class="film-library-upload-status__label">
-                      Uploading {{ filesUploadCurrentFile() }} of {{ filesUploadTotalFiles() }}
-                      files. Do not close this until upload completes.
+                  <label class="film-upload-destination-menu__search">
+                    <span class="film-upload-destination-menu__search-label">
+                      Destination folder
                     </span>
-                    <div class="film-library-upload-status__actions">
-                      <span class="film-library-upload-status__pct"
-                        >{{ filesUploadPercent() ?? 0 }}%</span
-                      >
-                      @if (isCancellingFilesUpload()) {
-                        <span class="film-library-upload-status__pct">Cancelling...</span>
-                      } @else if (filesUploadCanCancel()) {
-                        <button
-                          type="button"
-                          class="film-library-upload-status__cancel"
-                          (click)="cancelActiveFilesUpload()"
-                        >
-                          Cancel
-                        </button>
-                      }
-                    </div>
-                  </div>
-                  @if (filesUploadCurrentFileName(); as fileName) {
-                    <p class="film-library-upload-status__hint">{{ fileName }}</p>
-                  }
-                  <div class="film-library-upload-status__track">
-                    <div
-                      class="film-library-upload-status__fill"
-                      [style.width.%]="filesUploadPercent() ?? 0"
-                    ></div>
-                  </div>
-                }
-              </div>
-            }
-
-            @if (isCreatingFolder() && !creatingSubfolderParentId()) {
-              <div class="film-playlist-create" role="group" aria-label="Create folder">
-                <input
-                  type="text"
-                  class="film-playlist-create__input"
-                  placeholder="Folder name"
-                  maxlength="80"
-                  [value]="folderNameDraft()"
-                  (input)="onFolderNameInput($any($event.target).value)"
-                  (keydown.enter)="onFolderCreateConfirm($event)"
-                  (keydown.escape)="onFolderCreateCancel($event)"
-                />
-                <button
-                  type="button"
-                  class="film-playlist-create__btn film-playlist-create__btn--primary"
-                  (click)="onFolderCreateConfirm($event)"
-                >
-                  Create
-                </button>
-                <button
-                  type="button"
-                  class="film-playlist-create__btn"
-                  (click)="onFolderCreateCancel($event)"
-                >
-                  Cancel
-                </button>
-              </div>
-            }
-
-            <div class="film-library agent-x-files-panel__library-surface">
-              <div
-                class="agent-x-files-panel__dropzone"
-                [class.agent-x-files-panel__dropzone--active]="isExternalImportDragActive()"
-                (dragover)="onLibraryDragOver($event)"
-                (dragleave)="onLibraryDragLeave($event)"
-                (drop)="onLibraryDrop($event)"
-              >
-                @if (shouldShowTopLevelDropTarget()) {
-                  <div
-                    class="agent-x-files-panel__top-level-drop-target"
-                    [class.agent-x-files-panel__top-level-drop-target--active]="
-                      topLevelDropTargetActive()
-                    "
-                    (dragover)="onTopLevelDropDragOver($event)"
-                    (dragleave)="onTopLevelDropDragLeave($event)"
-                    (drop)="onTopLevelDrop($event)"
-                  >
-                    Drag folder here to move it back to top level
-                  </div>
-                }
-
-                <nxt1-agent-x-library-folder-tree
-                  [folders]="folderNodes()"
-                  [controller]="folderTreeController"
-                  [itemTemplate]="folderItemTemplate"
-                  [emptyFolderLabel]="
-                    hasSearchQuery()
-                      ? 'No matching files in this folder.'
-                      : 'Drag files or folders here, or upload new ones.'
-                  "
-                />
-              </div>
-
-              <ng-template #folderItemTemplate let-file let-folder="folder">
-                <span class="film-list-item__selection">
-                  <input
-                    type="checkbox"
-                    class="film-playbook-checkbox"
-                    [checked]="isFileSelected(file.id)"
-                    [attr.aria-label]="'Select file ' + file.name"
-                    (click)="$event.stopPropagation()"
-                    (keydown)="$event.stopPropagation()"
-                    (change)="onToggleFileSelection(file.id, $event)"
-                  />
-                </span>
-
-                <button
-                  type="button"
-                  class="film-list-item"
-                  [class.film-list-item--active]="file.id === selectedId()"
-                  [nxtAgentXContextDrag]="buildFileDragContextsForLibrary(file)"
-                  [nxtAgentXContextDragDisabled]="isFolderItemReorderDragActive()"
-                  (click)="openFile(file)"
-                  (dragstart)="onFileDragStart(file, folder.items, $event)"
-                  (dragend)="onFileDragEnd()"
-                >
-                  <div class="film-list-item__thumbnail">
-                    @if (thumbnailUrlForListItem(file); as thumbnailUrl) {
-                      <img
-                        class="film-list-item__thumb-image"
-                        [src]="thumbnailUrl"
-                        [alt]="file.name"
-                        draggable="false"
-                        (error)="onListThumbnailError(file, thumbnailUrl)"
-                        (dragstart)="$event.preventDefault()"
-                      />
-                      @if (file.kind === 'video') {
-                        <span class="film-list-item__thumbnail-icon" aria-hidden="true">
-                          <nxt1-icon [name]="iconNameForFile(file)" [size]="14"></nxt1-icon>
-                        </span>
-                      }
-                    } @else {
-                      <div
-                        class="film-list-item__thumb-placeholder"
-                        [ngClass]="placeholderToneClassForFile(file)"
-                        aria-hidden="true"
-                      >
-                        <nxt1-icon [name]="iconNameForFile(file)" [size]="14"></nxt1-icon>
-                      </div>
-                    }
-                  </div>
-                  <span class="film-list-item__content">
-                    <span class="film-list-item__title-row">
-                      <span class="film-list-item__title">{{ file.name }}</span>
-                      @if (shouldShowFilmReviewBadge(file)) {
-                        <span class="film-list-item__badge">Film Review</span>
-                      }
-                      @if (isFileShared(file)) {
-                        <span class="film-list-item__shared-indicator" title="Shared file">
-                          <nxt1-icon name="people" [size]="13"></nxt1-icon>
-                        </span>
-                      }
-                    </span>
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  class="film-list-item__menu-btn"
-                  aria-label="File options"
-                  [attr.aria-expanded]="isFileMenuOpen(file.id)"
-                  aria-haspopup="menu"
-                  (click)="onOpenFileMenu($event, file)"
-                >
-                  <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
-                </button>
-
-                @if (isFileMenuOpen(file.id)) {
-                  <div
-                    class="film-list-item__menu-backdrop"
-                    (click)="onFileMenuBackdropTap()"
-                  ></div>
-                  <div
-                    class="film-list-item__menu"
-                    [class.film-list-item__menu--open-up]="
-                      openFileMenuId() === file.id && openFileMenuUpward()
-                    "
-                    role="menu"
-                    aria-label="File options"
-                    (click)="$event.stopPropagation()"
-                  >
-                    @if (isSharingFile(file.id)) {
-                      <nxt1-agent-x-share-access-panel
-                        [itemId]="file.id"
-                        [teamId]="file.teamId"
-                        [organizationId]="file.organizationId ?? ''"
-                        [principalType]="fileSharePrincipalType()"
-                        [permission]="fileSharePermission()"
-                        [query]="shareCandidateQuery()"
-                        [loading]="shareCandidatesLoading()"
-                        [candidates]="visibleShareCandidates()"
-                        [grants]="shareablePrincipalsForFile(file)"
-                        [selectedUserIds]="fileShareSelectedUserIds()"
-                        [submitDisabled]="!canSubmitFileShare(file)"
-                        [emptyAccessMessage]="'Only you can access this file right now.'"
-                        (principalTypeChange)="onFileShareTypeChange($event)"
-                        (permissionChange)="onFileSharePermissionChange($event)"
-                        (queryChange)="onShareCandidateQueryInput($event)"
-                        (candidateToggled)="onFileShareCandidateToggled(file, $event)"
-                        (grantPermissionChange)="onFileShareGrantPermissionChange(file, $event)"
-                        (removeGrant)="onFileShareRemove(file, $event)"
-                        (submit)="onFileShareConfirm(file, $event)"
-                        (cancel)="onFileShareCancel($event)"
-                      />
-                    } @else if (isEditingFile(file.id)) {
-                      <div class="film-list-item__menu-rename">
-                        <label
-                          class="film-list-item__menu-label"
-                          for="team-file-rename-{{ file.id }}"
-                        >
-                          Rename file
-                        </label>
-                        <input
-                          id="team-file-rename-{{ file.id }}"
-                          type="text"
-                          class="film-list-item__menu-input"
-                          maxlength="120"
-                          [value]="fileRenameDraft()"
-                          (input)="onFileRenameInput($any($event.target).value)"
-                          (keydown.enter)="onFileRenameConfirm(file, $event)"
-                          (keydown.escape)="onFileRenameCancel($event)"
-                        />
-                        <div class="film-list-item__menu-actions">
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action film-list-item__menu-action--primary"
-                            (click)="onFileRenameConfirm(file, $event)"
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action"
-                            (click)="onFileRenameCancel($event)"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    } @else if (isFileDeleteConfirming(file.id)) {
-                      <div class="film-list-item__menu-confirm">
-                        <p class="film-list-item__menu-confirm-text">Delete this file?</p>
-                        <div class="film-list-item__menu-actions">
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action film-list-item__menu-action--danger"
-                            (click)="onFileDeleteConfirm(file, $event)"
-                          >
-                            Delete
-                          </button>
-                          <button
-                            type="button"
-                            class="film-list-item__menu-action"
-                            (click)="onFileDeleteCancel($event)"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    } @else {
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="onFileOpenAction(file, $event)"
-                      >
-                        Open
-                      </button>
-                      @if (canManageFileSharing(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action"
-                          role="menuitem"
-                          (click)="onFileShareStart(file, $event)"
-                        >
-                          Share
-                        </button>
-                      }
-                      <button
-                        type="button"
-                        class="film-list-item__menu-action"
-                        role="menuitem"
-                        (click)="onFileDownloadAction(file, $event)"
-                      >
-                        Download
-                      </button>
-                      @if (hasFileWriteAccess(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action"
-                          role="menuitem"
-                          (click)="onFileRenameStart(file, $event)"
-                        >
-                          Rename
-                        </button>
-                      }
-                      @if (hasFileWriteAccess(file)) {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action film-list-item__menu-action--danger"
-                          role="menuitem"
-                          (click)="onFileDeleteStart(file, $event)"
-                        >
-                          Delete
-                        </button>
-                      }
-                    }
-                  </div>
-                }
-              </ng-template>
-            </div>
-          } @else if (viewerMode() === 'video' && selectedFilmReviewId()) {
-            <nxt1-agent-x-film-review-panel
-              [teamId]="selectedViewerFile()?.teamId ?? openingFilmReviewTeamId() ?? null"
-              [role]="role"
-              [sport]="sport"
-              [detailOnly]="true"
-              [openingSelection]="isOpeningFilmReview()"
-              [enableDrawTool]="enableDrawTool"
-              (askAgentPromptRequested)="askAgentPromptRequested.emit($event)"
-            />
-          } @else if (selectedViewerFile(); as file) {
-            <nxt1-agent-x-viewer-surface class="agent-x-files-viewer" aria-label="File viewer">
-              @let hasWriteAccess = hasFileWriteAccess(file);
-              @if (shouldRenderViewerStage(file)) {
-                <div
-                  viewer-stage
-                  class="agent-x-files-viewer__stage"
-                  [nxtAgentXContextDrag]="buildFileDragContext(file)"
-                  [nxtAgentXContextDragDisabled]="genericVideoControlDragLockActive()"
-                >
-                  @if (isImageFile(file)) {
-                    <img
-                      class="agent-x-files-viewer__image"
-                      [src]="file.url"
-                      [alt]="file.name"
-                      draggable="false"
-                      (dragstart)="$event.preventDefault()"
+                    <input
+                      type="text"
+                      class="film-upload-destination-menu__search-input"
+                      placeholder="Search folders"
+                      [value]="uploadDestinationSearchQuery()"
+                      (input)="onUploadDestinationSearchInput($any($event.target).value)"
                     />
-                  } @else if (safeSelectedPdfPreviewUrl(); as previewUrl) {
-                    <div class="agent-x-files-viewer__frame-shell">
-                      <button
-                        type="button"
-                        class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
-                        aria-label="Drag PDF to chat"
-                        title="Drag PDF to chat"
-                        [nxtAgentXContextDrag]="buildFileDragContext(file)"
-                      >
-                        Drag PDF
-                      </button>
-                      <iframe
-                        class="agent-x-files-viewer__frame"
-                        [src]="previewUrl"
-                        [title]="file.name"
-                      ></iframe>
-                    </div>
-                  } @else if (
-                    isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
-                    as videoIframeUrl
-                  ) {
-                    <div class="agent-x-files-viewer__frame-shell">
-                      <button
-                        type="button"
-                        class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
-                        aria-label="Drag media to chat"
-                        title="Drag media to chat"
-                        [nxtAgentXContextDrag]="buildFileDragContext(file)"
-                      >
-                        Drag Media
-                      </button>
-                      <iframe
-                        class="agent-x-files-viewer__frame"
-                        [src]="videoIframeUrl"
-                        [title]="file.name"
-                        loading="lazy"
-                        frameborder="0"
-                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                        allowfullscreen
-                      ></iframe>
-                    </div>
-                  } @else if (isVideoFile(file)) {
-                    <div
-                      #genericVideoShell
-                      class="agent-x-files-viewer__video-shell"
-                      aria-label="Video playback"
-                    >
-                      <video
-                        #genericVideoPlayer
-                        class="agent-x-files-viewer__video"
-                        [attr.poster]="viewerPosterUrlForVideo(file)"
-                        playsinline
-                        preload="auto"
-                        (loadedmetadata)="onGenericVideoLoadedMetadata()"
-                        (timeupdate)="onGenericVideoTimeUpdate()"
-                        (play)="onGenericVideoPlay()"
-                        (pause)="onGenericVideoPause()"
-                        (ended)="onGenericVideoEnded()"
-                        (error)="onGenericVideoError()"
-                      ></video>
+                  </label>
 
-                      <div class="agent-x-files-viewer__video-controls" aria-label="Video controls">
-                        <nxt1-video-controls
-                          [isPlaying]="genericVideoIsPlaying()"
-                          [currentTime]="genericVideoCurrentTime()"
-                          [duration]="genericVideoDuration()"
-                          [playbackRate]="genericVideoPlaybackRate()"
-                          [showSpeedControls]="true"
-                          [showFullscreen]="true"
-                          [showOpenInNewWindow]="false"
-                          [showAdvancedPlaybackControls]="true"
-                          [showDurationBadge]="true"
-                          [allowTransportCollapse]="true"
-                          [compactMode]="true"
-                          (pointerdown)="onGenericVideoControlsInteractionStart()"
-                          (pointerup)="onGenericVideoControlsInteractionEnd()"
-                          (pointercancel)="onGenericVideoControlsInteractionEnd()"
-                          (pointerleave)="onGenericVideoControlsInteractionEnd()"
-                          (playPause)="toggleGenericVideoPlayPause()"
-                          (seekRelative)="seekGenericVideoRelative($event)"
-                          (seekChange)="onGenericVideoSeekTime($event)"
-                          (seekStart)="onGenericVideoSeekStart()"
-                          (seekEnd)="onGenericVideoSeekEnd()"
-                          (playbackRateChange)="setGenericVideoPlaybackRate($event)"
-                          (openInNewWindow)="openSelectedVideoInNewWindow()"
-                          (fullscreenToggle)="toggleGenericVideoFullscreen()"
-                        />
-                      </div>
-                    </div>
-                  } @else {
-                    <div class="agent-x-files-viewer__fallback">
-                      <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
-                        <nxt1-icon [name]="iconNameForFile(file)" [size]="28"></nxt1-icon>
-                      </div>
-                      <div class="agent-x-files-viewer__fallback-copy">
-                        <h3>{{ file.name }}</h3>
-                        <p>{{ viewerFallbackMessage(file) }}</p>
-                      </div>
-                      <div class="agent-x-files-viewer__fallback-actions">
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__icon-action"
-                          [attr.aria-label]="openActionLabelForFile(file)"
-                          [attr.title]="openActionLabelForFile(file)"
-                          (click)="openFileInNewTab(file)"
+                  <div class="film-upload-destination-menu__options" role="none">
+                    <button
+                      type="button"
+                      class="film-upload-destination-option"
+                      [class.film-upload-destination-option--selected]="
+                        uploadDestinationFolderId() === null
+                      "
+                      (click)="onUploadDestinationSelect(null, $event)"
+                    >
+                      <span class="film-upload-destination-option__row">
+                        <nxt1-icon
+                          name="folder"
+                          [size]="16"
+                          class="film-upload-destination-option__icon"
+                        ></nxt1-icon>
+                        <span class="film-upload-destination-option__title"> Library </span>
+                      </span>
+                    </button>
+
+                    @for (option of visibleUploadDestinationOptions(); track option.id) {
+                      <button
+                        type="button"
+                        class="film-upload-destination-option"
+                        [class.film-upload-destination-option--selected]="
+                          uploadDestinationFolderId() === option.id
+                        "
+                        (click)="onUploadDestinationSelect(option.id, $event)"
+                      >
+                        <span
+                          class="film-upload-destination-option__row"
+                          [style.padding-left.px]="option.depth * 16"
                         >
-                          <nxt1-icon name="openInNew" [size]="16"></nxt1-icon>
-                        </button>
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__icon-action"
-                          aria-label="Download"
-                          title="Download"
-                          (click)="downloadFile(file)"
-                        >
-                          <nxt1-icon name="download" [size]="16"></nxt1-icon>
-                        </button>
-                      </div>
-                    </div>
+                          <nxt1-icon
+                            name="folder"
+                            [size]="16"
+                            class="film-upload-destination-option__icon"
+                          ></nxt1-icon>
+                          <span class="film-upload-destination-option__title">
+                            {{ option.name }}
+                          </span>
+                        </span>
+                      </button>
+                    }
+                  </div>
+
+                  @if (
+                    visibleUploadDestinationOptions().length === 0 &&
+                    uploadDestinationSearchQuery().trim().length > 0
+                  ) {
+                    <p class="film-upload-destination-menu__empty">
+                      No folders match that search yet.
+                    </p>
                   }
+                }
+              </div>
+            </div>
+          </ng-template>
+
+          <input
+            #fileUploadInput
+            type="file"
+            class="film-library-file-input"
+            multiple
+            [attr.accept]="acceptedMimeTypes"
+            (change)="onFilesSelected($event)"
+          />
+          <input
+            #folderUploadInput
+            type="file"
+            class="film-library-file-input"
+            multiple
+            [attr.accept]="acceptedMimeTypes"
+            webkitdirectory
+            directory
+            (change)="onFilesSelected($event)"
+          />
+          <input
+            #zipUploadInput
+            type="file"
+            class="film-library-file-input"
+            multiple
+            [attr.accept]="acceptedZipMimeTypes"
+            (change)="onFilesSelected($event)"
+          />
+
+          @if (isPreparingUpload() || isUploadingFiles()) {
+            <div class="film-library-upload-status" aria-live="polite">
+              @if (isPreparingUpload()) {
+                <div class="film-library-upload-status__row">
+                  <span class="film-library-upload-status__label">
+                    Preparing ZIP {{ uploadPreparationCurrentItem() }} of
+                    {{ uploadPreparationTotalItems() }} for upload.
+                  </span>
+                  <div class="film-library-upload-status__actions">
+                    <span class="film-library-upload-status__pct">Preparing...</span>
+                  </div>
+                </div>
+                @if (uploadPreparationCurrentFileName(); as fileName) {
+                  <p class="film-library-upload-status__hint">{{ fileName }}</p>
+                }
+                <div class="film-library-upload-status__track">
+                  <div
+                    class="film-library-upload-status__fill film-library-upload-status__fill--indeterminate"
+                  ></div>
+                </div>
+              } @else {
+                <div class="film-library-upload-status__row">
+                  <span class="film-library-upload-status__label">
+                    Uploading {{ filesUploadCurrentFile() }} of {{ filesUploadTotalFiles() }}
+                    files. Do not close this until upload completes.
+                  </span>
+                  <div class="film-library-upload-status__actions">
+                    <span class="film-library-upload-status__pct"
+                      >{{ filesUploadPercent() ?? 0 }}%</span
+                    >
+                    @if (isCancellingFilesUpload()) {
+                      <span class="film-library-upload-status__pct">Cancelling...</span>
+                    } @else if (filesUploadCanCancel()) {
+                      <button
+                        type="button"
+                        class="film-library-upload-status__cancel"
+                        (click)="cancelActiveFilesUpload()"
+                      >
+                        Cancel
+                      </button>
+                    }
+                  </div>
+                </div>
+                @if (filesUploadCurrentFileName(); as fileName) {
+                  <p class="film-library-upload-status__hint">{{ fileName }}</p>
+                }
+                <div class="film-library-upload-status__track">
+                  <div
+                    class="film-library-upload-status__fill"
+                    [style.width.%]="filesUploadPercent() ?? 0"
+                  ></div>
+                </div>
+              }
+            </div>
+          }
+
+          @if (isCreatingFolder() && !creatingSubfolderParentId()) {
+            <div class="film-playlist-create" role="group" aria-label="Create folder">
+              <input
+                type="text"
+                class="film-playlist-create__input"
+                placeholder="Folder name"
+                maxlength="80"
+                [value]="folderNameDraft()"
+                (input)="onFolderNameInput($any($event.target).value)"
+                (keydown.enter)="onFolderCreateConfirm($event)"
+                (keydown.escape)="onFolderCreateCancel($event)"
+              />
+              <button
+                type="button"
+                class="film-playlist-create__btn"
+                (click)="onFolderCreateCancel($event)"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="film-playlist-create__btn film-playlist-create__btn--primary"
+                (click)="onFolderCreateConfirm($event)"
+              >
+                Create
+              </button>
+            </div>
+          }
+
+          <div class="film-library agent-x-files-panel__library-surface">
+            <div
+              class="agent-x-files-panel__dropzone"
+              [class.agent-x-files-panel__dropzone--active]="isExternalImportDragActive()"
+              (dragover)="onLibraryDragOver($event)"
+              (dragleave)="onLibraryDragLeave($event)"
+              (drop)="onLibraryDrop($event)"
+            >
+              @if (shouldShowTopLevelDropTarget()) {
+                <div
+                  class="agent-x-files-panel__top-level-drop-target"
+                  [class.agent-x-files-panel__top-level-drop-target--active]="
+                    topLevelDropTargetActive()
+                  "
+                  (dragover)="onTopLevelDropDragOver($event)"
+                  (dragleave)="onTopLevelDropDragLeave($event)"
+                  (drop)="onTopLevelDrop($event)"
+                >
+                  Drag folder here to move it back to top level
                 </div>
               }
 
-              <div
-                viewer-context
-                class="agent-x-files-viewer__context"
-                aria-label="File context panel"
+              <nxt1-agent-x-library-folder-tree
+                [folders]="folderNodes()"
+                [controller]="folderTreeController"
+                [itemTemplate]="folderItemTemplate"
+                [emptyFolderLabel]="
+                  hasSearchQuery()
+                    ? 'No matching files in this folder.'
+                    : 'Drag files or folders here, or upload new ones.'
+                "
+              />
+            </div>
+
+            <ng-template #folderItemTemplate let-file let-folder="folder">
+              <span class="film-list-item__selection">
+                <input
+                  type="checkbox"
+                  class="film-playbook-checkbox"
+                  [checked]="isFileSelected(file.id)"
+                  [attr.aria-label]="'Select file ' + file.name"
+                  (click)="$event.stopPropagation()"
+                  (keydown)="$event.stopPropagation()"
+                  (change)="onToggleFileSelection(file.id, $event)"
+                />
+              </span>
+
+              <button
+                type="button"
+                class="film-list-item"
+                [class.film-list-item--active]="file.id === selectedId()"
+                [nxtAgentXContextDrag]="buildFileDragContextsForLibrary(file)"
+                [nxtAgentXContextDragDisabled]="isFolderItemReorderDragActive()"
+                (click)="openFile(file)"
+                (dragstart)="onFileDragStart(file, folder.items, $event)"
+                (dragend)="onFileDragEnd()"
               >
-                <div class="agent-x-files-viewer__context-header">
-                  <div class="agent-x-files-viewer__context-header-main">
-                    <div class="agent-x-files-viewer__context-heading">
-                      <div class="agent-x-files-viewer__title-row">
-                        @if (isEditingFile(file.id)) {
-                          <div class="agent-x-files-viewer__title-edit-card">
-                            <div class="agent-x-files-viewer__title-edit-copy">
-                              <span class="agent-x-files-viewer__title-eyebrow"
-                                >Document title</span
-                              >
-                              <p class="agent-x-files-viewer__title-edit-hint">
-                                Keep it short and specific so the file stays easy to scan.
-                              </p>
-                            </div>
-                            <div class="agent-x-files-viewer__title-edit-row">
-                              <input
-                                type="text"
-                                class="agent-x-files-viewer__title-input"
-                                [value]="fileRenameDraft()"
-                                (input)="onFileRenameInput($any($event.target).value)"
-                                (keydown.enter)="onFileRenameConfirm(file, $event)"
-                                (keydown.escape)="onFileRenameCancel($event)"
-                              />
-                              <div class="agent-x-files-viewer__title-edit-actions">
-                                <button
-                                  type="button"
-                                  class="agent-x-files-viewer__title-action agent-x-files-viewer__title-action--primary"
-                                  (click)="onFileRenameConfirm(file, $event)"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  class="agent-x-files-viewer__title-action"
-                                  (click)="onFileRenameCancel($event)"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        } @else {
-                          <div class="agent-x-files-viewer__title-display-row">
-                            <div class="agent-x-files-viewer__title-copy">
-                              <span class="agent-x-files-viewer__title-eyebrow"
-                                >Document title</span
-                              >
-                              <h3 class="agent-x-files-viewer__title">{{ file.name }}</h3>
-                            </div>
+                <div class="film-list-item__thumbnail">
+                  @if (thumbnailUrlForListItem(file); as thumbnailUrl) {
+                    <img
+                      class="film-list-item__thumb-image"
+                      [src]="thumbnailUrl"
+                      [alt]="file.name"
+                      draggable="false"
+                      (error)="onListThumbnailError(file, thumbnailUrl)"
+                      (dragstart)="$event.preventDefault()"
+                    />
+                    @if (file.kind === 'video') {
+                      <span class="film-list-item__thumbnail-icon" aria-hidden="true">
+                        <nxt1-icon [name]="iconNameForFile(file)" [size]="14"></nxt1-icon>
+                      </span>
+                    }
+                  } @else {
+                    <div
+                      class="film-list-item__thumb-placeholder"
+                      [ngClass]="placeholderToneClassForFile(file)"
+                      aria-hidden="true"
+                    >
+                      <nxt1-icon [name]="iconNameForFile(file)" [size]="14"></nxt1-icon>
+                    </div>
+                  }
+                </div>
+                <span class="film-list-item__content">
+                  <span class="film-list-item__title-row">
+                    <span class="film-list-item__title">{{ file.name }}</span>
+                    @if (shouldShowFilmReviewBadge(file)) {
+                      <span class="film-list-item__badge">Film Review</span>
+                    }
+                    @if (isFileShared(file)) {
+                      <span class="film-list-item__shared-indicator" title="Shared file">
+                        <nxt1-icon name="people" [size]="13"></nxt1-icon>
+                      </span>
+                    }
+                  </span>
+                </span>
+              </button>
+
+              <button
+                type="button"
+                class="film-list-item__menu-btn"
+                aria-label="File options"
+                [attr.aria-expanded]="isFileMenuOpen(file.id)"
+                aria-haspopup="menu"
+                (click)="onOpenFileMenu($event, file)"
+              >
+                <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+              </button>
+
+              @if (isFileMenuOpen(file.id)) {
+                <div class="film-list-item__menu-backdrop" (click)="onFileMenuBackdropTap()"></div>
+                <div
+                  class="film-list-item__menu"
+                  [class.film-list-item__menu--open-up]="
+                    openFileMenuId() === file.id && openFileMenuUpward()
+                  "
+                  role="menu"
+                  aria-label="File options"
+                  (click)="$event.stopPropagation()"
+                >
+                  @if (isSharingFile(file.id)) {
+                    <nxt1-agent-x-share-access-panel
+                      [itemId]="file.id"
+                      [teamId]="file.teamId"
+                      [organizationId]="file.organizationId ?? ''"
+                      [principalType]="fileSharePrincipalType()"
+                      [permission]="fileSharePermission()"
+                      [query]="shareCandidateQuery()"
+                      [loading]="shareCandidatesLoading()"
+                      [candidates]="visibleShareCandidates()"
+                      [grants]="shareablePrincipalsForFile(file)"
+                      [selectedUserIds]="fileShareSelectedUserIds()"
+                      [submitDisabled]="!canSubmitFileShare(file)"
+                      [emptyAccessMessage]="'Only you can access this file right now.'"
+                      (principalTypeChange)="onFileShareTypeChange($event)"
+                      (permissionChange)="onFileSharePermissionChange($event)"
+                      (queryChange)="onShareCandidateQueryInput($event)"
+                      (candidateToggled)="onFileShareCandidateToggled(file, $event)"
+                      (grantPermissionChange)="onFileShareGrantPermissionChange(file, $event)"
+                      (removeGrant)="onFileShareRemove(file, $event)"
+                      (submit)="onFileShareConfirm(file, $event)"
+                      (cancel)="onFileShareCancel($event)"
+                    />
+                  } @else if (isEditingFile(file.id)) {
+                    <div class="film-list-item__menu-rename">
+                      <label
+                        class="film-list-item__menu-label"
+                        for="team-file-rename-{{ file.id }}"
+                      >
+                        Rename file
+                      </label>
+                      <input
+                        id="team-file-rename-{{ file.id }}"
+                        type="text"
+                        class="film-list-item__menu-input"
+                        maxlength="120"
+                        [value]="fileRenameDraft()"
+                        (input)="onFileRenameInput($any($event.target).value)"
+                        (keydown.enter)="onFileRenameConfirm(file, $event)"
+                        (keydown.escape)="onFileRenameCancel($event)"
+                      />
+                      <div class="film-list-item__menu-actions">
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action film-list-item__menu-action--primary"
+                          (click)="onFileRenameConfirm(file, $event)"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          (click)="onFileRenameCancel($event)"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  } @else if (isFileDeleteConfirming(file.id)) {
+                    <div class="film-list-item__menu-confirm">
+                      <p class="film-list-item__menu-confirm-text">Delete this file?</p>
+                      <div class="film-list-item__menu-actions">
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action film-list-item__menu-action--danger"
+                          (click)="onFileDeleteConfirm(file, $event)"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          type="button"
+                          class="film-list-item__menu-action"
+                          (click)="onFileDeleteCancel($event)"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  } @else {
+                    <button
+                      type="button"
+                      class="film-list-item__menu-action"
+                      role="menuitem"
+                      (click)="onFileOpenAction(file, $event)"
+                    >
+                      Open
+                    </button>
+                    @if (canManageFileSharing(file)) {
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action"
+                        role="menuitem"
+                        (click)="onFileShareStart(file, $event)"
+                      >
+                        Share
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="film-list-item__menu-action"
+                      role="menuitem"
+                      (click)="onFileDownloadAction(file, $event)"
+                    >
+                      Download
+                    </button>
+                    @if (hasFileWriteAccess(file)) {
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action"
+                        role="menuitem"
+                        (click)="onFileRenameStart(file, $event)"
+                      >
+                        Rename
+                      </button>
+                    }
+                    @if (hasFileWriteAccess(file)) {
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action film-list-item__menu-action--danger"
+                        role="menuitem"
+                        (click)="onFileDeleteStart(file, $event)"
+                      >
+                        Delete
+                      </button>
+                    }
+                  }
+                </div>
+              }
+            </ng-template>
+          </div>
+        } @else if (viewerMode() === 'video' && selectedFilmReviewId()) {
+          <nxt1-agent-x-film-review-panel
+            [teamId]="selectedViewerFile()?.teamId ?? openingFilmReviewTeamId() ?? null"
+            [role]="role"
+            [sport]="sport"
+            [detailOnly]="true"
+            [openingSelection]="isOpeningFilmReview()"
+            [enableDrawTool]="enableDrawTool"
+            (askAgentPromptRequested)="askAgentPromptRequested.emit($event)"
+          />
+        } @else if (selectedViewerFile(); as file) {
+          <nxt1-agent-x-viewer-surface class="agent-x-files-viewer" aria-label="File viewer">
+            @let hasWriteAccess = hasFileWriteAccess(file);
+            @if (shouldRenderViewerStage(file)) {
+              <div
+                viewer-stage
+                class="agent-x-files-viewer__stage"
+                [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                [nxtAgentXContextDragDisabled]="genericVideoControlDragLockActive()"
+              >
+                @if (isImageFile(file)) {
+                  <img
+                    class="agent-x-files-viewer__image"
+                    [src]="file.url"
+                    [alt]="file.name"
+                    draggable="false"
+                    (dragstart)="$event.preventDefault()"
+                  />
+                } @else if (safeSelectedPdfPreviewUrl(); as previewUrl) {
+                  <div class="agent-x-files-viewer__frame-shell">
+                    <button
+                      type="button"
+                      class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
+                      aria-label="Drag PDF to chat"
+                      title="Drag PDF to chat"
+                      [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                    >
+                      Drag PDF
+                    </button>
+                    <iframe
+                      class="agent-x-files-viewer__frame"
+                      [src]="previewUrl"
+                      [title]="file.name"
+                    ></iframe>
+                  </div>
+                } @else if (
+                  isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
+                  as videoIframeUrl
+                ) {
+                  <div class="agent-x-files-viewer__frame-shell">
+                    <button
+                      type="button"
+                      class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
+                      aria-label="Drag media to chat"
+                      title="Drag media to chat"
+                      [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                    >
+                      Drag Media
+                    </button>
+                    <iframe
+                      class="agent-x-files-viewer__frame"
+                      [src]="videoIframeUrl"
+                      [title]="file.name"
+                      loading="lazy"
+                      frameborder="0"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                      allowfullscreen
+                    ></iframe>
+                  </div>
+                } @else if (isVideoFile(file)) {
+                  <div
+                    #genericVideoShell
+                    class="agent-x-files-viewer__video-shell"
+                    aria-label="Video playback"
+                  >
+                    <video
+                      #genericVideoPlayer
+                      class="agent-x-files-viewer__video"
+                      [attr.poster]="viewerPosterUrlForVideo(file)"
+                      playsinline
+                      preload="auto"
+                      (loadedmetadata)="onGenericVideoLoadedMetadata()"
+                      (timeupdate)="onGenericVideoTimeUpdate()"
+                      (play)="onGenericVideoPlay()"
+                      (pause)="onGenericVideoPause()"
+                      (ended)="onGenericVideoEnded()"
+                      (error)="onGenericVideoError()"
+                    ></video>
+
+                    <div class="agent-x-files-viewer__video-controls" aria-label="Video controls">
+                      <nxt1-video-controls
+                        [isPlaying]="genericVideoIsPlaying()"
+                        [currentTime]="genericVideoCurrentTime()"
+                        [duration]="genericVideoDuration()"
+                        [playbackRate]="genericVideoPlaybackRate()"
+                        [showSpeedControls]="true"
+                        [showFullscreen]="true"
+                        [showOpenInNewWindow]="false"
+                        [showAdvancedPlaybackControls]="true"
+                        [showDurationBadge]="true"
+                        [allowTransportCollapse]="true"
+                        [compactMode]="true"
+                        (pointerdown)="onGenericVideoControlsInteractionStart()"
+                        (pointerup)="onGenericVideoControlsInteractionEnd()"
+                        (pointercancel)="onGenericVideoControlsInteractionEnd()"
+                        (pointerleave)="onGenericVideoControlsInteractionEnd()"
+                        (playPause)="toggleGenericVideoPlayPause()"
+                        (seekRelative)="seekGenericVideoRelative($event)"
+                        (seekChange)="onGenericVideoSeekTime($event)"
+                        (seekStart)="onGenericVideoSeekStart()"
+                        (seekEnd)="onGenericVideoSeekEnd()"
+                        (playbackRateChange)="setGenericVideoPlaybackRate($event)"
+                        (openInNewWindow)="openSelectedVideoInNewWindow()"
+                        (fullscreenToggle)="toggleGenericVideoFullscreen()"
+                      />
+                    </div>
+                  </div>
+                } @else {
+                  <div class="agent-x-files-viewer__fallback">
+                    <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
+                      <nxt1-icon [name]="iconNameForFile(file)" [size]="28"></nxt1-icon>
+                    </div>
+                    <div class="agent-x-files-viewer__fallback-copy">
+                      <h3>{{ file.name }}</h3>
+                      <p>{{ viewerFallbackMessage(file) }}</p>
+                    </div>
+                    <div class="agent-x-files-viewer__fallback-actions">
+                      <button
+                        type="button"
+                        class="agent-x-files-viewer__icon-action"
+                        [attr.aria-label]="openActionLabelForFile(file)"
+                        [attr.title]="openActionLabelForFile(file)"
+                        (click)="openFileInNewTab(file)"
+                      >
+                        <nxt1-icon name="openInNew" [size]="16"></nxt1-icon>
+                      </button>
+                      <button
+                        type="button"
+                        class="agent-x-files-viewer__icon-action"
+                        aria-label="Download"
+                        title="Download"
+                        (click)="downloadFile(file)"
+                      >
+                        <nxt1-icon name="download" [size]="16"></nxt1-icon>
+                      </button>
+                    </div>
+                  </div>
+                }
+              </div>
+            }
+
+            <div
+              viewer-context
+              class="agent-x-files-viewer__context"
+              [class.agent-x-files-viewer__context--document]="usesDocumentContextStyle(file)"
+              aria-label="File context panel"
+            >
+              <div class="agent-x-files-viewer__context-header">
+                <div class="agent-x-files-viewer__context-header-main">
+                  <div class="agent-x-files-viewer__context-heading">
+                    <div class="agent-x-files-viewer__title-row">
+                      @if (isEditingFile(file.id)) {
+                        <div class="agent-x-files-viewer__title-edit-row">
+                          <input
+                            type="text"
+                            class="agent-x-files-viewer__title-input"
+                            aria-label="Document title"
+                            [value]="fileRenameDraft()"
+                            (input)="onFileRenameInput($any($event.target).value)"
+                            (keydown.enter)="onFileRenameConfirm(file, $event)"
+                            (keydown.escape)="onFileRenameCancel($event)"
+                          />
+                          <div class="agent-x-files-viewer__title-edit-actions">
                             <button
                               type="button"
-                              class="agent-x-files-viewer__title-edit-trigger"
-                              aria-label="Edit title"
-                              title="Edit title"
-                              (click)="onFileRenameStart(file, $event)"
+                              class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--confirm"
+                              aria-label="Confirm title"
+                              title="Confirm title"
+                              (click)="onFileRenameConfirm(file, $event)"
                             >
-                              <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
+                              <nxt1-icon name="checkmark" [size]="14"></nxt1-icon>
+                            </button>
+                            <button
+                              type="button"
+                              class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--cancel"
+                              aria-label="Cancel title edit"
+                              title="Cancel title edit"
+                              (click)="onFileRenameCancel($event)"
+                            >
+                              <nxt1-icon name="close" [size]="14"></nxt1-icon>
                             </button>
                           </div>
-                        }
-                      </div>
-                      @if (shouldShowGenerateNotes(file)) {
-                        <div class="agent-x-files-viewer__generate-action">
-                          <div class="agent-x-files-viewer__generate-notes">
-                            <nxt1-cta-button
-                              variant="primary"
-                              [label]="
-                                isGeneratingNotes(file.id)
-                                  ? 'Learning this file...'
-                                  : 'Learn this file'
-                              "
-                              [disabled]="isGeneratingNotes(file.id) || !hasWriteAccess"
-                              (clicked)="generateNotes(file)"
-                            />
-                            <p class="agent-x-files-viewer__generate-note">
-                              {{ generateNotesHelperCopy() }}
-                            </p>
+                        </div>
+                      } @else {
+                        <div class="agent-x-files-viewer__title-display-row">
+                          <div class="agent-x-files-viewer__title-copy">
+                            <h3 class="agent-x-files-viewer__title">{{ file.name }}</h3>
                           </div>
+                          <button
+                            type="button"
+                            class="agent-x-files-viewer__title-edit-trigger"
+                            cdkOverlayOrigin
+                            #viewerActionsOrigin="cdkOverlayOrigin"
+                            aria-label="File actions"
+                            title="File actions"
+                            aria-haspopup="menu"
+                            [attr.aria-expanded]="openViewerActionsFileId() === file.id"
+                            (click)="toggleViewerActions(file.id, $event)"
+                          >
+                            <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
+                          </button>
+                          <ng-template
+                            cdkConnectedOverlay
+                            [cdkConnectedOverlayOrigin]="viewerActionsOrigin"
+                            [cdkConnectedOverlayOpen]="openViewerActionsFileId() === file.id"
+                            [cdkConnectedOverlayHasBackdrop]="true"
+                            cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                            [cdkConnectedOverlayPositions]="viewerActionsMenuPositions"
+                            [cdkConnectedOverlayPush]="true"
+                            [cdkConnectedOverlayViewportMargin]="8"
+                            (backdropClick)="closeViewerActions()"
+                            (overlayKeydown)="$event.key === 'Escape' && closeViewerActions()"
+                            (detach)="closeViewerActions()"
+                          >
+                            <div
+                              class="agent-x-files-viewer__actions-menu"
+                              role="menu"
+                              aria-label="File actions"
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                [disabled]="!hasWriteAccess"
+                                (click)="onViewerRename(file, $event)"
+                              >
+                                <nxt1-icon name="pencil" [size]="16" /> Rename
+                              </button>
+                              @if (shouldShowViewerFileActions(file)) {
+                                <button type="button" role="menuitem" (click)="onViewerOpen(file)">
+                                  <nxt1-icon name="openInNew" [size]="16" />
+                                  {{ openActionLabelForFile(file) }}
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="onViewerDownload(file)"
+                                >
+                                  <nxt1-icon name="download" [size]="16" /> Download file
+                                </button>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="onViewerCopy(file, 'link')"
+                                >
+                                  <nxt1-icon name="copyDocs" [size]="16" /> Copy file link
+                                </button>
+                              }
+                              @if (isTextDocument(file)) {
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="
+                                    onViewerCopy(
+                                      file,
+                                      isMarkdownDocument(file) ? 'markdown' : 'text'
+                                    )
+                                  "
+                                >
+                                  <nxt1-icon name="copyDocs" [size]="16" />
+                                  {{ viewerCopyActionLabel(file) }}
+                                </button>
+                              } @else if (hasMarkdownNotes(file)) {
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="onViewerCopy(file, 'markdown')"
+                                >
+                                  <nxt1-icon name="copyDocs" [size]="16" /> Copy Markdown
+                                </button>
+                              } @else if (file.rawData) {
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="onViewerCopy(file, 'json')"
+                                >
+                                  <nxt1-icon name="copyDocs" [size]="16" /> Copy as JSON
+                                </button>
+                              }
+                              @if (canExportViewerContent(file)) {
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  (click)="onViewerExport(file)"
+                                >
+                                  <nxt1-icon name="download" [size]="16" /> Export
+                                </button>
+                              }
+                              <button
+                                type="button"
+                                role="menuitem"
+                                [disabled]="refreshingViewerFileId() === file.id"
+                                (click)="onViewerRefresh(file)"
+                              >
+                                <nxt1-icon name="refresh" [size]="16" />
+                                {{
+                                  refreshingViewerFileId() === file.id ? 'Refreshing...' : 'Refresh'
+                                }}
+                              </button>
+                            </div>
+                          </ng-template>
                         </div>
                       }
                     </div>
-
-                    @if (shouldShowViewerFileActions(file)) {
-                      <div class="agent-x-files-viewer__context-actions">
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__icon-action"
-                          [attr.aria-label]="openActionLabelForFile(file)"
-                          [attr.title]="openActionLabelForFile(file)"
-                          (click)="openFileInNewTab(file)"
-                        >
-                          <nxt1-icon name="openInNew" [size]="16"></nxt1-icon>
-                        </button>
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__icon-action"
-                          aria-label="Download"
-                          title="Download"
-                          (click)="downloadFile(file)"
-                        >
-                          <nxt1-icon name="download" [size]="16"></nxt1-icon>
-                        </button>
+                    @if (shouldShowGenerateNotes(file)) {
+                      <div class="agent-x-files-viewer__generate-action">
+                        <div class="agent-x-files-viewer__generate-notes">
+                          <nxt1-cta-button
+                            variant="primary"
+                            [label]="
+                              isGeneratingNotes(file.id)
+                                ? 'Learning this file...'
+                                : 'Learn this file'
+                            "
+                            [disabled]="isGeneratingNotes(file.id) || !hasWriteAccess"
+                            (clicked)="generateNotes(file)"
+                          />
+                          <p class="agent-x-files-viewer__generate-note">
+                            {{ generateNotesHelperCopy() }}
+                          </p>
+                        </div>
                       </div>
                     }
                   </div>
                 </div>
-
-                <section class="agent-x-files-viewer__content-section">
-                  @if (!shouldShowGenerateNotes(file)) {
-                    @if (supportsTabbedTextEditor(file)) {
-                      <div
-                        class="agent-x-files-viewer__editor-tabs"
-                        role="tablist"
-                        aria-label="Document editor mode"
-                      >
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__editor-tab"
-                          [class.agent-x-files-viewer__editor-tab--active]="
-                            textDocumentEditorMode(file.id) === 'preview'
-                          "
-                          [attr.aria-selected]="textDocumentEditorMode(file.id) === 'preview'"
-                          (click)="setTextDocumentEditorMode(file.id, 'preview')"
-                        >
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          class="agent-x-files-viewer__editor-tab"
-                          [class.agent-x-files-viewer__editor-tab--active]="
-                            textDocumentEditorMode(file.id) === 'write'
-                          "
-                          [attr.aria-selected]="textDocumentEditorMode(file.id) === 'write'"
-                          (click)="setTextDocumentEditorMode(file.id, 'write')"
-                        >
-                          Write
-                        </button>
-                      </div>
-
-                      @if (textDocumentEditorMode(file.id) === 'write') {
-                        <textarea
-                          class="agent-x-files-viewer__content-textarea agent-x-files-viewer__content-textarea--document"
-                          spellcheck="true"
-                          [placeholder]="contentEditorPlaceholder(file)"
-                          [value]="editingTextContent(file)"
-                          (input)="onTextContentEdit($event, file.id)"
-                        ></textarea>
-                      } @else {
-                        <div class="agent-x-files-viewer__document-preview">
-                          @if (editingTextContent(file).trim().length > 0) {
-                            @if (shouldRenderMarkdownPreview(file)) {
-                              <nxt1-markdown
-                                class="agent-x-files-viewer__markdown"
-                                [content]="editingTextContent(file)"
-                                (mediaRequested)="onMarkdownMediaRequested($event)"
-                              />
-                            } @else {
-                              <pre class="agent-x-files-viewer__plain-text">{{
-                                editingTextContent(file)
-                              }}</pre>
-                            }
-                          } @else {
-                            <p class="agent-x-files-viewer__preview-empty">
-                              {{ contentEditorEmptyState(file) }}
-                            </p>
-                          }
-                        </div>
-                      }
-                    }
-                    <div class="agent-x-files-viewer__content-actions">
-                      @if (hasWriteAccess) {
-                        <nxt1-cta-button
-                          variant="primary"
-                          [label]="
-                            isGeneratingNotes(file.id) ? 'Learning this file...' : 'Learn this file'
-                          "
-                          [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
-                          (clicked)="generateNotes(file)"
-                        />
-                        <nxt1-cta-button
-                          variant="primary"
-                          [label]="
-                            isSavingTextContent()
-                              ? 'Saving...'
-                              : isTextDocument(file)
-                                ? 'Save Document'
-                                : 'Save File Notes'
-                          "
-                          [disabled]="
-                            isSavingTextContent() || textContentDrafts()[file.id] === undefined
-                          "
-                          (clicked)="saveTextContent(file.id)"
-                        />
-                      }
-                    </div>
-                  }
-                </section>
               </div>
-            </nxt1-agent-x-viewer-surface>
-          }
+
+              <section class="agent-x-files-viewer__content-section">
+                @if (!shouldShowGenerateNotes(file)) {
+                  @if (supportsTabbedTextEditor(file)) {
+                    <nxt1-markdown-editor
+                      class="agent-x-files-viewer__native-editor"
+                      [content]="editingTextContent(file)"
+                      [placeholder]="contentEditorPlaceholder(file)"
+                      [readOnly]="!hasWriteAccess"
+                      [saveStatus]="textContentSaveStatus(file.id)"
+                      [ariaLabel]="'Edit ' + file.name"
+                      (contentChange)="onTextContentEdit($event, file.id)"
+                      (saveRequested)="saveTextContentDraft(file.id, $event)"
+                    />
+                  }
+                  <div class="agent-x-files-viewer__content-actions">
+                    @if (hasWriteAccess) {
+                      <nxt1-cta-button
+                        variant="primary"
+                        [label]="
+                          isGeneratingNotes(file.id) ? 'Learning this file...' : 'Learn this file'
+                        "
+                        [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
+                        (clicked)="generateNotes(file)"
+                      />
+                    }
+                  </div>
+                }
+              </section>
+            </div>
+          </nxt1-agent-x-viewer-surface>
         }
       }
     </section>
   `,
   styles: [
     `
+      :host {
+        display: block;
+        width: 100%;
+        --nxt1-color-primary: var(--agent-primary, #ccff00);
+        --nxt1-color-border-primary: var(--agent-primary, #ccff00);
+      }
+
       .agent-x-files-panel {
         display: grid;
         gap: 16px;
         padding: 12px;
+        width: 100%;
       }
 
+      /* Compact: the mobile sheet body already supplies outer padding. */
+      .agent-x-files-panel--compact {
+        padding: 0;
+        gap: 12px;
+        width: 100%;
+      }
+
+      .agent-x-files-panel--compact .film-playlist-create {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .agent-x-files-panel--compact .film-playlist-create__input {
+        grid-column: 1 / -1;
+      }
+
+      .agent-x-files-panel--compact .film-playlist-create__btn {
+        width: 100%;
+        justify-content: center;
+      }
+
+      /* ═══ MOBILE TOOLBAR (compact mode) ═══ */
+      .film-mobile-toolbar {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+
+      .film-mobile-search-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+      }
+
+      .film-mobile-search-row nxt1-search-bar {
+        flex: 1 1 100%;
+        width: 100%;
+      }
+
+      .film-mobile-selection-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        width: 100%;
+      }
+
+      .film-mobile-selection-row .film-mobile-btn {
+        flex: 1 1 0 !important;
+        width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+      }
+
+      .film-mobile-actions-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        width: 100%;
+      }
+
+      .film-mobile-action-item {
+        width: 100%;
+        min-width: 0;
+        display: flex;
+      }
+
+      .film-mobile-btn {
+        width: 100% !important;
+        justify-content: center !important;
+        padding: 9px 6px !important;
+        font-size: 12px !important;
+        font-weight: 600 !important;
+        white-space: nowrap !important;
+        min-width: 0 !important;
+        gap: 5px !important;
+      }
+
+      .film-mobile-btn span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .film-mobile-action-item.film-upload-menu-anchor,
+      .film-mobile-action-item .film-upload-menu-anchor {
+        width: 100%;
+      }
+
+      /* ═══ DESKTOP TOOLBAR ═══ */
       .agent-x-files-panel__toolbar {
         padding: 0;
         align-items: center;
@@ -1666,6 +1909,7 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         flex: 1 1 auto;
       }
 
+      /* Fallback for narrow desktop windows/panels that aren't explicitly compact. */
       @media (max-width: 680px) {
         .agent-x-files-panel__toolbar {
           align-items: flex-start;
@@ -1675,7 +1919,10 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         .agent-x-files-panel__toolbar .film-library-header__actions-primary {
           flex-basis: 100%;
           width: 100%;
-          flex-wrap: wrap;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          flex-wrap: nowrap;
         }
 
         .agent-x-files-panel__toolbar .film-library-header__actions-secondary {
@@ -1684,7 +1931,17 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           margin-left: 0;
         }
 
+        .agent-x-files-panel__toolbar .film-playbook-ask-agent {
+          width: 100%;
+        }
+
+        .agent-x-files-panel__toolbar .film-playbook-ask-agent .film-playbook-nav-btn {
+          width: 100%;
+          justify-content: center;
+        }
+
         .agent-x-files-panel__toolbar .film-library-search-wrap {
+          width: 100%;
           min-width: 100%;
         }
 
@@ -1692,6 +1949,26 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           .film-library-header__actions-secondary
           .film-playbook-nav-btn {
           justify-content: center;
+          width: 100%;
+        }
+
+        .agent-x-files-panel__toolbar .film-library-header__actions-secondary {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px;
+        }
+
+        .agent-x-files-panel__toolbar .film-library-header__actions-secondary > * {
+          min-width: 0;
+        }
+
+        .agent-x-files-panel__toolbar
+          .film-library-header__actions-secondary
+          .film-upload-menu-anchor,
+        .agent-x-files-panel__toolbar
+          .film-library-header__actions-secondary
+          .film-upload-menu-anchor
+          .film-playbook-nav-btn {
           width: 100%;
         }
       }
@@ -1790,6 +2067,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         background: color-mix(in srgb, var(--nxt1-color-surface-100) 94%, #03111f 6%);
         border-radius: 18px;
         overflow: hidden;
+      }
+
+      .agent-x-files-viewer__context--document {
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        overflow: visible;
       }
 
       .agent-x-files-viewer__stage.agent-x-context-drag-source {
@@ -1925,9 +2209,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
       .agent-x-files-viewer__context {
         display: grid;
-        gap: 18px;
+        gap: 12px;
         padding: 20px;
         min-height: 180px;
+      }
+
+      .agent-x-files-viewer__context--document {
+        padding: 4px 0 0;
       }
 
       .agent-x-files-viewer__context-header {
@@ -1963,65 +2251,42 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         justify-content: flex-start;
       }
 
-      .agent-x-files-viewer__title-copy,
-      .agent-x-files-viewer__title-edit-copy {
+      .agent-x-files-viewer__title-copy {
         display: grid;
         gap: 4px;
         min-width: 0;
       }
 
-      .agent-x-files-viewer__title-edit-card {
-        width: min(100%, 640px);
-        display: grid;
-        gap: 12px;
-        padding: 14px;
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 72%, transparent);
-        border-radius: 16px;
-        background: color-mix(
-          in srgb,
-          var(--nxt1-color-surface-100) 94%,
-          var(--nxt1-color-surface-200) 6%
-        );
-        box-shadow: 0 12px 30px color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent);
-      }
-
-      .agent-x-files-viewer__title-eyebrow {
-        font-size: 11px;
-        line-height: 1.2;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-text-secondary);
-      }
-
-      .agent-x-files-viewer__title-edit-hint {
-        margin: 0;
-        font-size: 12px;
-        line-height: 1.45;
-        color: var(--nxt1-color-text-secondary);
+      .agent-x-files-viewer__title-edit-row {
+        width: 100%;
+        max-width: 480px;
+        gap: 6px;
       }
 
       .agent-x-files-viewer__title {
         margin: 0;
         min-width: 0;
-        font-size: 18px;
-        line-height: 1.25;
+        font-size: 16px;
+        line-height: 1.35;
         font-weight: 700;
+        letter-spacing: -0.01em;
         color: var(--nxt1-color-text-primary);
       }
 
       .agent-x-files-viewer__title-input {
-        flex: 1 1 260px;
+        flex: 1 1 240px;
         min-width: 0;
-        min-height: 48px;
-        padding: 0 16px;
-        border-radius: 14px;
+        min-height: 36px;
+        height: 36px;
+        padding: 0 12px;
+        border-radius: 10px;
         border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 74%, transparent);
         background: var(--nxt1-color-surface-100);
         color: var(--nxt1-color-text-primary);
         font: inherit;
         font-size: 15px;
         font-weight: 600;
+        letter-spacing: -0.01em;
         box-shadow: inset 0 1px 0 color-mix(in srgb, var(--nxt1-color-surface-200) 72%, transparent);
       }
 
@@ -2038,40 +2303,44 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       .agent-x-files-viewer__title-edit-actions {
         display: flex;
         align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
+        gap: 4px;
+        flex-shrink: 0;
       }
 
-      .agent-x-files-viewer__title-action {
-        min-height: 40px;
-        padding: 0 14px;
-        border-radius: 999px;
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 74%, transparent);
-        background: color-mix(in srgb, var(--nxt1-color-surface-100) 94%, transparent);
+      .agent-x-files-viewer__title-icon-btn {
+        width: 32px;
+        height: 32px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 72%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 65%, transparent);
         color: var(--nxt1-color-text-secondary);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.02em;
         cursor: pointer;
         transition:
-          border-color 0.18s ease,
-          background 0.18s ease,
-          color 0.18s ease,
-          transform 0.18s ease;
+          background-color 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease;
       }
 
-      .agent-x-files-viewer__title-action--primary {
-        border-color: color-mix(in srgb, var(--nxt1-color-primary) 34%, transparent);
+      .agent-x-files-viewer__title-icon-btn:hover,
+      .agent-x-files-viewer__title-icon-btn:focus-visible {
+        outline: none;
+      }
+
+      .agent-x-files-viewer__title-icon-btn--confirm:hover,
+      .agent-x-files-viewer__title-icon-btn--confirm:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-primary) 40%, transparent);
         background: color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
         color: var(--nxt1-color-primary);
       }
 
-      .agent-x-files-viewer__title-action:hover,
-      .agent-x-files-viewer__title-action:focus-visible {
-        outline: none;
-        transform: translateY(-1px);
-        border-color: color-mix(in srgb, var(--nxt1-color-primary) 40%, transparent);
-        color: var(--nxt1-color-text-primary);
+      .agent-x-files-viewer__title-icon-btn--cancel:hover,
+      .agent-x-files-viewer__title-icon-btn--cancel:focus-visible {
+        border-color: color-mix(in srgb, var(--nxt1-color-error, #ff5f57) 40%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ff5f57) 12%, transparent);
+        color: var(--nxt1-color-error, #ff5f57);
       }
 
       .agent-x-files-viewer__title-edit-trigger {
@@ -2089,6 +2358,44 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           border-color 0.18s ease,
           color 0.18s ease,
           background 0.18s ease;
+      }
+
+      .agent-x-files-viewer__actions-menu {
+        display: grid;
+        gap: 2px;
+        min-width: 168px;
+        padding: 6px;
+        border: 1px solid var(--nxt1-color-border-subtle);
+        border-radius: 8px;
+        background: var(--nxt1-color-surface-100);
+        box-shadow: var(--nxt1-navigation-dropdown);
+      }
+
+      .agent-x-files-viewer__actions-menu button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 36px;
+        padding: 6px 10px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        font: inherit;
+        font-size: 13px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .agent-x-files-viewer__actions-menu button:hover,
+      .agent-x-files-viewer__actions-menu button:focus-visible {
+        background: var(--nxt1-color-surface-200);
+        outline: none;
+      }
+
+      .agent-x-files-viewer__actions-menu button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
       }
 
       .film-upload-menu-anchor {
@@ -2897,16 +3204,116 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       }
 
       .film-playbook-checkbox {
+        -webkit-appearance: none !important;
+        appearance: none !important;
+        background-image: none !important;
+        position: relative;
         width: 16px;
         height: 16px;
         margin: 0;
-        accent-color: var(--nxt1-color-primary);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 4px;
+        background: var(--nxt1-color-surface-100);
         cursor: pointer;
+        box-shadow: none !important;
+        transition:
+          background 0.15s ease,
+          border-color 0.15s ease,
+          box-shadow 0.15s ease;
       }
 
-      .film-playbook-checkbox:focus-visible {
-        outline: 2px solid var(--nxt1-color-primary);
-        outline-offset: 2px;
+      .film-playbook-checkbox:checked,
+      .film-playbook-checkbox:indeterminate,
+      .film-playbook-checkbox:checked:focus,
+      .film-playbook-checkbox:checked:focus-visible,
+      .film-playbook-checkbox:checked:active,
+      .film-playbook-checkbox:indeterminate:focus,
+      .film-playbook-checkbox:indeterminate:focus-visible,
+      .film-playbook-checkbox:indeterminate:active {
+        background: var(--nxt1-color-primary, #ccff00) !important;
+        border-color: var(--nxt1-color-primary, #ccff00) !important;
+      }
+
+      .film-playbook-checkbox:checked::after {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 5px;
+        height: 9px;
+        border: solid var(--nxt1-color-text-onPrimary);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+      }
+
+      .film-playbook-checkbox:indeterminate::after {
+        content: '';
+        position: absolute;
+        left: 3px;
+        right: 3px;
+        top: 6px;
+        height: 2px;
+        border-radius: 2px;
+        background: var(--nxt1-color-text-onPrimary);
+      }
+
+      .film-playbook-checkbox:focus,
+      .film-playbook-checkbox:focus-visible,
+      .film-playbook-checkbox:active,
+      .film-playbook-checkbox:hover {
+        outline: none !important;
+        box-shadow: none !important;
+      }
+
+      .film-list-item__menu-btn {
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        color: var(--nxt1-color-text-secondary);
+        border-radius: 50%;
+        padding: 0;
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .film-list-item__menu-btn:hover,
+      .film-list-item__menu-btn:focus-visible {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 8%,
+          transparent
+        ) !important;
+        color: var(--nxt1-color-primary, #ccff00);
+        outline: none !important;
+      }
+
+      .film-list-item__menu-btn:active {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 12%,
+          transparent
+        ) !important;
+      }
+
+      .film-list-item__menu-btn[aria-expanded='true'] {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-text-primary, #fff) 8%,
+          transparent
+        ) !important;
+        color: var(--nxt1-color-primary, #ccff00);
       }
 
       .film-list-item__title-row {
@@ -2930,14 +3337,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         min-height: 20px;
         padding: 0 8px;
         border-radius: 999px;
-        background: color-mix(
-          in srgb,
-          var(--nxt1-color-primary) 12%,
-          var(--nxt1-color-surface-100)
-        );
-        border: 1px solid
-          color-mix(in srgb, var(--nxt1-color-primary) 20%, var(--nxt1-color-border-default));
-        color: var(--nxt1-color-primary);
+        background: var(--nxt1-color-primary);
+        border: 1px solid var(--nxt1-color-primary);
+        color: var(--nxt1-color-text-onPrimary);
         font-size: 10px;
         font-weight: 800;
         letter-spacing: 0.04em;
@@ -3104,11 +3506,13 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
+export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDestroy {
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
   @Input() enableDrawTool = false;
+  /** Forces the compact mobile toolbar/search layout regardless of container width. */
+  @Input() compact = false;
 
   readonly askAgentPromptRequested = output<string>();
   readonly inlineVideoViewChange = output<boolean>();
@@ -3180,6 +3584,8 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly openingFilmReviewTeamId = signal<string | null>(null);
   protected readonly sharingFileId = signal<string | null>(null);
   protected readonly editingFileId = signal<string | null>(null);
+  protected readonly openViewerActionsFileId = signal<string | null>(null);
+  protected readonly refreshingViewerFileId = signal<string | null>(null);
   protected readonly deleteFileConfirmId = signal<string | null>(null);
   protected readonly fileRenameDraft = signal('');
   protected readonly fileSharePrincipalType = signal<FileSharePrincipalType>('user');
@@ -3197,6 +3603,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected readonly summaryDrafts = signal<Record<string, string>>({});
   protected readonly isSavingMetadata = signal(false);
   protected readonly textContentDrafts = signal<Record<string, string>>({});
+  protected readonly textContentSaveErrors = signal<Record<string, string>>({});
   protected readonly textDocumentEditorModes = signal<Record<string, 'write' | 'preview'>>({});
   protected readonly isSavingTextContent = signal(false);
   protected readonly generatingNotesFileIds = signal<ReadonlySet<string>>(new Set());
@@ -3229,6 +3636,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   private activeFilesUploadHandle: AgentXFilesUploadHandle | null = null;
   private activeLibraryUploadHandle: VideoUploadHandle | null = null;
   private activeFilesUploadSubscription: Subscription | null = null;
+  private readonly textContentAutosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly dragAutoScrollEdgePx = 88;
   private readonly dragAutoScrollMinStepPx = 4;
   private readonly dragAutoScrollMaxStepPx = 24;
@@ -3267,6 +3675,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   );
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
+  protected readonly viewerActionsMenuPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 6 },
+    { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -6 },
+  ];
   protected readonly askAgentMenuPositions: ConnectedPosition[] = [
     {
       originX: 'end',
@@ -3420,7 +3832,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       })
       .filter((tab): tab is AgentXLibraryFile => tab !== null);
   });
-  protected readonly selectedViewerFile = computed(() => {
+  public readonly selectedViewerFile = computed(() => {
     const inlineViewerFile = this.inlineMarkdownViewerFile();
     if (inlineViewerFile && this.selectedInlineMarkdownViewerId() === inlineViewerFile.id) {
       return inlineViewerFile;
@@ -3729,6 +4141,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.activeFilesUploadHandle?.cancel();
     this.activeLibraryUploadHandle?.cancel();
     this.activeFilesUploadSubscription?.unsubscribe();
+    for (const timer of this.textContentAutosaveTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.textContentAutosaveTimers.clear();
     this.stopGenericVideoSmoothProgressTracking();
     this.destroyGenericHls();
     this.clearSelectedPdfPreviewResource();
@@ -3736,6 +4152,10 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
       URL.revokeObjectURL(thumbnailUrl);
     }
     this.generatedListThumbnailUrls.clear();
+  }
+
+  ngOnInit(): void {
+    void this.refreshData();
   }
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -5259,6 +5679,165 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     this.fileRenameDraft.set(value);
   }
 
+  protected viewerCopyActionLabel(file: AgentXLibraryFile): string {
+    if (this.isTextDocument(file)) {
+      return this.isMarkdownDocument(file) ? 'Copy Markdown' : 'Copy text';
+    }
+
+    return file.rawData ? 'Copy as JSON' : 'Copy file link';
+  }
+
+  protected hasMarkdownNotes(
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'textContent'>
+  ): boolean {
+    return (
+      typeof file.textContent === 'string' &&
+      file.textContent.trim().length > 0 &&
+      (this.isMarkdownDocument(file) || !this.isTextDocument(file))
+    );
+  }
+
+  protected canExportViewerContent(file: AgentXLibraryFile): boolean {
+    return this.isTextDocument(file) || this.hasMarkdownNotes(file) || !!file.rawData;
+  }
+
+  protected toggleViewerActions(fileId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.openViewerActionsFileId.update((current) => (current === fileId ? null : fileId));
+  }
+
+  protected closeViewerActions(): void {
+    this.openViewerActionsFileId.set(null);
+  }
+
+  protected onViewerRename(file: AgentXLibraryFile, event: Event): void {
+    this.closeViewerActions();
+    this.onFileRenameStart(file, event);
+  }
+
+  protected async onViewerCopy(
+    file: AgentXLibraryFile,
+    mode?: 'link' | 'markdown' | 'text' | 'json'
+  ): Promise<void> {
+    this.closeViewerActions();
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+      this.toast.error('Clipboard is unavailable');
+      return;
+    }
+
+    const copyMode =
+      mode ??
+      (this.isTextDocument(file)
+        ? this.isMarkdownDocument(file)
+          ? 'markdown'
+          : 'text'
+        : file.rawData
+          ? 'json'
+          : 'link');
+    const content =
+      copyMode === 'link'
+        ? await this.resolveFileUrlForAction(file, 'open')
+        : copyMode === 'json'
+          ? file.rawData
+            ? JSON.stringify(file.rawData, null, 2)
+            : null
+          : this.editingTextContent(file);
+    if (content === null) return;
+
+    try {
+      await navigator.clipboard.writeText(content);
+      this.toast.success(copyMode === 'link' ? 'File link copied' : 'Document copied');
+    } catch {
+      this.toast.error('Could not copy file');
+    }
+  }
+
+  protected async onViewerOpen(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    await this.openViewerFileInTab(file, 'open');
+  }
+
+  protected async onViewerDownload(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    await this.openViewerFileInTab(file, 'download');
+  }
+
+  private async openViewerFileInTab(
+    file: AgentXLibraryFile,
+    action: 'open' | 'download'
+  ): Promise<void> {
+    if (typeof window === 'undefined') return;
+
+    const actionWindow = window.open('', '_blank');
+    if (!actionWindow) {
+      this.toast.error('Allow pop-ups to open this file');
+      return;
+    }
+
+    const fileUrl = await this.resolveFileUrlForAction(file, action);
+    if (!fileUrl) {
+      actionWindow.close();
+      return;
+    }
+
+    actionWindow.opener = null;
+    const targetUrl = action === 'open' ? this.buildOpenTargetUrl(file, fileUrl) : fileUrl;
+    actionWindow.location.replace(targetUrl);
+  }
+
+  protected async onViewerExport(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    const isText = this.isTextDocument(file);
+    const hasMarkdownNotes = this.hasMarkdownNotes(file);
+    if (!isText && !hasMarkdownNotes && !file.rawData) return;
+
+    if (typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') return;
+    const isMarkdown = this.isMarkdownDocument(file) || hasMarkdownNotes;
+    const extension = isMarkdown ? '.md' : isText ? '.txt' : '.json';
+    const exportName = hasMarkdownNotes && !isText ? file.name.replace(/\.[^.]+$/, '') : file.name;
+    const filename = exportName.toLowerCase().endsWith(extension)
+      ? exportName
+      : `${exportName}${extension}`;
+    const content =
+      isText || hasMarkdownNotes
+        ? this.editingTextContent(file)
+        : JSON.stringify(file.rawData, null, 2);
+    const mimeType = isMarkdown
+      ? 'text/markdown;charset=utf-8'
+      : isText
+        ? file.mimeType
+        : 'application/json';
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.replace(/[\\/:*?"<>|]/g, '_');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  protected async onViewerRefresh(file: AgentXLibraryFile): Promise<void> {
+    this.closeViewerActions();
+    if (this.textContentDrafts()[file.id] !== undefined || this.isSavingTextContent()) {
+      this.toast.info('Wait for changes to save before refreshing');
+      return;
+    }
+    if (this.refreshingViewerFileId() === file.id) return;
+
+    this.refreshingViewerFileId.set(file.id);
+    try {
+      await this.filesService.refreshFile(file.id, this.resolveFileContextTeamId(file));
+      this.toast.success('File refreshed');
+    } catch {
+      this.toast.error('Failed to refresh file');
+    } finally {
+      this.refreshingViewerFileId.set(null);
+    }
+  }
+
   protected onFileRenameStart(file: AgentXLibraryFile, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
@@ -6742,7 +7321,7 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   protected thumbnailUrlForListItem(
     file: Pick<
       AgentXLibraryFile,
-      'id' | 'kind' | 'name' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'
+      'id' | 'kind' | 'mimeType' | 'name' | 'url' | 'thumbnailUrl' | 'cloudflareVideoId'
     >
   ): string | null {
     const failedKeys = this.failedListThumbnailKeys();
@@ -6816,9 +7395,9 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private buildGeneratedListThumbnailUrl(
-    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'name'>
+    file: Pick<AgentXLibraryFile, 'id' | 'kind' | 'mimeType' | 'name'>
   ): string {
-    const cacheKey = `${file.id}:${file.kind}:${file.name.trim().toLowerCase()}`;
+    const cacheKey = `${file.id}:${file.kind}:${file.mimeType}:${file.name.trim().toLowerCase()}`;
     const cached = this.generatedListThumbnailUrls.get(cacheKey);
     if (cached) {
       return cached;
@@ -6845,12 +7424,16 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   private resolveGeneratedListThumbnailLabel(
-    file: Pick<AgentXLibraryFile, 'kind' | 'name'>
+    file: Pick<AgentXLibraryFile, 'kind' | 'mimeType' | 'name'>
   ): string {
     const extensionMatch = /\.([a-z0-9]+)$/i.exec(file.name.trim());
     const extensionLabel = extensionMatch?.[1]?.trim().toUpperCase() ?? '';
     if (extensionLabel) {
       return extensionLabel.slice(0, 4);
+    }
+
+    if (file.mimeType.trim().toLowerCase() === 'text/markdown') {
+      return 'MD';
     }
 
     switch (file.kind) {
@@ -7077,6 +7660,20 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     };
   }
 
+  public selectedAgentContexts(): readonly AgentXSelectedContext[] {
+    const selectedFolders = this.selectedFolders();
+    const selectedFilesOutsideFolders = this.selectedFilesOutsideFolders();
+
+    const selectedFolderContexts = selectedFolders.map((folder) =>
+      this.buildFolderDragContext(folder, this.collectFolderFiles(folder))
+    );
+    const selectedFileContexts = selectedFilesOutsideFolders.map((file) =>
+      this.buildFileDragContext(file)
+    );
+
+    return [...selectedFolderContexts, ...selectedFileContexts];
+  }
+
   private resolveFilmReviewDragData(
     file: AgentXLibraryFile
   ): { readonly reviewId: string; readonly review: Partial<TeamFilmReviewDoc> } | null {
@@ -7275,6 +7872,13 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
   }
 
   protected async openFile(file: AgentXLibraryFile): Promise<void> {
+    if (this.compact && !this.isTextDocument(file)) {
+      this.toast.info(
+        'Preview is not available on mobile yet. Documents open directly in The Lab.'
+      );
+      return;
+    }
+
     const teamId = this.resolveFileContextTeamId(file);
     const inlineFilmReviewId = this.getInlineFilmReviewId(file);
     let viewerFile = file;
@@ -8131,9 +8735,15 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }
   }
 
-  protected onTextContentEdit(event: Event, fileId: string): void {
-    const value = (event.target as HTMLTextAreaElement).value;
+  protected onTextContentEdit(value: string, fileId: string): void {
     this.textContentDrafts.update((drafts) => ({ ...drafts, [fileId]: value }));
+    this.textContentSaveErrors.update((errors) => {
+      if (!errors[fileId]) return errors;
+      const next = { ...errors };
+      delete next[fileId];
+      return next;
+    });
+    this.scheduleTextContentAutosave(fileId);
   }
 
   protected editingTextContent(file: Pick<AgentXLibraryFile, 'id' | 'textContent'>): string {
@@ -8155,29 +8765,82 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     }));
   }
 
+  protected textContentSaveStatus(fileId: string): NxtMarkdownEditorSaveStatus {
+    if (this.textContentSaveErrors()[fileId]) {
+      return 'error';
+    }
+
+    if (this.textContentDrafts()[fileId] === undefined) {
+      return 'saved';
+    }
+
+    return this.isSavingTextContent() ? 'saving' : 'dirty';
+  }
+
+  protected saveTextContentDraft(fileId: string, draft: string): void {
+    this.textContentDrafts.update((drafts) => ({ ...drafts, [fileId]: draft }));
+    this.clearTextContentAutosave(fileId);
+    void this.saveTextContent(fileId, { suppressSuccessToast: true });
+  }
+
   protected buildFileNotesDragContext(file: AgentXLibraryFile): AgentXSelectedContext | null {
     const notes = this.editingTextContent(file).trim();
     return this.buildViewerFieldDragContext(file, 'notes', notes);
   }
 
-  protected async saveTextContent(fileId: string): Promise<void> {
+  protected async saveTextContent(
+    fileId: string,
+    options?: { readonly suppressSuccessToast?: boolean }
+  ): Promise<void> {
     const draft = this.textContentDrafts()[fileId];
     if (draft === undefined) return;
 
+    this.clearTextContentAutosave(fileId);
     this.isSavingTextContent.set(true);
     try {
       await this.filesService.updateFileTextContent(fileId, this.teamId ?? null, draft);
-      this.toast.success('Document content updated');
+      if (!options?.suppressSuccessToast) {
+        this.toast.success('Document content updated');
+      }
+      this.textContentSaveErrors.update((errors) => {
+        if (!errors[fileId]) return errors;
+        const next = { ...errors };
+        delete next[fileId];
+        return next;
+      });
       this.textContentDrafts.update((drafts) => {
+        if (drafts[fileId] !== draft) return drafts;
         const next = { ...drafts };
         delete next[fileId];
         return next;
       });
-    } catch {
-      this.toast.error('Failed to update document content');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update document content';
+      if (this.textContentDrafts()[fileId] === draft) {
+        this.textContentSaveErrors.update((errors) => ({ ...errors, [fileId]: message }));
+        this.toast.error('Failed to update document content');
+      }
     } finally {
       this.isSavingTextContent.set(false);
     }
+  }
+
+  private scheduleTextContentAutosave(fileId: string): void {
+    this.clearTextContentAutosave(fileId);
+    this.textContentAutosaveTimers.set(
+      fileId,
+      setTimeout(() => {
+        this.textContentAutosaveTimers.delete(fileId);
+        void this.saveTextContent(fileId, { suppressSuccessToast: true });
+      }, 1200)
+    );
+  }
+
+  private clearTextContentAutosave(fileId: string): void {
+    const timer = this.textContentAutosaveTimers.get(fileId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.textContentAutosaveTimers.delete(fileId);
   }
 
   protected shouldShowGenerateNotes(
@@ -8189,6 +8852,14 @@ export class AgentXFilesPanelInnerComponent implements OnChanges, OnDestroy {
     ).trim();
 
     return summary.length === 0 && textContent.length === 0;
+  }
+
+  protected usesDocumentContextStyle(file: AgentXLibraryFile): boolean {
+    return (
+      this.isTextDocument(file) ||
+      !this.shouldShowGenerateNotes(file) ||
+      (!this.isImageFile(file) && !this.isVideoFile(file))
+    );
   }
 
   protected isGeneratingNotes(fileId: string): boolean {

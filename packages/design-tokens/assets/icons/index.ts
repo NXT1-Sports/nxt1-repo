@@ -780,6 +780,18 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Target/bullseye icon (outline) — used for Goals actions */
+  target: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M21 12A9 9 0 1 1 3 12a9 9 0 0 1 18 0z' },
+      { d: 'M16.5 12a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0z' },
+      { d: 'M13.5 12a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z' },
+    ],
+  },
+
   /** Logout/Sign out icon (outline) */
   logout: {
     viewBox: '0 0 24 24',
@@ -1399,6 +1411,19 @@ export const UI_ICONS = {
       {
         d: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z',
       },
+    ],
+  },
+
+  /** Microphone icon - for voice input */
+  microphone: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z' },
+      { d: 'M19 10v2a7 7 0 0 1-14 0v-2' },
+      { d: 'M12 19v3' },
+      { d: 'M8 22h8' },
     ],
   },
 
@@ -2284,6 +2309,8 @@ export const ALIAS_ICONS = {
   'play-circle-outline': UI_ICONS.playCircle,
   'videocam-outline': UI_ICONS.videocam,
   'image-outline': UI_ICONS.image,
+  'mic-outline': UI_ICONS.microphone,
+  'microphone-outline': UI_ICONS.microphone,
 
   // ---- Content ----
   'document-text-outline': UI_ICONS.documentText,

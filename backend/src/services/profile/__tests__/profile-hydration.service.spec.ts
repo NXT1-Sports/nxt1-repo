@@ -126,4 +126,52 @@ describe('ProfileHydrationService', () => {
       isUserOrganizationAdmin: false,
     });
   });
+
+  it('preserves and propagates organization logo across newly added and sibling teams', async () => {
+    const orgLogoUrl = 'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=123';
+    rosterEntryService.getUserTeams.mockResolvedValue([
+      { teamId: 'team-1' },
+      { teamId: 'team-2' },
+    ]);
+    organizationService.getOrganizationById.mockResolvedValue(
+      createOrganization({
+        id: 'org-1',
+        name: 'Westlake High School',
+        logoUrl: orgLogoUrl,
+      })
+    );
+
+    const service = new ProfileHydrationService(
+      createDb({
+        'team-1': {
+          sport: 'Football',
+          organizationId: 'org-1',
+          teamType: 'high-school',
+          teamName: 'Westlake Football',
+          logoUrl: orgLogoUrl,
+        },
+        'team-2': {
+          sport: 'Basketball',
+          organizationId: 'org-1',
+          teamType: 'high-school',
+          teamName: 'Westlake Basketball',
+          // Newly created team with no direct logoUrl on team doc
+        },
+      }) as never,
+      rosterEntryService as never,
+      organizationService as never
+    );
+
+    const hydrated = await service.hydrateUser({
+      id: 'coach-1',
+      role: 'coach',
+      sports: [
+        { sport: 'Football', order: 0, team: { teamId: 'team-1', name: 'Westlake Football' } },
+        { sport: 'Basketball', order: 1, team: { teamId: 'team-2', name: 'Westlake Basketball' } },
+      ],
+    } as User);
+
+    expect(hydrated.sports?.[0]?.team?.logoUrl).toBe(orgLogoUrl);
+    expect(hydrated.sports?.[1]?.team?.logoUrl).toBe(orgLogoUrl);
+  });
 });

@@ -42,6 +42,16 @@ export {
   type DiagramAssetLoadRequest,
 } from './services/agent-x-diagram.service';
 export { AgentXFilmReviewService } from './services/agent-x-film-review.service';
+export { AgentXVoiceInputService } from './services/voice/agent-x-voice-input.service';
+export { AGENT_X_VOICE_INPUT_ADAPTER } from './services/voice/agent-x-voice-input.token';
+export { BackendVoiceTranscriptionAdapter } from './services/voice/backend-voice-transcription.adapter';
+export { BrowserSpeechVoiceInputAdapter } from './services/voice/browser-speech-voice-input.adapter';
+export { CompositeVoiceInputAdapter } from './services/voice/composite-voice-input.adapter';
+export {
+  AGENT_X_VOICE_WAVE_BAR_COUNT,
+  type AgentXVoiceInputAdapter,
+  type AgentXVoiceInputStartOptions,
+} from './services/voice/agent-x-voice-input.types';
 
 // Directives
 export { AgentXContextDragDirective } from './directives/agent-x-context-drag.directive';
@@ -91,6 +101,10 @@ export {
   type ConnectedAppSource,
   type AttachmentSheetResult,
 } from './components/modals/agent-x-attachments-sheet.component';
+export {
+  AgentXLabSheetComponent,
+  type AgentXLabSheetCloseResult,
+} from './components/modals/agent-x-lab-sheet.component';
 export {
   AgentXControlPanelStateService,
   AGENT_X_STATUS_DEFINITIONS,

@@ -15,6 +15,8 @@ vi.mock('../../../../models/agent/agent-thread.model.js', () => ({
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
+    find: vi.fn(),
+    countDocuments: vi.fn(),
   },
 }));
 
@@ -24,6 +26,7 @@ vi.mock('../../../../models/agent/agent-message.model.js', () => ({
     findOne: vi.fn(),
     findOneAndUpdate: vi.fn(),
     updateOne: vi.fn(),
+    updateMany: vi.fn(),
     find: vi.fn(),
     countDocuments: vi.fn(),
   },
@@ -563,7 +566,7 @@ describe('AgentChatService', () => {
       expect.objectContaining({
         maxTokens: 50,
         temperature: 0.3,
-        candidateModels: ['~anthropic/claude-haiku-latest', 'google/gemini-3.6-flash'],
+        candidateModels: ['~anthropic/claude-haiku-latest', '~google/gemini-flash-latest'],
       })
     );
   });
@@ -586,8 +589,322 @@ describe('AgentChatService', () => {
       expect.objectContaining({
         maxTokens: 60,
         temperature: 0.3,
-        candidateModels: ['~anthropic/claude-haiku-latest', 'google/gemini-3.6-flash'],
+        candidateModels: ['~anthropic/claude-haiku-latest', '~google/gemini-flash-latest'],
       })
     );
+  });
+
+  describe('thread pinning and archive integration', () => {
+    it('clears pinnedAt when a thread is archived', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+        execResult({ modifiedCount: 1 }) as never
+      );
+
+      const result = await service.archiveThread('thread-123', 'user-123');
+
+      expect(result).toBe(true);
+      expect(AgentThreadModel.updateOne).toHaveBeenCalledWith(
+        { _id: 'thread-123', userId: 'user-123' },
+        { $set: expect.objectContaining({ archived: true, pinnedAt: null }) }
+      );
+    });
+
+    it('returns THREAD_NOT_FOUND when pinning a nonexistent or archived thread', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentThreadModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult(null) as never
+      );
+      vi.mocked(AgentThreadModel.findOne).mockReturnValueOnce(leanExecResult(null) as never);
+
+      const result = await service.pinThread('thread-404', 'user-123', true);
+
+      expect(result).toEqual({
+        success: false,
+        errorCode: 'THREAD_NOT_FOUND',
+        error: 'Thread not found',
+      });
+      expect(AgentThreadModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'thread-404', userId: 'user-123', archived: false, pinnedAt: null },
+        { $set: expect.objectContaining({ pinnedAt: expect.any(String) }) },
+        { new: true }
+      );
+    });
+
+    it('atomically pins an active unpinned thread and records pinnedAt', async () => {
+      const service = new AgentChatService();
+      const mockDoc = {
+        _id: 'thread-123',
+        userId: 'user-123',
+        archived: false,
+        pinnedAt: '2026-06-01T12:00:00.000Z',
+      };
+
+      vi.mocked(AgentThreadModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult(mockDoc) as never
+      );
+
+      const result = await service.pinThread('thread-123', 'user-123', true);
+
+      expect(result.success).toBe(true);
+      expect(result.pinned).toBe(true);
+      expect(result.pinnedAt).toBe(mockDoc.pinnedAt);
+      expect(AgentThreadModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'thread-123', userId: 'user-123', archived: false, pinnedAt: null },
+        { $set: expect.objectContaining({ pinnedAt: expect.any(String) }) },
+        { new: true }
+      );
+    });
+
+    it('is idempotent when pinning an already pinned thread and preserves original pinnedAt', async () => {
+      const service = new AgentChatService();
+      const existingPinnedAt = '2026-06-01T12:00:00.000Z';
+      const mockDoc = {
+        _id: 'thread-123',
+        userId: 'user-123',
+        archived: false,
+        pinnedAt: existingPinnedAt,
+      };
+
+      vi.mocked(AgentThreadModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult(null) as never
+      );
+      vi.mocked(AgentThreadModel.findOne).mockReturnValueOnce(leanExecResult(mockDoc) as never);
+
+      const result = await service.pinThread('thread-123', 'user-123', true);
+
+      expect(result).toEqual({
+        success: true,
+        threadId: 'thread-123',
+        pinned: true,
+        pinnedAt: existingPinnedAt,
+      });
+      expect(AgentThreadModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('atomically unpins an active pinned thread', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+        execResult({ modifiedCount: 1 }) as never
+      );
+
+      const result = await service.pinThread('thread-123', 'user-123', false);
+
+      expect(result).toEqual({
+        success: true,
+        threadId: 'thread-123',
+        pinned: false,
+        pinnedAt: null,
+      });
+      expect(AgentThreadModel.updateOne).toHaveBeenCalledWith(
+        { _id: 'thread-123', userId: 'user-123', archived: false, pinnedAt: { $ne: null } },
+        { $set: expect.objectContaining({ pinnedAt: null }) }
+      );
+    });
+
+    it('is idempotent when unpinning an already unpinned thread', async () => {
+      const service = new AgentChatService();
+      const mockDoc = {
+        _id: 'thread-123',
+        userId: 'user-123',
+        archived: false,
+        pinnedAt: null,
+      };
+
+      vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+        execResult({ modifiedCount: 0 }) as never
+      );
+      vi.mocked(AgentThreadModel.findOne).mockReturnValueOnce(leanExecResult(mockDoc) as never);
+      vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+        execResult({ modifiedCount: 0 }) as never
+      );
+
+      const result = await service.pinThread('thread-123', 'user-123', false);
+
+      expect(result).toEqual({
+        success: true,
+        threadId: 'thread-123',
+        pinned: false,
+        pinnedAt: null,
+      });
+      expect(AgentThreadModel.updateOne).toHaveBeenCalledWith(
+        { _id: 'thread-123', userId: 'user-123', archived: false, pinnedAt: { $ne: null } },
+        { $set: expect.objectContaining({ pinnedAt: null }) }
+      );
+    });
+
+    it('returns pinned threads sorted by pinnedAt descending via getPinnedThreads', async () => {
+      const service = new AgentChatService();
+      const pinnedDocs = [
+        {
+          _id: 'thread-1',
+          userId: 'user-123',
+          title: 'Top Session',
+          lastMessageAt: '2026-06-01T12:00:00.000Z',
+          messageCount: 5,
+          archived: false,
+          pinnedAt: '2026-06-02T10:00:00.000Z',
+          createdAt: '2026-06-01T10:00:00.000Z',
+          updatedAt: '2026-06-02T10:00:00.000Z',
+        },
+      ];
+
+      vi.mocked(AgentThreadModel.find).mockReturnValueOnce(
+        sortedLeanExecResult(pinnedDocs) as never
+      );
+
+      const items = await service.getPinnedThreads('user-123');
+
+      expect(items).toHaveLength(1);
+      expect(items[0]?.id).toBe('thread-1');
+      expect(items[0]?.pinnedAt).toBe('2026-06-02T10:00:00.000Z');
+      expect(AgentThreadModel.find).toHaveBeenCalledWith({
+        userId: 'user-123',
+        archived: false,
+        pinnedAt: { $ne: null },
+      });
+    });
+  });
+
+  describe('edit capability and message supersession', () => {
+    it('isLatestUserTurn returns true when message is the latest user turn', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        sortedLeanExecResult({
+          _id: 'msg-latest',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'latest prompt',
+          createdAt: new Date().toISOString(),
+        }) as never
+      );
+
+      const result = await service.isLatestUserTurn('t1', 'msg-latest');
+      expect(result).toBe(true);
+    });
+
+    it('isLatestUserTurn returns false when another user prompt is newer', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        sortedLeanExecResult({
+          _id: 'msg-newer',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'newer prompt',
+          createdAt: new Date().toISOString(),
+        }) as never
+      );
+
+      const result = await service.isLatestUserTurn('t1', 'msg-older');
+      expect(result).toBe(false);
+    });
+
+    it('softDeleteAssistantMessagesForOperation soft-deletes assistant and tool rows for an operation', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.find).mockReturnValueOnce({
+        select: vi.fn().mockReturnThis(),
+        lean: vi.fn().mockReturnThis(),
+        exec: vi.fn().mockResolvedValue([{ _id: 'asst-1' }, { _id: 'tool-1' }]),
+      } as never);
+      vi.mocked(AgentMessageModel.updateMany).mockReturnValueOnce(
+        execResult({ modifiedCount: 2 }) as never
+      );
+
+      const deletedIds = await service.softDeleteAssistantMessagesForOperation(
+        'thread-1',
+        'op-old-1',
+        'user-1'
+      );
+
+      expect(deletedIds).toEqual(['asst-1', 'tool-1']);
+      expect(AgentMessageModel.updateMany).toHaveBeenCalledWith(
+        { _id: { $in: ['asst-1', 'tool-1'] } },
+        expect.objectContaining({
+          $set: expect.objectContaining({
+            deletedBy: 'user-1',
+          }),
+          $push: expect.objectContaining({
+            actions: expect.objectContaining({
+              type: 'deleted',
+              metadata: { reason: 'superseded_by_edit' },
+            }),
+          }),
+        })
+      );
+    });
+
+    it('editUserMessage guards the write with the revision just read to prevent a lost update', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        leanExecResult({
+          _id: 'msg-1',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'original prompt',
+          revision: 2,
+        }) as never
+      );
+      vi.mocked(AgentMessageModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult({
+          _id: 'msg-1',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'edited prompt',
+          revision: 3,
+        }) as never
+      );
+
+      const result = await service.editUserMessage({
+        messageId: 'msg-1',
+        userId: 'u1',
+        threadId: 't1',
+        newContent: 'edited prompt',
+        expectedRevision: 2,
+        replacementOperationId: 'op-new',
+      });
+
+      expect(result).not.toBeNull();
+      expect(AgentMessageModel.findOneAndUpdate).toHaveBeenCalledWith(
+        { _id: 'msg-1', revision: 2 },
+        expect.objectContaining({
+          $set: expect.objectContaining({ revision: 3, operationId: 'op-new' }),
+        }),
+        expect.anything()
+      );
+    });
+
+    it('editUserMessage returns null when a concurrent edit already advanced the revision', async () => {
+      const service = new AgentChatService();
+      vi.mocked(AgentMessageModel.findOne).mockReturnValueOnce(
+        leanExecResult({
+          _id: 'msg-1',
+          threadId: 't1',
+          userId: 'u1',
+          role: 'user',
+          content: 'original prompt',
+          revision: 2,
+        }) as never
+      );
+      // Simulate a concurrent winner already bumped the revision: the
+      // revision-guarded update matches nothing and returns null.
+      vi.mocked(AgentMessageModel.findOneAndUpdate).mockReturnValueOnce(
+        leanExecResult(null) as never
+      );
+
+      const result = await service.editUserMessage({
+        messageId: 'msg-1',
+        userId: 'u1',
+        threadId: 't1',
+        newContent: 'edited prompt',
+        expectedRevision: 2,
+        replacementOperationId: 'op-new',
+      });
+
+      expect(result).toBeNull();
+    });
   });
 });

@@ -48,6 +48,11 @@ describe('NxtAgentXExtendedThinkingComponent', () => {
     nativeEl = fixture.nativeElement as HTMLElement;
   });
 
+  // NOTE: signal inputs aren't wired through BrowserDynamicTestingModule's JIT
+  // compiler in this workspace, so inputs are stubbed directly on the instance.
+  // This only supports a fixed value for the lifetime of the fixture; the
+  // transition behavior itself is covered by nextThinkingExpandedState's own
+  // unit tests in agent-x-extended-thinking.component.spec.ts.
   function setExtendedThinkingInputs(isStreaming: boolean): void {
     Object.defineProperty(component, 'content', {
       configurable: true,
@@ -59,16 +64,18 @@ describe('NxtAgentXExtendedThinkingComponent', () => {
     });
   }
 
-  it('keeps streaming reasoning collapsed while still showing thinking status', () => {
+  it('auto-opens reasoning when created while already streaming', () => {
     setExtendedThinkingInputs(true);
     fixture.detectChanges();
 
     expect(nativeEl.textContent).toContain('Thinking');
     expect(nativeEl.querySelector('.ext-thinking__pulse')).not.toBeNull();
-    expect(nativeEl.querySelector('.ext-thinking__body')).toBeNull();
+    expect(nativeEl.querySelector('.ext-thinking__body')?.textContent).toContain(
+      'Checking profile image ownership.'
+    );
   });
 
-  it('allows streaming reasoning to be opened by the user', async () => {
+  it('allows the user to collapse streaming reasoning', async () => {
     setExtendedThinkingInputs(true);
     fixture.detectChanges();
 
@@ -76,9 +83,7 @@ describe('NxtAgentXExtendedThinkingComponent', () => {
     fixture.detectChanges();
 
     expect(hapticsMock.impact).toHaveBeenCalledWith('light');
-    expect(nativeEl.querySelector('.ext-thinking__body')?.textContent).toContain(
-      'Checking profile image ownership.'
-    );
+    expect(nativeEl.querySelector('.ext-thinking__body')).toBeNull();
   });
 });
 

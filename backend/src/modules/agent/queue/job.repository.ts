@@ -52,11 +52,17 @@ export const TERMINAL_JOB_RETENTION_DAYS = 30;
 export const RESULT_INLINE_THRESHOLD_BYTES = 600_000;
 export const RESULT_CHUNK_BASE64_LENGTH = 400_000;
 const FAILURE_ALERT_TERMINAL_STATUSES = new Set(['pending', 'sent']);
-const LOCKED_FAILURE_STATUSES = new Set<AgentOperationStatus>(['completed', 'failed', 'cancelled']);
+const LOCKED_FAILURE_STATUSES = new Set<AgentOperationStatus>([
+  'cancelling',
+  'completed',
+  'failed',
+  'cancelled',
+]);
 const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
   'paused',
   'awaiting_input',
   'awaiting_approval',
+  'cancelling',
   'completed',
   'failed',
   'cancelled',
@@ -374,6 +380,10 @@ export interface AgentJobDocument {
   readonly executionSource?: string | null;
   readonly resumedFromPlanId?: string | null;
   readonly status: AgentOperationStatus;
+  readonly cancelReason?: string | null;
+  readonly supersededByOperationId?: string | null;
+  readonly cancellationRequestedAt?: FirebaseFirestore.Timestamp | null;
+  readonly executionStoppedAt?: FirebaseFirestore.Timestamp | null;
   readonly progress: AgentJobProgress | null;
   readonly result: AgentOperationResult | null;
   /** Storage location of `result`; subcollection results are hydrated by getById. */
@@ -765,6 +775,13 @@ export class AgentJobRepository {
     });
     const snapshot = await this.jobRef(operationId).get();
     const currentData = snapshot.data() as Partial<AgentJobDocument> | undefined;
+    if (currentData?.status === 'cancelling' || currentData?.status === 'cancelled') {
+      logger.info('[AgentJobs] markCompleted skipped: operation is already cancelling/cancelled', {
+        operationId,
+        currentStatus: currentData.status,
+      });
+      return;
+    }
     const shouldTrackCompletion = currentData?.status !== 'completed';
     const serializedResult = JSON.stringify(safeResult);
     const resultByteLength = serializedByteLength(safeResult);
@@ -1264,6 +1281,96 @@ export class AgentJobRepository {
   }
 
   /**
+   * Request cancellation for an operation.
+   * If the operation is active or yielded, transitions status to 'cancelling'
+   * and records metadata (reason, supersededByOperationId, cancellationRequestedAt).
+   * If already terminal, preserves the terminal status while recording supersession.
+   */
+  async requestCancellation(
+    operationId: string,
+    options?: {
+      reason?: string;
+      supersededByOperationId?: string;
+    }
+  ): Promise<{ wasActive: boolean; status: AgentOperationStatus }> {
+    const jobRef = this.jobRef(operationId);
+
+    return this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(jobRef);
+      if (!snap.exists) {
+        return { wasActive: false, status: 'failed' as AgentOperationStatus };
+      }
+
+      const currentStatus = (snap.get('status') as AgentOperationStatus) ?? 'queued';
+      const isTerminal =
+        currentStatus === 'completed' ||
+        currentStatus === 'failed' ||
+        currentStatus === 'cancelled';
+
+      if (isTerminal) {
+        if (options?.supersededByOperationId) {
+          tx.set(
+            jobRef,
+            {
+              supersededByOperationId: options.supersededByOperationId,
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+        return { wasActive: false, status: currentStatus };
+      }
+
+      tx.update(jobRef, {
+        status: 'cancelling' satisfies AgentOperationStatus,
+        cancelReason: options?.reason ?? 'user_cancelled',
+        ...(options?.supersededByOperationId
+          ? { supersededByOperationId: options.supersededByOperationId }
+          : {}),
+        cancellationRequestedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return { wasActive: true, status: 'cancelling' };
+    });
+  }
+
+  /**
+   * Acknowledge that execution has fully stopped for a cancelled operation.
+   * Transitions status to 'cancelled' and stamps executionStoppedAt and completedAt.
+   */
+  async acknowledgeCancellation(
+    operationId: string,
+    options?: {
+      message?: string;
+    }
+  ): Promise<void> {
+    const progress = buildTerminalProgress({
+      status: 'cancelled',
+      message: options?.message ?? 'Operation cancelled by user.',
+    });
+
+    await this.jobRef(operationId).update({
+      status: 'cancelled' satisfies AgentOperationStatus,
+      progress,
+      yieldState: null,
+      executionStoppedAt: FieldValue.serverTimestamp(),
+      completedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+    });
+
+    await this.syncEventExpiryForRetentionDays(operationId, TERMINAL_JOB_RETENTION_DAYS).catch(
+      (err: unknown) => {
+        logger.error('[AgentJobs] Failed to sync event TTL after acknowledgeCancellation', {
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    );
+  }
+
+  /**
    * Mark the job as cancelled.
    */
   async markCancelled(
@@ -1281,6 +1388,7 @@ export class AgentJobRepository {
       status: 'cancelled' satisfies AgentOperationStatus,
       progress,
       yieldState: null,
+      executionStoppedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       completedAt: FieldValue.serverTimestamp(),
       expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),

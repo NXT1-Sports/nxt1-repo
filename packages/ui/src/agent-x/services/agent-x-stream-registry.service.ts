@@ -353,25 +353,18 @@ export class AgentXStreamRegistryService {
 
   /**
    * Append extended thinking text (Claude 3.7+ / Gemini 2.5).
-   * Accumulates into a `thinking` part and notifies the active listener.
-   * Some providers interleave reasoning after visible text; keep one canonical
-   * thinking part per stream instead of creating repeated reasoning blocks.
+   * Accumulates continuous tokens in the trailing open thinking part. Reasoning
+   * that resumes after text or tools starts a separate block.
    */
   appendThinking(threadId: string, content: string): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
     entry.thinking += content;
 
-    const existingThinkingIndex = entry.parts.findIndex((part) => part.type === 'thinking');
-    if (existingThinkingIndex >= 0) {
-      const existing = entry.parts[existingThinkingIndex];
-      if (existing?.type === 'thinking') {
-        entry.parts[existingThinkingIndex] = {
-          type: 'thinking',
-          content: existing.content + content,
-          ...(existing.done ? { done: true as const } : {}),
-        };
-      }
+    const lastIndex = entry.parts.length - 1;
+    const last = entry.parts[lastIndex];
+    if (last?.type === 'thinking' && !last.done) {
+      entry.parts[lastIndex] = { type: 'thinking', content: last.content + content };
     } else {
       entry.parts.push({ type: 'thinking', content });
     }
@@ -423,6 +416,12 @@ export class AgentXStreamRegistryService {
     }
 
     if (!updatedExisting) {
+      for (let i = 0; i < entry.parts.length; i++) {
+        const part = entry.parts[i];
+        if (part.type === 'thinking' && !part.done) {
+          entry.parts[i] = { type: 'thinking', content: part.content, done: true };
+        }
+      }
       const last = entry.parts[entry.parts.length - 1];
       if (last?.type === 'tool-steps') {
         entry.parts[entry.parts.length - 1] = {

@@ -65,6 +65,19 @@ describe('AgentXOperationChatTransportFacade', () => {
     queueTypingDelta: vi.fn(),
     drainBufferedTypingDelta: vi.fn().mockReturnValue(''),
     withUpsertedToolStepPart: vi.fn().mockImplementation((parts) => parts),
+    withAppendedThinkingPart: vi.fn().mockImplementation((parts, content) => {
+      const nextParts = [...(parts ?? [])];
+      const last = nextParts[nextParts.length - 1];
+      if (last?.type === 'thinking' && !last.done) {
+        nextParts[nextParts.length - 1] = {
+          type: 'thinking',
+          content: last.content + content,
+        };
+      } else {
+        nextParts.push({ type: 'thinking', content });
+      }
+      return nextParts;
+    }),
     attachStreamedCard: vi.fn(),
     stampLatestUserMessageOperationId: vi.fn(),
     finalizeStreamedAssistantMessage: vi.fn(),
@@ -232,7 +245,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     expect(host.setActivityPhase).not.toHaveBeenCalledWith('awaiting_input', 'Need more info');
   });
 
-  it('merges interleaved thinking chunks into the existing typing reasoning part', () => {
+  it('starts a new thinking block after visible text', () => {
     facade.sendViaStream({ message: 'Analyze the film' } as AgentXChatRequest, 'token-123');
     messageFacadeMock.messages.set([
       {
@@ -251,8 +264,9 @@ describe('AgentXOperationChatTransportFacade', () => {
     callbacks.onThinking?.({ content: 'Need final format. ' });
 
     expect(messageFacadeMock.messages()[0]?.parts).toEqual([
-      { type: 'thinking', content: 'Need tendency scope. Need final format. ', done: true },
+      { type: 'thinking', content: 'Need tendency scope. ', done: true },
       { type: 'text', content: 'Got it - self scout. ' },
+      { type: 'thinking', content: 'Need final format. ' },
     ]);
   });
 

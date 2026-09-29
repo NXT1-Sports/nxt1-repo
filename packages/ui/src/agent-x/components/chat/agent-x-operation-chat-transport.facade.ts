@@ -547,10 +547,11 @@ export class AgentXOperationChatTransportFacade {
         {
           onThread: (event) => {
             host.resolvedThreadId.set(event.threadId);
-            if (event.operationId) {
-              host.setCurrentOperationId(event.operationId);
+            if (event.operationId || event.userMessageId) {
+              if (event.operationId) host.setCurrentOperationId(event.operationId);
               this.messageFacade.stampLatestUserMessageOperationId({
-                operationId: event.operationId,
+                operationId: event.operationId ?? '',
+                ...(event.userMessageId ? { messageId: event.userMessageId } : {}),
                 ...(idempotencyKey ? { idempotencyKey } : {}),
               });
             }
@@ -630,29 +631,13 @@ export class AgentXOperationChatTransportFacade {
           onThinking: (event) => {
             const threadId = host.resolvedThreadId();
             if (threadId) this.streamRegistry.appendThinking(threadId, event.content);
-            // Some providers interleave reasoning after visible text; merge into
-            // the existing reasoning block instead of adding repeated toggles.
             this.messageFacade.messages.update((messages) =>
               messages.map((message) => {
                 if (message.id !== 'typing') return message;
-                const prevParts = message.parts ?? [];
-                const existingThinkingIndex = prevParts.findIndex(
-                  (part) => part.type === 'thinking'
-                );
-                const nextParts = [...prevParts];
-                if (existingThinkingIndex >= 0) {
-                  const existing = nextParts[existingThinkingIndex];
-                  if (existing?.type === 'thinking') {
-                    nextParts[existingThinkingIndex] = {
-                      type: 'thinking' as const,
-                      content: existing.content + event.content,
-                      ...(existing.done ? { done: true as const } : {}),
-                    };
-                  }
-                } else {
-                  nextParts.push({ type: 'thinking' as const, content: event.content });
-                }
-                return { ...message, parts: nextParts };
+                return {
+                  ...message,
+                  parts: this.messageFacade.withAppendedThinkingPart(message.parts, event.content),
+                };
               })
             );
           },

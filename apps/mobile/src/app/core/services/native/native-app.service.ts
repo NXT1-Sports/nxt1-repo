@@ -335,6 +335,23 @@ export class NativeAppService {
     this.logger.debug('Keyboard listeners configured');
   }
 
+  /**
+   * Request showing the native software keyboard.
+   * On Android, triggers Keyboard.show(). On iOS, focusing the input is handled via DOM.
+   */
+  async showKeyboard(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId) || !this._isNative()) {
+      return;
+    }
+
+    try {
+      const { Keyboard } = await import('@capacitor/keyboard');
+      await Keyboard.show();
+    } catch {
+      // Ignored if unsupported on platform (e.g. iOS)
+    }
+  }
+
   // ============================================
   // APP LIFECYCLE
   // ============================================

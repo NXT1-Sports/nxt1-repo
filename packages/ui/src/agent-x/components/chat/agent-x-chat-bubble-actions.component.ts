@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import { AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon';
 
@@ -7,15 +7,26 @@ import { NxtIconComponent } from '../../../components/icon';
   standalone: true,
   imports: [NxtIconComponent],
   template: `
-    <div
-      class="msg-actions"
-      [class.msg-actions--end]="alignEnd()"
-      [attr.data-testid]="testIds.ROOT"
-    >
+    <div class="msg-actions" [class.msg-actions--end]="alignEnd" [attr.data-testid]="testIds.ROOT">
+      @if (canEdit) {
+        <button
+          type="button"
+          class="msg-action-btn msg-action-btn--edit"
+          [attr.data-testid]="testIds.BTN_EDIT"
+          aria-label="Edit prompt"
+          title="Edit prompt"
+          (click)="edit.emit()"
+        >
+          <nxt1-icon name="pencil" [size]="13" />
+        </button>
+      }
+
       <button
         type="button"
         class="msg-action-btn"
         [attr.data-testid]="testIds.BTN_COPY"
+        aria-label="Copy prompt"
+        title="Copy prompt"
         (click)="copy.emit()"
       >
         <nxt1-icon name="copyDocs" [size]="14" />
@@ -43,11 +54,23 @@ import { NxtIconComponent } from '../../../components/icon';
         color: var(--op-text-muted, rgba(255, 255, 255, 0.45));
         padding: 2px;
         cursor: pointer;
-        transition: color 0.15s;
+        transition:
+          color 0.15s,
+          background 0.15s;
       }
 
       .msg-action-btn:hover {
         color: var(--op-text, #fff);
+      }
+
+      .msg-action-btn--edit {
+        gap: 4px;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+
+      .msg-action-btn--edit:hover {
+        background: rgba(255, 255, 255, 0.08);
       }
 
       @media (hover: hover) {
@@ -67,7 +90,9 @@ import { NxtIconComponent } from '../../../components/icon';
 export class ChatBubbleActionsComponent {
   protected readonly testIds = AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS;
 
-  readonly alignEnd = input(false);
+  @Input() alignEnd = false;
+  @Input() canEdit = false;
 
-  readonly copy = output<void>();
+  @Output() readonly copy = new EventEmitter<void>();
+  @Output() readonly edit = new EventEmitter<void>();
 }

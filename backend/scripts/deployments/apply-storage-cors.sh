@@ -15,7 +15,6 @@
 # Requirements:
 #   - gcloud CLI authenticated: gcloud auth login
 #   - Or service account key: GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
-#   - gsutil is included with gcloud CLI
 # =============================================================================
 set -euo pipefail
 
@@ -35,9 +34,9 @@ apply_cors() {
   local env_label="$3"
 
   echo "→ Applying CORS to $env_label bucket: gs://$bucket"
-  gsutil cors set "$cors_file" "gs://$bucket"
+  gcloud storage buckets update "gs://$bucket" --cors-file="$cors_file"
   echo "  ✅ Done. Verifying..."
-  gsutil cors get "gs://$bucket"
+  gcloud storage buckets describe "gs://$bucket" --format="default(cors_config)"
 }
 
 case "$TARGET" in

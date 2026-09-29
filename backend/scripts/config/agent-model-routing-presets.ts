@@ -29,14 +29,14 @@ const AGENT_X_EFFORT_PROFILES: AgentModelRoutingPreset['effortProfiles'] = {
     thinkingBudgetTokens: 8000,
   },
   medium: {
-    model: 'deepseek/deepseek-v4-pro',
+    model: '~deepseek/deepseek-pro-latest',
     reasoningEffort: 'medium',
     maxTokens: 8192,
     temperature: 0.4,
     thinkingBudgetTokens: 4000,
   },
   low: {
-    model: 'google/gemini-3.6-flash',
+    model: '~google/gemini-flash-latest',
     reasoningEffort: 'low',
     maxTokens: 4096,
     temperature: 0.5,

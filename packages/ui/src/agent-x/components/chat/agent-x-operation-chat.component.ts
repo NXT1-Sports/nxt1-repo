@@ -73,6 +73,7 @@ import { NxtIconComponent } from '../../../components/icon';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
 import { AgentXInputBarComponent } from '../inputs/agent-x-input-bar.component';
 import { ChatBubbleActionsComponent } from './agent-x-chat-bubble-actions.component';
+import { AgentXMessageEditComponent } from './agent-x-message-edit.component';
 import { AgentXOperationChatQuickPromptsComponent } from './agent-x-operation-chat-quick-prompts.component';
 import { AgentXOperationChatThinkingComponent } from './agent-x-operation-chat-thinking.component';
 import { AgentXOperationChatExecutionPlanComponent } from './agent-x-operation-chat-execution-plan.component';
@@ -469,6 +470,7 @@ export function normalizeExecutionPlanItemsForActiveResume(
     NxtPlatformIconComponent,
     AgentXInputBarComponent,
     ChatBubbleActionsComponent,
+    AgentXMessageEditComponent,
     AgentXOperationChatQuickPromptsComponent,
     AgentXOperationChatThinkingComponent,
     AgentXOperationChatExecutionPlanComponent,
@@ -535,8 +537,18 @@ export function normalizeExecutionPlanItemsForActiveResume(
               [class.msg-system]="msg.role === 'system'"
               [class.msg-error]="msg.error"
               [class.msg-row--wide]="!!msg.yieldState"
+              [class.msg-row--editing]="editingMessageId() === msg.id"
             >
-              @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && isAskUserYield(msg))) {
+              @if (editingMessageId() === msg.id) {
+                <nxt1-agent-x-message-edit
+                  [initialText]="msg.content"
+                  [saving]="messageFacade.isSavingEditedMessage()"
+                  (save)="messageFacade.saveEditedMessage(msg, $event)"
+                  (cancel)="messageFacade.cancelEditingMessage()"
+                />
+              } @else if (
+                hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && isAskUserYield(msg))
+              ) {
                 <nxt1-chat-bubble
                   variant="agent-operation"
                   [isOwn]="msg.role === 'user'"
@@ -719,10 +731,18 @@ export function normalizeExecutionPlanItemsForActiveResume(
                   }
                 </div>
               }
-              @if (!msg.yieldState && msg.id !== 'typing' && msg.role !== 'system' && !msg.error) {
+              @if (
+                !msg.yieldState &&
+                msg.id !== 'typing' &&
+                msg.role !== 'system' &&
+                !msg.error &&
+                editingMessageId() !== msg.id
+              ) {
                 <nxt1-agent-x-chat-bubble-actions
                   [alignEnd]="msg.role === 'user'"
+                  [canEdit]="messageFacade.canEditMessage(msg)"
                   (copy)="messageFacade.copyMessageContent(msg)"
+                  (edit)="messageFacade.startEditingMessage(msg)"
                 />
               }
             </div>
@@ -1797,6 +1817,10 @@ export function normalizeExecutionPlanItemsForActiveResume(
         gap: 4px;
         max-width: 88%;
         animation: fadeSlideIn 0.25s ease-out;
+      }
+
+      .msg-row--editing {
+        width: 100%;
       }
 
       /* Full-width row for messages containing data tables */
@@ -3554,6 +3578,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // Stream lifecycle cleanup is handled in the constructor's destroyRef callback.
     // Keep this hook for non-stream resources only to avoid aborting resumed runs
     // during component remounts.
+    this.messageFacade.destroy();
     this.attachmentsFacade.clearPendingFiles();
     this.clearActivityGapTimer();
     this.clearFocusScrollTimers();

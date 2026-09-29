@@ -18,6 +18,7 @@ import {
 import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { of } from 'rxjs';
+import { AUTH_REDIRECTS } from '@nxt1/core/constants';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -424,7 +425,7 @@ describe('AddSportService', () => {
 
     it('should navigate to home when back from first step', () => {
       service.onBack();
-      expect(routerMock.navigate).toHaveBeenCalledWith(['/']);
+      expect(routerMock.navigate).toHaveBeenCalledWith([AUTH_REDIRECTS.DEFAULT]);
     });
   });
 
@@ -471,7 +472,7 @@ describe('AddSportService', () => {
             connectedSourcesCount: 0,
           }
         );
-        expect(routerMock.navigate).toHaveBeenCalledWith(['/']);
+        expect(routerMock.navigate).toHaveBeenCalledWith([AUTH_REDIRECTS.DEFAULT]);
       });
     });
 
@@ -483,7 +484,7 @@ describe('AddSportService', () => {
         expect(toastMock.error).toHaveBeenCalledWith('Failed to add sport. Please try again.');
       });
 
-      expect(routerMock.navigate).not.toHaveBeenCalledWith(['/']);
+      expect(routerMock.navigate).not.toHaveBeenCalledWith([AUTH_REDIRECTS.DEFAULT]);
     });
 
     it('should handle save exception with toast error', async () => {

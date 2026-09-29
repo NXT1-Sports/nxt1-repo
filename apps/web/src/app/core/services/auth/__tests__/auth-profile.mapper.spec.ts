@@ -276,4 +276,83 @@ describe('mapBackendProfileToCachedUserProfile', () => {
     expect(ctx?.actionLabel).toBe('Add Team');
     expect(ctx?.profileRoute).toBe('/team');
   });
+
+  it('inherits organization logo on top-nav and switcher when a coach creates a new team under the organization', () => {
+    // Coach already had Football with the organization logo.
+    // They just added Basketball (index 1 is active), which doesn't have its own logoUrl yet.
+    const orgLogo = 'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=tok';
+    const ctx = buildUserDisplayContext({
+      displayName: 'Coach Smith',
+      email: 'coach@example.com',
+      role: 'coach',
+      activeSportIndex: 1, // active sport is the new team (Basketball)
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          team: {
+            name: 'Westlake Football',
+            teamId: 'team-fb',
+            organizationId: 'org-1',
+            logoUrl: orgLogo,
+          },
+        },
+        {
+          sport: 'Basketball',
+          order: 1,
+          team: {
+            name: 'Westlake Basketball',
+            teamId: 'team-bb',
+            organizationId: 'org-1',
+            // No direct logoUrl on the newly added team!
+          },
+        },
+      ],
+    });
+
+    expect(ctx?.isTeamRole).toBe(true);
+    expect(ctx?.isOnTeam).toBe(true);
+    // Top-bar logo should NOT disappear: it should inherit from the organization/sibling team
+    expect(ctx?.profileImg).toContain('Organizations%2Forg-1%2Flogo');
+    // Switcher profiles should all have the logo populated
+    expect(ctx?.sportProfiles.length).toBe(2);
+    expect(ctx?.sportProfiles[0]?.profileImg).toContain('Organizations%2Forg-1%2Flogo');
+    expect(ctx?.sportProfiles[1]?.profileImg).toContain('Organizations%2Forg-1%2Flogo');
+  });
+
+  it('maps organization logo to new sport entries in mapBackendProfileToCachedUserProfile', () => {
+    const orgLogo = 'https://cdn.example.com/org-logo.png';
+    const mapped = mapBackendProfileToCachedUserProfile({
+      id: 'coach-1',
+      email: 'coach@example.com',
+      firstName: 'John',
+      lastName: 'Coach',
+      role: 'coach',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          team: {
+            name: 'Tigers Football',
+            teamId: 'team-1',
+            organizationId: 'org-tigers',
+            logoUrl: orgLogo,
+          },
+        },
+        {
+          sport: 'Track',
+          order: 1,
+          team: {
+            name: 'Tigers Track',
+            teamId: 'team-2',
+            organizationId: 'org-tigers',
+            // Missing direct logoUrl
+          },
+        },
+      ],
+    });
+
+    // The second team under the same organization should inherit the logo
+    expect(mapped.sports?.[1]?.team?.logoUrl).toBe(orgLogo);
+  });
 });

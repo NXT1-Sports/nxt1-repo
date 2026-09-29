@@ -121,6 +121,25 @@ export interface EditMessageResult extends AgentMessageActionResult {
   };
 }
 
+export interface EditAndResendPayload {
+  readonly message: string;
+  readonly threadId: string;
+  readonly reason?: string;
+  readonly expectedRevision?: number;
+  readonly idempotencyKey?: string;
+}
+
+export interface EditAndResendResult extends AgentMessageActionResult {
+  readonly data?: {
+    readonly message: AgentMessage;
+    readonly operationId: string;
+    readonly supersededOperationId?: string;
+    readonly rerunEnqueued: boolean;
+    readonly handoffStatus?: 'stopping_previous' | 'queued';
+    readonly deletedAssistantMessageIds?: readonly string[];
+  };
+}
+
 export interface DeleteMessageResult extends AgentMessageActionResult {
   readonly data?: {
     readonly messageId: string;
@@ -168,6 +187,13 @@ export interface AgentXThreadActionResponse {
   readonly jobId?: string;
   readonly threadId?: string | null;
   readonly resolvedOperationId?: string;
+}
+
+/** Response from pinning or unpinning a thread. */
+export interface PinThreadResponse {
+  readonly threadId: string;
+  readonly pinned: boolean;
+  readonly pinnedAt: string | null;
 }
 
 // ============================================
@@ -525,6 +551,22 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
     },
 
     /**
+     * Pin or unpin an Agent X session thread.
+     *
+     * @param threadId - The MongoDB thread ID
+     * @param pinned - Whether to pin (true) or unpin (false)
+     * @returns Pin result with threadId, pinned boolean, and timestamp
+     */
+    async pinThread(threadId: string, pinned: boolean): Promise<PinThreadResponse> {
+      const url = `${endpoint(AGENT_X_ENDPOINTS.THREADS)}/${encodeURIComponent(threadId)}/pin`;
+      const response = await http.put<ApiResponse<PinThreadResponse>>(url, { pinned });
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? `Failed to ${pinned ? 'pin' : 'unpin'} thread`);
+      }
+      return response.data;
+    },
+
+    /**
      * Fetch one active message by ID.
      */
     async getMessage(messageId: string): Promise<AgentMessage | null> {
@@ -565,6 +607,44 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         };
       } catch {
         return { success: false, error: 'Failed to edit message' };
+      }
+    },
+
+    /**
+     * Atomically edit a user message and supersede the prior operation with a replacement.
+     */
+    async editAndResendMessage(
+      messageId: string,
+      payload: EditAndResendPayload
+    ): Promise<EditAndResendResult> {
+      try {
+        const response = await http.post<
+          ApiResponse<{
+            message: AgentMessage;
+            operationId: string;
+            supersededOperationId?: string;
+            rerunEnqueued: boolean;
+            handoffStatus?: 'stopping_previous' | 'queued';
+            deletedAssistantMessageIds?: readonly string[];
+          }>
+        >(
+          `${endpoint(AGENT_X_ENDPOINTS.MESSAGES)}/${encodeURIComponent(messageId)}/edit-and-resend`,
+          payload
+        );
+
+        if (!response.success) {
+          return {
+            success: false,
+            error: response.error ?? 'Failed to edit and resend message',
+          };
+        }
+
+        return {
+          success: true,
+          data: response.data,
+        };
+      } catch {
+        return { success: false, error: 'Failed to edit and resend message' };
       }
     },
 

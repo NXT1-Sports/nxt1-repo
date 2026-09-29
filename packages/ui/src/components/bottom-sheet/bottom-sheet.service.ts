@@ -132,6 +132,7 @@ export class NxtBottomSheetService {
       showBackdrop: true,
       backdropBreakpoint: config.backdropBreakpoint ?? 0.5,
       backdropDismiss: config.backdropDismiss ?? false,
+      focusTrap: config.focusTrap ?? true,
 
       // Dismiss guard (for unsaved changes)
       canDismiss: gestureGuard.canDismiss,

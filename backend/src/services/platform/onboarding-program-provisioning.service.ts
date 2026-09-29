@@ -74,7 +74,10 @@ export interface ProvisionOnboardingProgramsResult {
   createdTeamIds: string[];
   organizationIds: string[];
   /** Maps lowercase sport name → resolved team/org for backfilling User.sports[].team */
-  sportTeamMap: Map<string, { teamId: string; organizationId: string; orgName: string }>;
+  sportTeamMap: Map<
+    string,
+    { teamId: string; organizationId: string; orgName: string; logoUrl?: string }
+  >;
   membershipTransitions: Array<{
     teamId: string;
     organizationId: string;
@@ -540,7 +543,7 @@ async function ensureProvisionedTeamForSport(
   program: ProvisioningProgramRecord,
   sportName: string,
   level?: string
-): Promise<{ teamId: string; created: boolean } | null> {
+): Promise<{ teamId: string; created: boolean; logoUrl?: string } | null> {
   const normalizedSportName = normalizeLookupValue(sportName);
   const requestedLevel = normalizeLookupValue(level);
 
@@ -554,17 +557,33 @@ async function ensureProvisionedTeamForSport(
       buildProvisioningLockId('team', [program.organizationId, normalizedSportName, requestedLevel])
     );
 
-  let resolved: { teamId: string; created: boolean } | null = null;
+  let resolved: { teamId: string; created: boolean; logoUrl?: string } | null = null;
 
   await input.db.runTransaction(async (transaction) => {
     const lockSnap = await transaction.get(lockRef);
     const lockedTeamId = normalizeLookupValue(lockSnap.data()?.['teamId']);
 
+    let orgLogoUrl: string | undefined = (program as unknown as { logoUrl?: string }).logoUrl;
+    try {
+      const orgRef = input.db.collection('Organizations').doc(program.organizationId);
+      if (typeof orgRef?.get === 'function') {
+        const orgDoc = (await transaction.get(orgRef)) as
+          | FirebaseFirestore.DocumentSnapshot
+          | undefined;
+        if (orgDoc?.exists) {
+          orgLogoUrl = (orgDoc.data()?.['logoUrl'] as string | undefined) || orgLogoUrl;
+        }
+      }
+    } catch {
+      // Tolerate test mocks or missing doc
+    }
+
     if (lockedTeamId) {
       const lockedTeamRef = input.db.collection('Teams').doc(lockedTeamId);
       const lockedTeamSnap = await transaction.get(lockedTeamRef);
       if (lockedTeamSnap.exists) {
-        resolved = { teamId: lockedTeamSnap.id, created: false };
+        const lockedLogo = (lockedTeamSnap.data()?.['logoUrl'] as string | undefined) || orgLogoUrl;
+        resolved = { teamId: lockedTeamSnap.id, created: false, logoUrl: lockedLogo };
         return;
       }
     }
@@ -587,7 +606,8 @@ async function ensureProvisionedTeamForSport(
         level: requestedLevel,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      resolved = { teamId: existingTeam.id, created: false };
+      const existingLogo = (existingTeam.data()?.['logoUrl'] as string | undefined) || orgLogoUrl;
+      resolved = { teamId: existingTeam.id, created: false, logoUrl: existingLogo };
       return;
     }
 
@@ -614,6 +634,7 @@ async function ensureProvisionedTeamForSport(
       organizationId: program.organizationId,
       source: 'user_generated',
       createdBy: input.userId,
+      ...(orgLogoUrl ? { logoUrl: orgLogoUrl, teamLogoImg: orgLogoUrl } : {}),
     });
 
     transaction.update(input.db.collection('Organizations').doc(program.organizationId), {
@@ -631,10 +652,10 @@ async function ensureProvisionedTeamForSport(
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    resolved = { teamId: teamRef.id, created: true };
+    resolved = { teamId: teamRef.id, created: true, logoUrl: orgLogoUrl };
   });
 
-  const resolvedTeam = resolved as { teamId: string; created: boolean } | null;
+  const resolvedTeam = resolved as { teamId: string; created: boolean; logoUrl?: string } | null;
 
   if (resolvedTeam?.created) {
     logger.info('[OnboardingProgramProvisioning] Created ghost sport team', {
@@ -749,7 +770,7 @@ async function ensureTeamForSport(
   input: ProvisionOnboardingProgramsInput,
   program: ProvisioningProgramRecord,
   sportName: string
-): Promise<{ teamId: string; created: boolean } | null> {
+): Promise<{ teamId: string; created: boolean; logoUrl?: string } | null> {
   // Resolve the level for this sport from the user's sport profile so that
   // Varsity Football and JV Football resolve to distinct team documents.
   const sport = input.sports.find((s) => s.sport?.toLowerCase() === sportName.toLowerCase());
@@ -896,6 +917,7 @@ export async function provisionOnboardingPrograms(
             teamId: team.teamId,
             organizationId: program.organizationId,
             orgName: program.name,
+            ...(team.logoUrl ? { logoUrl: team.logoUrl } : {}),
           });
         }
       } catch (err) {

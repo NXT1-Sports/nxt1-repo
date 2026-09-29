@@ -2095,6 +2095,8 @@ describe('Agent X Routes', () => {
         content: 'Old prompt',
         origin: 'user',
         createdAt: nowIso,
+        operationId: 'op-original-1',
+        revision: 0,
       }),
       editUserMessage: vi.fn().mockResolvedValue({
         id: messageId,
@@ -2104,17 +2106,23 @@ describe('Agent X Routes', () => {
         content: 'Updated prompt',
         origin: 'user',
         createdAt: nowIso,
+        revision: 1,
       }),
-      getNextAssistantMessage: vi.fn().mockResolvedValue(null),
-      softDeleteMessage: vi.fn(),
+      isLatestUserTurn: vi.fn().mockResolvedValue(true),
+      softDeleteAssistantMessagesForOperation: vi.fn().mockResolvedValue(['asst-1']),
     };
     const queueService = {
       enqueue: vi.fn().mockResolvedValue('job-123'),
+      cancel: vi.fn().mockResolvedValue(true),
     };
 
     setAgentDependencies({
       queueService: queueService as never,
-      jobRepository: createMockJobRepository() as never,
+      jobRepository: createMockJobRepository({
+        operationId: 'op-original-1',
+        userId: 'test-user',
+        status: 'acting',
+      }) as never,
       chatService: chatService as never,
       contextBuilder: {
         buildContext: vi.fn(),
@@ -2140,6 +2148,20 @@ describe('Agent X Routes', () => {
     expect(response.body.success).toBe(true);
     expect(response.body.data.rerunEnqueued).toBe(true);
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
+
+    // Also verify POST /messages/:messageId/edit-and-resend
+    const resendResponse = await request(app)
+      .post(`/api/v1/agent-x/messages/${messageId}/edit-and-resend`)
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        message: 'Another updated prompt',
+        threadId,
+        expectedRevision: 0,
+      });
+
+    expect(resendResponse.status).toBe(200);
+    expect(resendResponse.body.success).toBe(true);
+    expect(resendResponse.body.data.rerunEnqueued).toBe(true);
   });
 
   it('should delete, undo, submit feedback, and annotate message', async () => {
@@ -3775,7 +3797,14 @@ describe('Agent X Routes', () => {
     expect(response.status).toBe(200);
     expect(jobRepository.findActiveByThread).toHaveBeenCalledWith(threadId);
     expect(queueService.cancel).toHaveBeenCalledWith('op-awaiting-input');
-    expect(jobRepository.markCancelled).toHaveBeenCalledWith('op-awaiting-input');
+    expect(jobRepository.requestCancellation).toHaveBeenCalledWith(
+      'op-awaiting-input',
+      expect.objectContaining({ reason: 'superseded_by_edit' })
+    );
+    expect(jobRepository.acknowledgeCancellation).toHaveBeenCalledWith(
+      'op-awaiting-input',
+      expect.anything()
+    );
     expect(jobRepository.create).toHaveBeenCalledTimes(1);
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
     expect(chatService.addMessage).toHaveBeenCalledWith(
@@ -6483,7 +6512,10 @@ describe('Agent X Routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(cancelAbortController.signal.aborted).toBe(true);
-    expect(jobRepository.markCancelled).toHaveBeenCalledWith(operationId);
+    expect(jobRepository.requestCancellation).toHaveBeenCalledWith(
+      operationId,
+      expect.objectContaining({ reason: 'user_cancelled' })
+    );
     expect(jobRepository.writeJobEvent).toHaveBeenCalledTimes(2);
 
     const operationEventWrite = vi.mocked(jobRepository.writeJobEvent).mock.calls[0]?.[1] as {
@@ -6806,6 +6838,175 @@ describe('Agent X Routes', () => {
     });
     expect(__getMockFirestoreWrites()).toHaveLength(0);
   });
+
+  describe('thread pin route and operations log integration', () => {
+    it('should reject invalid thread ID format on pin request', async () => {
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/not-an-objectid/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: true });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('Invalid thread ID format');
+    });
+
+    it('should reject non-boolean pinned field', async () => {
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/507f1f77bcf86cd799439011/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: 'yes' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(response.body.error).toContain('must be a boolean');
+    });
+
+    it('should return 404 when pinThread returns THREAD_NOT_FOUND', async () => {
+      setAgentDependencies({
+        queueService: { enqueue: vi.fn(), cancel: vi.fn() } as never,
+        jobRepository: createMockJobRepository() as never,
+        chatService: {
+          pinThread: vi.fn().mockResolvedValue({
+            success: false,
+            errorCode: 'THREAD_NOT_FOUND',
+            error: 'Thread not found',
+          }),
+        } as never,
+      });
+
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/507f1f77bcf86cd799439011/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: true });
+
+      expect(response.status).toBe(404);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should successfully pin a thread and return 200 with data', async () => {
+      const pinnedAt = '2026-06-25T12:00:00.000Z';
+      setAgentDependencies({
+        queueService: { enqueue: vi.fn(), cancel: vi.fn() } as never,
+        jobRepository: createMockJobRepository() as never,
+        chatService: {
+          pinThread: vi.fn().mockResolvedValue({
+            success: true,
+            threadId: '507f1f77bcf86cd799439011',
+            pinned: true,
+            pinnedAt,
+          }),
+        } as never,
+      });
+
+      const response = await request(app)
+        .put('/api/v1/agent-x/threads/507f1f77bcf86cd799439011/pin')
+        .set('Authorization', 'Bearer test-token')
+        .send({ pinned: true });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data).toEqual({
+        threadId: '507f1f77bcf86cd799439011',
+        pinned: true,
+        pinnedAt,
+      });
+    });
+
+    it('should return pinned sessions separately in /operations-log and exclude them from history', async () => {
+      const now = Date.parse('2026-06-25T12:00:00.000Z');
+      const pinnedThreadId = '507f1f77bcf86cd799439011';
+      const normalThreadId = '507f1f77bcf86cd799439022';
+
+      const jobRepository = createMockJobRepository();
+      jobRepository.getByUserPage.mockResolvedValue({
+        jobs: [
+          {
+            operationId: 'op-pinned',
+            threadId: pinnedThreadId,
+            userId: 'test-user',
+            intent: 'Pinned film breakdown',
+            status: 'completed',
+            origin: 'user',
+            createdAt: { toMillis: () => now },
+          },
+          {
+            operationId: 'op-normal',
+            threadId: normalThreadId,
+            userId: 'test-user',
+            intent: 'Normal outreach plan',
+            status: 'completed',
+            origin: 'user',
+            createdAt: { toMillis: () => now - 60_000 },
+          },
+        ],
+        hasMore: false,
+        nextCreatedAt: undefined,
+      });
+
+      const chatService = {
+        getUserThreads: vi.fn().mockResolvedValue({
+          items: [
+            {
+              id: pinnedThreadId,
+              title: 'Pinned film breakdown',
+              lastMessageAt: new Date(now).toISOString(),
+              messageCount: 3,
+              archived: false,
+              pinnedAt: '2026-06-25T12:00:00.000Z',
+              category: 'film',
+              createdAt: new Date(now).toISOString(),
+              updatedAt: new Date(now).toISOString(),
+            },
+            {
+              id: normalThreadId,
+              title: 'Normal outreach plan',
+              lastMessageAt: new Date(now - 60_000).toISOString(),
+              messageCount: 2,
+              archived: false,
+              pinnedAt: null,
+              category: 'outreach',
+              createdAt: new Date(now - 60_000).toISOString(),
+              updatedAt: new Date(now - 60_000).toISOString(),
+            },
+          ],
+          hasMore: false,
+        }),
+        getPinnedThreads: vi.fn().mockResolvedValue([
+          {
+            id: pinnedThreadId,
+            title: 'Pinned film breakdown',
+            lastMessageAt: new Date(now).toISOString(),
+            messageCount: 3,
+            archived: false,
+            pinnedAt: '2026-06-25T12:00:00.000Z',
+            category: 'film',
+            createdAt: new Date(now).toISOString(),
+            updatedAt: new Date(now).toISOString(),
+          },
+        ]),
+      };
+
+      setAgentDependencies({
+        queueService: { enqueue: vi.fn(), cancel: vi.fn() } as never,
+        jobRepository: jobRepository as never,
+        chatService: chatService as never,
+      });
+
+      const response = await request(app)
+        .get('/api/v1/agent-x/operations-log?limit=50')
+        .set('Authorization', 'Bearer test-token');
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.pinned).toHaveLength(1);
+      expect(response.body.pinned[0].threadId).toBe(pinnedThreadId);
+      expect(response.body.pinned[0].pinnedAt).toBe('2026-06-25T12:00:00.000Z');
+
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].threadId).toBe(normalThreadId);
+    });
+  });
 });
 
 function createMockJobRepository(jobDoc?: Record<string, unknown>) {
@@ -6829,6 +7030,8 @@ function createMockJobRepository(jobDoc?: Record<string, unknown>) {
     markPaused: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markCancelled: vi.fn().mockResolvedValue(undefined),
+    requestCancellation: vi.fn().mockResolvedValue({ wasActive: true, status: 'cancelling' }),
+    acknowledgeCancellation: vi.fn().mockResolvedValue(undefined),
     markDetached: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
     patchContext: vi.fn().mockResolvedValue(undefined),

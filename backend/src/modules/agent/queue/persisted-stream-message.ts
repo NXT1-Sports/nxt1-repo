@@ -112,18 +112,14 @@ export class PersistedAssistantStreamBuilder {
       case 'thinking': {
         if (!event.thinkingText) return;
         const text = sanitizeAgentOutputText(event.thinkingText);
-        const existingThinkingIndex = this.parts.findIndex(
-          (part, index) => part.type === 'thinking' && this.partAgentIds[index] === event.agentId
-        );
-        if (existingThinkingIndex >= 0) {
-          const existing = this.parts[existingThinkingIndex];
-          if (existing?.type === 'thinking') {
-            this.parts[existingThinkingIndex] = {
-              type: 'thinking',
-              content: existing.content + text,
-              ...(existing.done ? { done: true as const } : {}),
-            };
-          }
+        const lastIndex = this.parts.length - 1;
+        const last = this.parts[lastIndex];
+        if (
+          last?.type === 'thinking' &&
+          !last.done &&
+          this.partAgentIds[lastIndex] === event.agentId
+        ) {
+          this.parts[lastIndex] = { type: 'thinking', content: last.content + text };
         } else {
           this.parts.push({ type: 'thinking', content: text });
           this.partAgentIds.push(event.agentId);
@@ -401,6 +397,7 @@ export class PersistedAssistantStreamBuilder {
       return;
     }
 
+    this.markThinkingDone(step.agentId);
     this.parts.push({ type: 'tool-steps', steps: [step] });
     this.partAgentIds.push(step.agentId);
   }

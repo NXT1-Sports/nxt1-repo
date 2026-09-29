@@ -396,6 +396,27 @@ export class AgentXFilmReviewService {
     );
   }
 
+  /** Applies access-key updates from a UniversalFiles share mutation to the cached review. */
+  applyReviewAccessKeys(
+    reviewId: string,
+    access: {
+      readonly readAccessKeys: readonly string[];
+      readonly writeAccessKeys: readonly string[];
+    }
+  ): void {
+    this._reviews.update((reviews) =>
+      reviews.map((review) =>
+        review.id === reviewId
+          ? {
+              ...review,
+              readAccessKeys: access.readAccessKeys,
+              writeAccessKeys: access.writeAccessKeys,
+            }
+          : review
+      )
+    );
+  }
+
   private upsertReview(review: TeamFilmReviewDoc): void {
     const normalized = this.normalizeReviewTimelineError(review);
     this._reviews.update((reviews) => {

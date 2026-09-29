@@ -21,9 +21,13 @@ import {
   inject,
   computed,
   effect,
+  viewChild,
+  afterNextRender,
+  PLATFORM_ID,
   OnInit,
   OnDestroy,
 } from '@angular/core';
+import { isPlatformBrowser } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { mapToConnectedSources } from '@nxt1/core';
 import {
@@ -51,7 +55,9 @@ import { shouldStartActivityRealtimeListener } from './activity-realtime-auth-ga
   template: `
     <!-- Shell owns its own ion-content + ion-footer -->
     <nxt1-agent-x-shell
+      #shell
       [user]="userInfo()"
+      [autoFocusInput]="true"
       (avatarClick)="onAvatarClick()"
       (connectedAccountsSave)="onConnectedAccountsSave($event)"
     />
@@ -86,10 +92,18 @@ export class AgentXComponent implements OnInit, OnDestroy {
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly nativeApp = inject(NativeAppService);
+  private readonly platformId = inject(PLATFORM_ID);
+
+  private readonly shell = viewChild<AgentXShellComponent>('shell');
 
   private resumeSub?: Subscription;
+  private focusTimeout?: ReturnType<typeof setTimeout>;
 
   constructor() {
+    afterNextRender(() => {
+      this.focusInputWithRetry();
+    });
+
     effect(() => {
       const isAuthInitialized = this.authFlow.isInitialized();
       const appUserId = this.authFlow.user()?.uid?.trim() ?? null;
@@ -202,11 +216,24 @@ export class AgentXComponent implements OnInit, OnDestroy {
             operationId: pendingOp.operationId,
           });
         }
+
+        this.focusInputWithRetry();
       });
+  }
+
+  /**
+   * Ionic page lifecycle: fires when the page enters the viewport.
+   * Ensures the software keyboard automatically goes up.
+   */
+  ionViewDidEnter(): void {
+    this.focusInputWithRetry();
   }
 
   ngOnDestroy(): void {
     this.resumeSub?.unsubscribe();
+    if (this.focusTimeout) {
+      clearTimeout(this.focusTimeout);
+    }
   }
 
   /**
@@ -214,5 +241,49 @@ export class AgentXComponent implements OnInit, OnDestroy {
    */
   protected onAvatarClick(): void {
     this.sidenavService.open();
+  }
+
+  /**
+   * Automatically focuses the Agent X input bar and requests native keyboard display.
+   */
+  private focusInputWithRetry(): void {
+    if (!isPlatformBrowser(this.platformId)) {
+      return;
+    }
+
+    if (this.focusTimeout) {
+      clearTimeout(this.focusTimeout);
+    }
+
+    const triggerFocus = () => {
+      if (this.isOverlayOrSidenavOpen()) {
+        this.focusTimeout = setTimeout(triggerFocus, 500);
+        return;
+      }
+      this.shell()?.focusInput();
+      void this.nativeApp.showKeyboard();
+    };
+
+    // Do NOT call triggerFocus() synchronously — the keyboard-offset listener
+    // may not be registered yet at this point.
+    this.focusTimeout = setTimeout(triggerFocus, 100);
+  }
+
+  /**
+   * Checks whether the sidenav or any overlay (modal, sheet, alert) is currently open.
+   */
+  private isOverlayOrSidenavOpen(): boolean {
+    if (this.sidenavService.isOpen()) {
+      return true;
+    }
+    if (typeof document !== 'undefined') {
+      const activeOverlay = document.querySelector(
+        'ion-modal.show-modal, ion-action-sheet, ion-alert, ion-popover, .nxt1-bottom-sheet, .app-access-gate'
+      );
+      if (activeOverlay) {
+        return true;
+      }
+    }
+    return false;
   }
 }

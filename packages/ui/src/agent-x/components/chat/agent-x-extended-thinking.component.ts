@@ -2,16 +2,44 @@
  * @fileoverview Agent X Extended Thinking Component
  *
  * Renders the extended thinking tokens emitted by Claude 3.7+ / Gemini 2.5
- * as a collapsible block beneath the assistant message bubble.  During
- * streaming the block shows a pulsing indicator on a collapsed toggle that
- * the user can expand when they want to inspect the reasoning.
+ * as a collapsible block beneath the assistant message bubble. The block
+ * auto-opens the instant streaming starts (pinned to the latest tokens) and
+ * auto-collapses the instant streaming finishes, so the transcript stays
+ * clean once the model has settled on its answer. The user can still toggle
+ * it manually at any time.
  *
  * The component is rendered by `NxtChatBubbleComponent` for
  * `AgentXMessagePart` entries whose `type === 'thinking'`.
  */
 
-import { Component, ChangeDetectionStrategy, input, signal, computed, inject } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  ElementRef,
+  input,
+  signal,
+  computed,
+  inject,
+  effect,
+  viewChild,
+} from '@angular/core';
 import { HapticsService } from '../../../services/haptics/haptics.service';
+
+/**
+ * Pure auto-open/auto-close transition rule, extracted so it's unit-testable
+ * without Angular: the block snaps open the instant streaming starts and
+ * snaps closed the instant it finishes. Manual toggles between those two
+ * edges are left as-is (no transition means no forced change).
+ */
+export function nextThinkingExpandedState(
+  wasStreaming: boolean,
+  isStreamingNow: boolean,
+  currentExpanded: boolean
+): boolean {
+  if (isStreamingNow && !wasStreaming) return true;
+  if (!isStreamingNow && wasStreaming) return false;
+  return currentExpanded;
+}
 
 @Component({
   selector: 'nxt1-agent-x-extended-thinking',
@@ -51,7 +79,7 @@ import { HapticsService } from '../../../services/haptics/haptics.service';
       <!-- Collapsible body -->
       @if (expanded()) {
         <div class="ext-thinking__body" role="region" aria-label="Model reasoning">
-          <pre class="ext-thinking__pre">{{ content() }}</pre>
+          <pre #thinkingPre class="ext-thinking__pre">{{ content() }}</pre>
         </div>
       }
     </div>
@@ -167,19 +195,43 @@ export class NxtAgentXExtendedThinkingComponent {
 
   /**
    * True while the model is still emitting thinking tokens (stream in progress).
-   * When true: show pulse indicator while leaving the reasoning body collapsed.
+   * When true: show the pulse indicator and keep the reasoning body open.
    */
   readonly isStreaming = input<boolean>(false);
 
   private readonly _expanded = signal(false);
 
-  /** Expanded state is always user-controlled so streaming starts collapsed. */
+  /** User can still toggle manually; auto-open/close only drives the default. */
   readonly expanded = computed(() => this._expanded());
 
   readonly toggleLabel = computed(() => {
     if (this.isStreaming()) return 'Thinking...';
     return this._expanded() ? 'Hide reasoning' : 'View reasoning';
   });
+
+  /** Scrollable `<pre>` rendered only while expanded — undefined when collapsed. */
+  private readonly thinkingPre = viewChild<ElementRef<HTMLElement>>('thinkingPre');
+
+  /** Tracks the previous streaming value to detect start/finish transitions. */
+  private wasStreaming = false;
+
+  constructor() {
+    // Auto-open the instant streaming starts; auto-close the instant it finishes.
+    effect(() => {
+      const streaming = this.isStreaming();
+      this._expanded.set(nextThinkingExpandedState(this.wasStreaming, streaming, this._expanded()));
+      this.wasStreaming = streaming;
+    });
+
+    // Keep the reasoning body pinned to the latest streamed tokens.
+    effect(() => {
+      const el = this.thinkingPre();
+      this.content();
+      if (el && this.expanded() && this.isStreaming()) {
+        el.nativeElement.scrollTop = el.nativeElement.scrollHeight;
+      }
+    });
+  }
 
   async toggle(): Promise<void> {
     await this.haptics.impact('light');

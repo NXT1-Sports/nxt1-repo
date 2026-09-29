@@ -299,7 +299,10 @@ export const appConfig: ApplicationConfig = {
     // Agent X Auth Token Factory (for SSE uploads and fallback requests)
     {
       provide: AGENT_X_AUTH_TOKEN_FACTORY,
-      useFactory: (auth: Auth) => () => auth.currentUser?.getIdToken() ?? Promise.resolve(null),
+      useFactory: (auth: Auth) => async () => {
+        await auth.authStateReady();
+        return auth.currentUser?.getIdToken() ?? null;
+      },
       deps: [Auth],
     },
 

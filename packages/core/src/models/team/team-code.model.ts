@@ -231,6 +231,7 @@ export interface CreateTeamCodeInput {
   level?: string;
   division?: string;
   conference?: string;
+  logoUrl?: string;
 }
 
 /**

@@ -142,14 +142,14 @@ const DEFAULT_AGENT_EFFORT_PROFILES = Object.freeze({
     thinkingBudgetTokens: 8000,
   }),
   medium: Object.freeze({
-    model: 'deepseek/deepseek-v4-pro',
+    model: '~deepseek/deepseek-pro-latest',
     reasoningEffort: 'medium',
     maxTokens: 8192,
     temperature: 0.4,
     thinkingBudgetTokens: 4000,
   }),
   low: Object.freeze({
-    model: 'google/gemini-3.6-flash',
+    model: '~google/gemini-flash-latest',
     reasoningEffort: 'low',
     maxTokens: 4096,
     temperature: 0.5,

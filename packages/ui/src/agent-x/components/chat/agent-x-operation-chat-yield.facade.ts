@@ -942,6 +942,9 @@ export class AgentXOperationChatYieldFacade {
       this.logger.info('Approval resumed without live stream attachment', {
         operationId: trimmedOperationId,
       });
+      // Tear down any stale Firestore fallback subscription from a superseded
+      // operation so its late events cannot bleed into the resumed operation.
+      host.clearRealtimePipelines();
       if (params.threadId) {
         host.resolvedThreadId.set(params.threadId);
       }
@@ -975,6 +978,9 @@ export class AgentXOperationChatYieldFacade {
 
     host.getActiveStream()?.abort();
     host.setActiveStream(null);
+    // Tear down any stale Firestore fallback subscription from a superseded
+    // operation so its late events cannot bleed into the resumed operation.
+    host.clearRealtimePipelines();
 
     if (params.threadId) {
       host.resolvedThreadId.set(params.threadId);

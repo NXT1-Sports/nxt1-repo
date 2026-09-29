@@ -669,6 +669,44 @@ describe('createAgentXApi', () => {
   });
 
   // ============================================
+  // pinThread
+  // ============================================
+
+  describe('pinThread', () => {
+    it('should call PUT with encoded threadId and pinned boolean', async () => {
+      vi.mocked(http.put).mockResolvedValue({
+        success: true,
+        data: {
+          threadId: 'thread-123',
+          pinned: true,
+          pinnedAt: '2026-06-25T12:00:00.000Z',
+        },
+      });
+
+      const result = await api.pinThread('thread-123', true);
+
+      expect(http.put).toHaveBeenCalledWith(
+        `${baseUrl}${AGENT_X_ENDPOINTS.THREADS}/thread-123/pin`,
+        { pinned: true }
+      );
+      expect(result).toEqual({
+        threadId: 'thread-123',
+        pinned: true,
+        pinnedAt: '2026-06-25T12:00:00.000Z',
+      });
+    });
+
+    it('should throw Error on unsuccessful API response', async () => {
+      vi.mocked(http.put).mockResolvedValue({
+        success: false,
+        error: 'Thread not found',
+      });
+
+      await expect(api.pinThread('thread-123', true)).rejects.toThrow('Thread not found');
+    });
+  });
+
+  // ============================================
   // streamMessage (SSE parser)
   // ============================================
 

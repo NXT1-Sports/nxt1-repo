@@ -77,6 +77,55 @@ describe('BaseMcpClientService', () => {
     expect(connectSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('reconnects and retries when the SDK reports the transport is not connected', async () => {
+    const staleCallTool = vi.fn().mockRejectedValue(new Error('Not connected'));
+    const freshCallTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: '{}' }] });
+    service.setConnectedClient(staleCallTool);
+
+    const connectSpy = vi.spyOn(service, 'connect').mockImplementation(async () => {
+      service.setConnectedClient(freshCallTool);
+    });
+
+    const result = await service.executeTool('firecrawl_scrape', { url: 'https://example.com' });
+
+    expect(result.content).toHaveLength(1);
+    expect(staleCallTool).toHaveBeenCalledTimes(1);
+    expect(freshCallTool).toHaveBeenCalledTimes(1);
+    expect(connectSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks the client disconnected when its transport closes', async () => {
+    const transport = {
+      start: vi.fn().mockResolvedValue(undefined),
+      send: vi.fn().mockImplementation(async (message: { id?: number; method?: string }) => {
+        if (message.method === 'initialize') {
+          queueMicrotask(() =>
+            transport.onmessage?.({
+              jsonrpc: '2.0',
+              id: message.id,
+              result: {
+                protocolVersion: '2025-06-18',
+                capabilities: {},
+                serverInfo: { name: 'test', version: '1.0.0' },
+              },
+            } as never)
+          );
+        }
+      }),
+      close: vi.fn().mockImplementation(async () => transport.onclose?.()),
+    } as unknown as Transport;
+    service.transportFactory = () => transport;
+
+    await service.connect();
+    const internals = service as unknown as Record<string, unknown>;
+    expect(internals['connected']).toBe(true);
+
+    await transport.close();
+
+    expect(internals['connected']).toBe(false);
+    expect(internals['client']).toBeNull();
+  });
+
   it('opens the circuit after repeated dependency failures', async () => {
     const callTool = vi.fn().mockRejectedValue(new StreamableHTTPError(503, 'dependency down'));
     service.setConnectedClient(callTool);

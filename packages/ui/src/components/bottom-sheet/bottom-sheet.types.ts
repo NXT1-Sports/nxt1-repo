@@ -193,6 +193,13 @@ export interface ContentSheetConfig<T = unknown> {
   backdropDismiss?: boolean;
 
   /**
+   * Whether Ionic traps focus inside the sheet. Defaults to true.
+   * Disable only for overlays that trigger a focus recursion in Ionic's modal
+   * focus handler, while keeping the default accessible behavior elsewhere.
+   */
+  focusTrap?: boolean;
+
+  /**
    * Breakpoint at which backdrop becomes visible.
    * Useful for sheets that start small.
    */

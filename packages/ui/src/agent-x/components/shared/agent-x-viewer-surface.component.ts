@@ -30,6 +30,10 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
         width: 100%;
         max-width: 100%;
       }
+
+      .agent-x-viewer-surface__stage:empty {
+        display: none;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
