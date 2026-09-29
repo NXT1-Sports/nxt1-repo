@@ -912,6 +912,12 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
         opacity: 0.72;
       }
 
+      @media (max-width: 767px) {
+        .input-voice-wave {
+          display: none;
+        }
+      }
+
       .input-mode-picker {
         position: relative;
         min-width: 0;
