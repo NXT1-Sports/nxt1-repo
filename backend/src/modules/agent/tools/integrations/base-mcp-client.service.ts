@@ -438,6 +438,14 @@ export abstract class BaseMcpClientService {
 
         await client.connect(transport);
 
+        // Stdio child exits or dropped sessions close the transport silently; force reconnect on next call.
+        client.onclose = () => {
+          if (this.client !== client) return;
+          this.connected = false;
+          this.client = null;
+          logger.warn(`[MCP:${this.serverName}] Transport closed — will reconnect on next call`);
+        };
+
         this.client = client;
         this.connected = true;
         this.reconnectAttempts = 0;
@@ -862,6 +870,7 @@ export abstract class BaseMcpClientService {
     if (!(err instanceof Error)) return false;
     const msg = err.message.toLowerCase();
     return (
+      msg.includes('not connected') ||
       msg.includes('transport') ||
       msg.includes('connection') ||
       msg.includes('econnrefused') ||
