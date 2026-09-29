@@ -6,6 +6,7 @@ import { ToolRegistry } from '../../tool-registry.js';
 describe('DynamicExportTool', () => {
   const generateXlsx = vi.fn();
   const generatePdf = vi.fn();
+  const generateDocx = vi.fn();
   const emitStage = vi.fn();
   const fileSave = vi.fn();
   const fileExists = vi.fn();
@@ -18,6 +19,7 @@ describe('DynamicExportTool', () => {
   beforeEach(() => {
     generateXlsx.mockReset();
     generatePdf.mockReset();
+    generateDocx.mockReset();
     emitStage.mockReset();
     fileSave.mockReset();
     fileExists.mockReset();
@@ -26,6 +28,7 @@ describe('DynamicExportTool', () => {
 
     generateXlsx.mockResolvedValue(Buffer.from('xlsx-binary'));
     generatePdf.mockResolvedValue(Buffer.from('%PDF-test'));
+    generateDocx.mockResolvedValue(Buffer.from('PK\x03\x04docx-binary'));
     fileSave.mockResolvedValue(undefined);
     fileExists.mockResolvedValue([true]);
     bucketFile.mockReturnValue({
@@ -38,6 +41,7 @@ describe('DynamicExportTool', () => {
       generateCsv: vi.fn(),
       generateXlsx,
       generatePdf,
+      generateDocx,
     } as never);
 
     Object.assign(tool as object, {
@@ -105,6 +109,37 @@ describe('DynamicExportTool', () => {
         format: 'xlsx',
       })
     );
+  });
+
+  it('should generate and persist DOCX exports with Word MIME metadata', async () => {
+    const result = await tool.execute(
+      {
+        format: 'docx',
+        fileName: 'staff-handoff',
+        title: 'Staff Handoff',
+        sections: [{ title: 'Actions', bodyParagraphs: ['Review Monday install.'] }],
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(generateDocx).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Staff Handoff', sections: expect.any(Array) })
+    );
+    expect(fileSave).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.objectContaining({
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      })
+    );
+    expect(result).toMatchObject({
+      data: {
+        fileName: 'staff-handoff.docx',
+        format: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        attachments: [expect.objectContaining({ name: 'staff-handoff.docx' })],
+      },
+    });
   });
 
   it('should ignore watermark text for PDF exports', async () => {
@@ -200,7 +235,7 @@ describe('DynamicExportTool', () => {
 
     expect(definition).toBeDefined();
     expect(parameters?.properties?.['format']?.enum).toEqual(
-      expect.arrayContaining(['pdf', 'csv', 'xlsx', 'pptx'])
+      expect.arrayContaining(['pdf', 'csv', 'xlsx', 'pptx', 'docx'])
     );
   });
 });

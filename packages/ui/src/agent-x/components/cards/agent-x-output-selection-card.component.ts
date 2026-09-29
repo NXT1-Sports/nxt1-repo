@@ -47,6 +47,7 @@ const OUTPUT_FORMAT_FAVICONS: Readonly<Partial<Record<AgentXOutputOption['format
   PDF: PDF_ICON_DATA_URI,
   GAMMA: 'https://www.google.com/s2/favicons?domain=gamma.app&sz=64',
   XLSX: 'https://www.google.com/s2/favicons?domain=excel.cloud.microsoft&sz=64',
+  DOCX: 'https://www.google.com/s2/favicons?domain=word.cloud.microsoft&sz=64',
   PPTX: 'https://www.google.com/s2/favicons?domain=powerpoint.cloud.microsoft&sz=64',
   CSV: CSV_ICON_DATA_URI,
   WEB: 'https://www.google.com/s2/favicons?domain=google.com&sz=64',
@@ -912,6 +913,8 @@ export class AgentXOutputSelectionCardComponent {
         return 'barChart';
       case 'slides':
         return 'documentText';
+      case 'document':
+        return 'documentText';
       case 'web':
         return 'download';
       case 'edit':
@@ -1152,6 +1155,8 @@ export class AgentXOutputSelectionCardComponent {
       case 'XLSX':
       case 'CSV':
         return 'spreadsheet';
+      case 'DOCX':
+        return 'document';
       case 'PPTX':
         return 'slides';
       case 'WEB':

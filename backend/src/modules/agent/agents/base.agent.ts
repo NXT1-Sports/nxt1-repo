@@ -553,6 +553,7 @@ function resolveOutputIntentArtifactTools(
         break;
       case 'gamma_pdf':
       case 'presentation':
+      case 'word_document':
       case 'csv':
         tools.add('dynamic_export');
         break;
@@ -5261,7 +5262,9 @@ export abstract class BaseAgent {
       };
 
       const format = typeof input['format'] === 'string' ? input['format'].toLowerCase() : '';
-      if (format !== 'pdf' && format !== 'xlsx' && format !== 'pptx') return toolCall;
+      if (format !== 'pdf' && format !== 'xlsx' && format !== 'pptx' && format !== 'docx') {
+        return toolCall;
+      }
 
       const existingRelatedDocumentId =
         typeof input['relatedDocumentId'] === 'string' &&

@@ -885,6 +885,7 @@ export type AgentXOutputSelectionCategory =
 /** User-visible format badge for an output option tile. */
 export type AgentXOutputFormatTag =
   | 'PDF'
+  | 'DOCX'
   | 'GAMMA'
   | 'XLSX'
   | 'PPTX'
@@ -896,6 +897,7 @@ export type AgentXOutputFormatTag =
 /** Semantic icon key for output-selection option rendering. */
 export type AgentXOutputOptionIcon =
   | 'pdf'
+  | 'document'
   | 'presentation'
   | 'spreadsheet'
   | 'slides'
@@ -1139,7 +1141,7 @@ export interface AgentXBillingActionPayload {
 }
 
 /**
- * Payload for a generated document (PDF / CSV) download card.
+ * Payload for a generated document download card.
  * Rendered as a rich card with a download button in the Agent X chat.
  */
 export interface AgentXDocumentPayload {
@@ -1150,7 +1152,7 @@ export interface AgentXDocumentPayload {
   /** MIME type of the generated document. */
   readonly mimeType: string;
   /** Document format discriminator. */
-  readonly format: 'pdf' | 'csv';
+  readonly format: 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'csv';
   /** File size in bytes (used for display). */
   readonly sizeBytes: number;
   /** Number of data rows (for tabular exports). */

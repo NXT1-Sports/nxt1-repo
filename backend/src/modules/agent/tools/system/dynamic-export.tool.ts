@@ -2,7 +2,7 @@
  * @fileoverview Dynamic Export Tool
  * @module @nxt1/backend/modules/agent/tools/data
  *
- * Fully unconstrained Agent X tool for generating PDF, CSV, XLSX, or PPTX documents
+ * Fully unconstrained Agent X tool for generating PDF, CSV, XLSX, PPTX, or DOCX documents
  * from any structured data the LLM assembles on-the-fly.
  *
  * Unlike fixed-schema tools, this tool accepts dynamic columns/rows/body
@@ -79,7 +79,7 @@ const ExportSectionSchema = z.object({
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
   readonly description =
-    'Generates a downloadable PDF, CSV, XLSX, or PPTX document from structured data when no more specialized artifact path is a better fit. ' +
+    'Generates a downloadable PDF, CSV, XLSX, PPTX, or DOCX document from structured data when no more specialized artifact path is a better fit. ' +
     'Use this tool primarily for Gamma-backed PPTX decks and flexible multi-section reports, for CSV flat-table exports, and as the fallback path for PDF/XLSX when render_html_pdf or execute_python_code/native spreadsheet/document tools are not the right choice. ' +
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
     'branding, and cloud hosting.\n\n' +
@@ -92,12 +92,13 @@ export class DynamicExportTool extends BaseTool {
     '- HARD FORMAT RULE: If the user explicitly asks for PowerPoint, PPT, PPTX, slides, slide deck, presentation deck, flash cards, flashcards, card deck, or a file to open in PowerPoint, call this tool with `format: "pptx"` unless you are using a connected native Microsoft PowerPoint tool. Exception: scout team play/look cards are printable practice PDFs and should use render_html_pdf unless the user explicitly asks for slides/deck/PPTX. Do not substitute PDF or XLSX for an explicit PowerPoint/PPTX/card-deck request.\n' +
     '- For Presentation Decks / Player Scout Cards / Flash Cards: Use PPTX when the output is meant to be presented slide-by-slide, used in a staff meeting, shared as flash cards, player cards, recruiting pitch deck, opponent briefing deck, parent meeting deck, or visual packet. This is the Gamma-style export lane. Scout team play/look cards are not this lane unless explicitly requested as slides/PPTX. Build one logical card/section per slide with `sections[]`; use `imageUrls` for charts, diagrams, logos, or player visuals.\n' +
     '- For multi-page narrative reports that benefit from Gamma styling rather than fixed-layout print composition, use PDF or PPTX through this tool with structured sections and presentation-aware instructions.\n\n' +
+    'For editable Word documents, use format "docx" with structured sections, narrative, bullets, tables, and images. ' +
     'Works for: recruiting lists, scout reports, workout plans, compliance checklists, ' +
     'comparison tables, analytics summaries, team rosters, film breakdowns, budgets, ' +
     'schedules, or literally anything the user asks for.';
 
   readonly parameters = z.object({
-    format: z.enum(['pdf', 'csv', 'xlsx', 'pptx']),
+    format: z.enum(['pdf', 'csv', 'xlsx', 'pptx', 'docx']),
     fileName: z.string().trim().min(1),
     title: z.string().trim().min(1).optional(),
     description: z.string().trim().min(1).optional(),
@@ -240,7 +241,7 @@ export class DynamicExportTool extends BaseTool {
     if (!format) {
       return {
         success: false,
-        error: 'Parameter "format" must be "pdf", "csv", "xlsx", or "pptx".',
+        error: 'Parameter "format" must be "pdf", "csv", "xlsx", "pptx", or "docx".',
       };
     }
 
@@ -293,7 +294,7 @@ export class DynamicExportTool extends BaseTool {
       }
     }
 
-    if (format === 'pdf' || format === 'pptx') {
+    if (format === 'pdf' || format === 'pptx' || format === 'docx') {
       const hasTable = this.hasTabularExportContent(columns, rows, sections);
       const hasBody =
         bodyParagraphs?.length ||
@@ -390,6 +391,32 @@ export class DynamicExportTool extends BaseTool {
         });
         mimeType = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
         extension = 'pptx';
+      } else if (format === 'docx') {
+        const rowCount = this.resolveRowCount(rows, sections);
+        emitStage?.('submitting_job', {
+          icon: 'document',
+          rowCount,
+          format: 'docx',
+          phase: 'build_word_document',
+        });
+        buffer = await this.exportService.generateDocx({
+          title,
+          description,
+          columns: columns ?? undefined,
+          rows: rows ?? undefined,
+          sections: sections ?? undefined,
+          bodyParagraphs: bodyParagraphs ?? undefined,
+          bulletPoints: bulletPoints ?? undefined,
+          imageUrls: imageUrls.length > 0 ? imageUrls : undefined,
+          pageSize,
+          pageOrientation,
+          brandPrimaryColor,
+          brandSecondaryColor,
+          organizationName,
+          logoUrl,
+        });
+        mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+        extension = 'docx';
       } else {
         const rowCount = rows?.length ?? 0;
         emitStage?.('submitting_job', {
@@ -704,13 +731,14 @@ export class DynamicExportTool extends BaseTool {
     );
   }
 
-  private resolveFormat(raw: unknown): 'pdf' | 'csv' | 'xlsx' | 'pptx' | null {
+  private resolveFormat(raw: unknown): 'pdf' | 'csv' | 'xlsx' | 'pptx' | 'docx' | null {
     if (typeof raw !== 'string') return null;
     const normalized = raw.trim().toLowerCase();
     if (normalized === 'pdf') return 'pdf';
     if (normalized === 'csv') return 'csv';
     if (normalized === 'xlsx') return 'xlsx';
     if (normalized === 'pptx') return 'pptx';
+    if (normalized === 'docx') return 'docx';
     return null;
   }
 

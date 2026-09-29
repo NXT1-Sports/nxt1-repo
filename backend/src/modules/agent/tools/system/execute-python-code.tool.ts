@@ -24,6 +24,10 @@ const ARTIFACT_TYPES: Readonly<
   Record<string, { readonly mimeType: string; readonly type: 'doc' | 'image' }>
 > = {
   csv: { mimeType: 'text/csv', type: 'doc' },
+  docx: {
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    type: 'doc',
+  },
   json: { mimeType: 'application/json', type: 'doc' },
   pdf: { mimeType: 'application/pdf', type: 'doc' },
   png: { mimeType: 'image/png', type: 'image' },

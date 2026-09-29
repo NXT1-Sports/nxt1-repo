@@ -53,6 +53,7 @@ export const ASK_USER_CONTEXT_KEY = '__yieldContext' as const;
 
 const ASK_USER_FORMAT_TAGS = [
   'PDF',
+  'DOCX',
   'GAMMA',
   'XLSX',
   'PPTX',
@@ -63,6 +64,7 @@ const ASK_USER_FORMAT_TAGS = [
 ] as const;
 const ASK_USER_OPTION_ICONS = [
   'pdf',
+  'document',
   'presentation',
   'spreadsheet',
   'slides',
@@ -124,6 +126,8 @@ function defaultIconForFormat(formatTag: AgentXOutputFormatTag): AgentXOutputOpt
   switch (formatTag) {
     case 'PDF':
       return 'pdf';
+    case 'DOCX':
+      return 'document';
     case 'GAMMA':
       return 'sparkles';
     case 'XLSX':
@@ -161,6 +165,7 @@ function inferFormatTagFromOptionText(value: string): AgentXOutputFormatTag {
   if (/\b(?:pptx|powerpoint|slide(?:s)?|deck)\b/.test(normalized)) {
     return 'PPTX' as AgentXOutputFormatTag;
   }
+  if (/\b(?:docx|word|word document)\b/.test(normalized)) return 'DOCX' as AgentXOutputFormatTag;
   if (/\b(?:pdf|printable)\b/.test(normalized)) return 'PDF' as AgentXOutputFormatTag;
   if (/\b(?:web|website|landing page|page)\b/.test(normalized)) {
     return 'WEB' as AgentXOutputFormatTag;
@@ -233,6 +238,13 @@ const FILM_REPORT_DELIVERY_OPTIONS: readonly z.infer<typeof askUserOptionSchema>
     description: 'Best for sharing with staff or printing.',
     formatTag: 'PDF',
     icon: 'pdf',
+  },
+  {
+    id: 'editable_docx',
+    title: 'Editable Word DOCX',
+    description: 'Editable branded document for Word, review, and handoff.',
+    formatTag: 'DOCX',
+    icon: 'document',
   },
   {
     id: 'gamma_pdf',
@@ -310,7 +322,7 @@ function isFilmReportDeliveryStep(step: {
     return false;
   }
 
-  return /\b(deliver(?:y|ed|able)?|output|package|format|export|pdf|deck|pptx|workbook|xlsx|csv)\b/.test(
+  return /\b(deliver(?:y|ed|able)?|output|package|format|export|pdf|docx|word|deck|pptx|workbook|xlsx|csv)\b/.test(
     text
   );
 }
@@ -346,6 +358,7 @@ function isFormatOnlyOptionList(
   return options.every(
     (opt) =>
       opt.formatTag === 'PDF' ||
+      opt.formatTag === 'DOCX' ||
       opt.formatTag === 'GAMMA' ||
       opt.formatTag === 'PPTX' ||
       opt.formatTag === 'XLSX' ||
@@ -450,7 +463,7 @@ function isFilmReportExplicitFormatSpecified(messages: readonly LLMMessage[]): b
     if (msg.role === 'user') {
       const text = stringifyMessageContent(msg.content).toLowerCase();
       if (
-        /\b(?:pdf|printable|xlsx|excel|spreadsheet|csv|pptx|powerpoint|gamma|slide(?:s)?|deck|workbook)\b/.test(
+        /\b(?:pdf|printable|docx|word|xlsx|excel|spreadsheet|csv|pptx|powerpoint|gamma|slide(?:s)?|deck|workbook)\b/.test(
           text
         )
       ) {
@@ -523,7 +536,7 @@ export class AskUserTool extends BaseTool {
     '  Then call: ask_user({ question: "Program Intake", steps: [{ id: "focus_area", question: "Which area is your top priority right now?", inputMode: "single_select", options: [{ label: "Game prep & film breakdown", value: "film_prep" }, { label: "Recruiting & target lists", value: "recruiting" }, { label: "Playbook & practice scripts", value: "playbook" }, { label: "Branding & social graphics", value: "graphics" }] }, { id: "biggest_challenge", question: "What is your biggest operational bottleneck?", inputMode: "text", customPlaceholder: "e.g. staff coordination, recruiting outreach..." }] })\n\n' +
     'Example (selection card):\n' +
     '  Assistant message: "I can package this a few ways. Pick the output that fits how you want to use it."\n' +
-    '  Then call: ask_user({ question: "How would you like this delivered?", inputMode: "single_select", allowCustomText: true, options: [{ id: "pdf", title: "Printable PDF", description: "Best for sharing or printing.", formatTag: "PDF" }, { id: "gamma_pdf", title: "Gamma PDF", description: "Narrative Gamma-styled PDF with richer layout.", formatTag: "GAMMA" }, { id: "gamma_deck", title: "Gamma Deck", description: "Interactive meeting deck or presentation.", formatTag: "GAMMA" }, { id: "csv", title: "CSV", description: "Flat raw data for import or spreadsheet work.", formatTag: "CSV" }] })\n\n' +
+    '  Then call: ask_user({ question: "How would you like this delivered?", inputMode: "single_select", allowCustomText: true, options: [{ id: "pdf", title: "Printable PDF", description: "Best for sharing or printing.", formatTag: "PDF" }, { id: "docx", title: "Editable Word DOCX", description: "Editable branded document for Word.", formatTag: "DOCX" }, { id: "gamma_pdf", title: "Gamma PDF", description: "Narrative Gamma-styled PDF with richer layout.", formatTag: "GAMMA" }, { id: "gamma_deck", title: "Gamma Deck", description: "Interactive meeting deck or presentation.", formatTag: "GAMMA" }, { id: "csv", title: "CSV", description: "Flat raw data for import or spreadsheet work.", formatTag: "CSV" }] })\n\n' +
     'Example (normal multiple choice):\n' +
     '  ask_user({ question: "Is the ODK keyed to our team or the opponent?", inputMode: "single_select", options: [{ label: "ODK is keyed to our team (O = our offense, D = our defense)", value: "keyed_to_our_team" }, { label: "ODK is keyed to the opponent (O = opponent offense, D = opponent defense)", value: "keyed_to_opponent" }, { label: "Mixed / selected rows include both teams", value: "mixed" }] })\n\n' +
     'Example (multi-step flow):\n' +

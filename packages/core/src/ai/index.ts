@@ -386,6 +386,7 @@ export type {
   KnowledgeIngestionRequest,
   KnowledgeIngestionResult,
   AgentOutputDeliveryLane,
+  AgentOutputFormat,
   AgentOutputIntent,
   AgentSessionContext,
   AgentSessionMessage,

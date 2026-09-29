@@ -3341,6 +3341,7 @@ interface NormalizedSelectableOutputStep {
 
 const OUTPUT_FORMAT_TAGS = new Set<AgentXOutputFormatTag>([
   'PDF',
+  'DOCX',
   'GAMMA',
   'XLSX',
   'PPTX',
@@ -3676,6 +3677,10 @@ function buildSelectedOutputLaneInstruction(choice: NormalizedOutputSelectionCho
     return 'Generate a printable/share-ready PDF only. You MUST call `render_html_pdf` with complete HTML/CSS. Do not call `dynamic_export` (which generates Gamma presentations/reports) and do not create PPTX, XLSX, or CSV outputs.';
   }
 
+  if (selectedCount === 1 && selectedFormats.has('DOCX')) {
+    return 'Generate an editable Word DOCX only. Use `dynamic_export` with `format: "docx"`. Do not create PDF, PPTX, XLSX, or CSV outputs.';
+  }
+
   if (selectedCount === 1 && selectedFormats.has('GAMMA')) {
     return /\b(deck|pptx|slides?)\b/.test(selectedText)
       ? 'Generate a Gamma Deck/PPTX only. Use `dynamic_export` with `format: "pptx"` unless a native presentation tool is explicitly required. Do not create a printable PDF, XLSX, or CSV output.'
@@ -3723,6 +3728,9 @@ function buildOutputIntentFromChoice(
       case 'PDF':
         lanes.add('printable_pdf');
         break;
+      case 'DOCX':
+        lanes.add('word_document');
+        break;
       case 'GAMMA':
         lanes.add(/\b(deck|pptx|slides?)\b/.test(searchable) ? 'presentation' : 'gamma_pdf');
         break;
@@ -3758,6 +3766,7 @@ function buildOutputIntentFromAskUserReply(userResponse: string): AgentOutputInt
   if (/\bprintable\s+pdf\b|\bprint ready\s+pdf\b|\bprint\s+pdf\b/.test(normalized)) {
     lanes.add('printable_pdf');
   }
+  if (/\b(?:docx|word document|editable word)\b/.test(normalized)) lanes.add('word_document');
   if (/\bgamma\s+(?:deck|slides?|pptx)\b/.test(normalized)) lanes.add('presentation');
   if (/\bgamma\s+pdf\b/.test(normalized)) lanes.add('gamma_pdf');
   if (/\b(?:pptx|powerpoint|slide deck)\b/.test(normalized)) lanes.add('presentation');

@@ -131,6 +131,42 @@ describe('ExecutePythonCodeTool', () => {
     });
   });
 
+  it('uploads generated DOCX artifacts with the Word MIME type', async () => {
+    const docxBytes = Buffer.from('PK\x03\x04fake-docx');
+    const sandbox = createSandbox({
+      files: {
+        ...createSandboxDefaults().files,
+        list: vi.fn().mockResolvedValue([
+          {
+            name: 'Staff Handoff.docx',
+            path: '/home/user/outputs/Staff Handoff.docx',
+            type: 'file',
+            size: docxBytes.length,
+          },
+        ]),
+        read: vi.fn().mockResolvedValue(new Uint8Array(docxBytes)),
+      },
+    });
+    const tool = new ExecutePythonCodeTool(
+      { create: vi.fn().mockResolvedValue(sandbox) },
+      'e2b_test_key',
+      { bucket } as never
+    );
+
+    const result = await tool.execute({ code: 'print("built docx")' }, context);
+
+    expect(result.success).toBe(true);
+    expect(fileSave).toHaveBeenCalledWith(
+      docxBytes,
+      expect.objectContaining({
+        contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      })
+    );
+    expect((result.data as { attachments: readonly [{ mimeType: string }] }).attachments[0].mimeType).toBe(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    );
+  });
+
   it('returns Python execution errors without uploading artifacts', async () => {
     const sandbox = createSandbox({
       runCode: vi.fn().mockResolvedValue({

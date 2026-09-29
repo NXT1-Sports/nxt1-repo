@@ -237,7 +237,7 @@ describe('DynamicExportTool', () => {
     });
 
     it('should reject invalid format', async () => {
-      const result = await tool.execute({ format: 'docx', fileName: 'test' }, context);
+      const result = await tool.execute({ format: 'invalid', fileName: 'test' }, context);
       expect(result.success).toBe(false);
       expect(result.error).toContain('format');
     });

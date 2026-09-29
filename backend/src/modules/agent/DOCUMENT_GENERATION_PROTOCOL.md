@@ -75,6 +75,7 @@ Choose the artifact tool based on output shape:
 | Spreadsheet / workbook export    | `execute_python_code`                                              | Explicit XLSX files, trackers, matrices, budgets, dashboards, formula workbooks, editable sheets |
 | Exact-layout PDF from HTML/CSS   | `render_html_pdf`                                                  | Sample-matched PDFs, one-page staff sheets, callsheets, wristbands, depth charts, sideline cards |
 | Gamma-style report / slide deck  | `dynamic_export`                                                   | Presentation decks, multi-page narrative reports, scout-card packets, briefing decks             |
+| Editable Word document fallback | `dynamic_export` with `format="docx"`                            | Structured reports, plans, packets, and handoff documents when a native Word tool is unavailable |
 | Fallback document / table export | `dynamic_export`                                                   | Fallback PDF/XLSX/CSV export when no better dedicated path fits                                  |
 | Data visualization / chart       | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps                      |
 | Play / drill / tactical diagram  | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                                         |
@@ -227,7 +228,10 @@ User: "Create a social media content calendar for Q1"
 
 ### Tool: `dynamic_export`
 
-`dynamic_export` now supports both:
+`dynamic_export` now supports:
+
+- **Editable Word DOCX exports** using `format: "docx"` with branded metadata,
+  headers/footers, page fields, narrative sections, bullets, tables, and images
 
 - **Simple / legacy flat exports** using top-level `columns`, `rows`,
   `bodyParagraphs`, and `bulletPoints`
@@ -244,7 +248,7 @@ single-block PDFs.
 
 ```typescript
 dynamic_export({
-  format: "pdf" | "csv" | "xlsx" | "pptx",
+  format: "pdf" | "csv" | "xlsx" | "pptx" | "docx",
   fileName: "descriptive-name.pdf",        // e.g., "QB-Training-Plan.pdf", "Saturday-Callsheet.xlsx", or "Scout-Cards.pptx"
   title: "User-Friendly Title",            // e.g., "12-Week QB Off-Season Training Plan"
   description: "Optional context",         // e.g., "May 2026 – July/August camp season"

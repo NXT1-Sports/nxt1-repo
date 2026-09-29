@@ -42,6 +42,7 @@ const OUTPUT_DELIVERY_LANES = new Set<AgentOutputDeliveryLane>([
   'printable_pdf',
   'gamma_pdf',
   'presentation',
+  'word_document',
   'xlsx',
   'csv',
   'chat_only',

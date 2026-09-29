@@ -381,9 +381,13 @@ export type AgentOutputDeliveryLane =
   | 'printable_pdf'
   | 'gamma_pdf'
   | 'presentation'
+  | 'word_document'
   | 'xlsx'
   | 'csv'
   | 'chat_only';
+
+/** Artifact formats understood by Agent X delivery tools. */
+export type AgentOutputFormat = 'pdf' | 'docx' | 'pptx' | 'xlsx' | 'csv';
 
 /** Server-derived output constraint carried independently of conversation replay. */
 export interface AgentOutputIntent {
