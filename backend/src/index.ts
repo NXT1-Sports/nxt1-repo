@@ -51,6 +51,7 @@ import settingsRoutes from './routes/core/settings.routes.js';
 import helpCenterRoutes from './routes/platform/help-center.routes.js';
 import editProfileRoutes from './routes/profile/edit-profile.routes.js';
 import agentXRoutes from './routes/agent/index.js';
+import connectorsRoutes from './routes/connectors.routes.js';
 import messagesRoutes from './routes/communications/messages.routes.js';
 import { queueService } from './routes/agent/shared.js';
 
@@ -470,6 +471,7 @@ async function setupApplication() {
     { path: '/marketing', rateLimitType: 'api', handler: marketingRoutes },
     { path: '/profile', rateLimitType: 'api', handler: editProfileRoutes },
     { path: '/agent-x', rateLimitType: 'api', handler: agentXRoutes },
+    { path: '/connectors', rateLimitType: 'api', handler: connectorsRoutes },
     // Messages routes
     { path: '/messages', rateLimitType: 'api', handler: messagesRoutes },
     // Search/Discovery routes with search-specific rate limiting

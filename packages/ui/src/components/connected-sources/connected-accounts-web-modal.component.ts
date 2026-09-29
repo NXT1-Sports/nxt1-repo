@@ -43,6 +43,7 @@ import {
   type FirecrawlSignInRequest,
 } from './firecrawl-signin.service';
 import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
+import { ComposioConnectorsComponent } from './composio-connectors.component';
 
 /** Result data emitted when the modal is dismissed with changes. */
 export interface ConnectedAccountsModalCloseData {
@@ -74,7 +75,12 @@ export interface ConnectedAccountsModalCloseData {
 @Component({
   selector: 'nxt1-connected-accounts-web-modal',
   standalone: true,
-  imports: [NxtModalHeaderComponent, NxtIconComponent, OnboardingLinkDropStepComponent],
+  imports: [
+    NxtModalHeaderComponent,
+    NxtIconComponent,
+    OnboardingLinkDropStepComponent,
+    ComposioConnectorsComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="nxt1-ca-web-modal">
@@ -113,6 +119,7 @@ export interface ConnectedAccountsModalCloseData {
           </div>
         }
         <div class="nxt1-ca-body" [class.nxt1-ca-body--hidden]="firecrawlLoading()">
+          <nxt1-composio-connectors />
           <div class="nxt1-ca-google-note" role="note" aria-label="Google Drive reconnect note">
             <nxt1-icon name="information-circle-outline" [size]="16" />
             <p>

@@ -31,3 +31,5 @@ export {
 export { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
 export { FirecrawlSignInModalComponent } from './firecrawl-signin-modal.component';
 export { FirecrawlSignInSheetComponent } from './firecrawl-signin-sheet.component';
+export { ComposioConnectorsComponent } from './composio-connectors.component';
+export { ComposioConnectorsService } from './composio-connectors.service';

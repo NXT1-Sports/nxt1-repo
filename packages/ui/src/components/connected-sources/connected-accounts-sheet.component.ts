@@ -39,11 +39,17 @@ import {
   CONNECTED_ACCOUNTS_OAUTH_HANDLER,
   type OAuthConnectResult,
 } from './connected-accounts-modal.service';
+import { ComposioConnectorsComponent } from './composio-connectors.component';
 
 @Component({
   selector: 'nxt1-connected-accounts-sheet',
   standalone: true,
-  imports: [NxtSheetHeaderComponent, OnboardingLinkDropStepComponent, NxtIconComponent],
+  imports: [
+    NxtSheetHeaderComponent,
+    OnboardingLinkDropStepComponent,
+    NxtIconComponent,
+    ComposioConnectorsComponent,
+  ],
   template: `
     <nxt1-sheet-header
       title="Connectors"
@@ -82,6 +88,7 @@ import {
         </div>
       }
       <div class="nxt1-sheet-body" [class.nxt1-sheet-body--hidden]="firecrawlLoading()">
+        <nxt1-composio-connectors />
         <div class="nxt1-sheet-google-note" role="note" aria-label="Google Drive reconnect note">
           <nxt1-icon name="information-circle-outline" [size]="16" />
           <p>
