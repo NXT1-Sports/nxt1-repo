@@ -16,6 +16,7 @@
  * The ReAct loop is capped at MAX_ITERATIONS to prevent runaway execution.
  */
 
+import { createHash } from 'node:crypto';
 import type {
   AgentArtifactHandoff,
   AgentIdentifier,
@@ -1229,8 +1230,23 @@ export abstract class BaseAgent {
     // `yieldState.messages` snapshot is used only as a fallback when
     // the replay is empty (e.g. v0 paused threads from before rollout
     // or when threadId is not available).
+    const yieldSnapshotMessages = yieldState.messages.map((msg) => ({
+      ...msg,
+    })) as unknown as LLMMessage[];
+    const resolvedPendingToolCallId = yieldState.pendingToolCall?.toolCallId;
+    const snapshotContainsResolvedPendingTool =
+      Boolean(resolvedPendingToolCallId) &&
+      yieldSnapshotMessages.some(
+        (message) => message.role === 'tool' && message.tool_call_id === resolvedPendingToolCallId
+      );
+
     let messages: LLMMessage[];
-    if (context.threadId) {
+    if (snapshotContainsResolvedPendingTool) {
+      // Output-selection and ask-user resume routes build a structurally valid
+      // assistant→tool result snapshot. Mongo replay can legitimately drop that
+      // late tool row when an assistant_yield/user row sits between the pair.
+      messages = yieldSnapshotMessages;
+    } else if (context.threadId) {
       try {
         const { getThreadMessageReplayService } =
           await import('../memory/thread-message-replay.service.js');
@@ -1279,7 +1295,7 @@ export abstract class BaseAgent {
         }
         if (messages.length === 0) {
           // Empty replay \u2014 fall back to the snapshot for legacy threads.
-          messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+          messages = yieldSnapshotMessages;
         }
       } catch (err) {
         logger.warn(`[${this.id}] Resume replay failed \u2014 falling back to yield snapshot`, {
@@ -1287,10 +1303,10 @@ export abstract class BaseAgent {
           threadId: context.threadId,
           error: err instanceof Error ? err.message : String(err),
         });
-        messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+        messages = yieldSnapshotMessages;
       }
     } else {
-      messages = yieldState.messages.map((msg) => ({ ...msg })) as unknown as LLMMessage[];
+      messages = yieldSnapshotMessages;
     }
     const selectedContextResumeInstruction = buildSelectedContextResumeInstruction(
       context.selectedContexts
@@ -1582,6 +1598,11 @@ export abstract class BaseAgent {
     let lastProgressCommentaryToolCount = 0;
     let lastProgressCommentaryText = '';
 
+    // In-memory circuit breaker tracking repeated identical failures to avoid 20-iteration burn loops
+    const toolFailureCounts = new Map<string, number>();
+    const disabledToolNames = new Set<string>();
+    let circuitBreakerTrippedMessage: string | null = null;
+
     const appConfig = getCachedAgentAppConfig();
     const effectiveRouting = resolveModelRoutingForEffort(routing, context.effortLevel, appConfig);
     const modelOverride =
@@ -1651,13 +1672,18 @@ export abstract class BaseAgent {
 
       const telemetryFeatureHint = this.resolveOrchestrationTelemetryFeature();
 
+      const activeToolSchemas =
+        disabledToolNames.size > 0
+          ? toolSchemas.filter((schema) => !disabledToolNames.has(schema.function.name))
+          : toolSchemas;
+
       const llmOptions = {
         tier: effectiveRouting.tier,
         modelOverride,
         candidateModels: effectiveRouting.candidateModels,
         maxTokens: effectiveRouting.maxTokens,
         temperature: effectiveRouting.temperature,
-        tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        tools: activeToolSchemas.length > 0 ? activeToolSchemas : undefined,
         // Agent queue jobs can take longer than the default 60s — use 5 minutes
         timeoutMs: 300_000,
         ...(effectiveRouting.enableThinking && {
@@ -1905,11 +1931,16 @@ export abstract class BaseAgent {
         const artifactToolWasAttempted = artifactToolInvocations.length > 0;
         const deliverableMissing =
           artifactToolWasAttempted && !anyArtifactToolSucceeded && !hasDeliverableArtifact;
+        const allToolCallsFailed =
+          toolCallRecords.length > 0 &&
+          toolCallRecords.every((record) => record.status !== 'success');
+        const emptyResponseWithOnlyFailures = isSynthesized && allToolCallsFailed;
 
-        const runLoopSuccess = !deliverableMissing;
+        const runLoopSuccess = !deliverableMissing && !emptyResponseWithOnlyFailures;
         const runLoopErrorMessage = !runLoopSuccess
           ? (() => {
-              const lastFailedArtifact = [...artifactToolInvocations]
+              const failedRecords = deliverableMissing ? artifactToolInvocations : toolCallRecords;
+              const lastFailedArtifact = [...failedRecords]
                 .reverse()
                 .find((record) => record.status !== 'success');
               const rawErr =
@@ -2261,6 +2292,67 @@ export abstract class BaseAgent {
         completedToolCallCount += 1;
         iterationCompletedToolCalls += 1;
         this.recordRecentToolName(recentToolNames, toolCall.function.name);
+
+        // ── Tool Failure Circuit Breaker ─────────────────────────────────
+        // Prevent runaway loops while allowing model self-correction & alternative paths.
+        try {
+          const obsData = JSON.parse(observation) as Record<string, unknown>;
+          if (obsData['success'] === false) {
+            const errStr = typeof obsData['error'] === 'string' ? obsData['error'].trim() : '';
+            const isNonRetryable =
+              obsData['isNonRetryable'] === true ||
+              (obsData['data'] as Record<string, unknown> | undefined)?.['isNonRetryable'] ===
+                true ||
+              errStr.toLowerCase().includes('disabled') ||
+              errStr.toLowerCase().includes('not authorized') ||
+              errStr.toLowerCase().includes('permission denied');
+
+            // Soft circuit breaker: if a tool is permanently disabled or unauthorized,
+            // mask it from activeToolSchemas so the LLM cannot call it again,
+            // but still allow the LLM to continue, use alternative tools, or explain gracefully.
+            if (isNonRetryable) {
+              disabledToolNames.add(toolCall.function.name);
+              logger.info(`[${this.id}] Masking non-retryable tool from subsequent iterations`, {
+                agentId: this.id,
+                toolName: toolCall.function.name,
+                error: errStr,
+              });
+            }
+
+            // Hard circuit breaker: track identical consecutive failures with the exact same arguments.
+            // Professional threshold: 3 attempts (initial attempt + 2 corrections/retries).
+            const argumentHash = createHash('sha256')
+              .update(toolCall.function.arguments ?? '')
+              .digest('hex');
+            const failureKey = `${toolCall.function.name}:${argumentHash}:${errStr}`;
+            const count = (toolFailureCounts.get(failureKey) ?? 0) + 1;
+            toolFailureCounts.set(failureKey, count);
+
+            const MAX_IDENTICAL_TOOL_FAILURES = 3;
+            if (count >= MAX_IDENTICAL_TOOL_FAILURES) {
+              circuitBreakerTrippedMessage = `The tool "${toolCall.function.name}" failed repeatedly with identical parameters: ${errStr}`;
+              logger.warn(
+                `[${this.id}] Tool execution circuit breaker tripped after ${count} identical failures`,
+                {
+                  agentId: this.id,
+                  toolName: toolCall.function.name,
+                  error: errStr,
+                  repeatCount: count,
+                }
+              );
+            }
+          } else {
+            // A successful result resets all prior failure history for this tool.
+            for (const failureKey of toolFailureCounts.keys()) {
+              if (failureKey.startsWith(`${toolCall.function.name}:`)) {
+                toolFailureCounts.delete(failureKey);
+              }
+            }
+          }
+        } catch {
+          /* skip observation json parse */
+        }
+
         // ── Artifact Ledger (Tier 3): capture artifacts from this tool result ──
         // Entries survive context pruning and are used as the last-resort fallback
         // by augmentToolCallWithArtifact on subsequent iterations.
@@ -2423,7 +2515,39 @@ export abstract class BaseAgent {
         }
       }
 
+      if (circuitBreakerTrippedMessage) {
+        logger.info(
+          `[${this.id}] Breaking tool loop early due to circuit breaker: ${circuitBreakerTrippedMessage}`
+        );
+        break;
+      }
+
       this.throwIfAborted(context.signal);
+    }
+
+    if (circuitBreakerTrippedMessage) {
+      logger.warn(`[${this.id}] Tool circuit breaker tripped — returning early failure result`, {
+        agentId: this.id,
+        userId: context.userId,
+        reason: circuitBreakerTrippedMessage,
+      });
+
+      const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
+      return {
+        summary: sanitizeAgentOutputText(
+          `I stopped this operation because a requested action cannot be completed: ${circuitBreakerTrippedMessage}`
+        ),
+        success: false,
+        errorMessage: circuitBreakerTrippedMessage,
+        data: sanitizeAgentResultDataWithToolRecords(
+          {
+            circuitBreakerTripped: true,
+            toolCallRecords,
+          },
+          toolCallRecords
+        ),
+        suggestions: ['Check your permissions or adjust your request parameters.'],
+      };
     }
 
     logger.warn(
@@ -3494,7 +3618,15 @@ export abstract class BaseAgent {
 
     const successRecords = records.filter((r) => r.status === 'success');
     if (successRecords.length === 0) {
-      return 'Some steps encountered errors.';
+      const lastFailure = [...records].reverse().find((record) => record.status !== 'success');
+      const rawError =
+        lastFailure?.output && typeof lastFailure.output === 'object'
+          ? (lastFailure.output as Record<string, unknown>)['error']
+          : undefined;
+      if (typeof rawError === 'string' && rawError.trim().length > 0) {
+        return `I couldn't complete the requested work: ${sanitizeAgentOutputText(rawError)}`;
+      }
+      return 'I could not complete the requested work because all attempted steps failed.';
     }
 
     // Delegation handoffs stream their user-facing output from downstream
@@ -4226,6 +4358,7 @@ export abstract class BaseAgent {
             error: sanitizeAgentOutputText(result.error ?? 'Tool execution failed'),
             ...(result.markdown ? { markdown: result.markdown } : {}),
             ...(rawData !== undefined ? { data: rawData } : {}),
+            ...(result.isNonRetryable ? { isNonRetryable: true } : {}),
             ...(advisory ? { advisory } : {}),
           };
       return JSON.stringify(payload);

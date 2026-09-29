@@ -1177,6 +1177,76 @@ describe('BaseAgent identifier scrubbing', () => {
     ).toBe(true);
   });
 
+  it('preserves a resolved multi-step ask_user result during resume', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    let capturedMessages: readonly LLMMessage[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages) => {
+        capturedMessages = messages;
+        return {
+          content: 'I will build the self-scout from the confirmed ownership.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+    const askUserCallId = 'ask_user_film_ownership';
+    const resolvedSelection = JSON.stringify({
+      success: true,
+      data: {
+        stepResponses: [
+          { prompt: 'Which team is ODK keyed to?', selectedOptionIds: ['keyed_to_our_team'] },
+          { prompt: 'Which perspective?', selectedOptionIds: ['self_scout'] },
+          { prompt: 'Which delivery?', selectedOptionIds: ['chat'] },
+        ],
+      },
+    });
+
+    await agent.resumeExecution(
+      {
+        reason: 'needs_input',
+        messages: [
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: askUserCallId,
+                type: 'function',
+                function: { name: 'ask_user', arguments: '{"steps":[]}' },
+              },
+            ],
+          },
+          { role: 'tool', content: resolvedSelection, tool_call_id: askUserCallId },
+          { role: 'user', content: 'ODK is our Falcons. Build a self-scout chat summary.' },
+        ],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: { steps: [] },
+          toolCallId: askUserCallId,
+        },
+      },
+      createMockContext(),
+      [],
+      llm as never,
+      registry
+    );
+
+    expect(
+      capturedMessages.some(
+        (message) =>
+          message.role === 'tool' &&
+          message.tool_call_id === askUserCallId &&
+          message.content === resolvedSelection
+      )
+    ).toBe(true);
+  });
+
   it('blocks dynamic_export from typed Printable PDF intent without relying on message guards', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();

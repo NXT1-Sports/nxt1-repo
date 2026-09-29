@@ -67,10 +67,16 @@ export class WriteIntelTool extends BaseTool {
     if (!entityTypeRaw || (entityTypeRaw !== 'athlete' && entityTypeRaw !== 'team')) {
       return {
         success: false,
+        isValidationError: true,
         error: 'Parameter "entityType" is required and must be either "athlete" or "team".',
       };
     }
-    if (!entityId) return this.paramError('entityId');
+    if (!entityId) {
+      return {
+        ...this.paramError('entityId'),
+        isValidationError: true,
+      };
+    }
 
     const entityType = entityTypeRaw as IntelEntityType;
 
@@ -80,6 +86,7 @@ export class WriteIntelTool extends BaseTool {
     ) {
       return {
         success: false,
+        isNonRetryable: true,
         error: 'Team Intel is currently disabled.',
       };
     }

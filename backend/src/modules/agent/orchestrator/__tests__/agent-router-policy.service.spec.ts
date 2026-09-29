@@ -69,6 +69,39 @@ describe('AgentRouterPolicyService', () => {
     expect(accessContext.blockedToolNames).toBeUndefined();
   });
 
+  it('blocks write_intel and feed/post mutation tools for coach and director team roles', () => {
+    const coachContext = service.buildToolAccessContext(
+      createUserContext({
+        role: 'coach',
+        teamId: 'team-456',
+        connectedAccounts: [{ provider: 'gmail', email: 'coach@example.com', isTokenValid: true }],
+      })
+    );
+
+    expect(coachContext.blockedToolNames).toEqual([
+      'write_intel',
+      'write_team_post',
+      'update_team_post',
+      'delete_team_post',
+      'write_timeline_post',
+      'update_timeline_post',
+      'delete_timeline_post',
+    ]);
+
+    const directorContext = service.buildToolAccessContext(
+      createUserContext({
+        role: 'director',
+        organizationId: 'org-789',
+        connectedAccounts: [
+          { provider: 'gmail', email: 'director@example.com', isTokenValid: true },
+        ],
+      })
+    );
+
+    expect(directorContext.blockedToolNames).toContain('write_intel');
+    expect(directorContext.blockedToolNames).toContain('write_team_post');
+  });
+
   it('deterministically reroutes outreach delegation to recruiting without planner fallback', async () => {
     const planner = { execute: vi.fn() };
     const policy = new AgentRouterPolicyService(planner as never);

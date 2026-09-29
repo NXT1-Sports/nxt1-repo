@@ -9,6 +9,14 @@ export function getRuntimeEnvironment(): RuntimeEnvironment {
   return process.env['NODE_ENV'] === 'production' ? 'production' : 'staging';
 }
 
+/** Check if the current process is running in local development mode */
+export function isLocalDevelopment(): boolean {
+  return (
+    process.env['NODE_ENV'] === 'development' ||
+    (!process.env['NODE_ENV'] && !process.env['K_SERVICE'] && !process.env['GAE_SERVICE'])
+  );
+}
+
 export function getMongoDatabaseName(mongoUri?: string): string {
   const environment = getRuntimeEnvironment();
   const envSpecific =

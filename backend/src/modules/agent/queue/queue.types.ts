@@ -25,11 +25,14 @@ import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 /** BullMQ queue name for agent jobs. */
 export const AGENT_QUEUE_NAME = 'agent-jobs' as const;
 
-import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+import { getRuntimeEnvironment, isLocalDevelopment } from '../../../config/runtime-environment.js';
 
-/** Redis key prefix for all agent queue data (keeps namespace clean). */
-export const AGENT_QUEUE_PREFIX =
-  getRuntimeEnvironment() === 'production' ? 'nxt1_prod' : 'nxt1_stg';
+/** Redis key prefix for all agent queue data (keeps namespace clean and isolated). */
+export const AGENT_QUEUE_PREFIX = isLocalDevelopment()
+  ? 'nxt1_dev'
+  : getRuntimeEnvironment() === 'production'
+    ? 'nxt1_prod'
+    : 'nxt1_stg';
 
 const DEFAULT_WORKER_CONCURRENCY = 20;
 const MIN_WORKER_CONCURRENCY = 1;

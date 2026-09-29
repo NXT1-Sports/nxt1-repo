@@ -277,13 +277,14 @@ export class AgentXOperationChatMessageFacade {
       typeof params.messageId === 'string' && this.isPersistedMessageId(params.messageId)
         ? params.messageId
         : null;
+    const completedOperationId = streamedMessage?.operationId?.trim() ?? '';
 
     this.settleActiveToolSteps(params.success === false ? 'error' : 'success');
 
     if (persistedMessageId) {
       const shouldReloadPersistedFinal = this.shouldReloadPersistedFinalMessage(streamedMessage);
-      this.messages.update((messages) =>
-        messages.some(
+      this.messages.update((messages) => {
+        const finalized = messages.some(
           (message) => message.id === persistedMessageId && message.id !== params.streamingId
         )
           ? messages.filter((message) => message.id !== params.streamingId)
@@ -291,8 +292,17 @@ export class AgentXOperationChatMessageFacade {
               message.id === params.streamingId
                 ? { ...message, id: persistedMessageId, isTyping: false }
                 : message
-            )
-      );
+            );
+
+        if (!completedOperationId) return finalized;
+        return finalized.filter(
+          (message) =>
+            message.role !== 'assistant' ||
+            (message.operationId ?? '').trim() !== completedOperationId ||
+            message.id === persistedMessageId ||
+            this.isPersistedMessageId(message.id)
+        );
+      });
 
       // Rehydrate the persisted assistant row immediately so final attachments
       // (video + thumbnailUrl poster) render without requiring app reload. Keep
@@ -1882,6 +1892,18 @@ export class AgentXOperationChatMessageFacade {
               ...(resolvedText !== undefined ? { yieldResolvedText: resolvedText } : {}),
             }
           : message
+      )
+    );
+  }
+
+  removeInlineYieldMessage(operationId: string): void {
+    const normalizedOperationId = operationId.trim();
+    if (!normalizedOperationId) return;
+
+    this.messages.update((messages) =>
+      messages.filter(
+        (message) =>
+          !(message.yieldState && (message.operationId ?? '').trim() === normalizedOperationId)
       )
     );
   }

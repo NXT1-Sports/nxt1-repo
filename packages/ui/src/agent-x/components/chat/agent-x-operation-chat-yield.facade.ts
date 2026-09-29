@@ -247,6 +247,7 @@ export class AgentXOperationChatYieldFacade {
           this.attachmentsFacade.clearPendingSelectedContexts();
         }
         this.messageFacade.settleActiveToolSteps('success');
+        this.messageFacade.removeInlineYieldMessage(operationId);
 
         if (result.resumed && result.operationId) {
           await this.attachToResumedOperation({
@@ -468,6 +469,7 @@ export class AgentXOperationChatYieldFacade {
       if (result) {
         await this.haptics.notification('success');
         this.messageFacade.settleActiveToolSteps('success');
+        this.messageFacade.removeInlineYieldMessage(operationId);
 
         if (result.resumed && result.operationId) {
           await this.attachToResumedOperation({

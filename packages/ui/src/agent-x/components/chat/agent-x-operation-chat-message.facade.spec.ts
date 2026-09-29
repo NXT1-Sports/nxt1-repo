@@ -173,6 +173,43 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
+  it('removes duplicate local assistant carriers when a persisted final arrives', () => {
+    const persistedMessageId = '507f1f77bcf86cd799439012';
+    facade.messages.set([
+      {
+        id: 'local-coordinator-copy',
+        role: 'assistant',
+        content: 'Your Program Game Plan is ready.',
+        operationId: 'op-program-plan',
+        timestamp: new Date(),
+      },
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'Your Program Game Plan is ready.',
+        operationId: 'op-program-plan',
+        timestamp: new Date(),
+      },
+      {
+        id: persistedMessageId,
+        role: 'assistant',
+        content: 'Your Program Game Plan is ready.',
+        operationId: 'op-program-plan',
+        semanticPhase: 'assistant_final',
+        timestamp: new Date(),
+      },
+    ]);
+
+    facade.finalizeStreamedAssistantMessage({
+      streamingId: 'typing',
+      messageId: persistedMessageId,
+      success: true,
+      source: 'sse-done',
+    });
+
+    expect(facade.messages().map((message) => message.id)).toEqual([persistedMessageId]);
+  });
+
   it('stamps the pending user message with the resolved operation id', () => {
     facade.messages.set([
       {
@@ -626,6 +663,45 @@ describe('AgentXOperationChatMessageFacade', () => {
       { type: 'text', content: 'Searching 5 football colleges for a QB in the 2028 class now...' },
     ]);
     expect(yieldMessage?.content).toBe('');
+  });
+
+  it('removes only the resolved inline yield row for an operation', () => {
+    facade.messages.set([
+      {
+        id: 'yield-row',
+        role: 'assistant',
+        content: '',
+        operationId: 'op-yield-1',
+        timestamp: new Date(),
+        yieldState: {
+          reason: 'needs_input',
+          promptToUser: 'Choose a perspective.',
+          agentId: 'performance_coordinator',
+          messages: [],
+        },
+      },
+      {
+        id: 'user-reply',
+        role: 'user',
+        content: 'Self-scout',
+        operationId: 'op-yield-1',
+        timestamp: new Date(),
+      },
+      {
+        id: 'unrelated-assistant',
+        role: 'assistant',
+        content: 'Still here',
+        operationId: 'op-other',
+        timestamp: new Date(),
+      },
+    ]);
+
+    facade.removeInlineYieldMessage('op-yield-1');
+
+    expect(facade.messages().map((message) => message.id)).toEqual([
+      'user-reply',
+      'unrelated-assistant',
+    ]);
   });
 
   it('flushes pending typing and leaves no stale typing row after approval yield conversion', () => {

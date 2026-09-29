@@ -79,6 +79,7 @@ describe('AgentXOperationChatYieldFacade', () => {
   };
   const messageFacadeMock = {
     updateInlineYieldMessageState: vi.fn(),
+    removeInlineYieldMessage: vi.fn(),
     settleActiveToolSteps: vi.fn(),
     pushMessage: vi.fn(),
     retireActiveTypingCarrier: vi.fn(),
