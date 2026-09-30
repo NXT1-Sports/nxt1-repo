@@ -3226,9 +3226,13 @@ export class AgentXOperationChatSessionFacade {
     const stalePauseYieldFromThreadMetadata = rawPersistedPendingYieldState
       ? this.isPauseYieldSupersededByLaterTurn(rawPersistedPendingYieldState, items)
       : false;
-    const persistedPendingYieldState = stalePauseYieldFromThreadMetadata
-      ? null
-      : rawPersistedPendingYieldState;
+    const answeredYieldFromThreadMetadata = rawPersistedPendingYieldState
+      ? this.isYieldAnsweredInThreadItems(rawPersistedPendingYieldState, items)
+      : false;
+    const persistedPendingYieldState =
+      stalePauseYieldFromThreadMetadata || answeredYieldFromThreadMetadata
+        ? null
+        : rawPersistedPendingYieldState;
     const timelinePendingYieldState = persistedPendingYieldState
       ? null
       : this.extractLatestPendingYieldFromItems(items);
@@ -3237,6 +3241,7 @@ export class AgentXOperationChatSessionFacade {
       contextId: host.contextId(),
       fromThreadMetadata: !!rawPersistedPendingYieldState,
       skippedStalePauseYieldFromThreadMetadata: stalePauseYieldFromThreadMetadata,
+      skippedAnsweredYieldFromThreadMetadata: answeredYieldFromThreadMetadata,
       fromTimelineFallback: !!timelinePendingYieldState,
     });
 
@@ -3743,7 +3748,20 @@ export class AgentXOperationChatSessionFacade {
       }
     } else {
       const activeYield = host.activeYieldState();
-      if (activeYield && !hasMatchingYieldMessage(activeYield)) {
+      const activeYieldAnswered = activeYield
+        ? this.isYieldAnsweredInThreadItems(activeYield, items)
+        : false;
+      if (activeYieldAnswered) {
+        host.activeYieldState.set(null);
+        host.yieldResolved.set(true);
+        this.logger.info('Cleared stale active yield during thread load because it was answered', {
+          threadId,
+          contextId: host.contextId(),
+          operationId: activeYield ? this.resolveYieldOperationId(activeYield) : null,
+          reason: activeYield?.reason,
+          toolName: activeYield?.pendingToolCall?.toolName,
+        });
+      } else if (activeYield && !hasMatchingYieldMessage(activeYield)) {
         this.messageFacade.upsertInlineYieldMessage(
           activeYield,
           host.getCurrentOperationId() ?? host.contextId()
@@ -3821,8 +3839,20 @@ export class AgentXOperationChatSessionFacade {
             latestLifecycleStatus = stored.latestLifecycleStatus;
           }
 
-          if (pendingYieldState) {
+          if (pendingYieldState && !this.isYieldAnsweredInThreadItems(pendingYieldState, items)) {
             this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
+          } else if (pendingYieldState) {
+            host.activeYieldState.set(null);
+            host.yieldResolved.set(true);
+            this.logger.info(
+              'Skipped firestore-fallback yield because thread already answered it',
+              {
+                threadId,
+                contextId: host.contextId(),
+                operationId: this.resolveYieldOperationId(pendingYieldState),
+                lifecycleStatus: latestLifecycleStatus,
+              }
+            );
           } else if (latestLifecycleStatus) {
             const reconciledStatus =
               latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
@@ -4945,6 +4975,69 @@ export class AgentXOperationChatSessionFacade {
         return false;
       }
     });
+  }
+
+  private isYieldAnsweredInThreadItems(
+    yieldState: AgentYieldState,
+    items: readonly AgentMessage[]
+  ): boolean {
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      if (item.role !== 'assistant') continue;
+
+      const persistedCards: AgentXRichCard[] =
+        item.parts
+          ?.filter(
+            (part): part is Extract<AgentXMessagePart, { type: 'card' }> => part.type === 'card'
+          )
+          .map((part) => part.card) ?? [];
+      const itemYieldState = this.coercePersistedYieldStateFromMessage(item, persistedCards);
+      if (!itemYieldState) continue;
+      if (!this.yieldStatesReferToSameRequest(yieldState, itemYieldState, item)) continue;
+
+      if (item.resultData?.['yieldCardState'] === 'resolved') return true;
+      if (this.hasLaterReplyForYield(item, itemYieldState, items.slice(index + 1))) return true;
+    }
+
+    return false;
+  }
+
+  private yieldStatesReferToSameRequest(
+    target: AgentYieldState,
+    candidate: AgentYieldState,
+    candidateItem: AgentMessage
+  ): boolean {
+    const targetApprovalId = target.approvalId?.trim() ?? '';
+    const candidateApprovalId = candidate.approvalId?.trim() ?? '';
+    if (targetApprovalId && candidateApprovalId && targetApprovalId === candidateApprovalId) {
+      return true;
+    }
+
+    const targetToolCallId = target.pendingToolCall?.toolCallId?.trim() ?? '';
+    const candidateToolCallId = candidate.pendingToolCall?.toolCallId?.trim() ?? '';
+    if (targetToolCallId && candidateToolCallId && targetToolCallId === candidateToolCallId) {
+      return true;
+    }
+
+    const targetToolName = target.pendingToolCall?.toolName?.trim() ?? '';
+    const candidateToolName = candidate.pendingToolCall?.toolName?.trim() ?? '';
+    if (target.reason !== candidate.reason || targetToolName !== candidateToolName) {
+      return false;
+    }
+
+    const targetPrompt = target.promptToUser?.trim() ?? '';
+    const candidatePrompt = candidate.promptToUser?.trim() ?? '';
+    if (targetPrompt && candidatePrompt && targetPrompt === candidatePrompt) {
+      return true;
+    }
+
+    const targetOperationId = this.resolveYieldOperationId(target);
+    const candidateOperationId =
+      typeof candidateItem.operationId === 'string' ? candidateItem.operationId.trim() : '';
+
+    return (
+      !!targetOperationId && !!candidateOperationId && targetOperationId === candidateOperationId
+    );
   }
 
   private applyPendingYieldState(

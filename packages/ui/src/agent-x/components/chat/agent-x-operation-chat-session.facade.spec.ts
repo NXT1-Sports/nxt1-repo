@@ -2656,6 +2656,14 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       AgentXOperationChatSessionFacade.prototype
     ) as ThreadReloadHelper;
     const operationId = '9bbbd07d-7928-4c5d-b126-1e1a546a301a';
+    const staleYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which export format do you want?',
+      pendingToolCall: {
+        toolName: 'ask_user',
+        toolInput: { operationId },
+      },
+    } as NonNullable<AgentMessage['resultData']>['yieldState'];
     const userPrompt: AgentMessage = {
       id: 'user-ask-answered',
       threadId: 'thread-ask-answered',
@@ -2671,7 +2679,7 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       operationId,
       content: 'Which export format do you want?',
       resultData: {
-        yieldState: { reason: 'needs_input', pendingToolCall: { toolName: 'ask_user' } },
+        yieldState: staleYieldState,
       },
     });
     const userReply: AgentMessage = {
@@ -2713,6 +2721,25 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       operationStatus = next;
     });
     const applyYieldState = vi.fn();
+    let activeYieldStateValue = staleYieldState;
+    const activeYieldState = Object.assign(
+      vi.fn(() => activeYieldStateValue),
+      {
+        set: vi.fn((next: typeof activeYieldStateValue) => {
+          activeYieldStateValue = next;
+        }),
+      }
+    );
+    let yieldResolvedValue = false;
+    const yieldResolved = Object.assign(
+      vi.fn(() => yieldResolvedValue),
+      {
+        set: vi.fn((next: boolean) => {
+          yieldResolvedValue = next;
+        }),
+      }
+    );
+    const upsertInlineYieldMessage = vi.fn();
 
     Object.assign(reloadFacade as unknown as Record<string, unknown>, {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -2727,7 +2754,7 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       streamRegistry: { hasActiveStream: vi.fn().mockReturnValue(false) },
       messageFacade: {
         messages: messagesSignal,
-        upsertInlineYieldMessage: vi.fn(),
+        upsertInlineYieldMessage,
         settleActiveToolSteps: vi.fn(),
         pushMessage: vi.fn(),
       },
@@ -2741,8 +2768,8 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       getCurrentOperationId: () => currentOperationId,
       setCurrentOperationId,
       resumeOperationId: () => '',
-      activeYieldState: (() => null) as never,
-      yieldResolved: (() => false) as never,
+      activeYieldState: activeYieldState as never,
+      yieldResolved: yieldResolved as never,
       applyYieldState,
       hasUserSent: () => true,
       markUserMessageSent: vi.fn(),
@@ -2757,6 +2784,9 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
 
     expect(applyYieldState).not.toHaveBeenCalled();
+    expect(upsertInlineYieldMessage).not.toHaveBeenCalled();
+    expect(activeYieldState.set).toHaveBeenCalledWith(null);
+    expect(yieldResolved.set).toHaveBeenCalledWith(true);
     expect(setOperationStatus).not.toHaveBeenCalledWith('awaiting_input');
     expect(renderedMessages.some((message) => message.yieldState?.reason === 'needs_input')).toBe(
       false
