@@ -128,11 +128,9 @@ describe('ProfileHydrationService', () => {
   });
 
   it('preserves and propagates organization logo across newly added and sibling teams', async () => {
-    const orgLogoUrl = 'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=123';
-    rosterEntryService.getUserTeams.mockResolvedValue([
-      { teamId: 'team-1' },
-      { teamId: 'team-2' },
-    ]);
+    const orgLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=123';
+    rosterEntryService.getUserTeams.mockResolvedValue([{ teamId: 'team-1' }, { teamId: 'team-2' }]);
     organizationService.getOrganizationById.mockResolvedValue(
       createOrganization({
         id: 'org-1',

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 
 const mockFindPayments = vi.fn();
@@ -738,12 +738,18 @@ describe('runB2CUsersActivityRefreshSync', () => {
     vi.clearAllMocks();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('refreshes an active user from their real last-login activity', async () => {
+    const lastActiveAt = new Date(Date.now() - 60_000).toISOString();
+
     const { db } = createActivityRefreshDb({
       wallets: [{ id: 'wallet_1', ownerId: 'user_active_1' }],
       users: {
         user_active_1: {
-          lastLoginAt: '2026-09-19T00:00:00.000Z',
+          lastLoginAt: lastActiveAt,
           lifecycle: {
             b2cUsers: {
               usageStarted: { status: 'created', pageId: 'page_active_1' },
@@ -805,16 +811,17 @@ describe('runB2CUsersActivityRefreshSync', () => {
   });
 
   it('skips updating Notion when lastActiveAt and engagement are already current', async () => {
+    const lastActiveAt = new Date(Date.now() - 60_000).toISOString();
     const { db } = createActivityRefreshDb({
       wallets: [{ id: 'wallet_4', ownerId: 'user_current' }],
       users: {
         user_current: {
-          lastLoginAt: '2026-09-19T00:00:00.000Z',
+          lastLoginAt: lastActiveAt,
           lifecycle: {
             b2cUsers: {
               usageStarted: { status: 'created', pageId: 'page_current' },
               activitySync: {
-                lastActiveAt: new Date('2026-09-19T00:00:00.000Z').toISOString(),
+                lastActiveAt,
                 engagement: 'High',
               },
             },

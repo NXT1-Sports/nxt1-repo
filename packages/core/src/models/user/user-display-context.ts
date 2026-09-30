@@ -405,9 +405,9 @@ function buildTeamContext(user: UserDisplayInput, personalName: string): UserDis
           const additionalLegacyLogo = (s.team as Record<string, unknown> | undefined)?.['logo'] as
             | string
             | undefined;
-          const additionalOrgId = (s.team as Record<string, unknown> | undefined)?.['organizationId'] as
-            | string
-            | undefined;
+          const additionalOrgId = (s.team as Record<string, unknown> | undefined)?.[
+            'organizationId'
+          ] as string | undefined;
           const additionalOrgSiblingLogo =
             additionalOrgId && activeOrgId && additionalOrgId === activeOrgId
               ? fallbackOrgLogo

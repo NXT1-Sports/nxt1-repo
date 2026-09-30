@@ -36,6 +36,7 @@ describe('B2C Users Notion entry service', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.useRealTimers();
     process.env = { ...ORIGINAL_ENV };
   });
 
@@ -315,7 +316,7 @@ describe('B2C Users Notion entry service', () => {
         jsonResponse({ id: 'page-active', url: 'https://notion.so/b2c-active' })
       );
 
-      const lastActiveAt = new Date('2026-09-20T12:00:00.000Z');
+      const lastActiveAt = new Date(Date.now() - 60_000);
       const result = await refreshB2CUsersActivity({
         environment: 'production',
         pageId: 'page-active',
@@ -330,7 +331,7 @@ describe('B2C Users Notion entry service', () => {
       const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
       expect(body.properties).toEqual({
         Engagement: { select: { name: 'High' } },
-        'Last Active': { date: { start: '2026-09-20T12:00:00.000Z' } },
+        'Last Active': { date: { start: lastActiveAt.toISOString() } },
       });
     });
 

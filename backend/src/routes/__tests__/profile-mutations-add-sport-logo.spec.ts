@@ -90,12 +90,18 @@ function createDb(seed: SeedData) {
   const batchUpdates: Array<() => void> = [];
   return {
     batch: () => ({
-      update: (ref: { update: (data: Record<string, unknown>) => Promise<void> }, data: Record<string, unknown>) => {
+      update: (
+        ref: { update: (data: Record<string, unknown>) => Promise<void> },
+        data: Record<string, unknown>
+      ) => {
         batchUpdates.push(() => {
           void ref.update(data);
         });
       },
-      set: (ref: { set: (data: Record<string, unknown>) => Promise<void> }, data: Record<string, unknown>) => {
+      set: (
+        ref: { set: (data: Record<string, unknown>) => Promise<void> },
+        data: Record<string, unknown>
+      ) => {
         batchUpdates.push(() => {
           void ref.set(data);
         });
@@ -178,7 +184,8 @@ describe('POST /api/v1/profile/:userId/sport (Coach/Director logo inheritance)',
   });
 
   it('inherits organization logo on newly created team doc and sport entry', async () => {
-    const orgLogoUrl = 'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=123';
+    const orgLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=123';
     createTeamCodeMock.mockResolvedValue({
       id: 'team-basketball',
       teamCode: 'BB1234',
@@ -238,12 +245,10 @@ describe('POST /api/v1/profile/:userId/sport (Coach/Director logo inheritance)',
 
     const app = buildApp(seed);
 
-    const response = await request(app)
-      .post('/api/v1/profile/coach-1/sport')
-      .send({
-        sport: 'Basketball',
-        positions: [],
-      });
+    const response = await request(app).post('/api/v1/profile/coach-1/sport').send({
+      sport: 'Basketball',
+      positions: [],
+    });
 
     expect(response.status).toBe(201);
     expect(response.body.success).toBe(true);
@@ -265,7 +270,10 @@ describe('POST /api/v1/profile/:userId/sport (Coach/Director logo inheritance)',
     // Verify the user profile update includes the logo on newSport.team
     const updatedUser = seed.Users['coach-1'];
     expect(updatedUser).toBeDefined();
-    const arrayUnionCall = updatedUser?.['sports'] as { __type: string; elements: Array<{ sport: string; team: { logoUrl: string } }> };
+    const arrayUnionCall = updatedUser?.['sports'] as {
+      __type: string;
+      elements: Array<{ sport: string; team: { logoUrl: string } }>;
+    };
     expect(arrayUnionCall.__type).toBe('arrayUnion');
     expect(arrayUnionCall.elements[0]?.team.logoUrl).toBe(orgLogoUrl);
 
@@ -274,7 +282,8 @@ describe('POST /api/v1/profile/:userId/sport (Coach/Director logo inheritance)',
   });
 
   it('inherits organization logo when teamSelection is used by coach', async () => {
-    const orgLogoUrl = 'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-2%2Flogo?alt=media&token=456';
+    const orgLogoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-2%2Flogo?alt=media&token=456';
     provisionOnboardingProgramsMock.mockResolvedValue({
       teamIds: ['team-volleyball'],
       createdTeamIds: ['team-volleyball'],
@@ -358,7 +367,10 @@ describe('POST /api/v1/profile/:userId/sport (Coach/Director logo inheritance)',
     // Verify user sports update contains the logo on newSport.team
     const updatedUser = seed.Users['coach-1'];
     expect(updatedUser).toBeDefined();
-    const arrayUnionCall = updatedUser?.['sports'] as { __type: string; elements: Array<{ sport: string; team: { logoUrl: string } }> };
+    const arrayUnionCall = updatedUser?.['sports'] as {
+      __type: string;
+      elements: Array<{ sport: string; team: { logoUrl: string } }>;
+    };
     expect(arrayUnionCall.__type).toBe('arrayUnion');
     expect(arrayUnionCall.elements[0]?.team.logoUrl).toBe(orgLogoUrl);
 

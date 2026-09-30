@@ -280,7 +280,8 @@ describe('mapBackendProfileToCachedUserProfile', () => {
   it('inherits organization logo on top-nav and switcher when a coach creates a new team under the organization', () => {
     // Coach already had Football with the organization logo.
     // They just added Basketball (index 1 is active), which doesn't have its own logoUrl yet.
-    const orgLogo = 'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=tok';
+    const orgLogo =
+      'https://firebasestorage.googleapis.com/v0/b/test/o/Organizations%2Forg-1%2Flogo?alt=media&token=tok';
     const ctx = buildUserDisplayContext({
       displayName: 'Coach Smith',
       email: 'coach@example.com',
