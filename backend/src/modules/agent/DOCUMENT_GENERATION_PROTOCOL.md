@@ -75,7 +75,7 @@ Choose the artifact tool based on output shape:
 | Spreadsheet / workbook export    | `execute_python_code`                                              | Explicit XLSX files, trackers, matrices, budgets, dashboards, formula workbooks, editable sheets |
 | Exact-layout PDF from HTML/CSS   | `render_html_pdf`                                                  | Sample-matched PDFs, one-page staff sheets, callsheets, wristbands, depth charts, sideline cards |
 | Gamma-style report / slide deck  | `dynamic_export`                                                   | Presentation decks, multi-page narrative reports, scout-card packets, briefing decks             |
-| Editable Word document fallback | `dynamic_export` with `format="docx"`                            | Structured reports, plans, packets, and handoff documents when a native Word tool is unavailable |
+| Editable Word document fallback  | `dynamic_export` with `format="docx"`                              | Structured reports, plans, packets, and handoff documents when a native Word tool is unavailable |
 | Fallback document / table export | `dynamic_export`                                                   | Fallback PDF/XLSX/CSV export when no better dedicated path fits                                  |
 | Data visualization / chart       | `generate_chart_visualization`                                     | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps                      |
 | Play / drill / tactical diagram  | `create_play_diagram` for plays, `create_board_diagram` for drills | Route trees, formations, coverage diagrams, drill boards                                         |

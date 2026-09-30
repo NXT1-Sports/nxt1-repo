@@ -573,9 +573,7 @@ describe('ExportService', () => {
 
   describe('generateDocx', () => {
     it('generates a valid DOCX with structured content, metadata, page fields, and images', async () => {
-      const result = await service.generateDocx(
-        docxOpts({ imageUrls: [TINY_PNG_DATA_URL] })
-      );
+      const result = await service.generateDocx(docxOpts({ imageUrls: [TINY_PNG_DATA_URL] }));
       expect(result).toBeInstanceOf(Buffer);
       expect(result.subarray(0, 2).toString('utf8')).toBe('PK');
 

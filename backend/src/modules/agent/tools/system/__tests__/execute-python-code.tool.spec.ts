@@ -162,9 +162,9 @@ describe('ExecutePythonCodeTool', () => {
         contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       })
     );
-    expect((result.data as { attachments: readonly [{ mimeType: string }] }).attachments[0].mimeType).toBe(
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    );
+    expect(
+      (result.data as { attachments: readonly [{ mimeType: string }] }).attachments[0].mimeType
+    ).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
   });
 
   it('returns Python execution errors without uploading artifacts', async () => {

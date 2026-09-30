@@ -766,7 +766,9 @@ export class ExportService {
           new Paragraph({
             heading: sectionIndex === 0 ? HeadingLevel.HEADING_1 : HeadingLevel.HEADING_2,
             spacing: { before: 260, after: 120 },
-            border: { bottom: { color: section.themeColor ?? primary, style: BorderStyle.SINGLE, size: 8 } },
+            border: {
+              bottom: { color: section.themeColor ?? primary, style: BorderStyle.SINGLE, size: 8 },
+            },
             children: [
               new TextRun({
                 text: this.normalizePdfText(section.title),
@@ -782,7 +784,13 @@ export class ExportService {
         children.push(
           new Paragraph({
             spacing: { after: 100 },
-            children: [new TextRun({ text: this.normalizePdfText(section.description), color: '666666', italics: true })],
+            children: [
+              new TextRun({
+                text: this.normalizePdfText(section.description),
+                color: '666666',
+                italics: true,
+              }),
+            ],
           })
         );
       }
@@ -804,7 +812,9 @@ export class ExportService {
         );
       }
       if (section.columns?.length && section.rows?.length) {
-        children.push(this.buildDocxTable(section.columns, section.rows, section.themeColor ?? primary));
+        children.push(
+          this.buildDocxTable(section.columns, section.rows, section.themeColor ?? primary)
+        );
       }
       for (const imageUrl of section.imageUrls ?? []) {
         const image = imageAssets.find((asset) => asset.sourceUrl === imageUrl);
@@ -836,7 +846,11 @@ export class ExportService {
         {
           properties: {
             page: {
-              size: { width: size.width, height: size.height, orientation: isLandscape ? 'landscape' : 'portrait' },
+              size: {
+                width: size.width,
+                height: size.height,
+                orientation: isLandscape ? 'landscape' : 'portrait',
+              },
               margin: { top: 1000, right: 900, bottom: 900, left: 900, header: 450, footer: 450 },
             },
           },
@@ -847,10 +861,20 @@ export class ExportService {
       ],
       styles: {
         default: {
-          document: { run: { font: 'Aptos', size: 21, color: '171717' }, paragraph: { spacing: { line: 276 } } },
+          document: {
+            run: { font: 'Aptos', size: 21, color: '171717' },
+            paragraph: { spacing: { line: 276 } },
+          },
         },
       },
-      numbering: { config: [{ reference: 'nxt1-bullets', levels: [{ level: 0, format: 'bullet', text: '\u2022', alignment: AlignmentType.LEFT }] }] },
+      numbering: {
+        config: [
+          {
+            reference: 'nxt1-bullets',
+            levels: [{ level: 0, format: 'bullet', text: '\u2022', alignment: AlignmentType.LEFT }],
+          },
+        ],
+      },
     });
 
     return Buffer.from(await Packer.toBuffer(document));
@@ -865,19 +889,30 @@ export class ExportService {
     const cell = (text: string, header = false): DocxTableCell =>
       new DocxTableCell({
         width: { size: 100 / columns.length, type: WidthType.PERCENTAGE },
-        shading: header ? { fill: headerColor.replace('#', ''), type: ShadingType.CLEAR } : undefined,
+        shading: header
+          ? { fill: headerColor.replace('#', ''), type: ShadingType.CLEAR }
+          : undefined,
         borders: { top: border, bottom: border, left: border, right: border },
         margins: { top: 100, bottom: 100, left: 120, right: 120 },
         children: [
           new Paragraph({
-            children: [new TextRun({ text, bold: header, color: header ? this.getContrastTextColor(headerColor) : '171717', size: 18 })],
+            children: [
+              new TextRun({
+                text,
+                bold: header,
+                color: header ? this.getContrastTextColor(headerColor) : '171717',
+                size: 18,
+              }),
+            ],
           }),
         ],
       });
     return new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
       rows: [
-        new TableRow({ children: columns.map((column) => cell(this.normalizePdfText(column.label), true)) }),
+        new TableRow({
+          children: columns.map((column) => cell(this.normalizePdfText(column.label), true)),
+        }),
         ...rows.map(
           (row, rowIndex) =>
             new TableRow({
