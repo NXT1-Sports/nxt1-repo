@@ -1785,15 +1785,18 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       :host {
         display: block;
         width: 100%;
+        min-width: 0;
         --nxt1-color-primary: var(--agent-primary, #ccff00);
         --nxt1-color-border-primary: var(--agent-primary, #ccff00);
       }
 
       .agent-x-files-panel {
         display: grid;
+        grid-template-columns: minmax(0, 1fr);
         gap: 16px;
         padding: 12px;
         width: 100%;
+        min-width: 0;
       }
 
       /* Compact: the mobile sheet body already supplies outer padding. */
@@ -1890,19 +1893,22 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
       .agent-x-files-panel__toolbar {
         padding: 0;
         align-items: center;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
+        min-width: 0;
       }
 
       .agent-x-files-panel__toolbar .film-library-header__actions-primary {
-        flex: 1 1 auto;
+        flex: 1 1 16rem;
         min-width: 0;
         flex-wrap: nowrap;
       }
 
       .agent-x-files-panel__toolbar .film-library-header__actions-secondary {
-        flex: 0 0 auto;
-        flex-wrap: nowrap;
+        flex: 0 1 auto;
+        flex-wrap: wrap;
+        justify-content: flex-end;
         margin-left: auto;
+        min-width: 0;
       }
 
       .agent-x-files-panel__toolbar .film-library-search-wrap {
