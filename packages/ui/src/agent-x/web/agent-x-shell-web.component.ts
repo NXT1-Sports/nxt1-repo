@@ -1330,7 +1330,10 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   <h2 class="agent-column-title">{{ filesPanelLabel }}</h2>
                 }
                 <div class="agent-column-header-actions">
-                  @if (filesPanel()?.activeViewerFile(); as activeFile) {
+                  @if (
+                    isFilesInlineVideoView() && filesPanel()?.activeViewerFile();
+                    as activeFile
+                  ) {
                     <nxt1-agent-x-share-menu
                       [target]="mapFileToShareTarget(activeFile)"
                       triggerAriaLabel="Share file"
@@ -1520,7 +1523,10 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   <h2 class="agent-column-title">{{ filmReviewPanelLabel }}</h2>
                 }
                 <div class="agent-column-header-actions">
-                  @if (filmReviewPanel()?.selectedReview(); as activeReview) {
+                  @if (
+                    isFilmReviewInlineVideoView() && filmReviewPanel()?.selectedReview();
+                    as activeReview
+                  ) {
                     <nxt1-agent-x-share-menu
                       [target]="mapReviewToShareTarget(activeReview)"
                       triggerAriaLabel="Share film review"
