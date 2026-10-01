@@ -89,7 +89,7 @@ interface N8nWebhookPayload {
 /** Slack webhook URL from environment or config */
 const SLACK_WEBHOOK_URL = process.env['SLACK_WEBHOOK_URL'] || '';
 const SLACK_BOT_TOKEN = process.env['SLACK_BOT_TOKEN'] || '';
-const SLACK_ALERTS_CHANNEL = process.env['SLACK_ALERTS_CHANNEL'] || 'alerts-channels';
+const SLACK_ALERTS_CHANNEL = process.env['SLACK_ALERTS_CHANNEL'] || 'alerts-crashes';
 const N8N_WEBHOOK_URL = process.env['N8N_WEBHOOK_URL'] || '';
 
 /** Severity thresholds */
@@ -189,7 +189,7 @@ function detectEnvironment(bundleId: string): 'production' | 'staging' {
 }
 
 function resolveSlackChannel(channel: string): string {
-  return channel.trim().replace(/^#/, '') || 'alerts-channels';
+  return channel.trim().replace(/^#/, '') || 'alerts-crashes';
 }
 
 /**

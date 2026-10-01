@@ -37,7 +37,7 @@ describe('processAgentDeliverableGeneratedLifecycle', () => {
     delete process.env['PRODUCTION_APP_URL'];
   });
 
-  it('includes the canonical unicode profile URL in the marketing Slack payload', async () => {
+  it('includes the canonical unicode profile URL in the agent outputs Slack payload', async () => {
     process.env['PRODUCTION_APP_URL'] = 'https://nxt1sports.com';
     mockSendSlackAlert.mockResolvedValue(true);
 
@@ -66,7 +66,7 @@ describe('processAgentDeliverableGeneratedLifecycle', () => {
 
     expect(mockSendSlackAlert).toHaveBeenCalledWith(
       expect.objectContaining({
-        target: 'marketing',
+        target: 'agent_outputs',
         fields: expect.arrayContaining([
           expect.objectContaining({ label: 'User ID', value: 'user-1' }),
           expect.objectContaining({

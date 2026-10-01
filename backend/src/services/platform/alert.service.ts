@@ -3,6 +3,7 @@ import { logger } from '../../utils/logger.js';
 
 export type AlertTarget =
   | 'agent'
+  | 'agent_outputs'
   | 'insights'
   | 'marketing'
   | 'sentry'
@@ -81,6 +82,10 @@ function resolveTargetWebhook(
     environment === 'staging'
       ? ({
           agent: ['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL', 'SLACK_AGENT_ALERT_WEBHOOK_URL'],
+          agent_outputs: [
+            'STAGING_SLACK_AGENT_OUTPUTS_WEBHOOK_URL',
+            'SLACK_AGENT_OUTPUTS_WEBHOOK_URL',
+          ],
           insights: ['STAGING_SLACK_INSIGHTS_WEBHOOK_URL', 'SLACK_INSIGHTS_WEBHOOK_URL'],
           marketing: ['STAGING_SLACK_MARKETING_WEBHOOK_URL', 'SLACK_MARKETING_WEBHOOK_URL'],
           sales: ['STAGING_SLACK_SALES_ALERT_WEBHOOK_URL', 'SLACK_SALES_ALERT_WEBHOOK_URL'],
@@ -89,6 +94,7 @@ function resolveTargetWebhook(
         } as const)
       : ({
           agent: ['SLACK_AGENT_ALERT_WEBHOOK_URL'],
+          agent_outputs: ['SLACK_AGENT_OUTPUTS_WEBHOOK_URL'],
           insights: ['SLACK_INSIGHTS_WEBHOOK_URL'],
           marketing: ['SLACK_MARKETING_WEBHOOK_URL'],
           sales: ['SLACK_SALES_ALERT_WEBHOOK_URL'],
@@ -105,7 +111,7 @@ function resolveTargetWebhook(
     };
   }
 
-  if (target === 'sales') {
+  if (target === 'sales' || target === 'agent_outputs') {
     return {
       url: '',
       envVar: null,
@@ -261,14 +267,20 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
     readonly deliveryAttempt: 'default-fallback' | 'agent-fallback';
   }> = [];
 
-  if (target !== 'default' && target !== 'sales' && resolvedWebhook.source === 'target-specific') {
+  const shouldSkipFallbacks = target === 'sales' || target === 'agent_outputs';
+
+  if (
+    target !== 'default' &&
+    !shouldSkipFallbacks &&
+    resolvedWebhook.source === 'target-specific'
+  ) {
     fallbackCandidates.push({
       resolvedWebhook: resolveDefaultFallbackWebhook(environment),
       deliveryAttempt: 'default-fallback',
     });
   }
 
-  if (target !== 'agent' && target !== 'sales') {
+  if (target !== 'agent' && !shouldSkipFallbacks) {
     fallbackCandidates.push({
       resolvedWebhook: resolveAgentFallbackWebhook(environment),
       deliveryAttempt: 'agent-fallback',

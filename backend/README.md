@@ -304,6 +304,9 @@ A valid `.env` file is required with:
 - MongoDB connection URI
 - OpenRouter API key
 - Stripe secret key + webhook signing secret
+- Slack Agent X output webhook (`SLACK_AGENT_OUTPUTS_WEBHOOK_URL`)
 - Slack sales alert webhook (`SLACK_SALES_ALERT_WEBHOOK_URL`)
+- Slack marketing webhook (`SLACK_MARKETING_WEBHOOK_URL`)
+- Slack insights webhook (`SLACK_INSIGHTS_WEBHOOK_URL`)
 - Redis connection URL
 - Helicone API key

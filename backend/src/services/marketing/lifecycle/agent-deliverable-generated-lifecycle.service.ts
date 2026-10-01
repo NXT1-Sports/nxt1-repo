@@ -103,7 +103,7 @@ export async function processAgentDeliverableGeneratedLifecycle(
   });
 
   const delivered = await sendSlackAlert({
-    target: 'marketing',
+    target: 'agent_outputs',
     environment: input.environment,
     severity: 'info',
     title: 'Agent X Deliverable Generated',

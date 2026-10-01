@@ -12,6 +12,8 @@ describe('sendSlackAlert', () => {
     delete process.env['STAGING_SLACK_SENTRY_ALERT_WEBHOOK_URL'];
     delete process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'];
     delete process.env['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL'];
+    delete process.env['SLACK_AGENT_OUTPUTS_WEBHOOK_URL'];
+    delete process.env['STAGING_SLACK_AGENT_OUTPUTS_WEBHOOK_URL'];
     delete process.env['SLACK_INSIGHTS_WEBHOOK_URL'];
     delete process.env['STAGING_SLACK_INSIGHTS_WEBHOOK_URL'];
     delete process.env['SLACK_SALES_ALERT_WEBHOOK_URL'];
@@ -223,6 +225,27 @@ describe('sendSlackAlert', () => {
     );
   });
 
+  it('uses the dedicated agent outputs webhook when configured', async () => {
+    process.env['SLACK_AGENT_OUTPUTS_WEBHOOK_URL'] = 'https://hooks.slack.test/agent-outputs';
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'agent_outputs',
+      environment: 'production',
+      severity: 'info',
+      title: 'Agent X Deliverable Generated',
+      summary: 'A generated deliverable is ready.',
+    });
+
+    expect(delivered).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hooks.slack.test/agent-outputs',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
   it('uses the dedicated insights webhook when configured', async () => {
     process.env['SLACK_INSIGHTS_WEBHOOK_URL'] = 'https://hooks.slack.test/insights';
 
@@ -296,6 +319,25 @@ describe('sendSlackAlert', () => {
       severity: 'info',
       title: 'Payment Received',
       summary: 'A customer payment completed.',
+    });
+
+    expect(delivered).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back agent output alerts to the default or agent webhook', async () => {
+    process.env['SLACK_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/default';
+    process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/agent';
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'agent_outputs',
+      environment: 'production',
+      severity: 'info',
+      title: 'Agent X Deliverable Generated',
+      summary: 'A generated deliverable is ready.',
     });
 
     expect(delivered).toBe(false);
