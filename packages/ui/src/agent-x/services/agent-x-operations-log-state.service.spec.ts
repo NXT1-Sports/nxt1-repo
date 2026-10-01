@@ -151,6 +151,59 @@ describe('AgentXOperationsLogStateService', () => {
     expect(service.unreadThreadIds().has('thread-123')).toBe(false);
   });
 
+  it('replaces a completed parent row when a resumed operation starts for the same thread', async () => {
+    const statusUpdates$ = new Subject<{
+      threadId: string;
+      status: 'complete' | 'in-progress';
+      timestamp: string;
+      source: 'chat';
+      operationId?: string;
+      title?: string;
+    }>();
+    const service = createService(
+      {
+        get: vi.fn().mockReturnValue(
+          of({
+            success: true,
+            data: [
+              createEntry({
+                id: 'parent-op',
+                operationId: 'parent-op',
+                threadId: 'thread-123',
+                status: 'complete',
+                timestamp: '2026-06-01T10:00:10.000Z',
+              }),
+            ],
+            scheduled: [],
+            pageInfo: { hasMore: false },
+          })
+        ),
+      },
+      {
+        operationStatusUpdated$: statusUpdates$,
+      }
+    );
+
+    await service.ensureLoaded(true);
+
+    statusUpdates$.next({
+      threadId: 'thread-123',
+      status: 'in-progress',
+      timestamp: '2026-06-01T10:00:11.000Z',
+      source: 'chat',
+      operationId: 'resumed-op',
+    });
+
+    expect(service.history()).toEqual([
+      expect.objectContaining({
+        id: 'resumed-op',
+        operationId: 'resumed-op',
+        threadId: 'thread-123',
+        status: 'in-progress',
+      }),
+    ]);
+  });
+
   it('does not mark existing completed history unread when refreshing without a prior snapshot', async () => {
     const get = vi.fn().mockReturnValue(
       of({

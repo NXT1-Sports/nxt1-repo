@@ -3130,7 +3130,11 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
-      await jobRepository.withDb(db).markFailed(operationId, 'Yield expired before user responded');
+      await jobRepository
+        .withDb(db)
+        .markFailed(operationId, 'Yield expired before user responded', {
+          suppressAlerts: true,
+        });
       res.status(410).json({ success: false, error: 'This request has expired' });
       return;
     }
@@ -4301,7 +4305,9 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
         await jobRepository
           .withDb(db)
-          .markFailed(resolvedOperationId, 'Yield expired before user responded');
+          .markFailed(resolvedOperationId, 'Yield expired before user responded', {
+            suppressAlerts: true,
+          });
         res.status(410).json({ success: false, error: 'This request has expired' });
         return;
       }

@@ -27,6 +27,13 @@ export interface ToolResult {
    * NOT fire the critical "Agent Tool Execution Failed" alert.
    */
   readonly isValidationError?: boolean;
+  /**
+   * When `true`, this failure is unrecoverable within the current turn loop
+   * (e.g. a feature flag is disabled, an external account is not connected,
+   * or permissions are denied). The agent's ReAct loop circuit breaker trips
+   * immediately instead of attempting parameter permutations.
+   */
+  readonly isNonRetryable?: boolean;
 }
 
 /** A nested backend tool action rendered as a first-class operation step. */

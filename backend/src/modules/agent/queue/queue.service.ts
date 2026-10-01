@@ -26,6 +26,7 @@
 
 import { Queue, type JobsOptions } from 'bullmq';
 import type { AgentJobPayload } from '@nxt1/core';
+import { isLocalDevelopment } from '../../../config/runtime-environment.js';
 import type {
   AgentQueueJobData,
   AgentQueueJobResult,
@@ -66,6 +67,16 @@ export class AgentQueueService {
   ) {
     this.jobRetryOverrides = jobRetryOverrides;
     this.redisUrl = redisUrl ?? process.env['REDIS_URL'] ?? 'redis://localhost:6379';
+
+    if (
+      isLocalDevelopment() &&
+      !AgentQueueService.isLocalRedisUrl(this.redisUrl) &&
+      process.env['ALLOW_LOCAL_REMOTE_REDIS'] !== 'true'
+    ) {
+      throw new Error(
+        'Local Agent X workers may only use localhost Redis. Set ALLOW_LOCAL_REMOTE_REDIS=true for an explicit override.'
+      );
+    }
 
     // Parse URL into RedisOptions for BullMQ compatibility (includes auth)
     const connection = AgentQueueService.parseRedisUrl(this.redisUrl);
@@ -422,6 +433,11 @@ export class AgentQueueService {
     const dbPath = parsed.pathname.replace('/', '');
     if (dbPath && /^\d+$/.test(dbPath)) connection['db'] = parseInt(dbPath, 10);
     return connection;
+  }
+
+  private static isLocalRedisUrl(url: string): boolean {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
   }
 
   // ─── Internals ──────────────────────────────────────────────────────────

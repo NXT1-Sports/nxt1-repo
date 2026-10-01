@@ -755,6 +755,18 @@ export class AgentJobRepository {
   }
 
   /**
+   * Touch the job document's updatedAt timestamp to keep parent-wait checks fresh.
+   */
+  async touch(operationId: string): Promise<void> {
+    const jobRef = this.jobRef(operationId);
+    await jobRef
+      .update({
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => undefined);
+  }
+
+  /**
    * Mark the job as completed and store the final result.
    */
   async markCompleted(operationId: string, result: AgentOperationResult): Promise<void> {
@@ -859,7 +871,11 @@ export class AgentJobRepository {
   /**
    * Mark the job as failed and store the error message.
    */
-  async markFailed(operationId: string, error: string): Promise<void> {
+  async markFailed(
+    operationId: string,
+    error: string,
+    options?: { readonly suppressAlerts?: boolean }
+  ): Promise<void> {
     const jobRef = this.jobRef(operationId);
     let alertInput: {
       operationId: string;
@@ -873,7 +889,7 @@ export class AgentJobRepository {
       failedAt: Date;
     } | null = null;
 
-    const shouldQueueAlert = process.env['NODE_ENV'] !== 'test';
+    const shouldQueueAlert = process.env['NODE_ENV'] !== 'test' && !options?.suppressAlerts;
     let shouldTrackFailure = false;
     let analyticsInput: TerminalAnalyticsMetadata | null = null;
 

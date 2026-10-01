@@ -1205,6 +1205,17 @@ export class AgentXOperationEventService {
         doneSuccess = true;
       }
 
+      // Answered yields leave the awaiting_input event as the last one in the log.
+      if (
+        latestYieldState &&
+        (isDone ||
+          (latestLifecycleStatus !== 'paused' &&
+            latestLifecycleStatus !== 'awaiting_input' &&
+            latestLifecycleStatus !== 'awaiting_approval'))
+      ) {
+        latestYieldState = null;
+      }
+
       this.logger.debug('Reconstructed stored event state', {
         operationId,
         contentLength: content.length,

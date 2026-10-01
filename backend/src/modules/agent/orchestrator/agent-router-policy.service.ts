@@ -16,6 +16,22 @@ const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
 const PROVIDER_EMAIL_SEND_TOOLS = ['send_email', 'batch_send_email'] as const;
 const GMAIL_ONLY_SEND_TOOLS = ['gmail_send_email'] as const;
 
+/**
+ * Tools that should never be exposed to coaches/directors because:
+ * 1. Team Intel is currently disabled by feature flag (stops 10-turn retry loops).
+ * 2. Teams do not have an active public timeline feed in the current platform architecture.
+ * 3. Coaches/directors do not own personal athlete timeline posts.
+ */
+const TEAM_ROLE_BLOCKED_TOOLS = [
+  'write_intel',
+  'write_team_post',
+  'update_team_post',
+  'delete_team_post',
+  'write_timeline_post',
+  'update_timeline_post',
+  'delete_timeline_post',
+] as const;
+
 export class AgentRouterPolicyService {
   private readonly routingOrchestrator: AgentRoutingOrchestratorService;
 
@@ -62,6 +78,7 @@ export class AgentRouterPolicyService {
 
     if (isTeamRole) {
       allowedEntityGroups.push('team_tools', 'user_tools');
+      blockedToolNames.push(...TEAM_ROLE_BLOCKED_TOOLS);
     }
 
     if (userContext.organizationId) {

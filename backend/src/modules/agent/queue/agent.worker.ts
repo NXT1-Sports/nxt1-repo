@@ -1809,29 +1809,65 @@ export class AgentWorker {
         parentUpdatedAtMs !== null && staleHeartbeatMs >= PARENT_OPERATION_STALE_HEARTBEAT_MS;
 
       if (exceededMaxWait || staleByHeartbeat) {
-        const parentFailureReason =
-          'Parent operation became stale while a child operation was blocked waiting for completion.';
-
-        logger.error('Detected stale parent operation; forcing terminal failure to unblock child', {
-          operationId: payload.operationId,
-          parentOperationId,
-          parentStatus: parentJob.status,
-          elapsedWaitMs,
-          parentUpdatedAtMs,
-          staleHeartbeatMs,
-        });
-
-        try {
-          await repo.markFailed(parentOperationId, parentFailureReason);
-        } catch (err) {
-          logger.warn('Failed to mark stale parent operation as failed; unblocking child anyway', {
-            operationId: payload.operationId,
-            parentOperationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
+        // If queueService is available, check whether the parent is still actively running in BullMQ
+        let isParentActivelyRunningInQueue = false;
+        if (this.queueService) {
+          try {
+            const parentQueueStatus = await this.queueService.getJobStatus(parentOperationId);
+            if (
+              parentQueueStatus &&
+              (parentQueueStatus.status === 'thinking' ||
+                parentQueueStatus.status === 'acting' ||
+                parentQueueStatus.status === 'streaming_result')
+            ) {
+              isParentActivelyRunningInQueue = true;
+            }
+          } catch {
+            // Ignore queue status lookup error and proceed with time-based checks
+          }
         }
 
-        return;
+        if (isParentActivelyRunningInQueue && !exceededMaxWait) {
+          logger.info(
+            'Parent operation heartbeat delayed but job is actively executing in BullMQ — extending wait',
+            {
+              operationId: payload.operationId,
+              parentOperationId,
+              elapsedWaitMs,
+            }
+          );
+          // Continue waiting without marking parent failed
+        } else {
+          const parentFailureReason =
+            'Parent operation became stale while a child operation was blocked waiting for completion.';
+
+          logger.error(
+            'Detected stale parent operation; forcing terminal failure to unblock child',
+            {
+              operationId: payload.operationId,
+              parentOperationId,
+              parentStatus: parentJob.status,
+              elapsedWaitMs,
+              parentUpdatedAtMs,
+              staleHeartbeatMs,
+            }
+          );
+
+          try {
+            await repo.markFailed(parentOperationId, parentFailureReason);
+          } catch (err) {
+            logger.warn(
+              'Failed to mark stale parent operation as failed; unblocking child anyway',
+              {
+                operationId: payload.operationId,
+                parentOperationId,
+                error: err instanceof Error ? err.message : String(err),
+              }
+            );
+          }
+
+          return;
+        }
       }
 
       await new Promise<void>((resolve, reject) => {
@@ -2976,11 +3012,16 @@ export class AgentWorker {
 
     // Execute the full agent pipeline (with overall timeout)
     let result: AgentOperationResult;
+    let routerPromise: Promise<AgentOperationResult> | undefined;
+    let progressHeartbeatTimer: NodeJS.Timeout | undefined;
 
     try {
       const userFirestore = await this.getUserFirestore(job);
       const configFirestore = await this.getAgentConfigFirestore(job);
-      const routerPromise = withAgentAppConfigForFirestore(configFirestore, () =>
+      progressHeartbeatTimer = setInterval(() => {
+        void repo.touch(payload.operationId);
+      }, 30_000);
+      routerPromise = withAgentAppConfigForFirestore(configFirestore, () =>
         this.router.run(
           payload,
           onUpdate,
@@ -2990,15 +3031,26 @@ export class AgentWorker {
           jobAbortController.signal
         )
       );
+      let timeoutHandle: NodeJS.Timeout | undefined;
       const timeoutMinutes = Math.round(JOB_TIMEOUT_MS / 60_000);
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(
-          () => reject(new Error(`Agent job timed out after ${timeoutMinutes} minutes`)),
-          JOB_TIMEOUT_MS
-        );
+        timeoutHandle = setTimeout(() => {
+          // Abort all in-flight tools and LLM streams immediately to prevent zombie execution.
+          jobAbortController.abort();
+          reject(new Error(`Agent job timed out after ${timeoutMinutes} minutes`));
+        }, JOB_TIMEOUT_MS);
       });
-      result = await Promise.race([routerPromise, timeoutPromise]);
+
+      try {
+        result = await Promise.race([routerPromise, timeoutPromise]);
+      } finally {
+        if (progressHeartbeatTimer) clearInterval(progressHeartbeatTimer);
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+      }
     } catch (err) {
+      if (progressHeartbeatTimer) clearInterval(progressHeartbeatTimer);
       // Flush any buffered deltas before handling the error
       await eventWriter.flush().catch(() => undefined);
 
@@ -3152,26 +3204,53 @@ export class AgentWorker {
       }
 
       if (isJobTimeoutError(handledError)) {
-        try {
-          const continuationResult = await this.continueTimedOutJob(
-            job,
-            repo,
-            payload,
-            handledError.message,
-            eventWriter,
-            startMs,
-            billingDb,
-            iapHoldId
+        const timeoutMessage = handledError.message;
+        const routerStopped = routerPromise
+          ? await Promise.race([
+              routerPromise.then(
+                () => true,
+                () => true
+              ),
+              new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 15_000)),
+            ])
+          : true;
+
+        if (!routerStopped) {
+          logger.error(
+            'Timed-out agent run did not stop after abort signal; refusing continuation',
+            {
+              operationId: payload.operationId,
+            }
           );
-          if (continuationResult) {
-            return continuationResult;
+          handledError = new UnrecoverableError(
+            'Agent job timed out and did not stop cleanly; continuation was suppressed to prevent duplicate execution.'
+          );
+        }
+
+        if (routerStopped) {
+          try {
+            const continuationResult = await this.continueTimedOutJob(
+              job,
+              repo,
+              payload,
+              timeoutMessage,
+              eventWriter,
+              startMs,
+              billingDb,
+              iapHoldId
+            );
+            if (continuationResult) {
+              return continuationResult;
+            }
+          } catch (continuationErr) {
+            logger.error('Failed to auto-continue timed out agent job', {
+              operationId: payload.operationId,
+              error:
+                continuationErr instanceof Error
+                  ? continuationErr.message
+                  : String(continuationErr),
+            });
           }
-        } catch (continuationErr) {
-          logger.error('Failed to auto-continue timed out agent job', {
-            operationId: payload.operationId,
-            error:
-              continuationErr instanceof Error ? continuationErr.message : String(continuationErr),
-          });
         }
       }
 
@@ -4908,24 +4987,44 @@ export class AgentWorker {
       const stackExcerpt = err.stack?.split('\n').slice(0, 4).join('\n');
       const attemptsMax =
         typeof job?.opts?.attempts === 'number' ? Math.max(job.opts.attempts, 1) : undefined;
+      const isTerminalAttempt =
+        job?.attemptsMade !== undefined && attemptsMax !== undefined
+          ? job.attemptsMade >= attemptsMax
+          : true;
 
-      void this.postWorkerAlert('failed', {
-        jobId: job?.id,
-        operationId,
-        error: err.message,
-        errorStack: stackExcerpt,
-        queueName: job?.queueName,
-        jobName: job?.name,
-        jobKind: job?.data?.kind,
-        attemptsMade: job?.attemptsMade,
-        attemptsMax,
-        failedReason: job?.failedReason,
-        eventDetails: {
-          environment: job?.data?.environment,
-          origin: job?.data?.kind === 'agent' ? job.data.payload.origin : undefined,
-          enqueuedAt: job?.data?.enqueuedAt,
-        },
-      });
+      // Filter out expected user/lifecycle aborts from critical alerts
+      const isExpectedLifecycleAbort =
+        err.message.includes('Operation cancelled by user') ||
+        err.message.includes('Operation paused') ||
+        err.message.includes('Yield expired before user responded');
+
+      if (!isExpectedLifecycleAbort && isTerminalAttempt) {
+        void this.postWorkerAlert('failed', {
+          jobId: job?.id,
+          operationId,
+          error: err.message,
+          errorStack: stackExcerpt,
+          queueName: job?.queueName,
+          jobName: job?.name,
+          jobKind: job?.data?.kind,
+          attemptsMade: job?.attemptsMade,
+          attemptsMax,
+          failedReason: job?.failedReason,
+          eventDetails: {
+            environment: job?.data?.environment,
+            origin: job?.data?.kind === 'agent' ? job.data.payload.origin : undefined,
+            enqueuedAt: job?.data?.enqueuedAt,
+          },
+        });
+      } else {
+        logger.info('Suppressed critical alert for retrying or expected lifecycle failure', {
+          jobId: job?.id,
+          operationId,
+          attemptsMade: job?.attemptsMade,
+          attemptsMax,
+          error: err.message,
+        });
+      }
     });
 
     this.worker.on('stalled', (jobId) => {

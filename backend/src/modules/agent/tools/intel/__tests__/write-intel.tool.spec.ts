@@ -1,19 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockGenerateAthleteIntel, mockGenerateTeamIntel } = vi.hoisted(() => ({
-  mockGenerateAthleteIntel: vi.fn().mockResolvedValue({
-    id: 'athlete_intel_001',
-    userId: 'user_123',
-    sections: [],
-    generatedAt: new Date().toISOString(),
-  }),
-  mockGenerateTeamIntel: vi.fn().mockResolvedValue({
-    id: 'team_intel_001',
-    teamId: 'team_456',
-    sections: [],
-    generatedAt: new Date().toISOString(),
-  }),
-}));
+const { mockGenerateAthleteIntel, mockGenerateTeamIntel, mockTeamIntelEnabled } = vi.hoisted(
+  () => ({
+    mockGenerateAthleteIntel: vi.fn().mockResolvedValue({
+      id: 'athlete_intel_001',
+      userId: 'user_123',
+      sections: [],
+      generatedAt: new Date().toISOString(),
+    }),
+    mockGenerateTeamIntel: vi.fn().mockResolvedValue({
+      id: 'team_intel_001',
+      teamId: 'team_456',
+      sections: [],
+      generatedAt: new Date().toISOString(),
+    }),
+    mockTeamIntelEnabled: vi.fn().mockResolvedValue(true),
+  })
+);
 
 vi.mock('../../../services/intel.service.js', () => ({
   IntelGenerationService: class {
@@ -24,7 +27,7 @@ vi.mock('../../../services/intel.service.js', () => ({
 
 vi.mock('../../../../../config/feature-flags/index.js', () => ({
   getFeatureFlagsService: () => ({
-    isEnabled: vi.fn().mockResolvedValue(true),
+    isEnabled: mockTeamIntelEnabled,
   }),
 }));
 
@@ -44,6 +47,7 @@ describe('WriteIntelTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTeamIntelEnabled.mockResolvedValue(true);
     tool = new WriteIntelTool({} as never);
   });
 
@@ -98,6 +102,22 @@ describe('WriteIntelTool', () => {
     expect(mockGenerateAthleteIntel).not.toHaveBeenCalled();
     expect((result.data as Record<string, unknown>)['reportId']).toBe('team_intel_001');
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team');
+  });
+
+  it('returns a non-retryable result when Team Intel is disabled', async () => {
+    mockTeamIntelEnabled.mockResolvedValueOnce(false);
+
+    const result = await tool.execute(
+      { entityType: 'team', entityId: 'team_456' },
+      { userId: 'coach_123' }
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      isNonRetryable: true,
+      error: 'Team Intel is currently disabled.',
+    });
+    expect(mockGenerateTeamIntel).not.toHaveBeenCalled();
   });
 
   it('returns failure if IntelGenerationService throws', async () => {

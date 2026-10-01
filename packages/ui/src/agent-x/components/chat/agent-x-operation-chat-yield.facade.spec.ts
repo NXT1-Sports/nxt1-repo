@@ -11,6 +11,7 @@ import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
+import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
@@ -79,6 +80,9 @@ describe('AgentXOperationChatYieldFacade', () => {
   };
   const messageFacadeMock = {
     updateInlineYieldMessageState: vi.fn(),
+    removeInlineYieldMessage: vi.fn(),
+    pushOptimisticUserReply: vi.fn(),
+    removeOptimisticUserReply: vi.fn(),
     settleActiveToolSteps: vi.fn(),
     pushMessage: vi.fn(),
     retireActiveTypingCarrier: vi.fn(),
@@ -90,6 +94,9 @@ describe('AgentXOperationChatYieldFacade', () => {
   };
   const streamRegistryMock = {
     abort: vi.fn(),
+  };
+  const operationEventServiceMock = {
+    emitOperationStatusUpdated: vi.fn(),
   };
 
   beforeEach(() => {
@@ -128,6 +135,7 @@ describe('AgentXOperationChatYieldFacade', () => {
         { provide: AgentXOperationChatAttachmentsFacade, useValue: attachmentsFacadeMock },
         { provide: AgentXOperationChatMessageFacade, useValue: messageFacadeMock },
         { provide: AgentXOperationChatTransportFacade, useValue: transportFacadeMock },
+        { provide: AgentXOperationEventService, useValue: operationEventServiceMock },
         { provide: AgentXStreamRegistryService, useValue: streamRegistryMock },
       ],
     });
@@ -224,5 +232,34 @@ describe('AgentXOperationChatYieldFacade', () => {
         source: 'operation-chat',
       })
     );
+  });
+
+  it('marks the resumed operation in progress after ask_user reply before attaching', async () => {
+    httpPost.mockReturnValueOnce(
+      of({
+        success: true,
+        data: {
+          actionType: 'ask_user_reply',
+          resumed: true,
+          operationId: 'resumed-op-1',
+          threadId: 'thread-1',
+        },
+      })
+    );
+
+    await facade.onAskUserReply({
+      messageId: 'message-1',
+      operationId: 'op-123',
+      answer: 'Use our team as offense.',
+    });
+
+    expect(operationEventServiceMock.emitOperationStatusUpdated).toHaveBeenCalledWith(
+      'thread-1',
+      'in-progress',
+      expect.any(String),
+      'chat',
+      'resumed-op-1'
+    );
+    expect(host.setCurrentOperationId).toHaveBeenCalledWith('resumed-op-1');
   });
 });

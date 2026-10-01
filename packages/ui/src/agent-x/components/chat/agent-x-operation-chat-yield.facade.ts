@@ -33,6 +33,7 @@ import type { MessageAttachment, PendingFile } from './agent-x-operation-chat.mo
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
+import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 
 type OperationStatus =
@@ -99,6 +100,7 @@ export class AgentXOperationChatYieldFacade {
   private readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
   private readonly messageFacade = inject(AgentXOperationChatMessageFacade);
   private readonly transportFacade = inject(AgentXOperationChatTransportFacade);
+  private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
 
   private readonly api: AgentXApi = createAgentXApi(
@@ -247,8 +249,10 @@ export class AgentXOperationChatYieldFacade {
           this.attachmentsFacade.clearPendingSelectedContexts();
         }
         this.messageFacade.settleActiveToolSteps('success');
+        this.messageFacade.removeInlineYieldMessage(operationId);
 
         if (result.resumed && result.operationId) {
+          this.emitResumedOperationInProgress(result.operationId, result.threadId ?? undefined);
           await this.attachToResumedOperation({
             operationId: result.operationId,
             threadId: result.threadId ?? undefined,
@@ -336,6 +340,7 @@ export class AgentXOperationChatYieldFacade {
         }
 
         if (event.decision === 'approve' && result.resumed && result.operationId) {
+          this.emitResumedOperationInProgress(result.operationId, result.threadId ?? undefined);
           await this.attachToResumedOperation({
             operationId: result.operationId,
             threadId: result.threadId ?? undefined,
@@ -381,6 +386,7 @@ export class AgentXOperationChatYieldFacade {
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Replied');
 
         if (result.resumed && result.operationId) {
+          this.emitResumedOperationInProgress(result.operationId, result.threadId ?? undefined);
           await this.attachToResumedOperation({
             operationId: result.operationId,
             threadId: result.threadId ?? undefined,
@@ -468,8 +474,10 @@ export class AgentXOperationChatYieldFacade {
       if (result) {
         await this.haptics.notification('success');
         this.messageFacade.settleActiveToolSteps('success');
+        this.messageFacade.removeInlineYieldMessage(operationId);
 
         if (result.resumed && result.operationId) {
+          this.emitResumedOperationInProgress(result.operationId, result.threadId ?? undefined);
           await this.attachToResumedOperation({
             operationId: result.operationId,
             threadId: result.threadId ?? undefined,
@@ -572,6 +580,7 @@ export class AgentXOperationChatYieldFacade {
       host.resolvedThreadId.set(threadId);
     }
 
+    this.emitResumedOperationInProgress(result.operationId, threadId);
     host.setCurrentOperationId(result.operationId);
     host.activeYieldState.set(null);
     this.transportFacade.beginResponseTurn('resume-yielded');
@@ -664,6 +673,7 @@ export class AgentXOperationChatYieldFacade {
       }
 
       if (result.resumed && result.operationId) {
+        this.emitResumedOperationInProgress(result.operationId, result.threadId ?? undefined);
         await this.attachToResumedOperation({
           operationId: result.operationId,
           threadId: result.threadId ?? undefined,
@@ -797,6 +807,21 @@ export class AgentXOperationChatYieldFacade {
     }
 
     return `att-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  private emitResumedOperationInProgress(operationId: string, threadId?: string | null): void {
+    const host = this.requireHost();
+    const resolvedThreadId =
+      threadId?.trim() || host.threadId().trim() || host.resolvedThreadId()?.trim() || null;
+    if (!resolvedThreadId) return;
+
+    this.operationEventService.emitOperationStatusUpdated(
+      resolvedThreadId,
+      'in-progress',
+      new Date().toISOString(),
+      'chat',
+      operationId
+    );
   }
 
   private async submitThreadAction(params: {

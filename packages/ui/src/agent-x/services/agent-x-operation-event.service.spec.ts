@@ -145,6 +145,53 @@ describe('AgentXOperationEventService stored operation state', () => {
     expect(stored.content).toBe('Working...');
   });
 
+  it('drops the answered ask_user yield once the parent job has completed', async () => {
+    const yieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which team is the ODK keyed to?',
+      agentId: 'performance_coordinator',
+      messages: [],
+      pendingToolCall: { toolName: 'ask_user', toolInput: {}, toolCallId: 'call-1' },
+    };
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn().mockReturnValue(() => undefined),
+      getDocs: vi.fn().mockResolvedValue([
+        { seq: 1, type: 'operation', status: 'running' },
+        { seq: 2, type: 'operation', status: 'awaiting_input', yieldState },
+      ]),
+      getDoc: vi.fn().mockResolvedValue({ status: 'completed' }),
+    };
+    const service = createService(firestoreAdapter);
+
+    const stored = await service.getStoredEventState('op-answered');
+
+    expect(stored.isDone).toBe(true);
+    expect(stored.latestYieldState).toBeNull();
+  });
+
+  it('keeps a pending ask_user yield while the job still awaits input', async () => {
+    const yieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Which team is the ODK keyed to?',
+      agentId: 'performance_coordinator',
+      messages: [],
+      pendingToolCall: { toolName: 'ask_user', toolInput: {}, toolCallId: 'call-1' },
+    };
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn().mockReturnValue(() => undefined),
+      getDocs: vi
+        .fn()
+        .mockResolvedValue([{ seq: 1, type: 'operation', status: 'awaiting_input', yieldState }]),
+      getDoc: vi.fn().mockResolvedValue({ status: 'awaiting_input' }),
+    };
+    const service = createService(firestoreAdapter);
+
+    const stored = await service.getStoredEventState('op-pending');
+
+    expect(stored.latestLifecycleStatus).toBe('awaiting_input');
+    expect(stored.latestYieldState).toEqual(yieldState);
+  });
+
   it('rebuilds interleaved thinking and text as separate reasoning blocks', async () => {
     const firestoreAdapter: FirestoreAdapter = {
       onSnapshot: vi.fn().mockReturnValue(() => undefined),
