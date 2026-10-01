@@ -65,6 +65,13 @@ const MOCK_NO_MEDIA_TWEET: ScweetTweet = {
   videoUrl: '',
 };
 
+const MOCK_LOW_RES_PROFILE_TWEET: ScweetTweet = {
+  ...MOCK_TWEET,
+  id: '1234567893',
+  profileImageUrl:
+    'https://pbs.twimg.com/profile_images/1914358858834735104/abc123_normal.jpg?name=small',
+};
+
 const MOCK_USER: ScweetUser = {
   username: 'OhioStateFB',
   name: 'Ohio State Football',
@@ -225,6 +232,27 @@ describe('ScrapeTwitterTool', () => {
     expect(data['usernames']).toEqual(['OhioStateFB', 'CoachDay']);
     expect(data['profileImageUrl']).toBe(MOCK_TWEET.profileImageUrl);
     expect(data['imageUrl']).toBe(MOCK_TWEET.profileImageUrl);
+  });
+
+  it('should normalize low-res X profile images to original quality', async () => {
+    vi.mocked(mockApify.getProfileTweets).mockResolvedValue(
+      mockTweetResult([MOCK_LOW_RES_PROFILE_TWEET])
+    );
+    vi.mocked(mockMedia.persistBatch).mockResolvedValue([]);
+
+    const result = await tool.execute({
+      mode: 'profile_tweets',
+      usernames: ['OhioStateFB'],
+    });
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data['profileImageUrl']).toBe(
+      'https://pbs.twimg.com/profile_images/1914358858834735104/abc123.jpg?name=orig'
+    );
+    expect(data['imageUrl']).toBe(
+      'https://pbs.twimg.com/profile_images/1914358858834735104/abc123.jpg?name=orig'
+    );
   });
 
   it('should strip @ from usernames', async () => {
@@ -490,5 +518,24 @@ describe('ScrapeTwitterTool', () => {
     expect(data['imageUrl']).toBe(mockPersisted[0].url);
     expect(data['profileImageUrl']).toBe(mockPersisted[0].url);
     expect(data['attachments']).toHaveLength(2);
+  });
+
+  it('should persist original-quality profile image URL for profile_tweets media staging', async () => {
+    vi.mocked(mockApify.getProfileTweets).mockResolvedValue(
+      mockTweetResult([MOCK_LOW_RES_PROFILE_TWEET])
+    );
+    vi.mocked(mockMedia.persistBatch).mockResolvedValue([]);
+
+    await tool.execute(
+      { mode: 'profile_tweets', usernames: ['jalensmith'] },
+      { userId: 'user_123', threadId: 'thread_456' }
+    );
+
+    const mediaInputs = vi.mocked(mockMedia.persistBatch).mock.calls[0][0];
+    expect(mediaInputs[0]).toMatchObject({
+      url: 'https://pbs.twimg.com/profile_images/1914358858834735104/abc123.jpg?name=orig',
+      type: 'image',
+      platform: 'twitter',
+    });
   });
 });
