@@ -38,6 +38,7 @@ export interface WelcomeGraphicGateResult {
   readonly reason:
     | 'enqueued'
     | 'feature_disabled'
+    | 'role_not_eligible'
     | 'already_queued'
     | 'waiting_for_first_sync'
     | 'missing_image'
@@ -73,17 +74,6 @@ function asRecordArray(value: unknown): Record<string, unknown>[] {
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() !== '' ? value : undefined;
-}
-
-function asClassOf(value: unknown): string | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return String(Math.trunc(value));
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  }
-  return undefined;
 }
 
 function collectTeamColors(team: Record<string, unknown> | undefined): string[] | undefined {
@@ -163,6 +153,13 @@ async function resolveWelcomeGraphicInput(
 
   const userData = (userSnapshot.data() ?? {}) as Record<string, unknown>;
   const role = (asString(userData['role']) ?? 'athlete') as UserRole;
+
+  // Organization members only — the welcome graphic is a team/org asset.
+  // Athletes, parents, and other individual roles are intentionally excluded.
+  if (role !== 'coach' && role !== 'director') {
+    return { status: 'skipped', reason: 'role_not_eligible' };
+  }
+
   const displayName =
     asString(userData['displayName']) ??
     (`${asString(userData['firstName']) ?? ''} ${asString(userData['lastName']) ?? ''}`.trim() ||
@@ -219,45 +216,9 @@ async function resolveWelcomeGraphicInput(
     };
   }
 
-  if (userData['welcomeGraphicQueued'] === true) {
-    return { status: 'skipped', reason: 'already_queued' };
-  }
-
-  const profileImgs = Array.isArray(userData['profileImgs'])
-    ? (userData['profileImgs'] as unknown[]).filter(
-        (value): value is string => typeof value === 'string' && value.trim() !== ''
-      )
-    : [];
-  const subjectImageUrl = profileImgs[0];
-  if (!subjectImageUrl) {
-    return { status: 'skipped', reason: 'missing_image' };
-  }
-
-  const sports = asRecordArray(userData['sports']);
-  const activeSportIndex =
-    typeof userData['activeSportIndex'] === 'number' && userData['activeSportIndex'] >= 0
-      ? userData['activeSportIndex']
-      : 0;
-  const primarySport = sports[activeSportIndex] ?? sports[0];
-  const team = asRecord(primarySport?.['team']);
-
-  return {
-    input: {
-      userId,
-      displayName,
-      role,
-      classOf: asClassOf(userData['classOf']) ?? asClassOf(primarySport?.['classOf']),
-      sport: asString(primarySport?.['sport']),
-      position: Array.isArray(primarySport?.['positions'])
-        ? asString((primarySport?.['positions'] as unknown[])[0])
-        : undefined,
-      subjectImageUrl,
-      teamName: asString(team?.['name']),
-      teamLogoUrl: asString(team?.['logoUrl']),
-      teamColors: collectTeamColors(team),
-    },
-    dedupeRef: userRef,
-  };
+  // Unreachable: non-coach/director roles exit at the gate above. Defensive
+  // fallback keeps the union return type exhaustive.
+  return { status: 'skipped', reason: 'role_not_eligible' };
 }
 
 export async function enqueueWelcomeGraphicIfReady(

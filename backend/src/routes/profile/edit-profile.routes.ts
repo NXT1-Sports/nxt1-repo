@@ -1574,23 +1574,22 @@ router.put(
       }
     }
 
-    // ─── Deferred welcome graphic ──────────────────────────────────────────
-    // Generate a welcome graphic the FIRST time the user adds a relevant image:
-    //   • Athletes / parents → first profile image (profileImgs)
-    //   • Coaches / directors → org/team has a logo (resolved from Team → Organization docs)
+    // ─── Deferred welcome graphic (organization members only) ─────────────
+    // Coaches / directors → enqueue a welcome graphic the FIRST time the
+    // org/team has a logo (resolved from Team → Organization docs).
+    // Athletes / parents are intentionally excluded; agent-welcome.service
+    // enforces the same role gate as the single source of truth.
     const role = (updatedUser.role ?? 'athlete') as UserRole;
     const isCoachDirector = role === 'coach' || role === 'director';
-    const primarySportIndex = updatedUser.activeSportIndex ?? 0;
-    const primarySport = updatedUser.sports?.[primarySportIndex];
-
-    // For coaches/directors, resolve org chain: teamCode.teamId → Team doc → Organization doc.
-    // Coaches don't have reliable sports[] on their raw Firestore doc (it's synthesized
-    // at read-time by ProfileHydrationService). All team/org data comes from the docs directly.
-    let organizationId: string | undefined;
-    let teamDocData: Record<string, unknown> | undefined;
-    let orgDocData: Record<string, unknown> | undefined;
 
     if (isCoachDirector) {
+      // Resolve org chain: teamCode.teamId → Team doc → Organization doc.
+      // Coaches don't have reliable sports[] on their raw Firestore doc (it's synthesized
+      // at read-time by ProfileHydrationService). All team/org data comes from the docs directly.
+      let organizationId: string | undefined;
+      let teamDocData: Record<string, unknown> | undefined;
+      let orgDocData: Record<string, unknown> | undefined;
+
       const teamDocId =
         (updatedUser.teamCode as Record<string, string> | null | undefined)?.['teamId'] ??
         updatedUser.teamCode?.id;
@@ -1623,65 +1622,50 @@ router.put(
           });
         }
       }
-    } else {
-      organizationId = primarySport?.team?.organizationId;
-    }
 
-    let hasWelcomeGraphicAlready = false;
+      // Dedup on Organization doc so multiple coaches on the same team don't re-trigger
+      const hasWelcomeGraphicAlready = organizationId
+        ? !!orgDocData?.['welcomeGraphicQueued']
+        : false;
 
-    if (isCoachDirector && organizationId) {
-      // Coaches: dedup on Organization doc so multiple coaches on the same team don't re-trigger
-      hasWelcomeGraphicAlready = !!orgDocData?.['welcomeGraphicQueued'];
-    } else if (!isCoachDirector) {
-      // Athletes: dedup on User doc
-      hasWelcomeGraphicAlready = !!(updatedDoc.data() as Record<string, unknown> | undefined)?.[
-        'welcomeGraphicQueued'
-      ];
-    }
+      if (!hasWelcomeGraphicAlready) {
+        // Coach trigger: the Organization or Team doc already has a logo.
+        // We intentionally read from org/team docs — NOT from sports[] which is
+        // synthetic for coaches. The dedup flag on the org prevents re-triggering.
+        const orgLogoUrl =
+          (orgDocData?.['logoUrl'] as string | undefined) ??
+          (teamDocData?.['logoUrl'] as string | undefined) ??
+          (teamDocData?.['teamLogoImg'] as string | undefined);
 
-    if (!hasWelcomeGraphicAlready) {
-      // Athlete trigger: first profile image upload (compare pre → post)
-      const hadProfileImg = !!(user.profileImgs && user.profileImgs.length > 0);
-      const hasProfileImgNow = !!(updatedUser.profileImgs && updatedUser.profileImgs.length > 0);
-      const athleteImageAdded = !isCoachDirector && !hadProfileImg && hasProfileImgNow;
+        if (orgLogoUrl) {
+          const agentEnv = req.isStaging ? 'staging' : 'production';
 
-      // Coach trigger: the Organization or Team doc already has a logo.
-      // We intentionally read from org/team docs — NOT from sports[] which is
-      // synthetic for coaches. The dedup flag on the org prevents re-triggering.
-      const orgLogoUrl =
-        (orgDocData?.['logoUrl'] as string | undefined) ??
-        (teamDocData?.['logoUrl'] as string | undefined) ??
-        (teamDocData?.['teamLogoImg'] as string | undefined);
-      const teamLogoAvailable = isCoachDirector && !!orgLogoUrl;
+          void enqueueWelcomeGraphicIfReady(db, { userId: uid }, agentEnv)
+            .then((result) => {
+              if (result.status === 'enqueued') {
+                logger.info('[EditProfile] Welcome graphic enqueued', {
+                  userId: uid,
+                  trigger: 'teamLogo',
+                  role,
+                  ...(organizationId ? { organizationId } : {}),
+                });
+                return;
+              }
 
-      if (athleteImageAdded || teamLogoAvailable) {
-        const agentEnv = req.isStaging ? 'staging' : 'production';
-
-        void enqueueWelcomeGraphicIfReady(db, { userId: uid }, agentEnv)
-          .then((result) => {
-            if (result.status === 'enqueued') {
-              logger.info('[EditProfile] Welcome graphic enqueued', {
-                userId: uid,
-                trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
+              logger.info('[EditProfile] Welcome graphic deferred', {
+                trigger: 'teamLogo',
                 role,
+                reason: result.reason,
                 ...(organizationId ? { organizationId } : {}),
               });
-              return;
-            }
-
-            logger.info('[EditProfile] Welcome graphic deferred', {
-              trigger: athleteImageAdded ? 'profileImage' : 'teamLogo',
-              role,
-              reason: result.reason,
-              ...(organizationId ? { organizationId } : {}),
-            });
-          })
-          .catch((err) =>
-            logger.error('[EditProfile] Failed to evaluate welcome graphic enqueue', {
-              userId: uid,
-              error: err,
             })
-          );
+            .catch((err) =>
+              logger.error('[EditProfile] Failed to evaluate welcome graphic enqueue', {
+                userId: uid,
+                error: err,
+              })
+            );
+        }
       }
     }
     // ─── End deferred welcome graphic ──────────────────────────────────────

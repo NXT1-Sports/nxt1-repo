@@ -18,7 +18,7 @@ vi.mock('../../../../utils/logger.js', () => ({
   },
 }));
 
-import { enqueueWelcomeGraphicIfReady } from '../agent-welcome.service.js';
+import { enqueueWelcomeGraphicIfReady, setWelcomeDependencies } from '../agent-welcome.service.js';
 
 describe('enqueueWelcomeGraphicIfReady', () => {
   beforeEach(() => {
@@ -39,5 +39,31 @@ describe('enqueueWelcomeGraphicIfReady', () => {
     const result = await enqueueWelcomeGraphicIfReady({} as never, { userId: 'user-123' });
 
     expect(result).toEqual({ status: 'skipped', reason: 'queue_unavailable' });
+  });
+
+  // NOTE: must run after the queue_unavailable test — setWelcomeDependencies
+  // mutates module state and cannot be undone within this file.
+  it('skips athletes — welcome graphic is limited to organization members (coach/director)', async () => {
+    isEnabledMock.mockResolvedValue(true);
+    setWelcomeDependencies({
+      queueService: {} as never,
+      jobRepository: {} as never,
+      chatService: {} as never,
+    });
+
+    const fakeDb = {
+      collection: () => ({
+        doc: () => ({
+          get: async () => ({
+            exists: true,
+            data: () => ({ role: 'athlete', displayName: 'Test Athlete' }),
+          }),
+        }),
+      }),
+    };
+
+    const result = await enqueueWelcomeGraphicIfReady(fakeDb as never, { userId: 'user-athlete' });
+
+    expect(result).toEqual({ status: 'skipped', reason: 'role_not_eligible' });
   });
 });

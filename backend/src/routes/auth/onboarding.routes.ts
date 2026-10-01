@@ -737,13 +737,17 @@ router.post(
     const primarySportName = getPrimarySport(userData?.sports);
     const agentEnv = req.isStaging ? 'staging' : 'production';
 
-    // Welcome graphic (idempotent — deduped by welcomeGraphicQueued flag)
-    void enqueueWelcomeGraphicIfReady(db, { userId }, agentEnv).catch((err) =>
-      logger.error('[Auth] Failed to evaluate welcome graphic at onboarding', {
-        userId,
-        error: err,
-      })
-    );
+    // Welcome graphic — organization members only (coach/director).
+    // Idempotent (deduped by welcomeGraphicQueued); the service also role-gates.
+    const onboardingRole = userData?.role;
+    if (onboardingRole === 'coach' || onboardingRole === 'director') {
+      void enqueueWelcomeGraphicIfReady(db, { userId }, agentEnv).catch((err) =>
+        logger.error('[Auth] Failed to evaluate welcome graphic at onboarding', {
+          userId,
+          error: err,
+        })
+      );
+    }
 
     // Linked account scrape
     let scrapeJobId: string | undefined;
