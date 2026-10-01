@@ -28,7 +28,12 @@
 
 import type { Storage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
-import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import {
+  BaseTool,
+  type ToolResult,
+  type ToolExecutionContext,
+  validationFailure,
+} from '../base.tool.js';
 import {
   ExportService,
   type ExportColumn,
@@ -287,10 +292,9 @@ export class DynamicExportTool extends BaseTool {
     // ── Format-specific validation ────────────────────────────────────
     if (format === 'csv' || format === 'xlsx') {
       if (!this.hasTabularExportContent(columns, rows, sections)) {
-        return {
-          success: false,
-          error: `${format.toUpperCase()} exports require non-empty "columns" and "rows" arrays, either at the top level or within a section.`,
-        };
+        return validationFailure(
+          `${format.toUpperCase()} exports require non-empty "columns" and "rows" arrays, either at the top level or within a section.`
+        );
       }
     }
 
@@ -303,10 +307,9 @@ export class DynamicExportTool extends BaseTool {
         imageUrls.length > 0 ||
         this.sectionsHaveNarrativeContent(sections);
       if (!hasTable && !hasBody) {
-        return {
-          success: false,
-          error: `${format.toUpperCase()} exports require at least one of: columns+rows (table), bodyParagraphs, bulletPoints, or description.`,
-        };
+        return validationFailure(
+          `${format.toUpperCase()} exports require at least one of: columns+rows (table), bodyParagraphs, bulletPoints, or description.`
+        );
       }
     }
 
@@ -554,6 +557,13 @@ export class DynamicExportTool extends BaseTool {
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Document generation failed';
+      if (
+        message.includes('CSV exports require') ||
+        message.includes('Export cannot be saved') ||
+        message.includes('no threadId in context')
+      ) {
+        return validationFailure(message);
+      }
       return { success: false, error: message };
     }
   }

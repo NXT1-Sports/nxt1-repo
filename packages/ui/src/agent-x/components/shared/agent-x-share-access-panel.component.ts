@@ -311,7 +311,7 @@ export interface AgentXShareGrantOption {
       .film-list-item__menu-action--primary:hover,
       .film-list-item__menu-action--primary:focus-visible,
       .film-list-item__menu-action--primary:active {
-        background: var(--nxt1-color-primary-dark, var(--nxt1-color-primary));
+        background: var(--nxt1-color-primaryDark, var(--nxt1-color-primary));
         color: var(--nxt1-color-text-onPrimary);
       }
     `,

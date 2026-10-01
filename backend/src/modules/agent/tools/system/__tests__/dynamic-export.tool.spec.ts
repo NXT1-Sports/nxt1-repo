@@ -4,6 +4,7 @@ import type { ToolExecutionContext } from '../../base.tool.js';
 import { ToolRegistry } from '../../tool-registry.js';
 
 describe('DynamicExportTool', () => {
+  const generateCsv = vi.fn();
   const generateXlsx = vi.fn();
   const generatePdf = vi.fn();
   const generateDocx = vi.fn();
@@ -17,6 +18,7 @@ describe('DynamicExportTool', () => {
   let context: ToolExecutionContext;
 
   beforeEach(() => {
+    generateCsv.mockReset();
     generateXlsx.mockReset();
     generatePdf.mockReset();
     generateDocx.mockReset();
@@ -38,7 +40,7 @@ describe('DynamicExportTool', () => {
     bucket.mockReturnValue({ file: bucketFile });
 
     tool = new DynamicExportTool({
-      generateCsv: vi.fn(),
+      generateCsv,
       generateXlsx,
       generatePdf,
       generateDocx,
@@ -54,6 +56,27 @@ describe('DynamicExportTool', () => {
       environment: 'staging',
       emitStage,
     };
+  });
+
+  it('classifies missing CSV table data as validation failure', async () => {
+    generateCsv.mockRejectedValueOnce(
+      new Error(
+        'CSV exports require non-empty "columns" and "rows" arrays, either at the top level or within a section.'
+      )
+    );
+
+    const result = await tool.execute(
+      {
+        format: 'csv',
+        fileName: 'empty-export',
+        title: 'Empty Export',
+      },
+      context
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toContain('CSV exports require non-empty');
   });
 
   it('should generate section-only XLSX exports without top-level rows', async () => {

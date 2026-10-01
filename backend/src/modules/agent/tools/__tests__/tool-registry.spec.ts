@@ -190,6 +190,24 @@ class ValidationErrorTool extends BaseTool {
   }
 }
 
+class NonRetryableTool extends BaseTool {
+  readonly name = 'non_retryable_tool';
+  readonly description = 'Returns a policy failure for alert-suppression tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      isNonRetryable: true,
+      error: 'Team Intel is currently disabled.',
+    };
+  }
+}
+
 class ScoredTool extends BaseTool {
   constructor(
     readonly name: string,
@@ -492,6 +510,26 @@ describe('ToolRegistry', () => {
       expect(result.success).toBe(false);
       expect(result.isValidationError).toBe(true);
       expect(result.error).toContain('At least one data section');
+      expect(sendSlackAlert).not.toHaveBeenCalled();
+    });
+
+    it('should not send a Slack alert when a tool returns isNonRetryable: true', async () => {
+      registry.register(new NonRetryableTool());
+
+      const first = await registry.execute(
+        'non_retryable_tool',
+        {},
+        { userId: 'u-alert', operationId: 'op-policy-1', threadId: 'thread-policy-1' }
+      );
+      const second = await registry.execute(
+        'non_retryable_tool',
+        {},
+        { userId: 'u-alert', operationId: 'op-policy-2', threadId: 'thread-policy-1' }
+      );
+
+      expect(first.success).toBe(false);
+      expect(second.success).toBe(false);
+      expect(first.isNonRetryable).toBe(true);
       expect(sendSlackAlert).not.toHaveBeenCalled();
     });
 

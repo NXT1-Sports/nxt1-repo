@@ -347,9 +347,20 @@ describe('AskUserTool output selection mode', () => {
           options: [
             expect.objectContaining({ id: 'chat_summary', icon: 'choice' }),
             expect.objectContaining({ id: 'printable_pdf', icon: 'pdf' }),
+            expect.objectContaining({
+              id: 'editable_docx',
+              title: 'Editable Word DOCX',
+              formatTag: 'DOCX',
+              icon: 'document',
+            }),
             expect.objectContaining({ id: 'gamma_pdf', icon: 'sparkles' }),
             expect.objectContaining({ id: 'gamma_deck', icon: 'sparkles' }),
-            expect.objectContaining({ id: 'editable_pptx', icon: 'slides' }),
+            expect.objectContaining({
+              id: 'editable_pptx',
+              title: 'Editable PPTX',
+              formatTag: 'PPTX',
+              icon: 'slides',
+            }),
             expect.objectContaining({ id: 'xlsx_workbook', icon: 'spreadsheet' }),
             expect.objectContaining({ id: 'csv', icon: 'spreadsheet' }),
           ],
@@ -388,6 +399,7 @@ describe('AskUserTool output selection mode', () => {
       expect(error.payload.pendingToolCall?.toolInput['options']).toEqual([
         expect.objectContaining({ id: 'chat_summary', title: 'Chat Summary' }),
         expect.objectContaining({ id: 'printable_pdf', title: 'Printable PDF' }),
+        expect.objectContaining({ id: 'editable_docx', title: 'Editable Word DOCX' }),
         expect.objectContaining({ id: 'gamma_pdf', title: 'Gamma PDF' }),
         expect.objectContaining({ id: 'gamma_deck', title: 'Gamma Deck' }),
         expect.objectContaining({ id: 'editable_pptx', title: 'Editable PPTX' }),

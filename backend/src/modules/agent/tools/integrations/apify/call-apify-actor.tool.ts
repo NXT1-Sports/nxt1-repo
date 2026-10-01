@@ -26,7 +26,12 @@
  * Set the `APIFY_API_TOKEN` environment variable.
  */
 
-import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
+import {
+  BaseTool,
+  type ToolResult,
+  type ToolExecutionContext,
+  validationFailure,
+} from '../../base.tool.js';
 import type { ApifyMcpBridgeService } from './apify-mcp-bridge.service.js';
 import {
   ScraperMediaService,
@@ -133,6 +138,19 @@ function extractStringField(data: unknown, fieldNames: readonly string[]): strin
   return undefined;
 }
 
+function isPlaceholderActorId(actorId: string): boolean {
+  const normalized = actorId.trim().toLowerCase();
+  return (
+    normalized === 'placeholder' ||
+    normalized === 'actor-id' ||
+    normalized === 'actor_id' ||
+    normalized === '<actor-id>' ||
+    normalized === '{actorid}' ||
+    normalized === '{{actorid}}' ||
+    normalized === 'username/name'
+  );
+}
+
 // ─── Tool ────────────────────────────────────────────────────────────────────
 
 export class CallApifyActorTool extends BaseTool {
@@ -174,25 +192,26 @@ export class CallApifyActorTool extends BaseTool {
   ): Promise<ToolResult> {
     const parsed = CallApifyActorInputSchema.safeParse(input);
     if (!parsed.success) {
-      return {
-        success: false,
-        error: parsed.error.issues.map((issue) => issue.message).join(', '),
-      };
+      return validationFailure(parsed.error.issues.map((issue) => issue.message).join(', '));
     }
 
     const { actorId, input: rawInput, skipMediaPersistence } = parsed.data;
+
+    if (isPlaceholderActorId(actorId)) {
+      return validationFailure(
+        'actorId must be a real Apify actor ID such as "apify/rag-web-browser". Use search_apify_actors, then get_apify_actor_details, before calling call_apify_actor.'
+      );
+    }
 
     // ── Hard preflight gate ────────────────────────────────────────────
     // get_apify_actor_details MUST be called first so the LLM knows the
     // exact input schema. This is a code-enforced gate — not a prompt rule.
     if (context?.resolvedApifyActors && !context.resolvedApifyActors.has(actorId)) {
-      return {
-        success: false,
-        error:
-          `Actor "${actorId}" has not been validated. ` +
+      return validationFailure(
+        `Actor "${actorId}" has not been validated. ` +
           `Call get_apify_actor_details({ actorId: "${actorId}" }) first to verify ` +
-          `the required input schema, pricing, and availability before executing.`,
-      };
+          `the required input schema, pricing, and availability before executing.`
+      );
     }
 
     // ── Budget enforcement ─────────────────────────────────────────────

@@ -152,6 +152,20 @@ interface AgentXShareMenuGrant {
         padding: 0 10px;
         font-size: 12px;
         font-weight: 600;
+        background: var(--agent-primary, var(--nxt1-color-primary, #ccff00));
+        color: var(--agent-text-on-primary, var(--nxt1-color-text-onPrimary, #0a0a0a));
+      }
+
+      .agent-x-share-menu__trigger:hover:not(:disabled) {
+        background: var(--nxt1-color-primaryDark, var(--agent-primary, #ccff00));
+        color: var(--agent-text-on-primary, var(--nxt1-color-text-onPrimary, #0a0a0a));
+      }
+
+      .agent-x-share-menu__trigger.agent-column-icon-btn--active,
+      .agent-x-share-menu__trigger:focus-visible {
+        background: var(--nxt1-color-primaryDark, var(--agent-primary, #ccff00));
+        color: var(--agent-text-on-primary, var(--nxt1-color-text-onPrimary, #0a0a0a));
+        outline: none;
       }
 
       .agent-x-share-menu__backdrop {

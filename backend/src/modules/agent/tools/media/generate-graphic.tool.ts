@@ -21,7 +21,13 @@
 
 import type { Storage } from 'firebase-admin/storage';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
-import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import {
+  BaseTool,
+  type ToolResult,
+  type ToolExecutionContext,
+  nonRetryableFailure,
+  validationFailure,
+} from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
@@ -191,6 +197,43 @@ function normalizeAutoRetrievedSources(
     .filter((entry): entry is string => entry !== null);
 }
 
+function normalizeThemeColorsValue(value: unknown): unknown {
+  let candidate = value;
+  if (typeof candidate === 'string' && candidate.trimStart().startsWith('{')) {
+    try {
+      candidate = JSON.parse(candidate) as unknown;
+    } catch {
+      return value;
+    }
+  }
+
+  if (Array.isArray(candidate)) {
+    return candidate
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim())
+      .slice(0, 3);
+  }
+
+  if (candidate && typeof candidate === 'object') {
+    const record = candidate as Record<string, unknown>;
+    return [
+      record['primary'],
+      record['primaryColor'],
+      record['brandPrimaryColor'],
+      record['secondary'],
+      record['secondaryColor'],
+      record['brandSecondaryColor'],
+      record['accent'],
+      record['accentColor'],
+    ]
+      .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+      .map((entry) => entry.trim())
+      .slice(0, 3);
+  }
+
+  return value;
+}
+
 /**
  * Safely coerces raw LLM tool-call inputs to the native types expected by
  * {@link GenerateGraphicInputSchema}.
@@ -251,6 +294,10 @@ export function coerceGraphicInput(raw: Record<string, unknown>): Record<string,
     const val = coerced[field];
     if (val === 'true') coerced[field] = true;
     else if (val === 'false') coerced[field] = false;
+  }
+
+  if (coerced['themeColors'] !== undefined) {
+    coerced['themeColors'] = normalizeThemeColorsValue(coerced['themeColors']);
   }
 
   return coerced;
@@ -749,10 +796,7 @@ Return JSON only. No explanation outside the JSON.`;
     const coerced = coerceGraphicInput(input);
     const parsed = GenerateGraphicInputSchema.safeParse(coerced);
     if (!parsed.success) {
-      return {
-        success: false,
-        error: formatValidationError(parsed.error.issues, coerced),
-      };
+      return validationFailure(formatValidationError(parsed.error.issues, coerced));
     }
 
     const {
@@ -795,7 +839,7 @@ Return JSON only. No explanation outside the JSON.`;
     });
 
     if (missingAuthenticSubjectError) {
-      return { success: false, error: missingAuthenticSubjectError };
+      return validationFailure(missingAuthenticSubjectError);
     }
 
     const retrievedSources = normalizeAutoRetrievedSources(autoRetrievedSources);
@@ -807,7 +851,7 @@ Return JSON only. No explanation outside the JSON.`;
     });
 
     if (missingPreflightError) {
-      return { success: false, error: missingPreflightError };
+      return validationFailure(missingPreflightError);
     }
 
     const missingAssetError = this.assertRequiredAssetsPresent({
@@ -818,11 +862,9 @@ Return JSON only. No explanation outside the JSON.`;
 
     if (missingAssetError) {
       if (resolvedRequiredAssets.brandLogo && resolvedLogoUrls.length === 0) {
-        return {
-          success: false,
-          error:
-            'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.',
-        };
+        return validationFailure(
+          'Required brand logo could not be accessed. Attach a reachable logo or upload it to NXT1 storage.'
+        );
       }
       validationWarnings.push(missingAssetError);
     }
@@ -995,6 +1037,9 @@ Return JSON only. No explanation outside the JSON.`;
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Graphic generation failed';
+      if (message.toLowerCase().includes('aborted by caller signal')) {
+        return nonRetryableFailure(message);
+      }
       return { success: false, error: message };
     }
   }

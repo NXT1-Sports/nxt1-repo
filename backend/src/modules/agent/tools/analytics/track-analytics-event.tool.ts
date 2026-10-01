@@ -9,7 +9,12 @@ import {
   getDefaultAnalyticsEventType,
   isAnalyticsDomain,
 } from '@nxt1/core/models';
-import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
+import {
+  BaseTool,
+  type ToolExecutionContext,
+  type ToolResult,
+  validationFailure,
+} from '../base.tool.js';
 import {
   AnalyticsLoggerService,
   getAnalyticsLoggerService,
@@ -160,14 +165,12 @@ export class TrackAnalyticsEventTool extends BaseTool {
         payloadType: typeof input['payload'],
         error: payloadResult.error,
       });
-      return {
-        success: false,
-        error: `Invalid input: ${payloadResult.error}`,
-      };
+      return validationFailure(`Invalid input: ${payloadResult.error}`);
     }
 
     const parsed = TrackAnalyticsEventInputSchema.safeParse({
       ...input,
+      userId: typeof input['userId'] === 'string' ? input['userId'] : context?.userId,
       payload: payloadResult.payload,
     });
     if (!parsed.success) {
@@ -181,28 +184,22 @@ export class TrackAnalyticsEventTool extends BaseTool {
           message: issue.message,
         })),
       });
-      return {
-        success: false,
-        error: `Invalid input: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`,
-      };
+      return validationFailure(
+        `Invalid input: ${parsed.error.issues.map((issue) => issue.message).join(', ')}`
+      );
     }
 
     const { userId, domain, payload, templateId, templateKey } = parsed.data;
 
     if (hasFailedAnalyticsOutcome(payload)) {
-      return {
-        success: false,
-        error:
-          'Failed outcomes must not be recorded in analytics events. Use operational logs instead.',
-      };
+      return validationFailure(
+        'Failed outcomes must not be recorded in analytics events. Use operational logs instead.'
+      );
     }
 
     // Validate domain is a known analytics domain
     if (!isAnalyticsDomain(domain)) {
-      return {
-        success: false,
-        error: `domain must be one of: ${ANALYTICS_DOMAINS.join(', ')}`,
-      };
+      return validationFailure(`domain must be one of: ${ANALYTICS_DOMAINS.join(', ')}`);
     }
 
     // Handle custom template if provided
@@ -216,10 +213,9 @@ export class TrackAnalyticsEventTool extends BaseTool {
       const lookup = templateId ?? templateKey;
 
       if (!lookup) {
-        return {
-          success: false,
-          error: 'Either templateId or templateKey must be provided when using a template.',
-        };
+        return validationFailure(
+          'Either templateId or templateKey must be provided when using a template.'
+        );
       }
 
       try {
@@ -228,20 +224,18 @@ export class TrackAnalyticsEventTool extends BaseTool {
           : await this.templateRegistry.getByKeyOrAlias(templateKey!);
 
         if (!template) {
-          return {
-            success: false,
-            error: `Custom analytics template not found: "${lookup}". Use discover_analytics_templates to find existing templates.`,
-          };
+          return validationFailure(
+            `Custom analytics template not found: "${lookup}". Use discover_analytics_templates to find existing templates.`
+          );
         }
 
         // Validate required payload fields
         if (template.requiredPayloadFields.length > 0) {
           const missing = template.requiredPayloadFields.filter((field) => !(field in payload));
           if (missing.length > 0) {
-            return {
-              success: false,
-              error: `Template "${template.templateKey}" requires payload fields: ${missing.join(', ')}`,
-            };
+            return validationFailure(
+              `Template "${template.templateKey}" requires payload fields: ${missing.join(', ')}`
+            );
           }
         }
 
@@ -270,11 +264,9 @@ export class TrackAnalyticsEventTool extends BaseTool {
     } else {
       // No template: custom domain requires a template
       if (domain === 'custom') {
-        return {
-          success: false,
-          error:
-            'Custom domain events must use a registered template. Use register_analytics_template or discover_analytics_templates.',
-        };
+        return validationFailure(
+          'Custom domain events must use a registered template. Use register_analytics_template or discover_analytics_templates.'
+        );
       }
 
       resolvedEventType = resolvedEventType ?? getDefaultAnalyticsEventType(domain);

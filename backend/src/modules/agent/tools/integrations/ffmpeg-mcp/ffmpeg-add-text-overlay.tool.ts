@@ -1,4 +1,9 @@
-import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
+import {
+  BaseTool,
+  type ToolExecutionContext,
+  type ToolResult,
+  validationFailure,
+} from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
@@ -28,28 +33,23 @@ function validateOverlayWindow(input: {
   const maxDurationSeconds = readMaxOverlayDurationSeconds();
 
   if (input.startTime === undefined || input.endTime === undefined) {
-    return {
-      success: false,
-      error:
-        'ffmpeg_add_text_overlay requires startTime and endTime so it does not re-encode the entire video. Use a short overlay window or create a generate_graphic title card for full-reel branding.',
-    };
+    return validationFailure(
+      'ffmpeg_add_text_overlay requires startTime and endTime so it does not re-encode the entire video. Use a short overlay window or create a generate_graphic title card for full-reel branding.'
+    );
   }
 
   if (input.endTime <= input.startTime) {
-    return {
-      success: false,
-      error: 'ffmpeg_add_text_overlay requires endTime to be greater than startTime.',
-    };
+    return validationFailure(
+      'ffmpeg_add_text_overlay requires endTime to be greater than startTime.'
+    );
   }
 
   const durationSeconds = input.endTime - input.startTime;
   if (durationSeconds > maxDurationSeconds) {
-    return {
-      success: false,
-      error:
-        `ffmpeg_add_text_overlay is limited to ${maxDurationSeconds}s windows to avoid long full-video re-encodes. ` +
-        `Requested ${durationSeconds}s. Use a shorter lower-third window or create a generate_graphic title card/intro for full-reel text.`,
-    };
+    return validationFailure(
+      `ffmpeg_add_text_overlay is limited to ${maxDurationSeconds}s windows to avoid long full-video re-encodes. ` +
+        `Requested ${durationSeconds}s. Use a shorter lower-third window or create a generate_graphic title card/intro for full-reel text.`
+    );
   }
 
   return null;

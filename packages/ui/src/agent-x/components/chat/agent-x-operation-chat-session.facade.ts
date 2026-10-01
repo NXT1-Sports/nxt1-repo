@@ -3788,6 +3788,16 @@ export class AgentXOperationChatSessionFacade {
         !!message.yieldState &&
         (message.yieldCardState === undefined || message.yieldCardState !== 'resolved')
     );
+    const lastUserIdx = items.reduce(
+      (latest, item, idx) => (item.role === 'user' ? idx : latest),
+      -1
+    );
+    const hasFinalAfterLastUser =
+      lastUserIdx >= 0 &&
+      items
+        .slice(lastUserIdx + 1)
+        .some((item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final');
+
     if (
       host.getOperationStatus() === 'processing' &&
       hasAssistantReply &&
@@ -3800,6 +3810,14 @@ export class AgentXOperationChatSessionFacade {
           threadId,
           contextId: host.contextId(),
         });
+      } else if (!hasFinalAfterLastUser && lastUserIdx >= 0) {
+        this.logger.info(
+          'Preserving in-progress status — latest user turn has no final assistant reply yet',
+          {
+            threadId,
+            contextId: host.contextId(),
+          }
+        );
       } else {
         const currentContextOperationId = this.resolveFirestoreOperationId();
         const hasMongoFinal = this.hasMongoFinalForOperation(
@@ -3853,7 +3871,7 @@ export class AgentXOperationChatSessionFacade {
                 lifecycleStatus: latestLifecycleStatus,
               }
             );
-          } else if (latestLifecycleStatus) {
+          } else if (latestLifecycleStatus && latestLifecycleStatus !== 'complete') {
             const reconciledStatus =
               latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
                 ? 'processing'
@@ -4573,6 +4591,28 @@ export class AgentXOperationChatSessionFacade {
             return;
           }
 
+          const currentMessages = this.messageFacade.messages();
+          const lastUserMsgIdx = currentMessages.reduce(
+            (latest, item, idx) => (item.role === 'user' ? idx : latest),
+            -1
+          );
+          const hasFinalAfterUserMsg =
+            lastUserMsgIdx >= 0 &&
+            currentMessages
+              .slice(lastUserMsgIdx + 1)
+              .some((item) => item.role === 'assistant' && !item.isTyping && !item.error);
+
+          if (lastUserMsgIdx >= 0 && !hasFinalAfterUserMsg) {
+            this.logger.info(
+              'Skipped marking stored operation complete — latest user turn has no final message yet',
+              {
+                operationId,
+                threadId: host.threadId(),
+              }
+            );
+            return;
+          }
+
           host.setOperationStatus('complete');
           this.operationEventService.emitOperationStatusUpdated(
             host.threadId().trim() || operationId,
@@ -5159,17 +5199,22 @@ export class AgentXOperationChatSessionFacade {
     items: readonly AgentMessage[],
     operationId: string | null
   ): boolean {
-    // If we cannot resolve the current operationId, fall back to the legacy
-    // behaviour (any assistant_final in the thread signals completion) rather
-    // than leaving the operation spinner running indefinitely.
+    const lastUserIdx = items.reduce(
+      (latest, item, idx) => (item.role === 'user' ? idx : latest),
+      -1
+    );
+    const relevantItems = lastUserIdx >= 0 ? items.slice(lastUserIdx + 1) : items;
+
+    // If we cannot resolve the current operationId, fall back to checking if the
+    // latest user turn was answered by an assistant_final.
     if (!operationId) {
-      return items.some(
+      return relevantItems.some(
         (item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final'
       );
     }
     // Scope the check to the current operation so that a completed prior turn
     // does not prematurely mark a still-running operation as complete.
-    return items.some(
+    return relevantItems.some(
       (item) =>
         item.role === 'assistant' &&
         item.semanticPhase === 'assistant_final' &&

@@ -33,7 +33,13 @@ import {
   UniversalFileSemanticService,
 } from '../../../../../services/team/universal-file-semantic.service.js';
 import { getSignedUrlWithTimeout } from '../../../../../utils/gcs-signed-url.js';
-import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
+import {
+  BaseTool,
+  type ToolExecutionContext,
+  type ToolResult,
+  nonRetryableFailure,
+  validationFailure,
+} from '../../base.tool.js';
 
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
 const UNIVERSAL_DOCUMENT_STATUSES = ['processing', 'ready', 'archived', 'draft', 'active'] as const;
@@ -1372,31 +1378,22 @@ export class CreateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
     if (payload.folderId) {
       const targetFolder = await loadTeamFileFolder(this.db, payload.folderId);
       if (!targetFolder) {
-        return { success: false, error: `Folder ${payload.folderId} not found.` };
+        return validationFailure(`Folder ${payload.folderId} not found.`);
       }
       if (
         !canAccessFolderByGrantedKeys(targetFolder, userId, accessState.grantedAccessKeys, 'write')
       ) {
-        return {
-          success: false,
-          error: 'Not authorized to create a file inside the selected folder.',
-        };
+        return nonRetryableFailure('Not authorized to create a file inside the selected folder.');
       }
 
       const folderTeamId = normalizeScopeTeamId(targetFolder.teamId);
       if (effectiveTeamId && effectiveTeamId !== folderTeamId) {
-        return {
-          success: false,
-          error: 'Requested team scope does not match the selected folder scope.',
-        };
+        return validationFailure('Requested team scope does not match the selected folder scope.');
       }
 
       effectiveTeamId = folderTeamId;
     } else if (effectiveTeamId && !accessState.teamIds.includes(effectiveTeamId)) {
-      return {
-        success: false,
-        error: 'Not authorized to create a root document in that team scope.',
-      };
+      return nonRetryableFailure('Not authorized to create a root document in that team scope.');
     }
 
     const accessLists = effectiveTeamId
@@ -1656,7 +1653,7 @@ export class GetUniversalTeamDocumentTool extends BaseTool {
     const documentId = normalizeUniversalDocumentId(parsed.data.documentId);
     const universalDocument = await loadUniversalDocument(this.db, documentId);
     if (!universalDocument) {
-      return { success: false, error: `Universal document ${documentId} not found.` };
+      return validationFailure(`Universal document ${documentId} not found.`);
     }
 
     if (!isInspectableUniversalArtifact(universalDocument)) {
@@ -1731,7 +1728,7 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
     const { documentId, patch } = parsed.data;
     const existing = await loadUniversalDocument(this.db, documentId);
     if (!existing) {
-      return { success: false, error: `Universal document ${documentId} not found.` };
+      return validationFailure(`Universal document ${documentId} not found.`);
     }
 
     if (!isInspectableUniversalArtifact(existing)) {
@@ -1784,49 +1781,38 @@ export class UpdateUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
       };
     }
     if (!canAccessDocumentByGrantedKeys(existing, userId, accessState.grantedAccessKeys, 'write')) {
-      return {
-        success: false,
-        error: 'Not authorized to edit this file. Read-only access cannot make changes.',
-      };
+      return nonRetryableFailure(
+        'Not authorized to edit this file. Read-only access cannot make changes.'
+      );
     }
 
     if (hasOwnPatch(patch, 'folderId') && typeof patch.folderId === 'string') {
       const targetFolder = await loadTeamFileFolder(this.db, patch.folderId);
       if (!targetFolder) {
-        return { success: false, error: `Folder ${patch.folderId} not found.` };
+        return validationFailure(`Folder ${patch.folderId} not found.`);
       }
       if (
         !canAccessFolderByGrantedKeys(targetFolder, userId, accessState.grantedAccessKeys, 'write')
       ) {
-        return {
-          success: false,
-          error: 'Not authorized to move this file into the selected folder.',
-        };
+        return nonRetryableFailure('Not authorized to move this file into the selected folder.');
       }
 
       if (normalizeScopeTeamId(targetFolder.teamId) !== normalizeScopeTeamId(existing.teamId)) {
-        return {
-          success: false,
-          error: 'Folder scope does not match the file scope.',
-        };
+        return validationFailure('Folder scope does not match the file scope.');
       }
     }
 
     if (!isManagedUniversalDocument(existing)) {
       if (hasManagedDocumentPatch) {
-        return {
-          success: false,
-          error:
-            'This Team Files artifact only supports same-record artifact metadata updates. Use artifactSummary, artifactNotes, artifactTags, artifactStatus, artifactGeneratedAt, or artifactClassification, or create a separate managed document for standalone content.',
-        };
+        return validationFailure(
+          'This Team Files artifact only supports same-record artifact metadata updates. Use artifactSummary, artifactNotes, artifactTags, artifactStatus, artifactGeneratedAt, or artifactClassification, or create a separate managed document for standalone content.'
+        );
       }
 
       if (!hasArtifactMetadataPatch && !hasAccessPatch) {
-        return {
-          success: false,
-          error:
-            'No supported artifact metadata fields were provided for this Team Files artifact.',
-        };
+        return validationFailure(
+          'No supported artifact metadata fields were provided for this Team Files artifact.'
+        );
       }
 
       const nextAccess = hasAccessPatch
@@ -2055,10 +2041,7 @@ export class DeleteUniversalTeamDocumentTool extends UniversalTeamDocumentMutati
 
     const existing = await loadUniversalDocument(this.db, parsed.data.documentId);
     if (!existing) {
-      return {
-        success: false,
-        error: `Universal document ${parsed.data.documentId} not found.`,
-      };
+      return validationFailure(`Universal document ${parsed.data.documentId} not found.`);
     }
 
     if (!isManagedUniversalDocument(existing)) {

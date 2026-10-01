@@ -13,7 +13,13 @@
  */
 
 import { z } from 'zod';
-import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
+import {
+  BaseTool,
+  type ToolExecutionContext,
+  type ToolResult,
+  nonRetryableFailure,
+  validationFailure,
+} from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import type { FirebaseMcpBridge } from './firebase-mcp-bridge.service.js';
 import { ALLOWED_MUTATION_COLLECTIONS } from './mutation-policy.js';
@@ -44,6 +50,23 @@ const MutateNxt1DataInputSchema = z.object({
         'Ownership and immutable fields (userId, ownerId, createdAt) are managed server-side.'
     ),
 });
+
+function classifyMutationFailure(message: string): ToolResult {
+  const normalized = message.toLowerCase();
+  if (normalized.includes('document') && normalized.includes('not found')) {
+    return validationFailure(message);
+  }
+  if (
+    normalized.includes('forbidden') ||
+    normalized.includes('permission') ||
+    normalized.includes('not authorized') ||
+    normalized.includes('only modify your own resources')
+  ) {
+    return nonRetryableFailure(message);
+  }
+
+  return { success: false, error: message };
+}
 
 export class MutateNxt1DataTool extends BaseTool {
   readonly name = 'mutate_nxt1_data';
@@ -76,10 +99,12 @@ export class MutateNxt1DataTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     const parsed = MutateNxt1DataInputSchema.safeParse(input);
-    if (!parsed.success) return this.zodError(parsed.error);
+    if (!parsed.success) {
+      return validationFailure(parsed.error.issues.map((issue) => issue.message).join(', '));
+    }
 
     if (!context?.userId) {
-      return { success: false, error: 'Authenticated user context is required.' };
+      return nonRetryableFailure('Authenticated user context is required.');
     }
 
     const { operation, collection, documentId, patch } = parsed.data;
@@ -99,7 +124,7 @@ export class MutateNxt1DataTool extends BaseTool {
       );
 
       if (!result.success) {
-        return { success: false, error: result.message ?? 'Mutation failed.' };
+        return classifyMutationFailure(result.message ?? 'Mutation failed.');
       }
 
       return {
@@ -120,10 +145,7 @@ export class MutateNxt1DataTool extends BaseTool {
         userId: context.userId,
       });
 
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Mutation failed.',
-      };
+      return classifyMutationFailure(error instanceof Error ? error.message : 'Mutation failed.');
     }
   }
 }

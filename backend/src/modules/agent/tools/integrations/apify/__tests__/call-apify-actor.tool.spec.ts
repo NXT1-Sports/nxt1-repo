@@ -32,6 +32,39 @@ describe('CallApifyActorTool', () => {
     tool = new CallApifyActorTool(bridge as never, media as never);
   });
 
+  it('rejects placeholder actor IDs before remote execution', async () => {
+    const result = await tool.execute(
+      {
+        actorId: 'placeholder',
+        input: {},
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toContain('actorId must be a real Apify actor ID');
+    expect(bridge.callActor).not.toHaveBeenCalled();
+  });
+
+  it('classifies unresolved actor preflight gate failures as validation', async () => {
+    const result = await tool.execute(
+      {
+        actorId: 'apify/rag-web-browser',
+        input: {},
+      },
+      {
+        ...TEST_CONTEXT,
+        resolvedApifyActors: new Set<string>(),
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toContain('has not been validated');
+    expect(bridge.callActor).not.toHaveBeenCalled();
+  });
+
   it('persists media by default', async () => {
     bridge.callActor.mockResolvedValue({
       videoUrl: 'https://cdn.example.com/film.mp4',

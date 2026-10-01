@@ -11,7 +11,12 @@ import {
 } from '../../services/html-pdf-renderer.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
-import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
+import {
+  BaseTool,
+  type ToolExecutionContext,
+  type ToolResult,
+  validationFailure,
+} from '../base.tool.js';
 
 const HTML_PDF_DOWNLOAD_URL_TTL_MS_NO_EXPIRE = 100 * 365 * 24 * 60 * 60 * 1000;
 const HTML_PDF_REVISION_HINT =
@@ -72,10 +77,7 @@ export class RenderHtmlPdfTool extends BaseTool {
   ): Promise<ToolResult> {
     const parsed = RenderHtmlPdfInputSchema.safeParse(input);
     if (!parsed.success) {
-      return {
-        success: false,
-        error: parsed.error.issues.map((issue) => issue.message).join('; '),
-      };
+      return validationFailure(parsed.error.issues.map((issue) => issue.message).join('; '));
     }
 
     try {

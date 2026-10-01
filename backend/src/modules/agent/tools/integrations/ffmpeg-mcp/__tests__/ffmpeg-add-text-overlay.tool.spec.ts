@@ -76,6 +76,7 @@ describe('FfmpegAddTextOverlayTool', () => {
     );
 
     expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
     expect(result.error).toContain('requires startTime and endTime');
     expect(bridge.addTextOverlay).not.toHaveBeenCalled();
     expect(TEST_CONTEXT.emitStage).not.toHaveBeenCalled();
@@ -93,6 +94,7 @@ describe('FfmpegAddTextOverlayTool', () => {
     );
 
     expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
     expect(result.error).toContain('limited to 15s windows');
     expect(result.error).toContain('Requested 80s');
     expect(bridge.addTextOverlay).not.toHaveBeenCalled();

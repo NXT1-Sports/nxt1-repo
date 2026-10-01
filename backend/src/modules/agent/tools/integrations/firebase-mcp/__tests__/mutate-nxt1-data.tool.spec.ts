@@ -176,7 +176,24 @@ describe('MutateNxt1DataTool', () => {
     );
 
     expect(result.success).toBe(false);
+    expect(result.isNonRetryable).toBe(true);
     expect(result.error).toMatch(/forbidden/i);
+  });
+
+  it('classifies missing document bridge responses as validation failures', async () => {
+    vi.mocked(bridge.mutate).mockResolvedValue({
+      success: false,
+      message: '[MCP:firebase] Document "c0bEPv1QuSVETbqHp676" not found in "Roster".',
+    });
+
+    const result = await tool.execute(
+      { operation: 'update', collection: 'Roster', documentId: 'c0bEPv1QuSVETbqHp676', patch: {} },
+      makeContext()
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toContain('not found in "Roster"');
   });
 
   it('returns error when bridge throws', async () => {

@@ -257,6 +257,7 @@ describe('analytics agent tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('domain must be one of');
+    expect(result.isValidationError).toBe(true);
   });
 
   it('returns a controlled error when required string fields are missing', async () => {
@@ -282,6 +283,7 @@ describe('analytics agent tools', () => {
     expect(result.error).toContain('Invalid input');
     expect(result.error).toMatch(/expected string/i);
     expect(result.error).toMatch(/undefined/i);
+    expect(result.isValidationError).toBe(true);
     expect(warnSpy).toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(
       '[TrackAnalyticsEventTool] Invalid tool input',
@@ -292,6 +294,41 @@ describe('analytics agent tools', () => {
       })
     );
     warnSpy.mockRestore();
+  });
+
+  it('falls back to context user id when tracking from an agent operation', async () => {
+    const analytics: AnalyticsLoggerMock = {
+      track: vi.fn().mockResolvedValue({
+        eventId: 'evt_context_user',
+        subjectId: 'ctx_user',
+        subjectType: 'user',
+        domain: 'engagement',
+        eventType: 'content_viewed',
+        occurredAt: '2026-04-14T00:00:00.000Z',
+      }),
+      getSummary: vi.fn(),
+    };
+    const tool = new TrackAnalyticsEventTool(analytics as AnalyticsLoggerService);
+
+    const result = await tool.execute(
+      {
+        domain: 'engagement',
+        eventType: 'content_viewed',
+      },
+      {
+        userId: 'ctx_user',
+        operationId: REGRESSION_OPERATION_ID,
+        threadId: REGRESSION_THREAD_ID,
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(analytics.track).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: 'ctx_user',
+        actorUserId: 'ctx_user',
+      })
+    );
   });
 
   it('accepts payload provided as a JSON string object', async () => {
@@ -357,6 +394,7 @@ describe('analytics agent tools', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Invalid input: payload must be a JSON object');
+    expect(result.isValidationError).toBe(true);
     expect(analytics.track).not.toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalled();
     expect(warnSpy).toHaveBeenCalledWith(

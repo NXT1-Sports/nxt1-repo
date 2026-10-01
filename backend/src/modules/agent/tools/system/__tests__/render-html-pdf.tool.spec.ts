@@ -252,6 +252,7 @@ describe('RenderHtmlPdfTool', () => {
     const result = await tool.execute({ html: '', fileName: '' }, context);
 
     expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
     expect(render).not.toHaveBeenCalled();
   });
 

@@ -2,9 +2,8 @@
  * @fileoverview Firecrawl Images Tool — Extract all images from a web page
  * @module @nxt1/backend/modules/agent/tools/integrations
  *
- * Uses Firecrawl's native `formats: ['images']` capability to extract a
- * typed, deduplicated array of all image URLs from any public web page.
- * This replaces fragile regex-based URL extraction.
+ * Uses Firecrawl's supported HTML scrape output to extract a typed,
+ * deduplicated array of image URLs from any public web page.
  *
  * Use cases:
  * - Collecting action shots from a college athletics roster page
@@ -19,7 +18,12 @@
  * Configuration: Set the `FIRECRAWL_API_KEY` environment variable.
  */
 
-import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../../base.tool.js';
+import {
+  BaseTool,
+  type ToolResult,
+  type ToolExecutionContext,
+  validationFailure,
+} from '../../../base.tool.js';
 import type { FirecrawlMcpBridgeService } from './firecrawl-mcp-bridge.service.js';
 import { checkSocialDomainBlock } from '../../../media/media-acquisition.middleware.js';
 import { z } from 'zod';
@@ -72,23 +76,17 @@ export class FirecrawlImagesTool extends BaseTool {
   ): Promise<ToolResult> {
     const parsed = ExtractPageImagesInputSchema.safeParse(input);
     if (!parsed.success) {
-      return {
-        success: false,
-        error: parsed.error.issues.map((i) => i.message).join(', '),
-      };
+      return validationFailure(parsed.error.issues.map((issue) => issue.message).join(', '));
     }
 
     const { url, maxImages } = parsed.data;
 
     if (url.length > MAX_URL_LENGTH) {
-      return {
-        success: false,
-        error: `URL exceeds maximum length of ${MAX_URL_LENGTH} characters.`,
-      };
+      return validationFailure(`URL exceeds maximum length of ${MAX_URL_LENGTH} characters.`);
     }
 
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      return { success: false, error: 'URL must start with http:// or https://' };
+      return validationFailure('URL must start with http:// or https://');
     }
 
     // Hard block social domains — use dedicated social scrapers
@@ -104,9 +102,9 @@ export class FirecrawlImagesTool extends BaseTool {
     });
 
     try {
-      const result = await this.bridge.scrape(url, { formats: ['images'] });
+      const result = await this.bridge.scrape(url, { formats: ['html'] });
 
-      const images = extractImages(result, maxImages);
+      const images = extractImages(result, maxImages, url);
 
       logger.info('[FirecrawlImages] Images extracted', { url, count: images.length });
 
@@ -138,46 +136,118 @@ interface ExtractedImage {
   readonly alt?: string;
 }
 
-function extractImages(result: unknown, maxImages: number): readonly ExtractedImage[] {
+export function extractImages(
+  result: unknown,
+  maxImages: number,
+  baseUrl?: string
+): readonly ExtractedImage[] {
   if (result == null || typeof result !== 'object') return [];
 
   const data = result as Record<string, unknown>;
 
-  // Firecrawl native images format — data.images is string[]
   const rawImages = data['images'] ?? (data['data'] as Record<string, unknown>)?.['images'];
-
-  if (!Array.isArray(rawImages)) return [];
+  const html = extractHtmlPayload(data);
 
   const seen = new Set<string>();
   const output: ExtractedImage[] = [];
 
-  for (const item of rawImages) {
-    if (output.length >= maxImages) break;
+  const pushImage = (rawUrl: string, alt?: string): void => {
+    if (output.length >= maxImages) return;
+    const url = normalizeImageUrl(rawUrl, baseUrl);
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    output.push({
+      url,
+      mimeType: inferMimeType(url),
+      ...(alt && alt.trim() ? { alt: alt.trim() } : {}),
+    });
+  };
 
-    if (typeof item === 'string' && item.startsWith('http') && !seen.has(item)) {
-      seen.add(item);
-      output.push({
-        url: item,
-        mimeType: inferMimeType(item),
-      });
-      continue;
-    }
+  if (Array.isArray(rawImages)) {
+    for (const item of rawImages) {
+      if (output.length >= maxImages) break;
 
-    if (item && typeof item === 'object') {
-      const obj = item as Record<string, unknown>;
-      const url = typeof obj['url'] === 'string' ? obj['url'] : undefined;
-      if (url && url.startsWith('http') && !seen.has(url)) {
-        seen.add(url);
-        output.push({
-          url,
-          mimeType: inferMimeType(url),
-          ...(typeof obj['alt'] === 'string' && obj['alt'] ? { alt: obj['alt'] } : {}),
-        });
+      if (typeof item === 'string') {
+        pushImage(item);
+        continue;
+      }
+
+      if (item && typeof item === 'object') {
+        const obj = item as Record<string, unknown>;
+        const url = typeof obj['url'] === 'string' ? obj['url'] : undefined;
+        if (url) {
+          pushImage(url, typeof obj['alt'] === 'string' ? obj['alt'] : undefined);
+        }
       }
     }
   }
 
+  if (html) {
+    for (const image of extractImagesFromHtml(html)) {
+      pushImage(image.url, image.alt);
+      if (output.length >= maxImages) break;
+    }
+  }
+
   return output;
+}
+
+function extractHtmlPayload(data: Record<string, unknown>): string | null {
+  const nested = data['data'];
+  const candidates = [
+    data['html'],
+    data['rawHtml'],
+    nested && typeof nested === 'object' ? (nested as Record<string, unknown>)['html'] : undefined,
+    nested && typeof nested === 'object'
+      ? (nested as Record<string, unknown>)['rawHtml']
+      : undefined,
+  ];
+
+  const html = candidates.find((candidate): candidate is string => typeof candidate === 'string');
+  return html ?? null;
+}
+
+function extractImagesFromHtml(
+  html: string
+): readonly { readonly url: string; readonly alt?: string }[] {
+  const images: { url: string; alt?: string }[] = [];
+  const imgTagPattern = /<img\b[^>]*>/gi;
+  const attrPattern = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*("([^"]*)"|'([^']*)'|([^\s"'>]+))/g;
+
+  for (const match of html.matchAll(imgTagPattern)) {
+    const tag = match[0];
+    const attrs = new Map<string, string>();
+    for (const attrMatch of tag.matchAll(attrPattern)) {
+      const name = attrMatch[1]?.toLowerCase();
+      const value = attrMatch[3] ?? attrMatch[4] ?? attrMatch[5] ?? '';
+      if (name) attrs.set(name, value.trim());
+    }
+
+    const alt = attrs.get('alt');
+    const src = attrs.get('src') ?? attrs.get('data-src') ?? attrs.get('data-original');
+    if (src) images.push({ url: src, ...(alt ? { alt } : {}) });
+
+    const srcset = attrs.get('srcset') ?? attrs.get('data-srcset');
+    if (srcset) {
+      for (const candidate of srcset.split(',')) {
+        const url = candidate.trim().split(/\s+/)[0];
+        if (url) images.push({ url, ...(alt ? { alt } : {}) });
+      }
+    }
+  }
+
+  return images;
+}
+
+function normalizeImageUrl(rawUrl: string, baseUrl?: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed || trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return null;
+
+  try {
+    return baseUrl ? new URL(trimmed, baseUrl).toString() : new URL(trimmed).toString();
+  } catch {
+    return null;
+  }
 }
 
 function inferMimeType(url: string): string {

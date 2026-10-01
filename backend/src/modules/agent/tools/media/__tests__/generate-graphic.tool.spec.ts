@@ -673,6 +673,35 @@ describe('coerceGraphicInput', () => {
       expect(result['themeColors']).toEqual(['#FF0000', '#00FF00']);
     });
 
+    it('normalizes themeColors objects and clamps to three colors', () => {
+      const result = coerceGraphicInput({
+        themeColors: {
+          primary: '#111111',
+          secondary: '#222222',
+          accent: '#333333',
+          ignored: '#444444',
+        },
+      });
+
+      expect(result['themeColors']).toEqual(['#111111', '#222222', '#333333']);
+    });
+
+    it('normalizes JSON-stringified themeColors objects', () => {
+      const result = coerceGraphicInput({
+        themeColors: '{"primaryColor":"#AA0000","secondaryColor":"#00AA00"}',
+      });
+
+      expect(result['themeColors']).toEqual(['#AA0000', '#00AA00']);
+    });
+
+    it('clamps oversized themeColors arrays before validation', () => {
+      const result = coerceGraphicInput({
+        themeColors: ['#111111', '#222222', '#333333', '#444444'],
+      });
+
+      expect(result['themeColors']).toEqual(['#111111', '#222222', '#333333']);
+    });
+
     it('parses JSON-stringified object arrays for autoRetrievedSources', () => {
       const input = {
         autoRetrievedSources:

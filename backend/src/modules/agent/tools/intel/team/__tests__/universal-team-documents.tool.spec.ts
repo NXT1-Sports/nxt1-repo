@@ -50,6 +50,11 @@ function createDb(options?: {
     readonly exists: boolean;
     readonly data: () => unknown;
   };
+  readonly folderDoc?: {
+    readonly id: string;
+    readonly exists: boolean;
+    readonly data: () => unknown;
+  };
   readonly universalSet?: ReturnType<typeof vi.fn>;
   readonly referencedDocs?: Readonly<
     Record<string, { readonly exists: boolean; readonly data: () => unknown }>
@@ -75,6 +80,7 @@ function createDb(options?: {
       exists: false,
       data: () => undefined,
     } as const);
+  const folderDoc = options?.folderDoc;
   const referencedDocs = options?.referencedDocs ?? {};
   const rosterDocs = options?.rosterDocs ?? [];
 
@@ -97,6 +103,20 @@ function createDb(options?: {
               data: () => currentUniversalData,
             })),
             set: universalSet,
+          }),
+        };
+      }
+
+      if (name === 'TeamFileFolders') {
+        return {
+          doc: vi.fn().mockReturnValue({
+            get: vi.fn().mockResolvedValue(
+              folderDoc ?? {
+                id: 'missing-folder',
+                exists: false,
+                data: () => undefined,
+              }
+            ),
           }),
         };
       }
@@ -208,6 +228,36 @@ describe('universal team document Agent X tools', () => {
     vi.clearAllMocks();
     mockCanManageTeamMutationForUser.mockResolvedValue(true);
     mockSemanticSearch.mockResolvedValue([]);
+  });
+
+  it('classifies folder team scope mismatch as validation failure', async () => {
+    const { db, universalSet } = createDb({
+      folderDoc: {
+        id: 'folder-team-1',
+        exists: true,
+        data: () => ({
+          teamId: 'team-1',
+          name: 'Team 1 Folder',
+          createdByUserId: 'coach-1',
+        }),
+      },
+    });
+
+    const tool = new CreateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        title: 'Mismatched Folder Scope',
+        content: 'Document body',
+        teamId: 'team-2',
+        folderId: 'folder-team-1',
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toBe('Requested team scope does not match the selected folder scope.');
+    expect(universalSet).not.toHaveBeenCalled();
   });
 
   it('creates a saved Files record for an uploaded source file asset', async () => {
@@ -956,6 +1006,47 @@ describe('universal team document Agent X tools', () => {
         updatedByUserId: 'test-user',
       })
     );
+  });
+
+  it('classifies body edits on pointer-backed Team Files artifacts as validation failure', async () => {
+    const { db, universalSet } = createDb({
+      universalDoc: {
+        id: 'upload-1',
+        exists: true,
+        data: () => ({
+          id: 'upload-1',
+          teamId: 'team-1',
+          type: 'file',
+          ownerUserId: 'coach-1',
+          title: 'Sample.pdf',
+          normalizedTitle: 'sample.pdf',
+          status: 'ready',
+          payloadKind: 'pointer',
+          payload: {
+            storagePath: 'Users/coach-1/uploads/pdf/unbound/123_Sample.pdf',
+            mimeType: 'application/pdf',
+          },
+          createdAt: '2026-06-01T00:00:00.000Z',
+          updatedAt: '2026-06-01T00:00:00.000Z',
+        }),
+      },
+    });
+
+    const tool = new UpdateUniversalTeamDocumentTool(db as never);
+    const result = await tool.execute(
+      {
+        documentId: 'upload-1',
+        patch: {
+          content: 'Replace the uploaded PDF with generated standalone content.',
+        },
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.isValidationError).toBe(true);
+    expect(result.error).toContain('same-record artifact metadata updates');
+    expect(universalSet).not.toHaveBeenCalled();
   });
 
   it('persists markdown format when updating managed document content', async () => {

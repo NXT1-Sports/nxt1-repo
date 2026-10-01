@@ -694,12 +694,13 @@ export class ToolRegistry {
     }
 
     if (!result.success) {
-      if (result.isValidationError) {
-        logger.info('[ToolRegistry] Suppressed alert for expected validation failure', {
+      if (result.isValidationError || result.isNonRetryable) {
+        logger.info('[ToolRegistry] Suppressed alert for expected tool failure', {
           toolName: normalizedName,
           error: result.error,
           operationId: context?.operationId,
           threadId: context?.threadId,
+          failureKind: result.isValidationError ? 'validation' : 'non-retryable',
         });
       } else {
         await this.postToolFailureAlert(

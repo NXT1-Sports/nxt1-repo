@@ -36,6 +36,14 @@ export interface ToolResult {
   readonly isNonRetryable?: boolean;
 }
 
+export function validationFailure(error: string): ToolResult {
+  return { success: false, isValidationError: true, error };
+}
+
+export function nonRetryableFailure(error: string): ToolResult {
+  return { success: false, isNonRetryable: true, error };
+}
+
 /** A nested backend tool action rendered as a first-class operation step. */
 export interface NestedToolStepEvent {
   readonly type: 'step_active' | 'tool_result';

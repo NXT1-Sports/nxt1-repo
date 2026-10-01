@@ -2793,6 +2793,118 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     );
   });
 
+  it('does not prematurely mark thread complete when latest user turn has no subsequent assistant_final', async () => {
+    const reloadFacade = Object.create(
+      AgentXOperationChatSessionFacade.prototype
+    ) as ThreadReloadHelper;
+    const parentOperationId = 'chat-parent-1';
+    const userPrompt: AgentMessage = {
+      id: 'user-ask-answered',
+      threadId: 'thread-in-flight',
+      userId: 'user-1',
+      role: 'user',
+      content: 'Can I get an export?',
+      origin: 'user',
+      operationId: parentOperationId,
+      createdAt: '2026-09-06T19:35:00.000Z',
+    };
+    const yieldRow = assistantMessage('yield-ask-answered', 'assistant_yield', {
+      threadId: 'thread-in-flight',
+      operationId: parentOperationId,
+      content: 'Which export format do you want?',
+      resultData: {
+        yieldState: { reason: 'needs_input', pendingToolCall: { toolName: 'ask_user' } },
+      },
+    });
+    const userReply: AgentMessage = {
+      id: 'user-ask-answered-reply',
+      threadId: 'thread-in-flight',
+      userId: 'user-1',
+      role: 'user',
+      content: '1. Which export format do you want?: Printable PDF',
+      origin: 'user',
+      operationId: parentOperationId,
+      createdAt: '2026-09-06T19:35:10.000Z',
+    };
+    const resumedPartial = assistantMessage('partial-after-answer', 'assistant_tool_call', {
+      threadId: 'thread-in-flight',
+      operationId: 'resumed-op-1',
+      content: 'Processing your PDF export...',
+      createdAt: '2026-09-06T19:35:12.000Z',
+    });
+    let renderedMessages: OperationMessage[] = [];
+    const messagesSignal = Object.assign(
+      vi.fn(() => renderedMessages),
+      {
+        set: vi.fn((next: OperationMessage[]) => {
+          renderedMessages = next;
+        }),
+        update: vi.fn((updater: (items: OperationMessage[]) => OperationMessage[]) => {
+          renderedMessages = updater(renderedMessages);
+          return renderedMessages;
+        }),
+      }
+    );
+    let operationStatus: ReturnType<AgentXOperationChatSessionFacadeHost['getOperationStatus']> =
+      'processing';
+    const setOperationStatus = vi.fn((next: typeof operationStatus) => {
+      operationStatus = next;
+    });
+    const emitOperationStatusUpdated = vi.fn();
+
+    Object.assign(reloadFacade as unknown as Record<string, unknown>, {
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      operationEventService: {
+        getEnqueueWaitingEntry: vi.fn().mockReturnValue(null),
+        emitOperationStatusUpdated,
+        getStoredEventState: vi.fn().mockResolvedValue({
+          latestYieldState: null,
+          latestLifecycleStatus: 'complete',
+        }),
+      },
+      streamRegistry: { hasActiveStream: vi.fn().mockReturnValue(false) },
+      messageFacade: {
+        messages: messagesSignal,
+        upsertInlineYieldMessage: vi.fn(),
+        settleActiveToolSteps: vi.fn(),
+        pushMessage: vi.fn(),
+      },
+      generateThumbnailsForHistoryVideos: vi.fn(),
+    });
+    reloadFacade.configure({
+      contextId: () => parentOperationId,
+      contextType: () => 'operation',
+      getOperationStatus: () => operationStatus,
+      setOperationStatus,
+      getCurrentOperationId: () => parentOperationId,
+      setCurrentOperationId: vi.fn(),
+      resumeOperationId: () => parentOperationId,
+      activeYieldState: (() => null) as never,
+      yieldResolved: (() => false) as never,
+      applyYieldState: vi.fn(),
+      hasUserSent: () => true,
+      markUserMessageSent: vi.fn(),
+      uid: () => 'uid-1',
+    } as unknown as AgentXOperationChatSessionFacadeHost);
+
+    await reloadFacade.applyLoadedThreadMessages('thread-in-flight', [
+      userPrompt,
+      yieldRow,
+      userReply,
+      resumedPartial,
+    ]);
+
+    expect(setOperationStatus).not.toHaveBeenCalledWith('complete');
+    expect(emitOperationStatusUpdated).not.toHaveBeenCalledWith(
+      'thread-in-flight',
+      'complete',
+      expect.any(String),
+      'chat',
+      expect.anything()
+    );
+    expect(operationStatus).toBe('processing');
+  });
+
   // ── Regression: Bug A ─────────────────────────────────────────────────────
   // Approval flow should preserve prior tool_call context alongside card.
   it('keeps prior tool_call rows visible when a needs_approval yield is pending', () => {
