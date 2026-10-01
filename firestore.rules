@@ -75,7 +75,7 @@ service cloud.firestore {
       // Create: Only during sign-up, must match auth UID
       allow create: if isOwner(userId) 
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data._schemaVersion == 2;
+        && request.resource.data._schemaVersion == 3;
       
       // Update: User can only update own profile, cannot change role or sensitive fields
       allow update: if isOwner(userId) 
@@ -447,19 +447,7 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    match /paymentLogs/{logId} {
-      allow read: if isAuthenticated()
-        && (resource.data.userId == request.auth.uid || isAdmin());
-      allow write: if false;
-    }
-
     match /UsageEvents/{eventId} {
-      allow read: if isAuthenticated()
-        && (resource.data.userId == request.auth.uid || isAdmin());
-      allow write: if false;
-    }
-
-    match /usageEvents/{eventId} {
       allow read: if isAuthenticated()
         && (resource.data.userId == request.auth.uid || isAdmin());
       allow write: if false;
