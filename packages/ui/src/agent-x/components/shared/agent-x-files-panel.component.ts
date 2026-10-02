@@ -580,6 +580,9 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
     <section
       class="agent-x-files-panel film-review-panel"
       [class.agent-x-files-panel--compact]="compact"
+      [class.agent-x-files-panel--document-view]="
+        selectedViewerFile() && isDocumentPreviewableFile(selectedViewerFile()!)
+      "
     >
       @if (
         !teamId?.trim() &&
@@ -1427,352 +1430,362 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
             (askAgentPromptRequested)="askAgentPromptRequested.emit($event)"
           />
         } @else if (selectedViewerFile(); as file) {
-          <nxt1-agent-x-viewer-surface class="agent-x-files-viewer" aria-label="File viewer">
-            @let hasWriteAccess = hasFileWriteAccess(file);
-            @if (shouldRenderViewerStage(file)) {
-              <div
-                viewer-stage
-                class="agent-x-files-viewer__stage"
-                [nxtAgentXContextDrag]="buildFileDragContext(file)"
-                [nxtAgentXContextDragDisabled]="genericVideoControlDragLockActive()"
-              >
-                @if (isImageFile(file)) {
-                  <img
-                    class="agent-x-files-viewer__image"
-                    [src]="file.url"
-                    [alt]="file.name"
-                    draggable="false"
-                    (dragstart)="$event.preventDefault()"
-                  />
-                } @else if (
-                  isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
-                  as videoIframeUrl
-                ) {
-                  <div class="agent-x-files-viewer__frame-shell">
-                    <button
-                      type="button"
-                      class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
-                      aria-label="Drag media to chat"
-                      title="Drag media to chat"
-                      [nxtAgentXContextDrag]="buildFileDragContext(file)"
+          @if (isDocumentPreviewableFile(file)) {
+            <div class="agent-x-files-viewer__document-shell">
+              <nxt1-document-viewer
+                [file]="file"
+                [compact]="compact"
+                (askAgentRequested)="onDocumentAskAgentRequested($event, file)"
+                (openOriginalRequested)="openFileInNewTab($event)"
+                (downloadRequested)="downloadFile($event)"
+              />
+            </div>
+          } @else {
+            <nxt1-agent-x-viewer-surface class="agent-x-files-viewer" aria-label="File viewer">
+              @let hasWriteAccess = hasFileWriteAccess(file);
+              @if (shouldRenderViewerStage(file)) {
+                <div
+                  viewer-stage
+                  class="agent-x-files-viewer__stage"
+                  [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                  [nxtAgentXContextDragDisabled]="genericVideoControlDragLockActive()"
+                >
+                  @if (isImageFile(file)) {
+                    <img
+                      class="agent-x-files-viewer__image"
+                      [src]="file.url"
+                      [alt]="file.name"
+                      draggable="false"
+                      (dragstart)="$event.preventDefault()"
+                    />
+                  } @else if (
+                    isVideoFile(file) && safeSelectedVideoIframeFallbackUrl();
+                    as videoIframeUrl
+                  ) {
+                    <div class="agent-x-files-viewer__frame-shell">
+                      <button
+                        type="button"
+                        class="agent-x-files-viewer__iframe-drag-handle agent-x-files-viewer__drag-context-action"
+                        aria-label="Drag media to chat"
+                        title="Drag media to chat"
+                        [nxtAgentXContextDrag]="buildFileDragContext(file)"
+                      >
+                        Drag Media
+                      </button>
+                      <iframe
+                        class="agent-x-files-viewer__frame"
+                        [src]="videoIframeUrl"
+                        [title]="file.name"
+                        loading="lazy"
+                        frameborder="0"
+                        allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                        allowfullscreen
+                      ></iframe>
+                    </div>
+                  } @else if (isVideoFile(file)) {
+                    <div
+                      #genericVideoShell
+                      class="agent-x-files-viewer__video-shell"
+                      aria-label="Video playback"
                     >
-                      Drag Media
-                    </button>
-                    <iframe
-                      class="agent-x-files-viewer__frame"
-                      [src]="videoIframeUrl"
-                      [title]="file.name"
-                      loading="lazy"
-                      frameborder="0"
-                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                      allowfullscreen
-                    ></iframe>
-                  </div>
-                } @else if (isVideoFile(file)) {
-                  <div
-                    #genericVideoShell
-                    class="agent-x-files-viewer__video-shell"
-                    aria-label="Video playback"
-                  >
-                    <video
-                      #genericVideoPlayer
-                      class="agent-x-files-viewer__video"
-                      [attr.poster]="viewerPosterUrlForVideo(file)"
-                      playsinline
-                      preload="auto"
-                      (loadedmetadata)="onGenericVideoLoadedMetadata()"
-                      (timeupdate)="onGenericVideoTimeUpdate()"
-                      (play)="onGenericVideoPlay()"
-                      (pause)="onGenericVideoPause()"
-                      (ended)="onGenericVideoEnded()"
-                      (error)="onGenericVideoError()"
-                    ></video>
+                      <video
+                        #genericVideoPlayer
+                        class="agent-x-files-viewer__video"
+                        [attr.poster]="viewerPosterUrlForVideo(file)"
+                        playsinline
+                        preload="auto"
+                        (loadedmetadata)="onGenericVideoLoadedMetadata()"
+                        (timeupdate)="onGenericVideoTimeUpdate()"
+                        (play)="onGenericVideoPlay()"
+                        (pause)="onGenericVideoPause()"
+                        (ended)="onGenericVideoEnded()"
+                        (error)="onGenericVideoError()"
+                      ></video>
 
-                    <div class="agent-x-files-viewer__video-controls" aria-label="Video controls">
-                      <nxt1-video-controls
-                        [isPlaying]="genericVideoIsPlaying()"
-                        [currentTime]="genericVideoCurrentTime()"
-                        [duration]="genericVideoDuration()"
-                        [playbackRate]="genericVideoPlaybackRate()"
-                        [showSpeedControls]="true"
-                        [showFullscreen]="true"
-                        [showOpenInNewWindow]="false"
-                        [showAdvancedPlaybackControls]="true"
-                        [showDurationBadge]="true"
-                        [allowTransportCollapse]="true"
-                        [compactMode]="true"
-                        (pointerdown)="onGenericVideoControlsInteractionStart()"
-                        (pointerup)="onGenericVideoControlsInteractionEnd()"
-                        (pointercancel)="onGenericVideoControlsInteractionEnd()"
-                        (pointerleave)="onGenericVideoControlsInteractionEnd()"
-                        (playPause)="toggleGenericVideoPlayPause()"
-                        (seekRelative)="seekGenericVideoRelative($event)"
-                        (seekChange)="onGenericVideoSeekTime($event)"
-                        (seekStart)="onGenericVideoSeekStart()"
-                        (seekEnd)="onGenericVideoSeekEnd()"
-                        (playbackRateChange)="setGenericVideoPlaybackRate($event)"
-                        (openInNewWindow)="openSelectedVideoInNewWindow()"
-                        (fullscreenToggle)="toggleGenericVideoFullscreen()"
-                      />
+                      <div class="agent-x-files-viewer__video-controls" aria-label="Video controls">
+                        <nxt1-video-controls
+                          [isPlaying]="genericVideoIsPlaying()"
+                          [currentTime]="genericVideoCurrentTime()"
+                          [duration]="genericVideoDuration()"
+                          [playbackRate]="genericVideoPlaybackRate()"
+                          [showSpeedControls]="true"
+                          [showFullscreen]="true"
+                          [showOpenInNewWindow]="false"
+                          [showAdvancedPlaybackControls]="true"
+                          [showDurationBadge]="true"
+                          [allowTransportCollapse]="true"
+                          [compactMode]="true"
+                          (pointerdown)="onGenericVideoControlsInteractionStart()"
+                          (pointerup)="onGenericVideoControlsInteractionEnd()"
+                          (pointercancel)="onGenericVideoControlsInteractionEnd()"
+                          (pointerleave)="onGenericVideoControlsInteractionEnd()"
+                          (playPause)="toggleGenericVideoPlayPause()"
+                          (seekRelative)="seekGenericVideoRelative($event)"
+                          (seekChange)="onGenericVideoSeekTime($event)"
+                          (seekStart)="onGenericVideoSeekStart()"
+                          (seekEnd)="onGenericVideoSeekEnd()"
+                          (playbackRateChange)="setGenericVideoPlaybackRate($event)"
+                          (openInNewWindow)="openSelectedVideoInNewWindow()"
+                          (fullscreenToggle)="toggleGenericVideoFullscreen()"
+                        />
+                      </div>
                     </div>
-                  </div>
-                } @else if (isDocumentPreviewableFile(file)) {
-                  <nxt1-document-viewer
-                    [file]="file"
-                    [compact]="compact"
-                    (askAgentRequested)="onDocumentAskAgentRequested($event, file)"
-                    (openOriginalRequested)="openFileInNewTab($event)"
-                    (downloadRequested)="downloadFile($event)"
-                  />
-                } @else {
-                  <div class="agent-x-files-viewer__fallback">
-                    <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
-                      <nxt1-icon [name]="iconNameForFile(file)" [size]="28"></nxt1-icon>
+                  } @else {
+                    <div class="agent-x-files-viewer__fallback">
+                      <div class="agent-x-files-viewer__fallback-icon" aria-hidden="true">
+                        <nxt1-icon [name]="iconNameForFile(file)" [size]="28"></nxt1-icon>
+                      </div>
+                      <div class="agent-x-files-viewer__fallback-copy">
+                        <h3>{{ file.name }}</h3>
+                        <p>{{ viewerFallbackMessage(file) }}</p>
+                      </div>
+                      <div class="agent-x-files-viewer__fallback-actions">
+                        <button
+                          type="button"
+                          class="agent-x-files-viewer__icon-action"
+                          [attr.aria-label]="openActionLabelForFile(file)"
+                          [attr.title]="openActionLabelForFile(file)"
+                          (click)="openFileInNewTab(file)"
+                        >
+                          <nxt1-icon name="openInNew" [size]="16"></nxt1-icon>
+                        </button>
+                        <button
+                          type="button"
+                          class="agent-x-files-viewer__icon-action"
+                          aria-label="Download"
+                          title="Download"
+                          (click)="downloadFile(file)"
+                        >
+                          <nxt1-icon name="download" [size]="16"></nxt1-icon>
+                        </button>
+                      </div>
                     </div>
-                    <div class="agent-x-files-viewer__fallback-copy">
-                      <h3>{{ file.name }}</h3>
-                      <p>{{ viewerFallbackMessage(file) }}</p>
-                    </div>
-                    <div class="agent-x-files-viewer__fallback-actions">
-                      <button
-                        type="button"
-                        class="agent-x-files-viewer__icon-action"
-                        [attr.aria-label]="openActionLabelForFile(file)"
-                        [attr.title]="openActionLabelForFile(file)"
-                        (click)="openFileInNewTab(file)"
-                      >
-                        <nxt1-icon name="openInNew" [size]="16"></nxt1-icon>
-                      </button>
-                      <button
-                        type="button"
-                        class="agent-x-files-viewer__icon-action"
-                        aria-label="Download"
-                        title="Download"
-                        (click)="downloadFile(file)"
-                      >
-                        <nxt1-icon name="download" [size]="16"></nxt1-icon>
-                      </button>
-                    </div>
-                  </div>
-                }
-              </div>
-            }
+                  }
+                </div>
+              }
 
-            <div
-              viewer-context
-              class="agent-x-files-viewer__context"
-              [class.agent-x-files-viewer__context--document]="usesDocumentContextStyle(file)"
-              aria-label="File context panel"
-            >
-              <div class="agent-x-files-viewer__context-header">
-                <div class="agent-x-files-viewer__context-header-main">
-                  <div class="agent-x-files-viewer__context-heading">
-                    <div class="agent-x-files-viewer__title-row">
-                      @if (isEditingFile(file.id)) {
-                        <div class="agent-x-files-viewer__title-edit-row">
-                          <input
-                            type="text"
-                            class="agent-x-files-viewer__title-input"
-                            aria-label="Document title"
-                            [value]="fileRenameDraft()"
-                            (input)="onFileRenameInput($any($event.target).value)"
-                            (keydown.enter)="onFileRenameConfirm(file, $event)"
-                            (keydown.escape)="onFileRenameCancel($event)"
-                          />
-                          <div class="agent-x-files-viewer__title-edit-actions">
-                            <button
-                              type="button"
-                              class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--confirm"
-                              aria-label="Confirm title"
-                              title="Confirm title"
-                              (click)="onFileRenameConfirm(file, $event)"
-                            >
-                              <nxt1-icon name="checkmark" [size]="14"></nxt1-icon>
-                            </button>
-                            <button
-                              type="button"
-                              class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--cancel"
-                              aria-label="Cancel title edit"
-                              title="Cancel title edit"
-                              (click)="onFileRenameCancel($event)"
-                            >
-                              <nxt1-icon name="close" [size]="14"></nxt1-icon>
-                            </button>
-                          </div>
-                        </div>
-                      } @else {
-                        <div class="agent-x-files-viewer__title-display-row">
-                          <div class="agent-x-files-viewer__title-copy">
-                            <h3 class="agent-x-files-viewer__title">{{ file.name }}</h3>
-                          </div>
-                          <button
-                            type="button"
-                            class="agent-x-files-viewer__title-edit-trigger"
-                            cdkOverlayOrigin
-                            #viewerActionsOrigin="cdkOverlayOrigin"
-                            aria-label="File actions"
-                            title="File actions"
-                            aria-haspopup="menu"
-                            [attr.aria-expanded]="openViewerActionsFileId() === file.id"
-                            (click)="toggleViewerActions(file.id, $event)"
-                          >
-                            <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
-                          </button>
-                          <ng-template
-                            cdkConnectedOverlay
-                            [cdkConnectedOverlayOrigin]="viewerActionsOrigin"
-                            [cdkConnectedOverlayOpen]="openViewerActionsFileId() === file.id"
-                            [cdkConnectedOverlayHasBackdrop]="true"
-                            cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
-                            [cdkConnectedOverlayPositions]="viewerActionsMenuPositions"
-                            [cdkConnectedOverlayPush]="true"
-                            [cdkConnectedOverlayViewportMargin]="8"
-                            (backdropClick)="closeViewerActions()"
-                            (overlayKeydown)="$event.key === 'Escape' && closeViewerActions()"
-                            (detach)="closeViewerActions()"
-                          >
-                            <div
-                              class="agent-x-files-viewer__actions-menu"
-                              role="menu"
-                              aria-label="File actions"
-                            >
+              <div
+                viewer-context
+                class="agent-x-files-viewer__context"
+                [class.agent-x-files-viewer__context--document]="usesDocumentContextStyle(file)"
+                aria-label="File context panel"
+              >
+                <div class="agent-x-files-viewer__context-header">
+                  <div class="agent-x-files-viewer__context-header-main">
+                    <div class="agent-x-files-viewer__context-heading">
+                      <div class="agent-x-files-viewer__title-row">
+                        @if (isEditingFile(file.id)) {
+                          <div class="agent-x-files-viewer__title-edit-row">
+                            <input
+                              type="text"
+                              class="agent-x-files-viewer__title-input"
+                              aria-label="Document title"
+                              [value]="fileRenameDraft()"
+                              (input)="onFileRenameInput($any($event.target).value)"
+                              (keydown.enter)="onFileRenameConfirm(file, $event)"
+                              (keydown.escape)="onFileRenameCancel($event)"
+                            />
+                            <div class="agent-x-files-viewer__title-edit-actions">
                               <button
                                 type="button"
-                                role="menuitem"
-                                [disabled]="!hasWriteAccess"
-                                (click)="onViewerRename(file, $event)"
+                                class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--confirm"
+                                aria-label="Confirm title"
+                                title="Confirm title"
+                                (click)="onFileRenameConfirm(file, $event)"
                               >
-                                <nxt1-icon name="pencil" [size]="16" /> Rename
+                                <nxt1-icon name="checkmark" [size]="14"></nxt1-icon>
                               </button>
-                              @if (shouldShowViewerFileActions(file)) {
-                                <button type="button" role="menuitem" (click)="onViewerOpen(file)">
-                                  <nxt1-icon name="openInNew" [size]="16" />
-                                  {{ openActionLabelForFile(file) }}
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  (click)="onViewerDownload(file)"
-                                >
-                                  <nxt1-icon name="download" [size]="16" /> Download file
-                                </button>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  (click)="onViewerCopy(file, 'link')"
-                                >
-                                  <nxt1-icon name="copyDocs" [size]="16" /> Copy file link
-                                </button>
-                              }
-                              @if (isTextDocument(file)) {
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  (click)="
-                                    onViewerCopy(
-                                      file,
-                                      isMarkdownDocument(file) ? 'markdown' : 'text'
-                                    )
-                                  "
-                                >
-                                  <nxt1-icon name="copyDocs" [size]="16" />
-                                  {{ viewerCopyActionLabel(file) }}
-                                </button>
-                              } @else if (hasMarkdownNotes(file)) {
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  (click)="onViewerCopy(file, 'markdown')"
-                                >
-                                  <nxt1-icon name="copyDocs" [size]="16" /> Copy Markdown
-                                </button>
-                              } @else if (file.rawData) {
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  (click)="onViewerCopy(file, 'json')"
-                                >
-                                  <nxt1-icon name="copyDocs" [size]="16" /> Copy as JSON
-                                </button>
-                              }
-                              @if (canExportViewerContent(file)) {
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  (click)="onViewerExport(file)"
-                                >
-                                  <nxt1-icon name="download" [size]="16" /> Export
-                                </button>
-                              }
                               <button
                                 type="button"
-                                role="menuitem"
-                                [disabled]="refreshingViewerFileId() === file.id"
-                                (click)="onViewerRefresh(file)"
+                                class="agent-x-files-viewer__title-icon-btn agent-x-files-viewer__title-icon-btn--cancel"
+                                aria-label="Cancel title edit"
+                                title="Cancel title edit"
+                                (click)="onFileRenameCancel($event)"
                               >
-                                <nxt1-icon name="refresh" [size]="16" />
-                                {{
-                                  refreshingViewerFileId() === file.id ? 'Refreshing...' : 'Refresh'
-                                }}
+                                <nxt1-icon name="close" [size]="14"></nxt1-icon>
                               </button>
                             </div>
-                          </ng-template>
+                          </div>
+                        } @else {
+                          <div class="agent-x-files-viewer__title-display-row">
+                            <div class="agent-x-files-viewer__title-copy">
+                              <h3 class="agent-x-files-viewer__title">{{ file.name }}</h3>
+                            </div>
+                            <button
+                              type="button"
+                              class="agent-x-files-viewer__title-edit-trigger"
+                              cdkOverlayOrigin
+                              #viewerActionsOrigin="cdkOverlayOrigin"
+                              aria-label="File actions"
+                              title="File actions"
+                              aria-haspopup="menu"
+                              [attr.aria-expanded]="openViewerActionsFileId() === file.id"
+                              (click)="toggleViewerActions(file.id, $event)"
+                            >
+                              <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
+                            </button>
+                            <ng-template
+                              cdkConnectedOverlay
+                              [cdkConnectedOverlayOrigin]="viewerActionsOrigin"
+                              [cdkConnectedOverlayOpen]="openViewerActionsFileId() === file.id"
+                              [cdkConnectedOverlayHasBackdrop]="true"
+                              cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                              [cdkConnectedOverlayPositions]="viewerActionsMenuPositions"
+                              [cdkConnectedOverlayPush]="true"
+                              [cdkConnectedOverlayViewportMargin]="8"
+                              (backdropClick)="closeViewerActions()"
+                              (overlayKeydown)="$event.key === 'Escape' && closeViewerActions()"
+                              (detach)="closeViewerActions()"
+                            >
+                              <div
+                                class="agent-x-files-viewer__actions-menu"
+                                role="menu"
+                                aria-label="File actions"
+                              >
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  [disabled]="!hasWriteAccess"
+                                  (click)="onViewerRename(file, $event)"
+                                >
+                                  <nxt1-icon name="pencil" [size]="16" /> Rename
+                                </button>
+                                @if (shouldShowViewerFileActions(file)) {
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="onViewerOpen(file)"
+                                  >
+                                    <nxt1-icon name="openInNew" [size]="16" />
+                                    {{ openActionLabelForFile(file) }}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="onViewerDownload(file)"
+                                  >
+                                    <nxt1-icon name="download" [size]="16" /> Download file
+                                  </button>
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="onViewerCopy(file, 'link')"
+                                  >
+                                    <nxt1-icon name="copyDocs" [size]="16" /> Copy file link
+                                  </button>
+                                }
+                                @if (isTextDocument(file)) {
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="
+                                      onViewerCopy(
+                                        file,
+                                        isMarkdownDocument(file) ? 'markdown' : 'text'
+                                      )
+                                    "
+                                  >
+                                    <nxt1-icon name="copyDocs" [size]="16" />
+                                    {{ viewerCopyActionLabel(file) }}
+                                  </button>
+                                } @else if (hasMarkdownNotes(file)) {
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="onViewerCopy(file, 'markdown')"
+                                  >
+                                    <nxt1-icon name="copyDocs" [size]="16" /> Copy Markdown
+                                  </button>
+                                } @else if (file.rawData) {
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="onViewerCopy(file, 'json')"
+                                  >
+                                    <nxt1-icon name="copyDocs" [size]="16" /> Copy as JSON
+                                  </button>
+                                }
+                                @if (canExportViewerContent(file)) {
+                                  <button
+                                    type="button"
+                                    role="menuitem"
+                                    (click)="onViewerExport(file)"
+                                  >
+                                    <nxt1-icon name="download" [size]="16" /> Export
+                                  </button>
+                                }
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  [disabled]="refreshingViewerFileId() === file.id"
+                                  (click)="onViewerRefresh(file)"
+                                >
+                                  <nxt1-icon name="refresh" [size]="16" />
+                                  {{
+                                    refreshingViewerFileId() === file.id
+                                      ? 'Refreshing...'
+                                      : 'Refresh'
+                                  }}
+                                </button>
+                              </div>
+                            </ng-template>
+                          </div>
+                        }
+                      </div>
+                      @if (shouldShowGenerateNotes(file)) {
+                        <div class="agent-x-files-viewer__generate-action">
+                          <div class="agent-x-files-viewer__generate-notes">
+                            <nxt1-cta-button
+                              variant="primary"
+                              [label]="
+                                isGeneratingNotes(file.id)
+                                  ? 'Learning this file...'
+                                  : 'Learn this file'
+                              "
+                              [disabled]="isGeneratingNotes(file.id) || !hasWriteAccess"
+                              (clicked)="generateNotes(file)"
+                            />
+                            <p class="agent-x-files-viewer__generate-note">
+                              {{ generateNotesHelperCopy() }}
+                            </p>
+                          </div>
                         </div>
                       }
                     </div>
-                    @if (shouldShowGenerateNotes(file)) {
-                      <div class="agent-x-files-viewer__generate-action">
-                        <div class="agent-x-files-viewer__generate-notes">
-                          <nxt1-cta-button
-                            variant="primary"
-                            [label]="
-                              isGeneratingNotes(file.id)
-                                ? 'Learning this file...'
-                                : 'Learn this file'
-                            "
-                            [disabled]="isGeneratingNotes(file.id) || !hasWriteAccess"
-                            (clicked)="generateNotes(file)"
-                          />
-                          <p class="agent-x-files-viewer__generate-note">
-                            {{ generateNotesHelperCopy() }}
-                          </p>
-                        </div>
-                      </div>
-                    }
                   </div>
                 </div>
-              </div>
 
-              <section class="agent-x-files-viewer__content-section">
-                @if (!shouldShowGenerateNotes(file)) {
-                  @if (supportsTabbedTextEditor(file)) {
-                    <nxt1-markdown-editor
-                      class="agent-x-files-viewer__native-editor"
-                      [content]="editingTextContent(file)"
-                      [placeholder]="contentEditorPlaceholder(file)"
-                      [readOnly]="!hasWriteAccess"
-                      [saveStatus]="textContentSaveStatus(file.id)"
-                      [ariaLabel]="'Edit ' + file.name"
-                      (contentChange)="onTextContentEdit($event, file.id)"
-                      (saveRequested)="saveTextContentDraft(file.id, $event)"
-                    />
-                  }
-                  <div class="agent-x-files-viewer__content-actions">
-                    @if (hasWriteAccess) {
-                      <nxt1-cta-button
-                        variant="primary"
-                        [label]="
-                          isGeneratingNotes(file.id) ? 'Learning this file...' : 'Learn this file'
-                        "
-                        [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
-                        (clicked)="generateNotes(file)"
+                <section class="agent-x-files-viewer__content-section">
+                  @if (!shouldShowGenerateNotes(file)) {
+                    @if (supportsTabbedTextEditor(file)) {
+                      <nxt1-markdown-editor
+                        class="agent-x-files-viewer__native-editor"
+                        [content]="editingTextContent(file)"
+                        [placeholder]="contentEditorPlaceholder(file)"
+                        [readOnly]="!hasWriteAccess"
+                        [saveStatus]="textContentSaveStatus(file.id)"
+                        [ariaLabel]="'Edit ' + file.name"
+                        (contentChange)="onTextContentEdit($event, file.id)"
+                        (saveRequested)="saveTextContentDraft(file.id, $event)"
                       />
                     }
-                  </div>
-                }
-              </section>
-            </div>
-          </nxt1-agent-x-viewer-surface>
+                    <div class="agent-x-files-viewer__content-actions">
+                      @if (hasWriteAccess) {
+                        <nxt1-cta-button
+                          variant="primary"
+                          [label]="
+                            isGeneratingNotes(file.id) ? 'Learning this file...' : 'Learn this file'
+                          "
+                          [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
+                          (clicked)="generateNotes(file)"
+                        />
+                      }
+                    </div>
+                  }
+                </section>
+              </div>
+            </nxt1-agent-x-viewer-surface>
+          }
         }
       }
     </section>
@@ -1780,9 +1793,12 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         width: 100%;
-        min-width: 0;
+        height: 100%;
+        min-height: 0;
+        flex: 1 1 auto;
         --nxt1-color-primary: var(--agent-primary, #ccff00);
         --nxt1-color-border-primary: var(--agent-primary, #ccff00);
       }
@@ -1794,6 +1810,17 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
         padding: 12px;
         width: 100%;
         min-width: 0;
+      }
+
+      .agent-x-files-panel--document-view {
+        display: flex;
+        flex-direction: column;
+        padding: 0;
+        gap: 0;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        flex: 1 1 auto;
       }
 
       /* Compact: the mobile sheet body already supplies outer padding. */
@@ -2062,6 +2089,16 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           var(--nxt1-color-brand-primary, var(--nxt1-color-primary)) 85%,
           var(--nxt1-color-text-primary)
         );
+      }
+
+      .agent-x-files-viewer__document-shell {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
       }
 
       .agent-x-files-viewer__stage,

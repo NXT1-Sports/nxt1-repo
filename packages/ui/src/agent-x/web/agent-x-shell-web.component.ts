@@ -1235,6 +1235,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
         @if (showFilesModal() && !expandedSidePanel()) {
           <aside
             class="agent-column agent-action-plan-column agent-film-review-column"
+            [class.agent-film-review-column--files-viewer]="isFilesInlineVideoView()"
             aria-label="Files"
           >
             <div
@@ -3251,6 +3252,15 @@ const AGENT_X_GOOGLE_PLAY_URL =
 
       .agent-film-review-column .action-plan-panel__body {
         padding: 10px 12px 12px;
+      }
+
+      .agent-film-review-column--files-viewer .action-plan-panel__body {
+        padding: 0;
+        gap: 0;
+        overflow: hidden;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
       }
 
       .agent-gameplans-column .action-plan-panel__body,

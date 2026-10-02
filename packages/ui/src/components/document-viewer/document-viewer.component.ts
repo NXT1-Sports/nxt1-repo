@@ -421,9 +421,12 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
   styles: [
     `
       :host {
-        display: block;
+        display: flex;
+        flex-direction: column;
         width: 100%;
         height: 100%;
+        min-height: 0;
+        flex: 1 1 auto;
         color: var(--nxt1-color-text-primary, #ffffff);
         --agent-primary: var(--nxt1-color-primary, #ccff00);
       }
@@ -433,11 +436,11 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
         flex-direction: column;
         width: 100%;
         height: 100%;
-        min-height: 480px;
+        min-height: 0;
+        flex: 1 1 auto;
         background: color-mix(in srgb, var(--nxt1-color-surface-100, #121212) 94%, #03111f 6%);
-        border: 1px solid
-          color-mix(in srgb, var(--nxt1-color-border-default, #2a2a2a) 82%, transparent);
-        border-radius: 18px;
+        border: 0;
+        border-radius: 0;
         overflow: hidden;
       }
 
@@ -692,7 +695,7 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
       /* PDF Viewport */
       .nxt1-doc-viewer__pdf-viewport {
         flex: 1 1 auto;
-        min-height: 420px;
+        min-height: 0;
         overflow: auto;
         display: flex;
         align-items: flex-start;
@@ -703,7 +706,7 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
       .nxt1-doc-viewer__canvas-container {
         transform-origin: top center;
         box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-        border-radius: 4px;
+        border-radius: 0;
         background: #ffffff;
       }
 
