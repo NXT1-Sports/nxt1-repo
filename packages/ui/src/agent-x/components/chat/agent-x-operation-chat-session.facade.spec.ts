@@ -2905,6 +2905,190 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(operationStatus).toBe('processing');
   });
 
+  describe('pause -> leave -> restore', () => {
+    const pausedOperationId = '8d5c3c1e-1f7a-4a59-9a43-6f1a3c2b7e10';
+
+    function buildRestoreHarness(storedYieldState: unknown = null) {
+      const reloadFacade = Object.create(
+        AgentXOperationChatSessionFacade.prototype
+      ) as ThreadReloadHelper;
+      let renderedMessages: OperationMessage[] = [];
+      const messagesSignal = Object.assign(
+        vi.fn(() => renderedMessages),
+        {
+          set: vi.fn((next: OperationMessage[]) => {
+            renderedMessages = next;
+          }),
+          update: vi.fn((updater: (items: OperationMessage[]) => OperationMessage[]) => {
+            renderedMessages = updater(renderedMessages);
+            return renderedMessages;
+          }),
+        }
+      );
+      let operationStatus: ReturnType<AgentXOperationChatSessionFacadeHost['getOperationStatus']> =
+        null;
+      const setOperationStatus = vi.fn((next: typeof operationStatus) => {
+        operationStatus = next;
+      });
+      const applyYieldState = vi.fn();
+
+      Object.assign(reloadFacade as unknown as Record<string, unknown>, {
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+        operationEventService: {
+          getEnqueueWaitingEntry: vi.fn().mockReturnValue(null),
+          emitOperationStatusUpdated: vi.fn(),
+          getStoredEventState: vi.fn().mockResolvedValue({
+            latestYieldState: storedYieldState,
+            latestLifecycleStatus: 'paused',
+          }),
+        },
+        streamRegistry: { hasActiveStream: vi.fn().mockReturnValue(false) },
+        messageFacade: {
+          messages: messagesSignal,
+          upsertInlineYieldMessage: vi.fn(),
+          settleActiveToolSteps: vi.fn(),
+          pushMessage: vi.fn(),
+        },
+        generateThumbnailsForHistoryVideos: vi.fn(),
+      });
+      reloadFacade.configure({
+        contextId: () => pausedOperationId,
+        contextType: () => 'operation',
+        getOperationStatus: () => operationStatus,
+        setOperationStatus,
+        getCurrentOperationId: () => pausedOperationId,
+        setCurrentOperationId: vi.fn(),
+        resumeOperationId: () => '',
+        activeYieldState: Object.assign(() => null, { set: vi.fn() }) as never,
+        yieldResolved: Object.assign(() => false, { set: vi.fn() }) as never,
+        applyYieldState,
+        hasUserSent: () => true,
+        markUserMessageSent: vi.fn(),
+        uid: () => 'uid-1',
+      } as unknown as AgentXOperationChatSessionFacadeHost);
+
+      return {
+        reloadFacade,
+        applyYieldState,
+        setOperationStatus,
+        getOperationStatus: () => operationStatus,
+      };
+    }
+
+    const pausedTimeline = (): AgentMessage[] => [
+      {
+        id: 'user-paused',
+        threadId: 'thread-paused',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Build me a highlight reel from my last game',
+        origin: 'user',
+        operationId: pausedOperationId,
+        createdAt: '2026-10-03T12:00:00.000Z',
+      },
+      assistantMessage('partial-paused', 'assistant_partial', {
+        threadId: 'thread-paused',
+        operationId: pausedOperationId,
+        content: 'Pulling your latest clips...',
+        createdAt: '2026-10-03T12:00:20.000Z',
+      }),
+    ];
+
+    it('restores a paused operation as paused, never as awaiting_input', async () => {
+      const pauseYieldState = {
+        reason: 'needs_input',
+        promptToUser: 'Operation paused. Resume whenever you are ready.',
+        agentId: 'router',
+        messages: [],
+        pendingToolCall: {
+          toolName: 'resume_paused_operation',
+          toolCallId: `pause_resume_${pausedOperationId}`,
+          toolInput: { operationId: pausedOperationId },
+        },
+        yieldedAt: '2026-10-03T12:00:30.000Z',
+        expiresAt: '2026-10-04T12:00:30.000Z',
+      };
+      const harness = buildRestoreHarness();
+
+      await harness.reloadFacade.applyLoadedThreadMessages(
+        'thread-paused',
+        pausedTimeline(),
+        pauseYieldState
+      );
+
+      expect(harness.setOperationStatus).toHaveBeenCalledWith('paused');
+      expect(harness.setOperationStatus).not.toHaveBeenCalledWith('awaiting_input');
+      expect(harness.getOperationStatus()).toBe('paused');
+      // The pause checkpoint is still tracked so composer send can abandon
+      // or continue it through the existing paused/resume flow.
+      expect(harness.applyYieldState).toHaveBeenCalledWith(
+        expect.objectContaining({
+          source: 'thread-metadata',
+          operationId: pausedOperationId,
+          yieldState: expect.objectContaining({
+            pendingToolCall: expect.objectContaining({ toolName: 'resume_paused_operation' }),
+          }),
+        })
+      );
+    });
+
+    it('still restores a genuine ask_user yield as awaiting_input', async () => {
+      const askUserYieldState = {
+        reason: 'needs_input',
+        promptToUser: 'Which season should the reel cover?',
+        agentId: 'router',
+        messages: [],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: `ask_user:${pausedOperationId}`,
+          toolInput: {
+            question: 'Which season should the reel cover?',
+            operationId: pausedOperationId,
+          },
+        },
+        yieldedAt: '2026-10-03T12:00:30.000Z',
+        expiresAt: '2026-10-04T12:00:30.000Z',
+      };
+      const harness = buildRestoreHarness();
+
+      await harness.reloadFacade.applyLoadedThreadMessages(
+        'thread-paused',
+        pausedTimeline(),
+        askUserYieldState
+      );
+
+      expect(harness.getOperationStatus()).toBe('awaiting_input');
+      expect(harness.setOperationStatus).not.toHaveBeenCalledWith('paused');
+    });
+
+    it('still restores a genuine approval yield as awaiting_approval', async () => {
+      const approvalYieldState = {
+        reason: 'needs_approval',
+        promptToUser: 'Review and approve this email before sending.',
+        agentId: 'router',
+        messages: [],
+        approvalId: 'approval-restore-1',
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolCallId: 'send-email-1',
+          toolInput: { operationId: pausedOperationId },
+        },
+        yieldedAt: '2026-10-03T12:00:30.000Z',
+        expiresAt: '2026-10-04T12:00:30.000Z',
+      };
+      const harness = buildRestoreHarness();
+
+      await harness.reloadFacade.applyLoadedThreadMessages(
+        'thread-paused',
+        pausedTimeline(),
+        approvalYieldState
+      );
+
+      expect(harness.getOperationStatus()).toBe('awaiting_approval');
+      expect(harness.setOperationStatus).not.toHaveBeenCalledWith('paused');
+    });
+  });
+
   // ── Regression: Bug A ─────────────────────────────────────────────────────
   // Approval flow should preserve prior tool_call context alongside card.
   it('keeps prior tool_call rows visible when a needs_approval yield is pending', () => {

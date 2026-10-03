@@ -1053,4 +1053,151 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(approvalYield?.cards).toEqual([approvalCard]);
     expect(messages.indexOf(approvalYield!)).toBeGreaterThan(messages.indexOf(committedOutput!));
   });
+
+  describe('pause yields (pause -> leave -> restore)', () => {
+    const pausedOperationId = 'op-paused-1';
+    const pauseYieldState: AgentYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Operation paused. Resume whenever you are ready.',
+      agentId: 'router',
+      messages: [],
+      pendingToolCall: {
+        toolName: 'resume_paused_operation',
+        toolCallId: `pause_resume_${pausedOperationId}`,
+        toolInput: {
+          operationId: pausedOperationId,
+          pauseRequestedAt: '2026-10-03T12:00:00.000Z',
+        },
+      },
+      yieldedAt: '2026-10-03T12:00:00.000Z',
+      expiresAt: '2026-10-04T12:00:00.000Z',
+    };
+
+    const hasAskUserCard = (): boolean =>
+      facade
+        .messages()
+        .some(
+          (message) =>
+            (message.cards ?? []).some((card) => card.type === 'ask_user') ||
+            (message.parts ?? []).some(
+              (part) => part.type === 'card' && part.card.type === 'ask_user'
+            )
+        );
+
+    it('does not render a "Requesting your input" card when a pause yield is restored', () => {
+      const persistedRows = [
+        {
+          id: 'user-1',
+          role: 'user' as const,
+          content: 'Build me a highlight reel',
+          timestamp: new Date('2026-10-03T11:59:00.000Z'),
+          operationId: pausedOperationId,
+        },
+        {
+          id: 'assistant-partial-1',
+          role: 'assistant' as const,
+          content: 'Pulling your latest clips...',
+          timestamp: new Date('2026-10-03T11:59:30.000Z'),
+          operationId: pausedOperationId,
+        },
+      ];
+      facade.messages.set(persistedRows);
+
+      facade.upsertInlineYieldMessage(pauseYieldState, pausedOperationId);
+      // Restore paths can re-apply the same pause yield (thread metadata +
+      // stored Firestore state); it must stay a no-op every time.
+      facade.upsertInlineYieldMessage(pauseYieldState, pausedOperationId);
+
+      expect(facade.messages()).toEqual(persistedRows);
+      expect(hasAskUserCard()).toBe(false);
+      expect(facade.messages().some((message) => !!message.yieldState)).toBe(false);
+      expect(
+        facade
+          .messages()
+          .some((message) => message.content.includes('Operation paused. Resume whenever'))
+      ).toBe(false);
+    });
+
+    it('commits streamed typing payload without adding an input row for a live pause yield', () => {
+      facade.messages.set([
+        {
+          id: 'typing',
+          role: 'assistant',
+          content: 'Pulling your latest clips...',
+          timestamp: new Date('2026-10-03T11:59:30.000Z'),
+          operationId: pausedOperationId,
+          isTyping: true,
+        },
+      ]);
+
+      facade.upsertInlineYieldMessage(pauseYieldState, pausedOperationId);
+
+      const messages = facade.messages();
+      expect(messages).toHaveLength(1);
+      expect(messages[0].id).not.toBe('typing');
+      expect(messages[0].isTyping).toBe(false);
+      expect(messages[0].content).toBe('Pulling your latest clips...');
+      expect(messages[0].yieldState).toBeUndefined();
+      expect(hasAskUserCard()).toBe(false);
+    });
+
+    it('still renders a genuine ask_user card after a pause yield was restored', () => {
+      facade.upsertInlineYieldMessage(pauseYieldState, pausedOperationId);
+
+      const askUserYield: AgentYieldState = {
+        reason: 'needs_input',
+        promptToUser: 'Which season should the reel cover?',
+        agentId: 'router',
+        messages: [],
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolCallId: 'ask-1',
+          toolInput: { question: 'Which season should the reel cover?' },
+        },
+        yieldedAt: '2026-10-03T12:05:00.000Z',
+        expiresAt: '2026-10-04T12:05:00.000Z',
+      };
+      facade.upsertInlineYieldMessage(askUserYield, 'op-ask-1');
+
+      const yieldRows = facade.messages().filter((message) => !!message.yieldState);
+      expect(yieldRows).toHaveLength(1);
+      expect(yieldRows[0].yieldState?.pendingToolCall?.toolName).toBe('ask_user');
+      expect(yieldRows[0].cards).toEqual([
+        expect.objectContaining({
+          type: 'ask_user',
+          title: 'Requesting your input',
+          payload: expect.objectContaining({
+            question: 'Which season should the reel cover?',
+            operationId: 'op-ask-1',
+          }),
+        }),
+      ]);
+    });
+
+    it('still renders a genuine approval yield row after a pause yield was restored', () => {
+      facade.upsertInlineYieldMessage(pauseYieldState, pausedOperationId);
+
+      const approvalYield: AgentYieldState = {
+        reason: 'needs_approval',
+        promptToUser: 'Review and approve this email before sending.',
+        agentId: 'router',
+        messages: [],
+        approvalId: 'approval-1',
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolCallId: 'send-1',
+          toolInput: {},
+        },
+        yieldedAt: '2026-10-03T12:05:00.000Z',
+        expiresAt: '2026-10-04T12:05:00.000Z',
+      };
+      facade.upsertInlineYieldMessage(approvalYield, 'op-approval-1');
+
+      const yieldRows = facade.messages().filter((message) => !!message.yieldState);
+      expect(yieldRows).toHaveLength(1);
+      expect(yieldRows[0].yieldState?.approvalId).toBe('approval-1');
+      expect(yieldRows[0].operationId).toBe('op-approval-1');
+      expect(hasAskUserCard()).toBe(false);
+    });
+  });
 });

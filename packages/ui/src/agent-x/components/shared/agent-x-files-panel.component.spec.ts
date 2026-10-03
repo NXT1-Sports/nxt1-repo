@@ -8,6 +8,7 @@ import type { TeamFileFolderDoc, TeamFilmReviewDoc, DocumentPreviewAnchor } from
 import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtMediaViewerService } from '../../../components/media-viewer';
 import { DocumentPreviewClientService } from '../../../components/document-viewer/document-preview-client.service';
+import type { DocumentAskAgentSelection } from '../../../components/document-viewer/document-viewer.types';
 import { NxtArchiveService } from '../../../services/archive';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { AgentXFilesPanelInnerComponent } from './agent-x-files-panel.component';
@@ -97,7 +98,10 @@ type FilesPanelTestAccess = {
   isDocumentPreviewableFile: (
     file: Pick<AgentXLibraryFile, 'mimeType' | 'kind' | 'name'>
   ) => boolean;
-  onDocumentAskAgentRequested: (anchor: DocumentPreviewAnchor, file: AgentXLibraryFile) => void;
+  onDocumentAskAgentRequested: (
+    selection: DocumentAskAgentSelection,
+    file: AgentXLibraryFile
+  ) => void;
   supportsTabbedTextEditor: (file: AgentXLibraryFile) => boolean;
   shouldRenderMarkdownPreview: (file: AgentXLibraryFile) => boolean;
   openActionLabelForFile: (file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>) => string;
@@ -123,6 +127,7 @@ type FilesPanelTestAccess = {
   ) => Promise<void>;
   onViewerOpen: (file: AgentXLibraryFile) => Promise<void>;
   onViewerDownload: (file: AgentXLibraryFile) => Promise<void>;
+  downloadFile: (file: AgentXLibraryFile) => Promise<void>;
   onViewerExport: (file: AgentXLibraryFile) => Promise<void>;
   onViewerRefresh: (file: AgentXLibraryFile) => Promise<void>;
   onMarkdownMediaRequested: (event: {
@@ -173,6 +178,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const shareFile = vi.fn<AgentXFilesService['shareFile']>();
   const shareFolder = vi.fn<AgentXFilesService['shareFolder']>();
   const refreshFile = vi.fn<AgentXFilesService['refreshFile']>();
+  const downloadFileContent = vi.fn<AgentXFilesService['downloadFileContent']>();
   const updateFileTextContent = vi.fn<AgentXFilesService['updateFileTextContent']>();
   const getLinkedFilmReviewId = vi.fn<AgentXFilesService['getLinkedFilmReviewId']>();
   const uploadVideo = vi.fn<AgentXVideoUploadService['uploadVideo']>();
@@ -415,6 +421,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
             shareFile,
             shareFolder,
             refreshFile,
+            downloadFileContent,
             updateFileTextContent,
             getLinkedFilmReviewId,
             selectFile,
@@ -840,6 +847,50 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(svg).toContain('>MD</text>');
     expect(svg).not.toContain('>DOC</text>');
   });
+
+  it.each([
+    { kind: 'pdf', name: 'Weekly Playbook.pdf', mimeType: 'application/pdf', label: 'PDF' },
+    { kind: 'csv', name: 'Team Stats.xls', mimeType: 'application/vnd.ms-excel', label: 'XLS' },
+    {
+      kind: 'csv',
+      name: 'Team Stats.xlsx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      label: 'XLSX',
+    },
+    { kind: 'csv', name: 'Team Stats.csv', mimeType: 'text/csv', label: 'CSV' },
+    {
+      kind: 'doc',
+      name: 'Practice Plan.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      label: 'DOCX',
+    },
+    {
+      kind: 'pptx',
+      name: 'Game Plan.pptx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      label: 'PPTX',
+    },
+    { kind: 'doc', name: 'Agent Notes', mimeType: 'text/markdown', label: 'MD' },
+  ] as const)(
+    'uses the Files artwork in dragged $label context',
+    ({ kind, name, mimeType, label }) => {
+      const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+      const componentAccess = component as unknown as FilesPanelTestAccess;
+      const documentFile: AgentXLibraryFile = {
+        ...file,
+        kind,
+        name,
+        mimeType,
+        thumbnailUrl: 'https://cdn.example.com/old-thumbnail.jpg',
+      };
+      const context = componentAccess.buildFileDragContext(documentFile);
+      const thumbnailUrl = context.media?.thumbnailUrl;
+
+      expect(thumbnailUrl).toBe(componentAccess.thumbnailUrlForListItem(documentFile));
+      expect(thumbnailUrl).toContain('data:image/svg+xml');
+      expect(decodeURIComponent(thumbnailUrl!.split(',')[1])).toContain(`>${label}</text>`);
+    }
+  );
 
   it('opens the file picker after confirming the chosen upload destination', () => {
     const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
@@ -1387,7 +1438,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
       { type: 'film_review', id: 'review-file-1', label: 'Week 4 Cutup' },
       { type: 'team_file', id: 'review-file-1', label: 'Week 4 Cutup.mp4' },
     ]);
-    expect(context.media).toBeUndefined();
+    expect(context.media).toEqual({
+      thumbnailUrl: 'https://cdn.example.com/game-tape.jpg',
+      cloudflareVideoId: 'cf-video-1',
+    });
     expect(context.summary).toContain('Explosive plays came from condensed formations.');
     expect(context.summary).toContain('Hudl breakdown');
   });
@@ -1481,7 +1535,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
       { type: 'film_review', id: 'review-1', label: 'Week 4 Cutup' },
       { type: 'team_file', id: 'video-1', label: 'Game Tape.mp4' },
     ]);
-    expect(context.media).toBeUndefined();
+    expect(context.media).toEqual({
+      thumbnailUrl: 'https://cdn.example.com/game-tape.jpg',
+      cloudflareVideoId: 'cf-video-1',
+    });
     expect(JSON.stringify(context)).not.toContain('https://cdn.example.com/game-tape.mp4');
     expect(JSON.stringify(context)).not.toContain('https://cdn.example.com/game-tape-alt.mp4');
     expect(context.summary).toContain('Explosive plays came from condensed formations.');
@@ -1884,6 +1941,54 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(createObjectUrlMock).toHaveBeenCalledWith(expect.any(Blob));
     expect(click).toHaveBeenCalledOnce();
     expect(click.mock.instances[0]?.download).toBe('Agent Notes.md');
+  });
+
+  it('downloads a markdown file directly without opening a new tab', async () => {
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    const open = vi.spyOn(window, 'open');
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    await access.downloadFile(generatedTextFile as AgentXLibraryFile);
+
+    expect(createObjectUrlMock).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0]?.download).toBe('Agent Notes.md');
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('downloads a Word document as a Blob with the correct filename', async () => {
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
+    const open = vi.spyOn(window, 'open');
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const access = component as unknown as FilesPanelTestAccess;
+
+    const docxFile = {
+      ...file,
+      id: 'docx-download-1',
+      name: 'Spring Playbook',
+      normalizedName: 'spring playbook',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      kind: 'doc' as const,
+      url: 'https://cdn.example.com/spring-playbook.docx',
+      storagePath: 'teams/team-77/files/spring-playbook.docx',
+    } as AgentXLibraryFile;
+
+    downloadFileContent.mockResolvedValueOnce(new Blob([new Uint8Array(128)]));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    await access.downloadFile(docxFile);
+
+    expect(downloadFileContent).toHaveBeenCalledWith(docxFile.id);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(createObjectUrlMock).toHaveBeenCalledWith(expect.any(Blob));
+    expect(click).toHaveBeenCalledOnce();
+    expect(click.mock.instances[0]?.download).toBe('Spring Playbook.docx');
+    expect(open).not.toHaveBeenCalled();
   });
 
   it('exports structured files as JSON downloads', async () => {
@@ -2438,7 +2543,10 @@ describe('AgentXFilesPanelInnerComponent', () => {
       label: 'Page 7',
     };
 
-    componentAccess.onDocumentAskAgentRequested(anchor, docFile);
+    componentAccess.onDocumentAskAgentRequested(
+      { anchors: [anchor], isAllSelected: false },
+      docFile
+    );
 
     expect(agentXService.queueSelectedContexts).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -2455,6 +2563,120 @@ describe('AgentXFilesPanelInnerComponent', () => {
 
     expect(askAgentPromptSpy).toHaveBeenCalledWith(
       expect.stringContaining('Review Page 7 in "Spring Playbook.pdf"')
+    );
+  });
+
+  it('uses a concise "entire document" prompt when all pages are selected', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const askAgentPromptSpy = vi.fn();
+    component.askAgentPromptRequested.subscribe(askAgentPromptSpy);
+
+    const docFile = {
+      ...file,
+      id: 'doc-file-2',
+      name: 'Full Playbook.pdf',
+    } as AgentXLibraryFile;
+
+    const anchors: DocumentPreviewAnchor[] = [1, 2, 3].map((pageNumber) => ({
+      documentFileId: 'doc-file-2',
+      anchorType: 'page',
+      pageNumber,
+      label: `Page ${pageNumber}`,
+    }));
+
+    componentAccess.onDocumentAskAgentRequested({ anchors, isAllSelected: true }, docFile);
+
+    const prompt = askAgentPromptSpy.mock.calls[0]?.[0] as string;
+    expect(prompt).toContain('Review the entire document in "Full Playbook.pdf"');
+    expect(prompt).not.toContain('Page 1');
+    expect(prompt).not.toContain('Page 2');
+    expect(prompt).not.toContain('Page 3');
+  });
+
+  it('words a Word whole-document anchor as "the entire document"', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const agentXService = TestBed.inject(AgentXService);
+    const askAgentPromptSpy = vi.fn();
+    component.askAgentPromptRequested.subscribe(askAgentPromptSpy);
+
+    const docFile = {
+      ...file,
+      id: 'docx-file-1',
+      name: 'Game Plan.docx',
+    } as AgentXLibraryFile;
+
+    componentAccess.onDocumentAskAgentRequested(
+      {
+        anchors: [
+          { documentFileId: 'docx-file-1', anchorType: 'document', label: 'Entire document' },
+        ],
+        isAllSelected: true,
+      },
+      docFile
+    );
+
+    expect(agentXService.queueSelectedContexts).toHaveBeenCalledWith([
+      expect.objectContaining({
+        id: 'doc-anchor:docx-file-1:document:root',
+        title: 'Game Plan.docx — Entire document',
+      }),
+    ]);
+    expect(askAgentPromptSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Review the entire document in "Game Plan.docx"')
+    );
+  });
+
+  it('lists a small multi-page selection naturally without "the entire document"', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const askAgentPromptSpy = vi.fn();
+    component.askAgentPromptRequested.subscribe(askAgentPromptSpy);
+
+    const docFile = {
+      ...file,
+      id: 'doc-file-3',
+      name: 'Scout Report.pdf',
+    } as AgentXLibraryFile;
+
+    const anchors: DocumentPreviewAnchor[] = [1, 3].map((pageNumber) => ({
+      documentFileId: 'doc-file-3',
+      anchorType: 'page',
+      pageNumber,
+      label: `Page ${pageNumber}`,
+    }));
+
+    componentAccess.onDocumentAskAgentRequested({ anchors, isAllSelected: false }, docFile);
+
+    expect(askAgentPromptSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Review Page 1 and Page 3 in "Scout Report.pdf"')
+    );
+  });
+
+  it('summarizes a large non-exhaustive page selection by count instead of listing them', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const askAgentPromptSpy = vi.fn();
+    component.askAgentPromptRequested.subscribe(askAgentPromptSpy);
+
+    const docFile = {
+      ...file,
+      id: 'doc-file-4',
+      name: 'Giant Deck.pdf',
+    } as AgentXLibraryFile;
+
+    const anchors: DocumentPreviewAnchor[] = [1, 2, 3, 4, 5, 6, 7].map((pageNumber) => ({
+      documentFileId: 'doc-file-4',
+      anchorType: 'page',
+      pageNumber,
+      label: `Page ${pageNumber}`,
+    }));
+
+    componentAccess.onDocumentAskAgentRequested({ anchors, isAllSelected: false }, docFile);
+
+    expect(askAgentPromptSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Review 7 selected pages in "Giant Deck.pdf"')
     );
   });
 

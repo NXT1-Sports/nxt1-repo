@@ -5,6 +5,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   ElementRef,
+  HostListener,
   Input,
   OnChanges,
   OnDestroy,
@@ -47,6 +48,7 @@ import type { Subscription } from 'rxjs';
 
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtDocumentViewerComponent } from '../../../components/document-viewer/document-viewer.component';
+import type { DocumentAskAgentSelection } from '../../../components/document-viewer/document-viewer.types';
 import type { MarkdownMediaRequestedEvent } from '../../../components/markdown/markdown.component';
 import {
   NxtMarkdownEditorComponent,
@@ -271,6 +273,10 @@ const FILES_PANEL_FILE_TAB_PREFIX = 'file:';
 const FILES_PANEL_REVIEW_TAB_PREFIX = 'review:';
 const TEAM_FILES_UNASSIGNED_FOLDER_ID = 'team-files-unassigned-folder';
 const ROOT_FOLDER_ORDER_KEY = '__root__';
+const NOTES_PANEL_DEFAULT_WIDTH = 360;
+const NOTES_PANEL_MIN_WIDTH = 260;
+const NOTES_PANEL_MAX_WIDTH = 720;
+const NOTES_PANEL_MIN_DOCUMENT_WIDTH = 320;
 
 const FILES_ASK_AGENT_PROMPT_SECTIONS_COACH: readonly FilesAskAgentPromptSection[] = [
   {
@@ -1431,14 +1437,88 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
           />
         } @else if (selectedViewerFile(); as file) {
           @if (isDocumentPreviewableFile(file)) {
-            <div class="agent-x-files-viewer__document-shell">
+            <div class="agent-x-files-viewer__document-shell" #documentShellRef>
               <nxt1-document-viewer
+                class="agent-x-files-viewer__document-main"
                 [file]="file"
                 [compact]="compact"
                 (askAgentRequested)="onDocumentAskAgentRequested($event, file)"
                 (openOriginalRequested)="openFileInNewTab($event)"
                 (downloadRequested)="downloadFile($event)"
               />
+              @if (notesPanelOpen()) {
+                <aside
+                  class="agent-x-files-viewer__notes-panel"
+                  [style.width.px]="notesPanelWidth()"
+                  aria-label="File notes"
+                >
+                  <div
+                    class="agent-x-files-viewer__notes-resize-handle"
+                    [class.agent-x-files-viewer__notes-resize-handle--active]="
+                      isNotesPanelResizing()
+                    "
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="Resize notes panel"
+                    (pointerdown)="startNotesPanelResize($event)"
+                    (dblclick)="resetNotesPanelWidth($event)"
+                  ></div>
+                  <div class="agent-x-files-viewer__notes-header">
+                    <h3 class="agent-x-files-viewer__notes-title">Notes</h3>
+                    <button
+                      type="button"
+                      class="agent-x-files-viewer__notes-close"
+                      aria-label="Close notes"
+                      title="Close notes"
+                      (click)="closeNotesPanel()"
+                    >
+                      <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                    </button>
+                  </div>
+                  <div class="agent-x-files-viewer__notes-body">
+                    @if (shouldShowGenerateNotes(file)) {
+                      <div class="agent-x-files-viewer__generate-action">
+                        <div class="agent-x-files-viewer__generate-notes">
+                          <nxt1-cta-button
+                            variant="primary"
+                            [label]="
+                              isGeneratingNotes(file.id)
+                                ? 'Learning this file...'
+                                : 'Learn this file'
+                            "
+                            [disabled]="isGeneratingNotes(file.id) || !hasFileWriteAccess(file)"
+                            (clicked)="generateNotes(file)"
+                          />
+                          <p class="agent-x-files-viewer__generate-note">
+                            {{ generateNotesHelperCopy() }}
+                          </p>
+                        </div>
+                      </div>
+                    } @else {
+                      <nxt1-markdown-editor
+                        class="agent-x-files-viewer__native-editor"
+                        [content]="editingTextContent(file)"
+                        [placeholder]="contentEditorPlaceholder(file)"
+                        [readOnly]="!hasFileWriteAccess(file)"
+                        [saveStatus]="textContentSaveStatus(file.id)"
+                        [ariaLabel]="'Edit notes for ' + file.name"
+                        (contentChange)="onTextContentEdit($event, file.id)"
+                        (saveRequested)="saveTextContentDraft(file.id, $event)"
+                      />
+                      <div class="agent-x-files-viewer__content-actions">
+                        <nxt1-cta-button
+                          variant="primary"
+                          [label]="
+                            isGeneratingNotes(file.id) ? 'Learning this file...' : 'Learn this file'
+                          "
+                          [disabled]="isGeneratingNotes(file.id) || isSavingTextContent()"
+                          (clicked)="generateNotes(file)"
+                        />
+                      </div>
+                    }
+                  </div>
+                </aside>
+              }
             </div>
           } @else {
             <nxt1-agent-x-viewer-surface class="agent-x-files-viewer" aria-label="File viewer">
@@ -2093,12 +2173,106 @@ const FILES_ASK_AGENT_PROMPT_SECTIONS_ATHLETE: readonly FilesAskAgentPromptSecti
 
       .agent-x-files-viewer__document-shell {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
+        align-items: stretch;
         width: 100%;
         height: 100%;
         min-height: 0;
         flex: 1 1 auto;
         overflow: hidden;
+      }
+
+      .agent-x-files-viewer__document-main {
+        flex: 1 1 auto;
+        min-width: 0;
+        height: 100%;
+      }
+
+      .agent-x-files-viewer__notes-panel {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        min-width: 0;
+        flex: 0 0 auto;
+        border-left: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 82%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 94%, #03111f 6%);
+        overflow: hidden;
+      }
+
+      .agent-x-files-viewer__notes-resize-handle {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -16px;
+        width: 32px;
+        z-index: 5;
+        cursor: col-resize;
+        touch-action: none;
+      }
+
+      .agent-x-files-viewer__notes-resize-handle::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 16px;
+        width: 1px;
+        background: transparent;
+        transition:
+          background 0.15s ease,
+          box-shadow 0.15s ease;
+      }
+
+      .agent-x-files-viewer__notes-resize-handle:hover::before,
+      .agent-x-files-viewer__notes-resize-handle--active::before {
+        background: var(--agent-primary, #ccff00);
+        box-shadow: 0 0 0 1px var(--agent-primary-glow, rgba(204, 255, 0, 0.1));
+      }
+
+      .agent-x-files-viewer__notes-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+        padding: 10px 16px 11px;
+        border-bottom: 1px solid
+          color-mix(in srgb, var(--nxt1-color-border-default) 82%, transparent);
+      }
+
+      .agent-x-files-viewer__notes-title {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .agent-x-files-viewer__notes-close {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        cursor: pointer;
+      }
+
+      .agent-x-files-viewer__notes-close:hover {
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 85%, transparent);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .agent-x-files-viewer__notes-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
       }
 
       .agent-x-files-viewer__stage,
@@ -3571,6 +3745,7 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   private readonly genericVideoPlayer =
     viewChild<ElementRef<HTMLVideoElement>>('genericVideoPlayer');
   private readonly genericVideoShell = viewChild<ElementRef<HTMLElement>>('genericVideoShell');
+  private readonly documentShellRef = viewChild<ElementRef<HTMLElement>>('documentShellRef');
   private genericHls: Hls | null = null;
   private genericHlsConstructor: typeof Hls | null = null;
   private genericHlsLoadPromise: Promise<typeof Hls | null> | null = null;
@@ -3659,6 +3834,14 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   protected readonly isOpeningFilmReview = signal(false);
   protected readonly openPanelTabs = signal<readonly FilesPanelOpenTabRef[]>([]);
   protected readonly genericOpenTabIds = signal<readonly string[]>([]);
+  protected readonly notesPanelOpen = signal(false);
+  protected readonly notesPanelWidth = signal(NOTES_PANEL_DEFAULT_WIDTH);
+  protected readonly isNotesPanelResizing = signal(false);
+  private notesPanelResizeState: {
+    readonly startX: number;
+    readonly startWidth: number;
+    readonly maxWidth: number;
+  } | null = null;
   private readonly selectedPdfPreviewUrl = signal<string | null>(null);
   private selectedPdfPreviewObjectUrl: string | null = null;
   private selectedPdfPreviewAbortController: AbortController | null = null;
@@ -4117,6 +4300,15 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
       }, 0);
     });
 
+    let lastNotesPanelFileId: string | null = null;
+    effect(() => {
+      const fileId = this.selectedViewerFile()?.id ?? null;
+      if (fileId !== lastNotesPanelFileId) {
+        lastNotesPanelFileId = fileId;
+        this.notesPanelOpen.set(false);
+      }
+    });
+
     effect(() => {
       const openTabs = this.genericOpenTabs();
       const openTabIds = openTabs.map((tab) => tab.id);
@@ -4236,6 +4428,10 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     return this.viewerMode() !== 'library';
   }
 
+  public isFilmReviewView(): boolean {
+    return this.viewerMode() === 'video';
+  }
+
   public getInlineHeaderTitle(): string {
     if (this.viewerMode() === 'video') {
       return (
@@ -4244,6 +4440,103 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     }
 
     return this.selectedViewerFile()?.name ?? 'Files';
+  }
+
+  public async downloadActiveFile(): Promise<void> {
+    const file = this.selectedViewerFile();
+    if (!file) {
+      return;
+    }
+    await this.downloadFile(file);
+  }
+
+  public isActiveFileDocumentPreviewable(): boolean {
+    const file = this.selectedViewerFile();
+    return !!file && this.isDocumentPreviewableFile(file);
+  }
+
+  public isNotesPanelOpen(): boolean {
+    return this.notesPanelOpen();
+  }
+
+  public toggleNotesPanel(): void {
+    this.notesPanelOpen.update((open) => !open);
+  }
+
+  protected closeNotesPanel(): void {
+    this.notesPanelOpen.set(false);
+  }
+
+  protected startNotesPanelResize(event: PointerEvent): void {
+    if (event.button !== 0) return;
+
+    const handle = event.currentTarget;
+    if (!(handle instanceof HTMLElement)) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    handle.setPointerCapture(event.pointerId);
+
+    this.notesPanelResizeState = {
+      startX: event.clientX,
+      startWidth: this.notesPanelWidth(),
+      maxWidth: this.getNotesPanelMaxWidth(),
+    };
+    this.isNotesPanelResizing.set(true);
+    this.setNotesPanelResizeCursor(true);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  protected onNotesPanelResizeMove(event: PointerEvent): void {
+    const state = this.notesPanelResizeState;
+    if (!state) return;
+
+    event.preventDefault();
+    const deltaX = event.clientX - state.startX;
+    const nextWidth = state.startWidth - deltaX;
+    this.notesPanelWidth.set(Math.min(Math.max(nextWidth, NOTES_PANEL_MIN_WIDTH), state.maxWidth));
+  }
+
+  @HostListener('document:pointerup')
+  @HostListener('document:pointercancel')
+  @HostListener('window:blur')
+  protected stopNotesPanelResize(): void {
+    if (!this.notesPanelResizeState) return;
+
+    this.notesPanelResizeState = null;
+    this.isNotesPanelResizing.set(false);
+    this.setNotesPanelResizeCursor(false);
+  }
+
+  protected resetNotesPanelWidth(event?: MouseEvent): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.notesPanelWidth.set(NOTES_PANEL_DEFAULT_WIDTH);
+  }
+
+  @HostListener('window:resize')
+  protected onNotesPanelViewportResize(): void {
+    if (!this.notesPanelOpen()) return;
+    this.notesPanelWidth.set(Math.min(this.notesPanelWidth(), this.getNotesPanelMaxWidth()));
+  }
+
+  private getNotesPanelMaxWidth(): number {
+    const containerWidth =
+      this.documentShellRef()?.nativeElement.getBoundingClientRect().width ??
+      NOTES_PANEL_MAX_WIDTH + NOTES_PANEL_MIN_DOCUMENT_WIDTH;
+    return Math.min(
+      NOTES_PANEL_MAX_WIDTH,
+      Math.max(NOTES_PANEL_MIN_WIDTH, containerWidth - NOTES_PANEL_MIN_DOCUMENT_WIDTH)
+    );
+  }
+
+  private setNotesPanelResizeCursor(active: boolean): void {
+    if (typeof document === 'undefined') return;
+
+    document.body.style.cursor = active ? 'col-resize' : '';
+    document.body.style.userSelect = active ? 'none' : '';
+    document.body.style.setProperty('-webkit-user-select', active ? 'none' : '');
+    document.body.style.touchAction = active ? 'none' : '';
   }
 
   public async refreshData(options?: { readonly background?: boolean }): Promise<void> {
@@ -7642,6 +7935,10 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     const isLinkedFilmReview = file.kind === 'video' && linkedFilmReview !== null;
     const kind: AgentXSelectedContext['kind'] = file.kind === 'video' ? 'film_play' : 'document';
     const title = linkedFilmReview?.review.title?.trim() || file.name;
+    const thumbnailUrl =
+      file.kind === 'video' || file.kind === 'image'
+        ? file.thumbnailUrl?.trim() || linkedFilmReview?.review.thumbnailUrl?.trim() || null
+        : this.thumbnailUrlForListItem(file);
 
     return {
       id: isLinkedFilmReview ? `film-review:${linkedFilmReview.reviewId}` : `team-file:${file.id}`,
@@ -7664,12 +7961,19 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
           )
         : [{ type: 'team_file', id: file.id, label: file.name }],
       ...(isLinkedFilmReview
-        ? {}
+        ? thumbnailUrl || file.cloudflareVideoId
+          ? {
+              media: {
+                ...(thumbnailUrl ? { thumbnailUrl } : {}),
+                ...(file.cloudflareVideoId ? { cloudflareVideoId: file.cloudflareVideoId } : {}),
+              },
+            }
+          : {}
         : {
             media: {
               ...(file.kind === 'video' ? { videoUrl: file.url } : {}),
               ...(file.kind === 'image' ? { imageUrl: file.url } : {}),
-              ...(file.thumbnailUrl ? { thumbnailUrl: file.thumbnailUrl } : {}),
+              ...(thumbnailUrl ? { thumbnailUrl } : {}),
               ...(file.cloudflareVideoId ? { cloudflareVideoId: file.cloudflareVideoId } : {}),
             },
           }),
@@ -7987,6 +8291,11 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     }
 
     await this.transitionToFilmReview(viewerFile.id, matchedReviewId, teamId);
+  }
+
+  public async openDeliverable(url: string): Promise<void> {
+    const file = await this.filesService.resolveDeliverable(url);
+    await this.openFile(file);
   }
 
   private getInlineFilmReviewId(file: AgentXLibraryFile): string | null {
@@ -8313,12 +8622,77 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
       return;
     }
 
-    const downloadUrl = await this.resolveFileUrlForAction(file, 'download');
-    if (!downloadUrl) {
+    if (this.isTextDocument(file)) {
+      this.downloadInlineTextFile(file);
       return;
     }
 
-    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
+    try {
+      const blob = await this.filesService.downloadFileContent(file.id);
+      if (blob.size === 0) {
+        throw new Error('Downloaded file is empty');
+      }
+      this.downloadBlob(file, blob);
+    } catch {
+      this.toast.error('Failed to download file');
+    }
+  }
+
+  private downloadBlob(file: Pick<AgentXLibraryFile, 'name' | 'mimeType'>, blob: Blob): void {
+    if (typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') {
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = this.resolveDownloadFileName(file);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  private resolveDownloadFileName(file: Pick<AgentXLibraryFile, 'name' | 'mimeType'>): string {
+    const extensionByMimeType: Readonly<Record<string, string>> = {
+      'application/pdf': '.pdf',
+      'application/msword': '.doc',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+      'application/vnd.ms-excel': '.xls',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+      'application/vnd.ms-powerpoint': '.ppt',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
+      'text/csv': '.csv',
+    };
+    const name = file.name.trim();
+    const extension = /\.[A-Za-z0-9]{1,5}$/.test(name)
+      ? ''
+      : (extensionByMimeType[file.mimeType.trim().toLowerCase()] ?? '');
+    return `${name}${extension}`.replace(/[\\/:*?"<>|]/g, '_');
+  }
+
+  private downloadInlineTextFile(
+    file: Pick<AgentXLibraryFile, 'id' | 'name' | 'mimeType' | 'kind' | 'textContent'>
+  ): void {
+    if (typeof document === 'undefined' || typeof URL.createObjectURL !== 'function') {
+      return;
+    }
+
+    const isMarkdown = this.isMarkdownDocument(file);
+    const extension = isMarkdown ? '.md' : '.txt';
+    const filename = file.name.toLowerCase().endsWith(extension)
+      ? file.name
+      : `${file.name.replace(/\.[^.]+$/, '')}${extension}`;
+    const content = this.editingTextContent(file);
+    const blob = new Blob([content], { type: `${file.mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.replace(/[\\/:*?"<>|]/g, '_');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   private resetGenericVideoPlayerState(): void {
@@ -8535,19 +8909,61 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   protected onDocumentAskAgentRequested(
-    anchor: DocumentPreviewAnchor,
+    selection: DocumentAskAgentSelection,
     file: AgentXLibraryFile
   ): void {
-    const selectedContext = buildDocumentAnchorSelectedContext({
-      file: { id: file.id, name: file.name },
-      anchor,
-      thumbnailUrl: file.thumbnailUrl,
-    });
+    const { anchors, isAllSelected } = selection;
+    if (anchors.length === 0) {
+      return;
+    }
 
-    this.agentXService.queueSelectedContexts([selectedContext]);
-    const label = formatDocumentAnchorLabel(anchor);
-    const prompt = `Review ${label} in "${file.name}" and provide key analysis, takeaways, and next steps.`;
+    const selectedContexts = anchors.map((anchor) =>
+      buildDocumentAnchorSelectedContext({
+        file: { id: file.id, name: file.name },
+        anchor,
+        thumbnailUrl: this.thumbnailUrlForListItem(file) ?? undefined,
+      })
+    );
+
+    this.agentXService.queueSelectedContexts(selectedContexts);
+
+    const prompt = `Review ${this.describeDocumentAskAgentScope(anchors, isAllSelected)} in "${file.name}" and provide key analysis, takeaways, and next steps.`;
     this.askAgentPromptRequested.emit(prompt);
+  }
+
+  private describeDocumentAskAgentScope(
+    anchors: readonly DocumentPreviewAnchor[],
+    isAllSelected: boolean
+  ): string {
+    if (anchors[0]?.anchorType === 'document') {
+      return 'the entire document';
+    }
+
+    if (anchors.length === 1) {
+      return formatDocumentAnchorLabel(anchors[0] as DocumentPreviewAnchor);
+    }
+
+    const isSlides = anchors[0]?.anchorType === 'slide';
+    if (isAllSelected) {
+      return isSlides ? 'the entire presentation' : 'the entire document';
+    }
+
+    if (anchors.length <= 6) {
+      const labels = anchors.map((anchor) => formatDocumentAnchorLabel(anchor));
+      return this.joinWithOxfordComma(labels);
+    }
+
+    return `${anchors.length} selected ${isSlides ? 'slides' : 'pages'}`;
+  }
+
+  private joinWithOxfordComma(items: readonly string[]): string {
+    if (items.length <= 1) {
+      return items[0] ?? '';
+    }
+    if (items.length === 2) {
+      return `${items[0]} and ${items[1]}`;
+    }
+    return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
   }
 
   protected openActionLabelForFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): string {

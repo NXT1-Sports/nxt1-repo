@@ -1474,6 +1474,29 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Analyzing game film');
   });
 
+  it.each([
+    ['pdf', 'Creating PDF document'],
+    ['csv', 'Creating CSV spreadsheet'],
+    ['xlsx', 'Creating Excel spreadsheet'],
+    ['pptx', 'Creating PowerPoint presentation'],
+    ['docx', 'Creating Word document'],
+  ])('uses the requested output type for dynamic_export %s', (format, expectedLabel) => {
+    const agent = new FakeAgent();
+
+    expect(agent['resolveToolInvocationLabel']('dynamic_export', JSON.stringify({ format }))).toBe(
+      expectedLabel
+    );
+    expect(agent['resolveToolInvocationLabel']('dynamic_export', { format })).toBe(expectedLabel);
+  });
+
+  it.each([{}, { format: 'zip' }])('retains the export fallback for %j', (input) => {
+    const agent = new FakeAgent();
+
+    expect(agent['resolveToolInvocationLabel']('dynamic_export', input)).toBe(
+      agent['resolveToolInvocationLabel']('dynamic_export')
+    );
+  });
+
   it('normalizes scrape webpage labels without surfacing wait timings', () => {
     const agent = new FakeAgent();
 

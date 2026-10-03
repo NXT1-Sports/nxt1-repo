@@ -128,6 +128,7 @@ import {
   bindAgentXKeyboardOffset,
   type AgentXKeyboardOffsetBinding,
 } from '../../utils/agent-x-keyboard-offset.util';
+import { getSportThinkingPhrase } from '../../types/agent-x-agent-presentation';
 import type {
   FilmTimestampSeekRequest,
   OperationMessage,
@@ -180,6 +181,9 @@ type DesktopComposerQuickPromptRole = 'athlete' | 'coach' | 'director' | 'genera
 const DEFAULT_SPORTY_ACTIVITY_LABELS = [
   'Agent X is in your corner...',
   'Standing by for the next play...',
+  'In the huddle...',
+  'Reviewing the game tape...',
+  'Dialing in the game plan...',
 ] as const;
 
 const DESKTOP_COMPOSER_QUICK_PROMPTS_BY_ROLE: Record<
@@ -235,12 +239,61 @@ const DESKTOP_COMPOSER_QUICK_PROMPT_TEST_IDS = {
 const DESKTOP_COMPOSER_QUICK_PROMPT_ROTATION_MS = 3_200;
 
 const SPORTY_ACTIVITY_LABELS: Partial<Record<ChatActivityPhase, readonly string[]>> = {
-  sending: ['Getting started...', 'Preparing to execute...'],
-  connected: ['Reading the play...', 'Checking the matchups...'],
-  streaming: ['Reading the play...', 'Working the game plan...'],
-  running_tool: ['Running the next rep...', 'Checking the tape...'],
-  waiting_delta: ['Setting up the next rep...', 'Building the next play...'],
-  reconnecting: ['Back in the game...', 'Rejoining the huddle...'],
+  sending: [
+    'Getting started...',
+    'Preparing to execute...',
+    'Calling the play...',
+    'Breaking the huddle...',
+    'Loading game plan...',
+  ],
+  connected: [
+    'Reading the play...',
+    'Checking the matchups...',
+    'Surveying the field...',
+    'Locking in assignments...',
+    'Scanning the defense...',
+  ],
+  streaming: [
+    'Reading the play...',
+    'Working the game plan...',
+    'Executing downfield...',
+    'Moving the chains...',
+    'Breaking down film...',
+    'Putting points on the board...',
+  ],
+  running_tool: [
+    'Running the next rep...',
+    'Checking the tape...',
+    'Analyzing the play...',
+    'Running the drill...',
+    'Crunching the stats...',
+    'Pulling player tape...',
+    'Breaking down coverage...',
+    'Simulating the matchup...',
+    'Dialing in the execution...',
+  ],
+  waiting_delta: [
+    'Setting up the next rep...',
+    'Building the next play...',
+    'Drawing up the scheme...',
+    'Dialing up the blitz...',
+    'Calling an audible...',
+    'Reviewing the whiteboard...',
+    'Adjusting the game plan...',
+    'Scouting next possession...',
+    'Fine-tuning the breakdown...',
+    'Scheming the next drive...',
+    'Checking the playbook...',
+    'Analyzing situational reads...',
+    'Calculating the angles...',
+    'Timing up the next sequence...',
+  ],
+  reconnecting: [
+    'Back in the game...',
+    'Rejoining the huddle...',
+    'Taking the field...',
+    'Checking in from the sideline...',
+  ],
   idle: DEFAULT_SPORTY_ACTIVITY_LABELS,
 };
 
@@ -563,6 +616,8 @@ export function normalizeExecutionPlanItemsForActiveResume(
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
+                  [openDocumentsInPanel]="openDocumentsInPanel"
+                  (documentRequested)="documentRequested.emit($event)"
                   (timestampClicked)="onBubbleTimestampClicked($event, idx)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (askUserReplySubmitted)="yieldFacade.onAskUserReply($event)"
@@ -2499,6 +2554,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** When true, renders as a desktop-embedded panel instead of a dismissible sheet. */
   @Input() embedded = false;
 
+  /** When true, export documents open in the host's Files panel instead of the media viewer. */
+  @Input() openDocumentsInPanel = false;
+
   /** When true, coordinator chips emit to the parent instead of auto-sending as chat text. */
   @Input() delegateCoordinatorQuickActions = false;
 
@@ -3054,6 +3112,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when attachments flow requests opening Film Review Library. */
   readonly filmReviewLibraryRequested = output<void>();
 
+  /** Emitted with an export download URL when a document should open in the Files panel. */
+  readonly documentRequested = output<string>();
+
   /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
   readonly filmTimestampSeekRequested = output<FilmTimestampSeekRequest>();
 
@@ -3277,6 +3338,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       videoUploadBatch: this._videoUploadBatch,
       openFilmReviewLibrary: () => {
         this.filmReviewLibraryRequested.emit();
+      },
+      openDocumentInPanel: (url) => {
+        if (!this.openDocumentsInPanel) return false;
+        this.documentRequested.emit(url);
+        return true;
       },
       emitConnectedAccountsSave: (request) => {
         this.connectedAccountsSave.emit(request);
@@ -3767,7 +3833,19 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // the first variant (index 0) to skip rotation. These phases have frequent updates
     // and should show a stable label. Other phases rotate normally via variant counter.
     const skipRotation = phase === 'connected' || phase === 'streaming';
-    const index = skipRotation ? 0 : this._activityLabelVariant() % labels.length;
+    const variant = this._activityLabelVariant();
+    if (!skipRotation) {
+      // Every other rotation swaps in a phrase for the athlete's own sport.
+      const sportPhrase =
+        variant % 2 === 1
+          ? getSportThinkingPhrase(
+              this.user?.activeSport ?? this.user?.selectedSports?.[0],
+              variant >> 1
+            )
+          : null;
+      if (sportPhrase) return sportPhrase;
+    }
+    const index = skipRotation ? 0 : variant % labels.length;
     return labels[index] ?? 'Agent X is in your corner...';
   }
 

@@ -31,6 +31,8 @@ import type {
 } from './agent-x-operation-chat.models';
 import { stripDistilledSectionTransitionLines } from './agent-x-operation-chat.utils';
 
+const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+
 export interface AgentXOperationChatMessageFacadeHost {
   readonly contextId: () => string;
   readonly contextType: () => 'operation' | 'command';
@@ -1032,6 +1034,14 @@ export class AgentXOperationChatMessageFacade {
   upsertInlineYieldMessage(yieldState: AgentYieldState, operationId: string): void {
     this.flushPendingTypingDelta();
 
+    // Pause is persisted as a `needs_input` yield purely so the backend can
+    // resume the checkpoint. It is lifecycle state, not a question: never
+    // render an inline input row/card for it (matches the live pause UX).
+    if (this.isPauseResumeYieldState(yieldState)) {
+      this.messages.update((messages) => this.retireTypingCarrier(messages, operationId));
+      return;
+    }
+
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
     const incomingKey = this.yieldIdentityKey(yieldState);
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
@@ -1765,6 +1775,7 @@ export class AgentXOperationChatMessageFacade {
   ): AgentXRichCard | null {
     if (yieldState.reason !== 'needs_input') return null;
     if (this.isOutputSelectionYieldState(yieldState)) return null;
+    if (this.isPauseResumeYieldState(yieldState)) return null;
     if (yieldState.pendingToolCall?.toolName === 'execute_saved_plan') return null;
 
     const toolInput = yieldState.pendingToolCall?.toolInput ?? {};
@@ -1786,6 +1797,10 @@ export class AgentXOperationChatMessageFacade {
         operationId,
       },
     };
+  }
+
+  private isPauseResumeYieldState(yieldState: AgentYieldState | null | undefined): boolean {
+    return yieldState?.pendingToolCall?.toolName === PAUSE_RESUME_TOOL_NAME;
   }
 
   private yieldIdentityKey(yieldState: AgentYieldState | undefined | null): string {

@@ -204,6 +204,39 @@ describe('AgentXFilesService', () => {
     expect(service.files()[0]?.mimeType).toBe('text/plain');
   });
 
+  it.each([
+    'https://api.nxt1.test/agent-x/media-proxy/export/report.xlsx?path=Users%2Fuser-1%2Fthreads%2Fthread-1%2Fexports%2Fpractice-script.xlsx&sig=secret',
+    'https://firebasestorage.googleapis.com/v0/b/bucket/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fexports%2Fpractice-script.xlsx?token=secret',
+    'https://storage.googleapis.com/bucket/Users/user-1/threads/thread-1/exports/practice-script.xlsx?X-Goog-Signature=secret',
+    'https://cdn.example.com/practice-script.xlsx',
+  ])('resolves a deliverable URL to its existing preview file: %s', async (url) => {
+    httpMock.get.mockReturnValue(
+      of({
+        success: true,
+        data: { files: [managedMarkdownWithSpreadsheetAssetDoc], folders: [] },
+      })
+    );
+    const file = await service.resolveDeliverable(url);
+    expect(file.id).toBe(managedMarkdownWithSpreadsheetAssetDoc.id);
+    expect(service.files()).toContainEqual(file);
+    expect(loggerMock.error).not.toHaveBeenCalled();
+  });
+
+  it('does not silently swallow a library fetch failure when opening a deliverable', async () => {
+    httpMock.get.mockReturnValue(throwError(() => new Error('Fetch failed with sig=secret')));
+    await expect(
+      service.resolveDeliverable('https://cdn.example.com/practice-script.xlsx')
+    ).rejects.toThrow('Unable to open this document in Files');
+    expect(loggerMock.error).toHaveBeenCalledWith('Failed to resolve Agent X deliverable');
+  });
+
+  it('reports an unindexed deliverable without downloading it', async () => {
+    httpMock.get.mockReturnValue(of({ success: true, data: { files: [], folders: [] } }));
+    await expect(
+      service.resolveDeliverable('https://cdn.example.com/practice-script.xlsx')
+    ).rejects.toThrow('This document is not available in Files yet');
+  });
+
   it('uses a fresh in-memory library snapshot when the files panel reopens', async () => {
     httpMock.get.mockReturnValue(
       of({

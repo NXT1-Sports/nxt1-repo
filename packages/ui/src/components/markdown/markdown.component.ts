@@ -1332,6 +1332,8 @@ export class NxtMarkdownComponent {
   readonly isStreaming = input(false);
   readonly trackingSource = input('markdown');
   readonly trackingSurface = input<TrackingSurface>('message');
+  readonly openDocumentsInPanel = input(false);
+  readonly documentRequested = output<string>();
   readonly mediaRequested = output<MarkdownMediaRequestedEvent>();
   readonly timestampClicked = output<number>();
 
@@ -1430,6 +1432,16 @@ export class NxtMarkdownComponent {
         if (mediaType) {
           e.preventDefault();
           this.mediaRequested.emit({ url: href, type: mediaType });
+          return;
+        }
+
+        if (
+          this.openDocumentsInPanel() &&
+          (inferStreamingArtifactTypeFromUrl(href) === 'doc' ||
+            /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|json|md|odt|ods|odp)(?:[?#%]|$)/i.test(href))
+        ) {
+          e.preventDefault();
+          this.documentRequested.emit(href);
           return;
         }
 

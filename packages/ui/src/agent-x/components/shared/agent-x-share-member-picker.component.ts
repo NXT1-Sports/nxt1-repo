@@ -25,6 +25,8 @@ export interface AgentXShareMemberOption {
 
     @if (loading()) {
       <p class="film-list-item__menu-help">Loading members...</p>
+    } @else if (error()) {
+      <p class="film-list-item__menu-help" role="alert">{{ error() }}</p>
     } @else if (candidates().length > 0) {
       <div class="film-list-item__menu-share-list">
         @for (candidate of candidates(); track candidate.id) {
@@ -155,6 +157,7 @@ export interface AgentXShareMemberOption {
 export class AgentXShareMemberPickerComponent {
   readonly query = input('');
   readonly loading = input(false);
+  readonly error = input<string | null>(null);
   readonly candidates = input<readonly AgentXShareMemberOption[]>([]);
   readonly selectedIds = input<readonly string[]>([]);
   readonly placeholder = input('Search team or organization members');

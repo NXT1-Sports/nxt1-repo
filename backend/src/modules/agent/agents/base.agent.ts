@@ -64,6 +64,7 @@ import {
   formatImageAttachmentLabel,
   formatVideoAttachmentLabel,
 } from '../utils/format-prompt-attachments.js';
+import { getAgentExportFormatDisplayName } from '@nxt1/core/ai';
 
 const AGENT_X_LAB_LABEL = AGENT_X_WORKSPACE_TERMS.workspaceTitle;
 const AGENT_X_FILES_ALIAS = AGENT_X_WORKSPACE_TERMS.filesAlias;
@@ -6416,6 +6417,17 @@ export abstract class BaseAgent {
 
     if (toolName === 'read_distilled_section') {
       return this.resolveReadDistilledSectionLabel(inputOrArgs);
+    }
+
+    if (toolName === 'dynamic_export') {
+      const input =
+        typeof inputOrArgs === 'string'
+          ? this.parseToolCallInput(inputOrArgs, toolName)
+          : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+            ? inputOrArgs
+            : null;
+      const formatLabel = getAgentExportFormatDisplayName(input?.['format']);
+      if (formatLabel) return `Creating ${formatLabel}`;
     }
 
     const universalDocumentLabel = this.resolveUniversalTeamDocumentToolLabel(

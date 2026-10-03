@@ -4,6 +4,9 @@ import type {
   AgentXToolStep,
   AgentXToolStepIcon,
 } from '@nxt1/core/ai';
+import { getAgentExportFormatDisplayName } from '@nxt1/core/ai';
+
+export { getSportThinkingPhrase, getSportThinkingPhrases } from './agent-x-sport-phrases';
 
 type AgentTheme = {
   readonly accent: string;
@@ -24,6 +27,17 @@ const VALID_TOOL_STEP_ICONS: ReadonlySet<string> = new Set([
   'database',
   'email',
   'approval',
+]);
+
+const DYNAMIC_EXPORT_PHASES: ReadonlySet<string> = new Set([
+  'format_export',
+  'build_xlsx_workbook',
+  'build_presentation_deck',
+  'build_word_document',
+  'build_pdf_table',
+  'build_pdf_document',
+  'upload_export',
+  'create_download_link',
 ]);
 
 const AGENT_LABELS: Record<AgentIdentifier, string> = {
@@ -119,7 +133,7 @@ export function getThinkingLabel(step?: AgentXToolStep | null): string {
   if (!step) return '';
 
   if (step.label.trim().length > 0) {
-    return ensureEllipsis(step.label);
+    return ensureEllipsis(getToolStepDisplayLabel(step));
   }
 
   return '';
@@ -127,6 +141,59 @@ export function getThinkingLabel(step?: AgentXToolStep | null): string {
 
 export function getToolStepContextLabel(step: AgentXToolStep): string | null {
   return step.agentId ? getAgentDisplayName(step.agentId) : null;
+}
+
+export function getToolStepDisplayLabel(step: AgentXToolStep): string {
+  const formatLabel = getAgentExportFormatDisplayName(step.metadata?.['format']);
+  const phase = step.metadata?.['phase'];
+  if (formatLabel && typeof phase === 'string' && DYNAMIC_EXPORT_PHASES.has(phase)) {
+    return `Creating ${formatLabel}`;
+  }
+
+  return step.label;
+}
+
+export interface ToolStepProvider {
+  readonly key: string;
+  readonly label: string;
+  readonly logoUrl: string;
+}
+
+const PROVIDER_LOGO_SIZE = 64;
+
+const TOOL_PROVIDER_RULES: readonly {
+  readonly test: RegExp;
+  readonly key: string;
+  readonly label: string;
+  readonly domain: string;
+}[] = [
+  {
+    test: /(^|_)drive(_|$)/,
+    key: 'google-drive',
+    label: 'Google Drive',
+    domain: 'drive.google.com',
+  },
+  { test: /microsoft_365/, key: 'microsoft-365', label: 'Microsoft 365', domain: 'microsoft.com' },
+  { test: /^scrape_instagram$/, key: 'instagram', label: 'Instagram', domain: 'instagram.com' },
+  { test: /^scrape_twitter$/, key: 'x', label: 'X', domain: 'x.com' },
+  { test: /^runway_/, key: 'runway', label: 'Runway', domain: 'runwayml.com' },
+  { test: /apify/, key: 'apify', label: 'Apify', domain: 'apify.com' },
+  { test: /firecrawl/, key: 'firecrawl', label: 'Firecrawl', domain: 'firecrawl.dev' },
+];
+
+/** Resolves the third-party app a tool step talks to, so the UI can show its logo. */
+export function getToolStepProvider(step: AgentXToolStep): ToolStepProvider | null {
+  const toolName = step.metadata?.['toolName'];
+  if (typeof toolName !== 'string') return null;
+
+  const rule = TOOL_PROVIDER_RULES.find((candidate) => candidate.test.test(toolName));
+  if (!rule) return null;
+
+  return {
+    key: rule.key,
+    label: rule.label,
+    logoUrl: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(rule.domain)}&sz=${PROVIDER_LOGO_SIZE}`,
+  };
 }
 
 export function getToolStepsSummaryLabel(steps: readonly AgentXToolStep[]): string {
@@ -145,8 +212,9 @@ export function getToolStepsSummaryLabel(steps: readonly AgentXToolStep[]): stri
     return 'Update';
   }
 
-  if (lastMeaningfulStep.label.trim().length > 0) {
-    return lastMeaningfulStep.label;
+  const label = getToolStepDisplayLabel(lastMeaningfulStep);
+  if (label.trim().length > 0) {
+    return label;
   }
 
   return 'Update';

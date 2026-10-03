@@ -6,16 +6,14 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
   template: `
     <div class="thinking-block" [class.thinking-block--upload]="showUploadProgress">
       <div class="thinking-block__avatar">
-        <svg class="thinking-block__spinner" viewBox="0 0 16 16" fill="none" width="16" height="16">
-          <circle
-            cx="8"
-            cy="8"
-            r="6"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-dasharray="28"
-            stroke-dashoffset="8"
-            stroke-linecap="round"
+        <svg class="thinking-block__sparkle" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path
+            d="M8 0.5C8 4.64 11.36 8 15.5 8C11.36 8 8 11.36 8 15.5C8 11.36 4.64 8 0.5 8C4.64 8 8 4.64 8 0.5Z"
+            fill="currentColor"
+          />
+          <path
+            d="M8 3.5C8 5.7 10.3 8 12.5 8C10.3 8 8 10.3 8 12.5C8 10.3 5.7 8 3.5 8C5.7 8 8 5.7 8 3.5Z"
+            fill="#ffffff"
           />
         </svg>
       </div>
@@ -114,10 +112,13 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
         min-height: 16px;
       }
 
-      .thinking-block__spinner {
-        width: 14px;
-        height: 14px;
-        animation: thinkingSpin 1s linear infinite;
+      .thinking-block__sparkle {
+        width: 15px;
+        height: 15px;
+        flex-shrink: 0;
+        color: var(--op-primary);
+        filter: drop-shadow(0 0 6px color-mix(in srgb, var(--op-primary) 75%, transparent));
+        animation: thinkingSparkleSpin 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
 
       .thinking-block__body {
@@ -141,17 +142,21 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
         font-weight: 600;
         letter-spacing: -0.01em;
         min-width: 0;
-        background: linear-gradient(
-          90deg,
+        background-image: linear-gradient(
+          100deg,
           color-mix(in srgb, var(--op-text-muted) 94%, transparent) 0%,
-          color-mix(in srgb, var(--op-text) 96%, transparent) 50%,
+          color-mix(in srgb, var(--op-text-muted) 94%, transparent) 42%,
+          color-mix(in srgb, var(--op-primary) 55%, var(--op-text)) 50%,
+          color-mix(in srgb, var(--op-text-muted) 94%, transparent) 58%,
           color-mix(in srgb, var(--op-text-muted) 94%, transparent) 100%
         );
-        background-size: 200% auto;
+        background-size: 200% 100%;
+        background-repeat: repeat-x;
         color: transparent;
+        -webkit-text-fill-color: transparent;
         -webkit-background-clip: text;
         background-clip: text;
-        animation: thinkingShimmer 2s linear infinite;
+        animation: thinkingShimmer 2.2s linear infinite;
       }
 
       .thinking-block__percent {
@@ -232,15 +237,24 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
         }
       }
 
-      @keyframes thinkingSpin {
-        to {
-          transform: rotate(360deg);
+      @keyframes thinkingSparkleSpin {
+        0% {
+          transform: rotate(0deg) scale(0.88);
+        }
+        50% {
+          transform: rotate(180deg) scale(1.12);
+        }
+        100% {
+          transform: rotate(360deg) scale(0.88);
         }
       }
 
       @keyframes thinkingShimmer {
+        from {
+          background-position: 200% 0;
+        }
         to {
-          background-position: 200% center;
+          background-position: 0 0;
         }
       }
 
@@ -251,13 +265,14 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .thinking-block__spinner {
+        .thinking-block__sparkle {
           animation: none;
         }
 
         .thinking-block__label {
           animation: none;
           color: var(--op-text-secondary);
+          -webkit-text-fill-color: currentColor;
           background: none;
           -webkit-background-clip: unset;
           background-clip: unset;

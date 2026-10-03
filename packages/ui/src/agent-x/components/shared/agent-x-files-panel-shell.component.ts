@@ -75,8 +75,28 @@ export class AgentXFilesPanelComponent {
     return this.innerPanel()?.isInlineVideoView() ?? false;
   }
 
+  public isFilmReviewView(): boolean {
+    return this.innerPanel()?.isFilmReviewView() ?? false;
+  }
+
   public getInlineHeaderTitle(): string {
     return this.innerPanel()?.getInlineHeaderTitle() ?? AGENT_X_WORKSPACE_TERMS.workspaceTitle;
+  }
+
+  public async downloadActiveFile(): Promise<void> {
+    await this.innerPanel()?.downloadActiveFile();
+  }
+
+  public isActiveFileDocumentPreviewable(): boolean {
+    return this.innerPanel()?.isActiveFileDocumentPreviewable() ?? false;
+  }
+
+  public isNotesPanelOpen(): boolean {
+    return this.innerPanel()?.isNotesPanelOpen() ?? false;
+  }
+
+  public toggleNotesPanel(): void {
+    this.innerPanel()?.toggleNotesPanel();
   }
 
   public selectedAgentContexts() {
@@ -96,6 +116,16 @@ export class AgentXFilesPanelComponent {
 
   public async onSelectReview(fileId: string): Promise<void> {
     await this.innerPanel()?.onSelectReview(fileId);
+  }
+
+  public isReady(): boolean {
+    return !!this.innerPanel();
+  }
+
+  public async openDeliverable(url: string): Promise<void> {
+    const panel = this.innerPanel();
+    if (!panel) throw new Error('The Files viewer is not ready. Please try again.');
+    await panel.openDeliverable(url);
   }
 
   public getReviewDisplayTitle(file: Pick<AgentXLibraryFile, 'name'>): string {

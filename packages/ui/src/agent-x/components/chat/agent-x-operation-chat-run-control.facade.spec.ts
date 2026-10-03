@@ -203,4 +203,48 @@ describe('AgentXOperationChatRunControlFacade', () => {
       undefined
     );
   });
+
+  it('continues from a restored pause via composer send without treating it as an input reply', async () => {
+    const pauseYieldState = {
+      reason: 'needs_input' as const,
+      promptToUser: 'Operation paused. Resume whenever you are ready.',
+      agentId: 'router' as const,
+      messages: [],
+      pendingToolCall: {
+        toolName: 'resume_paused_operation',
+        toolCallId: 'pause_resume_op-123',
+        toolInput: { operationId: 'op-123' },
+      },
+      yieldedAt: '2026-10-03T12:00:30.000Z',
+      expiresAt: '2026-10-04T12:00:30.000Z',
+    };
+    host = {
+      ...host,
+      getOperationStatus: () => 'paused',
+      activeYieldState: signal(pauseYieldState),
+      yieldResolved: signal(false),
+    };
+    facade.configure(host);
+    host.loading.set(false);
+    host.inputValue.set('Keep going with the highlight reel.');
+
+    await facade.send();
+
+    expect(host.activeYieldState()).toBeNull();
+    expect(host.yieldResolved()).toBe(true);
+    expect(host.setCurrentOperationId).toHaveBeenCalledWith(null);
+    expect(host.setOperationStatus).toHaveBeenCalledWith('processing');
+    expect(transportFacadeMock.callAgentChat).toHaveBeenCalledTimes(1);
+    expect(transportFacadeMock.callAgentChat).toHaveBeenCalledWith(
+      'Keep going with the highlight reel.',
+      [],
+      undefined,
+      expect.any(String),
+      'execute',
+      'medium',
+      undefined,
+      undefined,
+      undefined
+    );
+  });
 });

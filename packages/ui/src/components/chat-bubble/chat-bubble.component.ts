@@ -115,18 +115,7 @@ export interface ChatBubbleMediaRequestedEvent {
   template: `
     @if (isTyping()) {
       <div class="typing-shimmer">
-        <svg class="typing-shimmer__icon" viewBox="0 0 16 16" fill="none">
-          <circle
-            cx="8"
-            cy="8"
-            r="6"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-dasharray="28"
-            stroke-dashoffset="8"
-            stroke-linecap="round"
-          />
-        </svg>
+        <span class="typing-shimmer__orb" aria-hidden="true"></span>
         <span class="typing-shimmer__text">{{ resolvedTypingLabel() }}</span>
       </div>
     } @else if (isSystem()) {
@@ -142,6 +131,8 @@ export interface ChatBubbleMediaRequestedEvent {
               <nxt1-markdown
                 [content]="part.content"
                 [isStreaming]="isStreaming() && last"
+                [openDocumentsInPanel]="openDocumentsInPanel()"
+                (documentRequested)="documentRequested.emit($event)"
                 (mediaRequested)="onMarkdownMediaRequested($event)"
                 (timestampClicked)="onMarkdownTimestampClicked($event)"
               />
@@ -253,6 +244,8 @@ export interface ChatBubbleMediaRequestedEvent {
           <nxt1-markdown
             [content]="content()"
             [isStreaming]="isStreaming()"
+            [openDocumentsInPanel]="openDocumentsInPanel()"
+            (documentRequested)="documentRequested.emit($event)"
             (mediaRequested)="onMarkdownMediaRequested($event)"
             (timestampClicked)="onMarkdownTimestampClicked($event)"
           />
@@ -342,39 +335,90 @@ export interface ChatBubbleMediaRequestedEvent {
         padding: 2px 0;
       }
 
-      .typing-shimmer__icon {
+      .typing-shimmer__orb {
+        position: relative;
+        display: inline-block;
         width: 14px;
         height: 14px;
         flex-shrink: 0;
-        color: var(--nxt1-color-primary, #ccff00);
-        animation: typingSpin 1s linear infinite;
+      }
+
+      /* Comet arc: conic tail fading into a bright head, masked to a thin ring */
+      .typing-shimmer__orb::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: conic-gradient(
+          from 0deg,
+          transparent 0%,
+          var(--nxt1-color-primary, #ccff00) 100%
+        );
+        -webkit-mask: radial-gradient(
+          farthest-side,
+          transparent calc(100% - 2px),
+          #000 calc(100% - 1.5px)
+        );
+        mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+        filter: drop-shadow(0 0 3px var(--nxt1-color-primary, #ccff00));
+        animation: typingOrbSpin 0.9s cubic-bezier(0.4, 0.1, 0.6, 0.9) infinite;
+      }
+
+      /* Core: soft pulsing dot at the center */
+      .typing-shimmer__orb::after {
+        content: '';
+        position: absolute;
+        inset: 4.5px;
+        border-radius: 50%;
+        background: var(--nxt1-color-primary, #ccff00);
+        box-shadow: 0 0 6px var(--nxt1-color-primary, #ccff00);
+        animation: typingOrbCore 1.4s ease-in-out infinite;
       }
 
       .typing-shimmer__text {
         font-size: 0.8125rem;
         font-weight: 500;
-        background: linear-gradient(
-          90deg,
+        background-image: linear-gradient(
+          100deg,
           var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4)) 0%,
-          var(--nxt1-color-text, rgba(255, 255, 255, 0.87)) 50%,
+          var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4)) 42%,
+          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 55%, #ffffff) 50%,
+          var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4)) 58%,
           var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4)) 100%
         );
-        background-size: 200% auto;
+        background-size: 200% 100%;
+        background-repeat: repeat-x;
         color: transparent;
+        -webkit-text-fill-color: transparent;
         -webkit-background-clip: text;
         background-clip: text;
-        animation: typingShimmer 2s linear infinite;
+        animation: typingShimmer 2.2s linear infinite;
       }
 
-      @keyframes typingSpin {
+      @keyframes typingOrbSpin {
         to {
           transform: rotate(360deg);
         }
       }
 
+      @keyframes typingOrbCore {
+        0%,
+        100% {
+          transform: scale(0.7);
+          opacity: 0.7;
+        }
+        50% {
+          transform: scale(1);
+          opacity: 1;
+        }
+      }
+
       @keyframes typingShimmer {
+        from {
+          background-position: 200% 0;
+        }
         to {
-          background-position: 200% center;
+          background-position: 0 0;
         }
       }
 
@@ -400,12 +444,14 @@ export interface ChatBubbleMediaRequestedEvent {
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .typing-shimmer__icon {
+        .typing-shimmer__orb::before,
+        .typing-shimmer__orb::after {
           animation: none;
         }
         .typing-shimmer__text {
           animation: none;
           color: var(--nxt1-color-text-secondary);
+          -webkit-text-fill-color: currentColor;
           background: none;
           -webkit-background-clip: unset;
           background-clip: unset;
@@ -892,6 +938,8 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
 
   /** Emitted when media inside markdown/parts should open in a viewer overlay. */
   readonly mediaRequested = output<ChatBubbleMediaRequestedEvent>();
+  readonly openDocumentsInPanel = input(false);
+  readonly documentRequested = output<string>();
 
   /** Emitted when an inline markdown timestamp should seek active film review video. */
   readonly timestampClicked = output<number>();

@@ -725,6 +725,8 @@ const AGENT_X_GOOGLE_PLAY_URL =
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
                 (connectedAccountsSave)="connectedAccountsSave.emit($event)"
                 (filmReviewLibraryRequested)="openFilesPanelFromUpload()"
+                [openDocumentsInPanel]="true"
+                (documentRequested)="onDocumentRequested($event)"
                 (filmTimestampSeekRequested)="onFilmTimestampSeekRequested($event)"
               />
             }
@@ -1337,8 +1339,32 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   ) {
                     <nxt1-agent-x-share-menu
                       [target]="mapFileToShareTarget(activeFile)"
+                      [fallbackTeamId]="resolvedActiveTeamId()"
                       triggerAriaLabel="Share file"
                     />
+                    @if (!filesPanel()?.isFilmReviewView()) {
+                      <button
+                        type="button"
+                        class="agent-column-icon-btn"
+                        aria-label="Download file"
+                        title="Download file"
+                        (click)="filesPanel()?.downloadActiveFile()"
+                      >
+                        <nxt1-icon name="download" [size]="16"></nxt1-icon>
+                      </button>
+                    }
+                    @if (filesPanel()?.isActiveFileDocumentPreviewable()) {
+                      <button
+                        type="button"
+                        class="agent-column-icon-btn"
+                        [class.agent-column-icon-btn--active]="filesPanel()?.isNotesPanelOpen()"
+                        aria-label="Toggle notes"
+                        title="Notes"
+                        (click)="filesPanel()?.toggleNotesPanel()"
+                      >
+                        <nxt1-icon name="documentText" [size]="16"></nxt1-icon>
+                      </button>
+                    }
                   }
                   <button
                     type="button"
@@ -1530,6 +1556,7 @@ const AGENT_X_GOOGLE_PLAY_URL =
                   ) {
                     <nxt1-agent-x-share-menu
                       [target]="mapReviewToShareTarget(activeReview)"
+                      [fallbackTeamId]="resolvedActiveTeamId()"
                       triggerAriaLabel="Share film review"
                       (accessChanged)="onFilmReviewShared(activeReview.id, $event)"
                     />
@@ -5194,6 +5221,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly filesInlineVideoViewState = signal(false);
   protected readonly filmReviewInlineVideoViewState = signal(false);
   private readonly pendingFilmTimestampSeek = signal<FilmTimestampSeekRequest | null>(null);
+  private readonly pendingDocumentUrl = signal<string | null>(null);
   protected readonly showDiagramsModal = signal(false);
   protected readonly sideToolPanelFullscreen = signal(false);
   protected readonly showPlaybooksWebPanel = AGENT_X_RUNTIME_CONFIG.featureFlags.playbooks;
@@ -6142,6 +6170,23 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       untracked(() => {
         this.pendingFilmTimestampSeek.set(null);
         void panel.seekToTimestampMs(pendingSeek.timeMs, pendingSeek);
+      });
+    });
+
+    effect(() => {
+      const url = this.pendingDocumentUrl();
+      if (!url || !this.showFilesModal()) return;
+      const panel = this.filesPanel();
+      if (!panel?.isReady()) return;
+      untracked(() => {
+        this.pendingDocumentUrl.set(null);
+        void panel.openDeliverable(url).catch((error: unknown) => {
+          // Signed download URLs contain credentials; never include them in logs.
+          this.logger.error('Failed to open Agent X document in Files');
+          this.toast.error(
+            error instanceof Error ? error.message : 'Failed to open document in Files'
+          );
+        });
       });
     });
 
@@ -7241,10 +7286,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.breadcrumb.trackStateChange('agent_x_shell:film_review_opened_from_upload', {});
   }
 
-  protected async openFilesPanelFromUpload(): Promise<void> {
+  protected async openFilesPanelFromUpload(options?: {
+    readonly preserveChat?: boolean;
+  }): Promise<void> {
     await this.haptics.impact('light');
 
-    this.resetToDefaultDesktopSession();
+    if (!options?.preserveChat) this.resetToDefaultDesktopSession();
 
     if (this.expandedSidePanel()) {
       this.closeExpandedSidePanel();
@@ -7265,6 +7312,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       surface: 'agent_x_upload_auto_open_files',
     });
     this.breadcrumb.trackStateChange('agent_x_shell:files_opened_from_upload', {});
+  }
+
+  protected async onDocumentRequested(url: string): Promise<void> {
+    await this.openFilesPanelFromUpload({ preserveChat: true });
+    this.pendingDocumentUrl.set(url);
   }
 
   protected async onFilmTimestampSeekRequested(request: FilmTimestampSeekRequest): Promise<void> {

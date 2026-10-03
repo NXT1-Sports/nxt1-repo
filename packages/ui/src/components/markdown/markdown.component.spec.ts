@@ -204,6 +204,55 @@ describe('NxtMarkdownComponent', () => {
     (component as unknown as { isStreaming: () => boolean }).isStreaming = () => value;
   }
 
+  it.each(['pdf', 'docx', 'doc', 'xlsx', 'xls', 'csv', 'pptx', 'ppt', 'txt', 'json'])(
+    'opens a %s deliverable link in the panel without navigating or downloading',
+    async (extension) => {
+      const url = `https://app.nxt1.test/api/v1/agent-x/media-proxy/export/report.${extension}?path=exports%2Freport.${extension}&sig=secret`;
+      const requested = vi.fn();
+      component.documentRequested.subscribe(requested);
+      Object.defineProperty(component, 'openDocumentsInPanel', { value: () => true });
+      setContent(`[Open report](${url})`);
+      fixture.detectChanges();
+      await fixture.whenStable();
+
+      const link = nativeEl.querySelector<HTMLAnchorElement>('.md a');
+      expect(link).not.toBeNull();
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+      link!.dispatchEvent(click);
+
+      expect(click.defaultPrevented).toBe(true);
+      expect(requested).toHaveBeenCalledWith(url);
+      expect(TestBed.inject(NxtBrowserService).openLink).not.toHaveBeenCalled();
+    }
+  );
+
+  it('opens a regular document URL in the panel when enabled', async () => {
+    const url = 'https://cdn.nxt1.test/report.docx';
+    const requested = vi.fn();
+    component.documentRequested.subscribe(requested);
+    Object.defineProperty(component, 'openDocumentsInPanel', { value: () => true });
+    setContent(`[Word report](${url})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    nativeEl.querySelector<HTMLAnchorElement>('.md a')!.click();
+    expect(requested).toHaveBeenCalledWith(url);
+    expect(TestBed.inject(NxtBrowserService).openLink).not.toHaveBeenCalled();
+  });
+
+  it('preserves external document navigation outside the preview-panel context', async () => {
+    const url = 'https://cdn.nxt1.test/report.docx';
+    const requested = vi.fn();
+    component.documentRequested.subscribe(requested);
+    setContent(`[Word report](${url})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    nativeEl.querySelector<HTMLAnchorElement>('.md a')!.click();
+    expect(requested).not.toHaveBeenCalled();
+    expect(TestBed.inject(NxtBrowserService).openLink).toHaveBeenCalledWith(
+      expect.objectContaining({ url })
+    );
+  });
+
   async function expectStreamingArtifactSuppressed(
     content: string,
     options: {

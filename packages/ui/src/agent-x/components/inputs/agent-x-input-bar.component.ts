@@ -206,8 +206,14 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
                   </div>
                 </div>
               } @else {
-                <div class="input-attachment-icon">
-                  <nxt1-icon [name]="contextIconName(context)" [size]="18" />
+                <div
+                  class="input-attachment-icon"
+                  [class.input-attachment-icon--folder]="isContextFolder(context)"
+                >
+                  <nxt1-icon
+                    [name]="contextIconName(context)"
+                    [size]="isContextFolder(context) ? 32 : 18"
+                  />
                 </div>
               }
               <div class="input-attachment-source-badge">{{ context.title }}</div>
@@ -643,6 +649,12 @@ const DEFAULT_INPUT_MENU_LAYOUT: InputMenuLayout = {
         align-items: center;
         justify-content: center;
         color: var(--input-muted);
+      }
+
+      .input-attachment-icon--folder {
+        padding-bottom: 10px;
+        box-sizing: border-box;
+        color: color-mix(in srgb, var(--nxt1-color-primary) 80%, var(--nxt1-color-text-primary));
       }
 
       .input-attachment-remove {
@@ -1923,8 +1935,15 @@ export class AgentXInputBarComponent implements OnDestroy {
     return !!context.media?.videoUrl;
   }
 
+  protected isContextFolder(context: AgentXSelectedContext): boolean {
+    const itemType = context.metadata?.['itemType'];
+    return itemType === 'film_review_playlist' || itemType === 'team_file_folder';
+  }
+
   protected contextIconName(context: AgentXSelectedContext): string {
-    if (context.metadata?.['itemType'] === 'film_review_playlist') return 'folder';
+    if (this.isContextFolder(context)) return 'folder';
+    if (context.metadata?.['fileKind'] === 'video') return 'videocam';
+    if (context.metadata?.['fileKind'] === 'image') return 'image';
     if (context.source?.type === 'film_review') return 'videocam';
     if (context.source?.type === 'playbook') return 'documentText';
     if (context.source?.type === 'game_plan') return 'analytics';

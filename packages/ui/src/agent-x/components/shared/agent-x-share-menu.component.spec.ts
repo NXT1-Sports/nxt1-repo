@@ -9,6 +9,8 @@
  * Coverage:
  * - `canManage` is false when there is no target or the user isn't the owner
  * - Opening the menu loads share candidates for the target scope
+ * - Active-team fallback applies only when the target has no stored scope
+ * - Candidate load failures surface an error instead of an empty list
  * - Grants exclude the owner and reflect write access
  * - Submitting a team/organization share calls shareFile and emits the updated keys
  * - Adding/removing individual users diffs the selection against existing grants
@@ -107,6 +109,95 @@ describe('AgentXShareMenuComponent', () => {
     expect(loadShareCandidates).toHaveBeenCalledWith({
       teamId: ownedTarget.teamId,
       organizationId: ownedTarget.organizationId,
+    });
+  });
+
+  describe('candidate scope resolution', () => {
+    type MenuAccess = {
+      onToggleMenu: (event: Event) => Promise<void>;
+      candidatesError: () => string | null;
+    };
+
+    async function open(component: AgentXShareMenuComponent): Promise<MenuAccess> {
+      const access = component as unknown as MenuAccess;
+      await access.onToggleMenu(new Event('click'));
+      return access;
+    }
+
+    it('falls back to the active team when the target has no scope', async () => {
+      const component = createComponent();
+      component.target = { ...ownedTarget, teamId: null, organizationId: null };
+      component.fallbackTeamId = 'active-team';
+
+      await open(component);
+
+      expect(loadShareCandidates).toHaveBeenCalledWith({
+        teamId: 'active-team',
+        organizationId: null,
+      });
+    });
+
+    it('falls back when the stored scope is blank whitespace', async () => {
+      const component = createComponent();
+      component.target = { ...ownedTarget, teamId: '   ', organizationId: ' ' };
+      component.fallbackTeamId = ' active-team ';
+
+      await open(component);
+
+      expect(loadShareCandidates).toHaveBeenCalledWith({
+        teamId: 'active-team',
+        organizationId: null,
+      });
+    });
+
+    it('prefers the stored scope over the active team', async () => {
+      const component = createComponent();
+      component.target = ownedTarget;
+      component.fallbackTeamId = 'active-team';
+
+      await open(component);
+
+      expect(loadShareCandidates).toHaveBeenCalledWith({
+        teamId: 'team-77',
+        organizationId: 'org-9',
+      });
+    });
+
+    it('does not fall back when only an organization scope is stored', async () => {
+      const component = createComponent();
+      component.target = { ...ownedTarget, teamId: null };
+      component.fallbackTeamId = 'active-team';
+
+      await open(component);
+
+      expect(loadShareCandidates).toHaveBeenCalledWith({
+        teamId: null,
+        organizationId: 'org-9',
+      });
+    });
+
+    it('surfaces an error instead of a silent empty list when loading fails', async () => {
+      loadShareCandidates.mockRejectedValueOnce(new Error('403'));
+      const component = createComponent();
+      component.target = ownedTarget;
+
+      const access = await open(component);
+
+      expect(access.candidatesError()).toBe(
+        'Could not load members. Close and reopen to try again.'
+      );
+    });
+
+    it('clears a previous error when reopened successfully', async () => {
+      loadShareCandidates.mockRejectedValueOnce(new Error('network'));
+      const component = createComponent();
+      component.target = ownedTarget;
+
+      const access = await open(component);
+      await access.onToggleMenu(new Event('click'));
+      const reopened = await open(component);
+
+      expect(reopened.candidatesError()).toBeNull();
     });
   });
 

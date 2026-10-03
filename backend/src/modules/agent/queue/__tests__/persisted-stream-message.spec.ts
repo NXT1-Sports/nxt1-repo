@@ -111,6 +111,39 @@ describe('PersistedAssistantStreamBuilder', () => {
     ]);
   });
 
+  it('preserves export format metadata when the tool result completes its step', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    builder.process({
+      type: 'step_active',
+      stepId: 'call_export',
+      toolName: 'dynamic_export',
+      stageType: 'tool',
+      message: 'Uploading assets • Creating Word document',
+      metadata: { format: 'docx', phase: 'upload_export' },
+    });
+    builder.process({
+      type: 'tool_result',
+      stepId: 'call_export',
+      toolName: 'dynamic_export',
+      toolSuccess: true,
+      message: 'Creating Word document',
+    });
+
+    expect(builder.snapshot().steps).toEqual([
+      expect.objectContaining({
+        id: 'call_export',
+        label: 'Creating Word document',
+        status: 'success',
+        metadata: {
+          format: 'docx',
+          phase: 'upload_export',
+          toolName: 'dynamic_export',
+        },
+      }),
+    ]);
+  });
+
   it('does not persist DSML tool-call markup as assistant text', () => {
     const builder = new PersistedAssistantStreamBuilder();
 

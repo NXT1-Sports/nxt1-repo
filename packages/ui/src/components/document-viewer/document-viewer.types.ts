@@ -3,7 +3,11 @@
  * @module @nxt1/ui/components/document-viewer
  */
 
-import type { DocumentPreviewManifest, DocumentSpreadsheetCell } from '@nxt1/core';
+import type {
+  DocumentPreviewAnchor,
+  DocumentPreviewManifest,
+  DocumentSpreadsheetCell,
+} from '@nxt1/core';
 
 export type DocumentViewerMode = 'preview' | 'printable_pdf' | 'fallback';
 
@@ -28,3 +32,9 @@ export interface DocumentCellSelection {
 }
 
 export type DocumentZoomMode = 'fit_width' | 'fit_page' | 'custom';
+
+/** Ask Agent anchor selection, flagging whether the user chose every page/slide so prompts can stay concise. */
+export interface DocumentAskAgentSelection {
+  readonly anchors: readonly DocumentPreviewAnchor[];
+  readonly isAllSelected: boolean;
+}
