@@ -1876,7 +1876,9 @@ export class AgentXOperationEventService {
       stageType: event.stageType,
       stage: event.stage,
       outcomeCode: event.outcomeCode,
-      metadata: event.metadata,
+      metadata: event.toolName
+        ? { ...(event.metadata ?? {}), toolName: event.toolName }
+        : event.metadata,
       status,
       icon: normalizeToolStepIcon(event.icon),
       ...(detail ? { detail } : {}),

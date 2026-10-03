@@ -32,6 +32,8 @@ export {
   serializeAgentXSelectedContextForDrag,
 } from './agent-x-context.types';
 
+export { getAgentExportFormatDisplayName, type AgentExportFormat } from './export-format';
+
 export type {
   ChatRole,
   AgentXAttachmentType,

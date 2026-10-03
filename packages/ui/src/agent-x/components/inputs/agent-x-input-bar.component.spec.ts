@@ -171,6 +171,60 @@ describe('AgentXInputBarComponent', () => {
     expect(getContextVideoUrl(component, context)).toBe('https://cdn.example.com/source-1.mp4');
   });
 
+  it('keeps the context label inside the thumbnail tile', () => {
+    vi.spyOn(component, 'pendingContexts').mockReturnValue([
+      {
+        id: 'team-file:1',
+        kind: 'film_play',
+        title: 'Game Film.mp4',
+        media: { thumbnailUrl: 'https://cdn.example.com/game-tape.jpg' },
+        metadata: { itemType: 'team_file', fileKind: 'video' },
+      },
+    ]);
+    fixture.detectChanges();
+
+    const tile = fixture.nativeElement.querySelector('.input-attachment') as HTMLElement;
+    expect(tile.querySelector('.input-attachment-source-badge')?.textContent).toBe('Game Film.mp4');
+    expect(tile.querySelector('img')?.getAttribute('src')).toBe(
+      'https://cdn.example.com/game-tape.jpg'
+    );
+    expect(tile.querySelector('.input-attachment-meta')).toBeNull();
+  });
+
+  it.each(['team_file_folder', 'film_review_playlist'])(
+    'renders a larger Lab-colored icon for %s contexts',
+    (itemType) => {
+      vi.spyOn(component, 'pendingContexts').mockReturnValue([
+        {
+          id: 'folder:1',
+          kind: 'document',
+          title: 'Game Film',
+          metadata: { itemType },
+        },
+        {
+          id: 'document:1',
+          kind: 'document',
+          title: 'Notes',
+        },
+      ]);
+      fixture.detectChanges();
+
+      const tiles = fixture.nativeElement.querySelectorAll(
+        '.input-attachment'
+      ) as NodeListOf<HTMLElement>;
+      const folderIcon = tiles[0].querySelector('.input-attachment-icon--folder');
+      expect(folderIcon).not.toBeNull();
+      expect(folderIcon?.querySelector('svg')?.getAttribute('width')).toBe('32');
+      expect(tiles[0].querySelector('.input-attachment-source-badge')?.textContent).toBe(
+        'Game Film'
+      );
+      expect(tiles[1].querySelector('.input-attachment-icon--folder')).toBeNull();
+      expect(tiles[1].querySelector('.input-attachment-icon svg')?.getAttribute('width')).toBe(
+        '18'
+      );
+    }
+  );
+
   it('fills the prompt with voice dictation from the input bar button', () => {
     const emittedMessages: string[] = [];
     const subscription = component.messageChange.subscribe((message) => {

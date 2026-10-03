@@ -65,6 +65,8 @@ export interface AgentXOperationChatAttachmentsFacadeHost {
   resolveActiveThreadId(): string | null;
   clickDesktopAttachmentInput(): void;
   openFilmReviewLibrary(): void;
+  /** Returns true when the host handled the document (e.g. opened it in the Files panel). */
+  openDocumentInPanel?(url: string): boolean;
   emitConnectedAccountsSave(request: AgentXConnectedAccountsSaveRequest): void;
   uid(): string;
 }
@@ -938,6 +940,17 @@ export class AgentXOperationChatAttachmentsFacade {
     index: number,
     options?: { readonly messageId?: string }
   ): void {
+    const requested = attachments[index];
+    if (
+      requested &&
+      requested.type !== 'image' &&
+      requested.type !== 'video' &&
+      requested.url &&
+      this.host?.openDocumentInPanel?.(requested.url)
+    ) {
+      return;
+    }
+
     const mediaItems: ChatViewerItem[] = attachments.map((attachment) => {
       if (attachment.type === 'image' || attachment.type === 'video') {
         return {

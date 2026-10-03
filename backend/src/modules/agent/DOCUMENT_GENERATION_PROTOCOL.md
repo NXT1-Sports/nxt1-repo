@@ -43,7 +43,7 @@ Agent X:
   → Returns chat: "I've created a 12-week QB off-season plan [PDF link].
                    It includes arm velocity targets, footwork progressions,
                    and 7-on-7 tournament prep."
-Result: User clicks PDF, downloads, integrates into coaching system. Chat is focused.
+Result: User clicks PDF, previews it in the web Files panel, and can download it explicitly. Chat is focused.
 ```
 
 ```text
@@ -66,6 +66,34 @@ Result: User gets the actual diagram instead of text describing one.
 ```
 
 ## Tool Selection
+
+### Web Deliverable Preview
+
+In the embedded web Agent X chat, document links in response text and document
+attachment chips open the Files preview panel rather than navigating to the
+download URL. This includes PDF, Word, spreadsheet, and presentation exports.
+The Files panel resolves the accessible indexed document by its URL or storage
+path and refreshes its preview URL. If the document cannot be resolved, show an
+error instead of silently downloading it. The preview's Download action remains
+an explicit download. Other markdown surfaces keep their existing link behavior.
+
+### User-Facing Export Activity Labels
+
+Keep `dynamic_export` as the internal tool name, but label its activity using
+the requested output format in live steps and saved conversations:
+
+| Format | Activity Label                   |
+| ------ | -------------------------------- |
+| `pdf`  | Creating PDF document            |
+| `csv`  | Creating CSV spreadsheet         |
+| `xlsx` | Creating Excel spreadsheet       |
+| `pptx` | Creating PowerPoint presentation |
+| `docx` | Creating Word document           |
+
+Use the shared `getAgentExportFormatDisplayName` helper from `@nxt1/core/ai`.
+Preserve export stage metadata when persisting completion updates so replayed
+steps retain the output type. Unknown or missing formats retain the existing
+tool label; this presentation change does not alter artifact generation.
 
 Choose the artifact tool based on output shape:
 

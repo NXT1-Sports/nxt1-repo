@@ -695,6 +695,59 @@ export class AgentXFilesService {
     return refreshed;
   }
 
+  /**
+   * Maps a signed export download URL (as shared in chat) back to its indexed Files entry.
+   * The URL itself is never logged because it carries a signature.
+   */
+  async resolveDeliverable(url: string): Promise<AgentXLibraryFile> {
+    try {
+      const parsed = new URL(url);
+      let storagePath = parsed.searchParams.get('path');
+      if (!storagePath && parsed.hostname === 'firebasestorage.googleapis.com') {
+        const objectPath = parsed.pathname.match(/^\/v0\/b\/[^/]+\/o\/(.+)$/)?.[1];
+        if (objectPath) storagePath = decodeURIComponent(objectPath);
+      } else if (!storagePath && parsed.hostname === 'storage.googleapis.com') {
+        storagePath = decodeURIComponent(parsed.pathname.replace(/^\/[^/]+\//, ''));
+      }
+
+      const findMatch = (): AgentXLibraryFile | undefined =>
+        this._files().find(
+          (file) => file.url === url || (!!storagePath && file.storagePath === storagePath)
+        );
+      let match = findMatch();
+      if (!match) {
+        const { files, folders } = await this.fetchFilesSnapshot();
+        this._files.set(files);
+        this._folders.set(folders);
+        this.filesLoadedAtMs = Date.now();
+        match = findMatch();
+      }
+      if (!match) {
+        throw new Error('This document is not available in Files yet');
+      }
+
+      return match;
+    } catch (error) {
+      // Signed URLs and HTTP errors can contain credentials.
+      this.logger.error('Failed to resolve Agent X deliverable');
+      throw new Error(
+        error instanceof Error && error.message === 'This document is not available in Files yet'
+          ? error.message
+          : 'Unable to open this document in Files. Please try again.',
+        { cause: error }
+      );
+    }
+  }
+
+  /** Downloads the real file bytes through the API so exports open cleanly in Word/Google Docs. */
+  async downloadFileContent(fileId: string): Promise<Blob> {
+    return firstValueFrom(
+      this.http.get(`${this.baseUrl}/files/${encodeURIComponent(fileId)}/download`, {
+        responseType: 'blob',
+      })
+    );
+  }
+
   async getUniversalFileDocument(
     fileId: string,
     _teamId?: string | null

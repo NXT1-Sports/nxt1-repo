@@ -368,10 +368,22 @@ export class PersistedAssistantStreamBuilder {
 
   private upsertStep(step: AgentXToolStep): void {
     const index = this.steps.findIndex((candidate) => candidate.id === step.id);
+    const previousStep = index >= 0 ? this.steps[index] : undefined;
+    const updatedStep =
+      previousStep?.metadata || step.metadata
+        ? {
+            ...step,
+            metadata: {
+              ...(previousStep?.metadata ?? {}),
+              ...(step.metadata ?? {}),
+            },
+          }
+        : step;
+
     if (index >= 0) {
-      this.steps[index] = step;
+      this.steps[index] = updatedStep;
     } else {
-      this.steps.push(step);
+      this.steps.push(updatedStep);
     }
 
     // Search ALL tool-steps groups for an existing step with this id. When a
@@ -383,7 +395,7 @@ export class PersistedAssistantStreamBuilder {
       const existingIndex = part.steps.findIndex((candidate) => candidate.id === step.id);
       if (existingIndex < 0) continue;
       const nextSteps = [...part.steps];
-      nextSteps[existingIndex] = step;
+      nextSteps[existingIndex] = updatedStep;
       this.parts[i] = { type: 'tool-steps', steps: nextSteps };
       return;
     }
@@ -392,14 +404,14 @@ export class PersistedAssistantStreamBuilder {
     if (last?.type === 'tool-steps') {
       this.parts[this.parts.length - 1] = {
         type: 'tool-steps',
-        steps: [...last.steps, step],
+        steps: [...last.steps, updatedStep],
       };
       return;
     }
 
-    this.markThinkingDone(step.agentId);
-    this.parts.push({ type: 'tool-steps', steps: [step] });
-    this.partAgentIds.push(step.agentId);
+    this.markThinkingDone(updatedStep.agentId);
+    this.parts.push({ type: 'tool-steps', steps: [updatedStep] });
+    this.partAgentIds.push(updatedStep.agentId);
   }
 
   private markThinkingDone(agentId?: string): void {

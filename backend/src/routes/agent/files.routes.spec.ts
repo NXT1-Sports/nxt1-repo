@@ -435,6 +435,120 @@ describe('POST /api/v1/agent/files/:fileId/preview-sessions', () => {
   });
 });
 
+describe('GET /api/v1/agent/files/:fileId/download', () => {
+  const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  function seedDocx(overrides: { title?: string; readAccessKeys?: string[] } = {}) {
+    return createMockFirestore({
+      UniversalFiles: {
+        doc1: {
+          title: overrides.title ?? 'Spring Playbook',
+          normalizedTitle: 'spring playbook',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: overrides.readAccessKeys ?? ['user:owner-1'],
+          writeAccessKeys: overrides.readAccessKeys ?? ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: DOCX_MIME,
+              kind: 'doc',
+              origin: 'agent_chat_output',
+              sizeBytes: 999,
+              url: 'https://example.com/spring-playbook.docx',
+              storagePath: 'Users/owner-1/threads/t1/exports/spring.docx',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+  }
+
+  function bucketReturning(stored: Buffer) {
+    return {
+      file: vi.fn().mockReturnValue({ download: vi.fn().mockResolvedValue([stored]) }),
+    } as unknown as MockSignedUrlBucket;
+  }
+
+  it('returns the real bytes with an attachment header and the extension from the MIME type', async () => {
+    const real = Buffer.from('PK\u0003\u0004real-docx-bytes', 'latin1');
+    const response = await request(createApp(seedDocx(), bucketReturning(real)))
+      .get('/api/v1/agent/files/doc1/download')
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-type']).toContain(DOCX_MIME);
+    expect(response.headers['content-disposition']).toContain(
+      'attachment; filename="Spring Playbook.docx"'
+    );
+    expect(Buffer.compare(response.body as Buffer, real)).toBe(0);
+  });
+
+  it('strips multipart framing so the download is the actual document', async () => {
+    const real = Buffer.from('PK\u0003\u0004real-docx-bytes', 'latin1');
+    const boundary = 'boundary123';
+    const wrapped = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Type: ${DOCX_MIME}\r\n\r\n`, 'latin1'),
+      real,
+      Buffer.from(`\r\n--${boundary}--\r\n`, 'latin1'),
+    ]);
+
+    const response = await request(createApp(seedDocx(), bucketReturning(wrapped)))
+      .get('/api/v1/agent/files/doc1/download')
+      .buffer(true)
+      .parse((res, cb) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c: Buffer) => chunks.push(c));
+        res.on('end', () => cb(null, Buffer.concat(chunks)));
+      });
+
+    expect(response.status).toBe(200);
+    expect(Buffer.compare(response.body as Buffer, real)).toBe(0);
+  });
+
+  it('keeps non-ASCII titles header-safe', async () => {
+    const response = await request(
+      createApp(
+        seedDocx({ title: 'Game Plan \u2014 Week 3.docx' }),
+        bucketReturning(Buffer.from('x'))
+      )
+    ).get('/api/v1/agent/files/doc1/download');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['content-disposition']).toContain('filename="Game Plan _ Week 3.docx"');
+    expect(response.headers['content-disposition']).toContain(
+      "filename*=UTF-8''Game%20Plan%20%E2%80%94%20Week%203.docx"
+    );
+  });
+
+  it('rejects users without read access', async () => {
+    const response = await request(
+      createApp(
+        seedDocx({ readAccessKeys: ['user:someone-else'] }),
+        bucketReturning(Buffer.from('x'))
+      )
+    ).get('/api/v1/agent/files/doc1/download');
+
+    expect(response.status).toBe(403);
+  });
+
+  it('returns 404 for unknown files', async () => {
+    const response = await request(
+      createApp(createMockFirestore({ UniversalFiles: {} }), bucketReturning(Buffer.from('x')))
+    ).get('/api/v1/agent/files/missing/download');
+
+    expect(response.status).toBe(404);
+  });
+});
+
 describe('GET /api/v1/agent/files/:fileId/preview/spreadsheet-range', () => {
   it('returns spreadsheet range data for authorized users', async () => {
     const csvContent = 'Name,Position\nJohn,QB\nMarcus,WR\n';

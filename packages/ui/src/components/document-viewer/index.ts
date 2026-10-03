@@ -10,4 +10,5 @@ export type {
   DocumentPreviewSession,
   DocumentCellSelection,
   DocumentZoomMode,
+  DocumentAskAgentSelection,
 } from './document-viewer.types';

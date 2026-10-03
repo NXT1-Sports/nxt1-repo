@@ -93,6 +93,11 @@ import {
   updateFilmReviewDrawing,
 } from '../../services/team/film-review-annotation-sidecar.service.js';
 import { DocumentPreviewService } from '../../modules/document-preview/index.js';
+import {
+  buildAttachmentContentDisposition,
+  ensureFileNameExtension,
+  tryExtractMultipartExportPayload,
+} from '../../utils/export-multipart-payload.js';
 
 const router = Router();
 const TEAM_FILE_FOLDERS_COLLECTION = 'TeamFileFolders' as const;
@@ -3750,6 +3755,92 @@ router.post('/files/:fileId/preview-sessions', appGuard, async (req: Request, re
       stack: error.stack,
     });
     res.status(500).json({ success: false, error: 'Failed to negotiate file preview session' });
+  }
+});
+
+const DOWNLOAD_MAX_BYTES = 200 * 1024 * 1024;
+
+// Streams the real file bytes (multipart-unwrapped) so downloads open cleanly in Word/Google Docs.
+router.get('/files/:fileId/download', appGuard, async (req: Request, res: Response) => {
+  try {
+    const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+    if (!fileId) {
+      res.status(400).json({ success: false, error: 'fileId is required' });
+      return;
+    }
+
+    const auth = getAuthUser(req);
+    if (!auth) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const db = req.firebase?.db;
+    if (!db) {
+      res.status(500).json({ success: false, error: 'Firestore unavailable' });
+      return;
+    }
+
+    const fileDoc = await db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId).get();
+    if (!fileDoc.exists) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const fileData = fileDoc.data() as Record<string, unknown>;
+    const grantedAccessKeys = buildGrantedAccessKeys(await resolveFileAccessContext(db, auth.uid));
+    if (
+      !canReadAccessControlledRecord(fileData, {
+        grantedAccessKeys,
+        acl: getUniversalFileAcl(fileData),
+      })
+    ) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const universalFile = toUniversalFileDoc(
+      fileDoc.id,
+      normalizeOptionalString(fileData['teamId']) ?? null,
+      fileData
+    );
+    const binaryPayload = getUniversalBinaryFilePayload(universalFile.payload);
+    if (universalFile.type !== 'file' || !binaryPayload?.storagePath) {
+      res.status(404).json({ success: false, error: 'File has no downloadable content' });
+      return;
+    }
+
+    const [buffer] = await req
+      .firebase!.storage.bucket()
+      .file(binaryPayload.storagePath)
+      .download();
+    if (buffer.length > DOWNLOAD_MAX_BYTES) {
+      res.status(413).json({ success: false, error: 'File is too large to download' });
+      return;
+    }
+
+    const payload =
+      tryExtractMultipartExportPayload({
+        buffer,
+        expectedMimeType: binaryPayload.mimeType,
+      }) ?? buffer;
+
+    res.setHeader('Content-Type', binaryPayload.mimeType || 'application/octet-stream');
+    res.setHeader(
+      'Content-Disposition',
+      buildAttachmentContentDisposition(
+        ensureFileNameExtension(universalFile.title, binaryPayload.mimeType)
+      )
+    );
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Content-Length', String(payload.length));
+    res.end(payload);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to download Universal File', { error: error.message, stack: error.stack });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: 'Failed to download file' });
+    }
   }
 });
 

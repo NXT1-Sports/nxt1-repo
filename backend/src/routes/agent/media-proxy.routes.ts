@@ -3,63 +3,12 @@ import path from 'node:path';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../../utils/logger.js';
+import { tryExtractMultipartExportPayload } from '../../utils/export-multipart-payload.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 
+export { tryExtractMultipartExportPayload };
+
 const router = Router();
-
-function detectMultipartBoundary(buffer: Buffer): string | null {
-  const newlineIndex = buffer.indexOf('\n');
-  if (newlineIndex <= 2) return null;
-
-  const firstLine = buffer.subarray(0, newlineIndex).toString('utf8').replace(/\r$/, '').trim();
-  return firstLine.startsWith('--') ? firstLine : null;
-}
-
-export function tryExtractMultipartExportPayload(params: {
-  readonly buffer: Buffer;
-  readonly expectedMimeType: string;
-}): Buffer | null {
-  const boundaryLine = detectMultipartBoundary(params.buffer);
-  if (!boundaryLine) return null;
-
-  const expectedMimeType = params.expectedMimeType.trim().toLowerCase();
-  if (!expectedMimeType) return null;
-
-  const text = params.buffer.toString('latin1');
-  const boundaryToken = boundaryLine.replace(/^--/, '');
-  const parts = text.split(`--${boundaryToken}`);
-  if (parts.length < 3) return null;
-
-  for (const rawPart of parts) {
-    const part = rawPart.replace(/^\r?\n/, '');
-    if (!part || part === '--' || /^--\r?\n?$/.test(part)) continue;
-
-    const separator = part.indexOf('\r\n\r\n');
-    const hasCrlfSeparator = separator >= 0;
-    const fallbackSeparator = hasCrlfSeparator ? separator : part.indexOf('\n\n');
-    if (fallbackSeparator < 0) continue;
-
-    const headerBlock = part.slice(0, fallbackSeparator);
-    const mimeMatch = headerBlock.match(/content-type:\s*([^\r\n;]+)/i);
-    const partMimeType = mimeMatch?.[1]?.trim().toLowerCase() ?? '';
-    if (!partMimeType) continue;
-
-    const isExpectedPart =
-      partMimeType === expectedMimeType ||
-      (expectedMimeType.includes('spreadsheetml.sheet') &&
-        partMimeType === 'application/octet-stream');
-    if (!isExpectedPart) continue;
-
-    const contentStart = fallbackSeparator + (hasCrlfSeparator ? 4 : 2);
-    let content = part.slice(contentStart);
-    content = content.replace(/\r?\n--$/, '');
-    content = content.replace(/\r?\n$/, '');
-
-    return Buffer.from(content, 'latin1');
-  }
-
-  return null;
-}
 
 function buildContentDisposition(
   fileName: string,

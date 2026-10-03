@@ -92,6 +92,7 @@ interface AgentXShareMenuGrant {
               [permission]="permission()"
               [query]="query()"
               [loading]="candidatesLoading()"
+              [candidatesError]="candidatesError()"
               [candidates]="visibleCandidates()"
               [grants]="grants()"
               [selectedUserIds]="selectedUserIds()"
@@ -213,6 +214,12 @@ export class AgentXShareMenuComponent {
 
   @Input() triggerAriaLabel = 'Share';
 
+  /**
+   * Active team used to discover members when the target carries no team or
+   * organization scope (e.g. personal files), matching the Files panel behavior.
+   */
+  @Input() fallbackTeamId: string | null = null;
+
   private readonly currentUserId = computed(
     () => this.agentXService.userContext()?.userId?.trim() ?? ''
   );
@@ -228,6 +235,7 @@ export class AgentXShareMenuComponent {
   protected readonly query = signal('');
   protected readonly candidates = signal<readonly AgentXShareCandidate[]>([]);
   protected readonly candidatesLoading = signal(false);
+  protected readonly candidatesError = signal<string | null>(null);
   private candidatesRequestId = 0;
 
   protected readonly canManage = computed(() => {
@@ -293,7 +301,8 @@ export class AgentXShareMenuComponent {
     this.principalId.set('');
     this.selectedUserIds.set(this.userPrincipalIds(this.grants()));
     this.query.set('');
-    await this.loadCandidates(target.teamId, target.organizationId);
+    const scope = this.resolveCandidateScope(target);
+    await this.loadCandidates(scope.teamId, scope.organizationId);
   }
 
   protected onClose(event?: Event): void {
@@ -307,6 +316,7 @@ export class AgentXShareMenuComponent {
     this.selectedUserIds.set([]);
     this.query.set('');
     this.candidates.set([]);
+    this.candidatesError.set(null);
   }
 
   protected onPrincipalTypeChange(value: string): void {
@@ -459,6 +469,7 @@ export class AgentXShareMenuComponent {
   ): Promise<void> {
     const requestId = ++this.candidatesRequestId;
     this.candidatesLoading.set(true);
+    this.candidatesError.set(null);
     this.candidates.set([]);
 
     try {
@@ -468,11 +479,26 @@ export class AgentXShareMenuComponent {
     } catch {
       if (requestId !== this.candidatesRequestId) return;
       this.candidates.set([]);
+      this.candidatesError.set('Could not load members. Close and reopen to try again.');
     } finally {
       if (requestId === this.candidatesRequestId) {
         this.candidatesLoading.set(false);
       }
     }
+  }
+
+  /** Stored scope wins; the active team is used only when the target has no scope at all. */
+  private resolveCandidateScope(target: AgentXShareMenuTarget): {
+    teamId: string | null;
+    organizationId: string | null;
+  } {
+    const teamId = target.teamId?.trim() || null;
+    const organizationId = target.organizationId?.trim() || null;
+    if (teamId || organizationId) {
+      return { teamId, organizationId };
+    }
+
+    return { teamId: this.fallbackTeamId?.trim() || null, organizationId: null };
   }
 
   private resolvePrincipalId(target: AgentXShareMenuTarget): string {

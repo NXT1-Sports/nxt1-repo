@@ -87,6 +87,7 @@ export interface AgentXShareGrantOption {
         <nxt1-agent-x-share-member-picker
           [query]="query()"
           [loading]="loading()"
+          [error]="candidatesError()"
           [candidates]="candidates()"
           [selectedIds]="resolvedSelectedUserIds()"
           (queryChange)="queryChange.emit($event)"
@@ -326,6 +327,7 @@ export class AgentXShareAccessPanelComponent {
   readonly permission = input<AgentXSharePermission>('read');
   readonly query = input('');
   readonly loading = input(false);
+  readonly candidatesError = input<string | null>(null);
   readonly candidates = input<readonly AgentXShareMemberOption[]>([]);
   readonly grants = input<readonly AgentXShareGrantOption[]>([]);
   readonly selectedUserIds = input<readonly string[] | null>(null);

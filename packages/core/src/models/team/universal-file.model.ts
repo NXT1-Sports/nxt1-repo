@@ -139,7 +139,7 @@ export interface DocumentPreviewManifest {
   readonly generatedAt: PortableTimestamp;
 }
 
-export type DocumentPreviewAnchorType = 'page' | 'slide' | 'cell_range' | 'sheet';
+export type DocumentPreviewAnchorType = 'page' | 'slide' | 'cell_range' | 'sheet' | 'document';
 
 /** Bounded document anchor representing a specific page, slide, or cell range for Agent X context. */
 export interface DocumentPreviewAnchor {
@@ -1226,6 +1226,8 @@ export function formatDocumentAnchorLabel(anchor: DocumentPreviewAnchor): string
       const sheet = anchor.sheetName ? `${anchor.sheetName}!` : '';
       return anchor.rangeA1 ? `${sheet}${anchor.rangeA1}` : 'Cell range';
     }
+    case 'document':
+      return 'Entire document';
     default:
       return 'Document selection';
   }

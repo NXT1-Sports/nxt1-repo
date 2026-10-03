@@ -26,7 +26,8 @@
     "marked",
     "dompurify",
     "@zip.js/zip.js",
-    "pdfjs-dist"
+    "pdfjs-dist",
+    "docx-preview"
   ],
   "assets": []
 }

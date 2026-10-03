@@ -26,6 +26,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import {
   type DocumentPreviewAnchor,
   type DocumentPreviewManifest,
@@ -46,17 +47,29 @@ import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.servi
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import type { AgentXLibraryFile } from '../../agent-x/services/agent-x-files.service';
 import { DocumentPreviewClientService } from './document-preview-client.service';
-import type { DocumentCellSelection, DocumentViewerMode } from './document-viewer.types';
+import type {
+  DocumentAskAgentSelection,
+  DocumentCellSelection,
+  DocumentViewerMode,
+} from './document-viewer.types';
+
+const MAX_DOCX_PREVIEW_BYTES = 25 * 1024 * 1024;
+const DOCX_SAFE_LINK_PROTOCOLS: ReadonlySet<string> = new Set([
+  'http:',
+  'https:',
+  'mailto:',
+  'tel:',
+]);
+const DOCX_FIT_PADDING_PX = 60;
 
 @Component({
   selector: 'nxt1-document-viewer',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [CommonModule, OverlayModule, NxtIconComponent],
   template: `
     <div
       class="nxt1-doc-viewer"
       [class.nxt1-doc-viewer--compact]="_compact()"
-      [class.nxt1-doc-viewer--fullscreen]="isFullscreen()"
       [attr.data-testid]="testIds.CONTAINER"
     >
       @if (loading()) {
@@ -171,7 +184,7 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
           </div>
 
           <div class="nxt1-doc-viewer__toolbar-right">
-            @if (docType() === 'pdf' || mode() === 'printable_pdf') {
+            @if (docType() === 'pdf' || docType() === 'word' || mode() === 'printable_pdf') {
               <button
                 type="button"
                 class="nxt1-doc-viewer__icon-btn"
@@ -195,16 +208,18 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
               >
                 <nxt1-icon name="plus" [size]="16" />
               </button>
-              <button
-                type="button"
-                class="nxt1-doc-viewer__icon-btn"
-                [attr.data-testid]="testIds.ROTATE_BTN"
-                aria-label="Rotate clockwise"
-                title="Rotate clockwise"
-                (click)="rotateClockwise()"
-              >
-                <nxt1-icon name="refresh" [size]="16" />
-              </button>
+              @if (docType() !== 'word') {
+                <button
+                  type="button"
+                  class="nxt1-doc-viewer__icon-btn"
+                  [attr.data-testid]="testIds.ROTATE_BTN"
+                  aria-label="Rotate clockwise"
+                  title="Rotate clockwise"
+                  (click)="rotateClockwise()"
+                >
+                  <nxt1-icon name="refresh" [size]="16" />
+                </button>
+              }
             }
 
             @if (docType() === 'presentation') {
@@ -224,8 +239,13 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
               type="button"
               class="nxt1-doc-viewer__ask-agent-btn"
               [attr.data-testid]="testIds.ASK_AGENT_BTN"
-              aria-label="Ask Agent X about current view"
-              (click)="onAskAgentForCurrentAnchor()"
+              aria-label="Ask Agent X"
+              title="Ask Agent X"
+              aria-haspopup="menu"
+              [attr.aria-expanded]="askAgentDropdownOpen()"
+              cdkOverlayOrigin
+              #askAgentMenuOrigin="cdkOverlayOrigin"
+              (click)="toggleAskAgentDropdown()"
             >
               <svg
                 class="nxt1-doc-viewer__agent-logo"
@@ -239,19 +259,144 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
                 <path [attr.d]="agentLogoPath" />
                 <polygon [attr.points]="agentLogoPolygon" />
               </svg>
-              <span>{{ askAgentButtonLabel() }}</span>
+              <span>Ask Agent X</span>
+              <nxt1-icon name="chevronDown" [size]="12" />
             </button>
-
-            <button
-              type="button"
-              class="nxt1-doc-viewer__icon-btn"
-              [attr.data-testid]="testIds.FULLSCREEN_BTN"
-              aria-label="Toggle fullscreen"
-              title="Fullscreen"
-              (click)="toggleFullscreen()"
-            >
-              <nxt1-icon name="expand" [size]="16" />
-            </button>
+            @if (askAgentDropdownOpen()) {
+              <ng-template
+                cdkConnectedOverlay
+                [cdkConnectedOverlayOrigin]="askAgentMenuOrigin"
+                [cdkConnectedOverlayOpen]="true"
+                [cdkConnectedOverlayHasBackdrop]="true"
+                cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                [cdkConnectedOverlayPositions]="askAgentMenuPositions"
+                [cdkConnectedOverlayPush]="true"
+                [cdkConnectedOverlayViewportMargin]="8"
+                (backdropClick)="closeAskAgentDropdown()"
+                (detach)="closeAskAgentDropdown()"
+              >
+                <div
+                  class="nxt1-doc-viewer__ask-agent-dropdown"
+                  [attr.data-testid]="testIds.ASK_AGENT_DROPDOWN"
+                  role="menu"
+                  aria-label="Select pages or slides"
+                >
+                  @if (docType() === 'pdf' && totalPages() > 0) {
+                    <button
+                      type="button"
+                      class="nxt1-doc-viewer__ask-agent-dropdown-option"
+                      [attr.data-testid]="testIds.ASK_AGENT_ALL_PAGES"
+                      role="menuitemcheckbox"
+                      [attr.aria-checked]="isAllPagesSelected()"
+                      (click)="toggleAllPages()"
+                    >
+                      <span class="nxt1-doc-viewer__ask-agent-dropdown-check">
+                        @if (isAllPagesSelected()) {
+                          <nxt1-icon name="checkmark" [size]="14" />
+                        }
+                      </span>
+                      <span class="nxt1-doc-viewer__ask-agent-dropdown-label">All pages</span>
+                    </button>
+                    <div class="nxt1-doc-viewer__ask-agent-dropdown-divider"></div>
+                    <div class="nxt1-doc-viewer__ask-agent-dropdown-list">
+                      @for (pageNum of pageNumbers(); track pageNum) {
+                        <button
+                          type="button"
+                          class="nxt1-doc-viewer__ask-agent-dropdown-option"
+                          [attr.data-testid]="testIds.ASK_AGENT_PAGE_CHECKBOX"
+                          role="menuitemcheckbox"
+                          [attr.aria-checked]="selectedAskAgentIndices().has(pageNum)"
+                          (click)="toggleAskAgentIndex(pageNum)"
+                        >
+                          <span class="nxt1-doc-viewer__ask-agent-dropdown-check">
+                            @if (selectedAskAgentIndices().has(pageNum)) {
+                              <nxt1-icon name="checkmark" [size]="14" />
+                            }
+                          </span>
+                          <span class="nxt1-doc-viewer__ask-agent-dropdown-label"
+                            >Page {{ pageNum }}</span
+                          >
+                        </button>
+                      }
+                    </div>
+                  } @else if (docType() === 'presentation' && totalSlides() > 0) {
+                    <button
+                      type="button"
+                      class="nxt1-doc-viewer__ask-agent-dropdown-option"
+                      [attr.data-testid]="testIds.ASK_AGENT_ALL_PAGES"
+                      role="menuitemcheckbox"
+                      [attr.aria-checked]="isAllSlidesSelected()"
+                      (click)="toggleAllSlides()"
+                    >
+                      <span class="nxt1-doc-viewer__ask-agent-dropdown-check">
+                        @if (isAllSlidesSelected()) {
+                          <nxt1-icon name="checkmark" [size]="14" />
+                        }
+                      </span>
+                      <span class="nxt1-doc-viewer__ask-agent-dropdown-label">All slides</span>
+                    </button>
+                    <div class="nxt1-doc-viewer__ask-agent-dropdown-divider"></div>
+                    <div class="nxt1-doc-viewer__ask-agent-dropdown-list">
+                      @for (slideNum of slideNumbers(); track slideNum) {
+                        <button
+                          type="button"
+                          class="nxt1-doc-viewer__ask-agent-dropdown-option"
+                          [attr.data-testid]="testIds.ASK_AGENT_PAGE_CHECKBOX"
+                          role="menuitemcheckbox"
+                          [attr.aria-checked]="selectedAskAgentIndices().has(slideNum)"
+                          (click)="toggleAskAgentIndex(slideNum)"
+                        >
+                          <span class="nxt1-doc-viewer__ask-agent-dropdown-check">
+                            @if (selectedAskAgentIndices().has(slideNum)) {
+                              <nxt1-icon name="checkmark" [size]="14" />
+                            }
+                          </span>
+                          <span class="nxt1-doc-viewer__ask-agent-dropdown-label"
+                            >Slide {{ slideNum }}</span
+                          >
+                        </button>
+                      }
+                    </div>
+                  } @else if (docType() === 'spreadsheet') {
+                    <button
+                      type="button"
+                      class="nxt1-doc-viewer__ask-agent-dropdown-option"
+                      [attr.data-testid]="testIds.ASK_AGENT_ALL_PAGES"
+                      role="menuitem"
+                      (click)="confirmAskAgentSheet()"
+                    >
+                      <span class="nxt1-doc-viewer__ask-agent-dropdown-label">Current sheet</span>
+                    </button>
+                  } @else if (docType() === 'word') {
+                    <button
+                      type="button"
+                      class="nxt1-doc-viewer__ask-agent-dropdown-option"
+                      [attr.data-testid]="testIds.ASK_AGENT_ALL_PAGES"
+                      role="menuitem"
+                      (click)="confirmAskAgentDocument()"
+                    >
+                      <span class="nxt1-doc-viewer__ask-agent-dropdown-label">Entire document</span>
+                    </button>
+                  }
+                  @if (
+                    docType() !== 'spreadsheet' &&
+                    docType() !== 'word' &&
+                    selectedAskAgentIndices().size > 0
+                  ) {
+                    <div class="nxt1-doc-viewer__ask-agent-dropdown-footer">
+                      <button
+                        type="button"
+                        class="nxt1-doc-viewer__ask-agent-dropdown-confirm"
+                        [attr.data-testid]="testIds.ASK_AGENT_CONFIRM"
+                        (click)="confirmAskAgentSelection()"
+                      >
+                        Add to chat ({{ selectedAskAgentIndices().size }})
+                      </button>
+                    </div>
+                  }
+                </div>
+              </ng-template>
+            }
           </div>
         </header>
 
@@ -264,6 +409,20 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
                 <canvas #pdfCanvas class="nxt1-doc-viewer__pdf-canvas"></canvas>
               </div>
             </div>
+          }
+
+          <!-- 1b. Word (.docx) native HTML stage -->
+          @if (docType() === 'word' && mode() === 'preview') {
+            <div #docxViewport class="nxt1-doc-viewer__docx-viewport">
+              <div #docxStyleHost></div>
+              <div #docxHost class="nxt1-doc-viewer__docx-host" [style.zoom]="zoomLevel()"></div>
+            </div>
+            @if (docxRendering()) {
+              <div class="nxt1-doc-viewer__docx-loading" aria-live="polite">
+                <div class="nxt1-doc-viewer__spinner"></div>
+                <span class="nxt1-doc-viewer__loading-text">Rendering document...</span>
+              </div>
+            }
           }
 
           <!-- 2. Presentation 16:9 Stage -->
@@ -442,14 +601,8 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
         border: 0;
         border-radius: 0;
         overflow: hidden;
-      }
-
-      .nxt1-doc-viewer--fullscreen {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        border-radius: 0;
-        border: 0;
+        container-type: inline-size;
+        container-name: nxt1-doc-viewer;
       }
 
       .nxt1-doc-viewer__loading {
@@ -669,10 +822,121 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
         font-size: 12px;
         font-weight: 700;
         cursor: pointer;
+        flex-shrink: 0;
+        white-space: nowrap;
         transition: background 0.15s ease;
       }
 
       .nxt1-doc-viewer__ask-agent-btn:hover {
+        background: color-mix(in srgb, var(--agent-primary) 22%, transparent);
+      }
+
+      @container nxt1-doc-viewer (max-width: 520px) {
+        .nxt1-doc-viewer__ask-agent-btn {
+          padding: 5px 8px;
+        }
+
+        .nxt1-doc-viewer__ask-agent-btn span {
+          display: none;
+        }
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown {
+        min-width: 220px;
+        max-width: 300px;
+        background: color-mix(in srgb, var(--nxt1-color-surface-200, #1e1e1e) 98%, #fff 2%);
+        border: 1px solid
+          color-mix(in srgb, var(--nxt1-color-border-default, #2a2a2a) 85%, transparent);
+        border-radius: 10px;
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-option {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 14px;
+        border: 0;
+        background: transparent;
+        color: var(--nxt1-color-text-primary, #ffffff);
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+        transition: background 0.12s ease;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-option:hover {
+        background: color-mix(in srgb, var(--nxt1-color-surface-200, #1e1e1e) 70%, #fff 6%);
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-check {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border: 1px solid
+          color-mix(in srgb, var(--nxt1-color-border-default, #2a2a2a) 90%, transparent);
+        border-radius: 4px;
+        background: transparent;
+        color: var(--agent-primary);
+        flex-shrink: 0;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-option[aria-checked='true']
+        .nxt1-doc-viewer__ask-agent-dropdown-check {
+        background: color-mix(in srgb, var(--agent-primary) 15%, transparent);
+        border-color: var(--agent-primary);
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-divider {
+        height: 1px;
+        background: color-mix(in srgb, var(--nxt1-color-border-default, #2a2a2a) 60%, transparent);
+        margin: 4px 0;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-list {
+        max-height: 240px;
+        overflow-y: auto;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-footer {
+        padding: 8px;
+        border-top: 1px solid
+          color-mix(in srgb, var(--nxt1-color-border-default, #2a2a2a) 60%, transparent);
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-confirm {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, var(--agent-primary) 40%, transparent);
+        background: color-mix(in srgb, var(--agent-primary) 12%, transparent);
+        color: var(--agent-primary);
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+        transition: background 0.15s ease;
+      }
+
+      .nxt1-doc-viewer__ask-agent-dropdown-confirm:hover {
         background: color-mix(in srgb, var(--agent-primary) 22%, transparent);
       }
 
@@ -704,7 +968,7 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
       }
 
       .nxt1-doc-viewer__canvas-container {
-        transform-origin: top center;
+        transform-origin: center center;
         box-shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
         border-radius: 0;
         background: #ffffff;
@@ -714,6 +978,43 @@ import type { DocumentCellSelection, DocumentViewerMode } from './document-viewe
         display: block;
         max-width: 100%;
         height: auto;
+      }
+
+      /* Word (.docx) native stage */
+      .nxt1-doc-viewer__docx-viewport {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: auto;
+      }
+
+      .nxt1-doc-viewer__docx-host {
+        min-width: min-content;
+      }
+
+      .nxt1-doc-viewer__docx-host ::ng-deep .nxt1-docx-wrapper {
+        background: transparent;
+        padding: 24px 30px 0;
+      }
+
+      .nxt1-doc-viewer__docx-host ::ng-deep .nxt1-docx-wrapper > section.nxt1-docx {
+        color: #111111;
+        border-radius: 0;
+      }
+
+      .nxt1-doc-viewer__docx-host ::ng-deep .nxt1-docx-wrapper a {
+        color: #1a56db;
+      }
+
+      .nxt1-doc-viewer__docx-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary, #0a0a0a) 82%, transparent);
       }
 
       /* Presentation Stage */
@@ -1062,7 +1363,15 @@ export class NxtDocumentViewerComponent implements OnDestroy {
   protected readonly _initialSlide = signal<number>(1);
 
   readonly anchorSelected = output<DocumentPreviewAnchor>();
-  readonly askAgentRequested = output<DocumentPreviewAnchor>();
+  readonly askAgentRequested = output<DocumentAskAgentSelection>();
+
+  protected readonly askAgentMenuPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -6 },
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 6 },
+  ];
+
+  readonly askAgentDropdownOpen = signal<boolean>(false);
+  readonly selectedAskAgentIndices = signal<ReadonlySet<number>>(new Set());
   readonly openOriginalRequested = output<AgentXLibraryFile>();
   readonly downloadRequested = output<AgentXLibraryFile>();
 
@@ -1071,6 +1380,9 @@ export class NxtDocumentViewerComponent implements OnDestroy {
   protected readonly agentLogoPolygon = AGENT_X_LOGO_POLYGON;
 
   protected readonly pdfCanvas = viewChild<ElementRef<HTMLCanvasElement>>('pdfCanvas');
+  private readonly docxViewport = viewChild<ElementRef<HTMLElement>>('docxViewport');
+  private readonly docxHost = viewChild<ElementRef<HTMLElement>>('docxHost');
+  private readonly docxStyleHost = viewChild<ElementRef<HTMLElement>>('docxStyleHost');
 
   // Internal Reactive State
   readonly loading = signal<boolean>(true);
@@ -1088,7 +1400,6 @@ export class NxtDocumentViewerComponent implements OnDestroy {
   readonly zoomLevel = signal<number>(1.0);
   readonly rotation = signal<number>(0);
   readonly speakerNotesOpen = signal<boolean>(false);
-  readonly isFullscreen = signal<boolean>(false);
 
   readonly cellSelection = signal<DocumentCellSelection | null>(null);
   readonly spreadsheetCells = signal<readonly DocumentSpreadsheetCell[]>([]);
@@ -1101,6 +1412,12 @@ export class NxtDocumentViewerComponent implements OnDestroy {
   private pdfjsRuntime: { GlobalWorkerOptions: { workerPort: Worker | null } } | null = null;
   private isRenderingPdfPage = false;
   readonly pdfReady = signal(false);
+
+  private readonly docxPayload = signal<ArrayBuffer | null>(null);
+  readonly docxRendering = signal(false);
+  private docxRenderToken = 0;
+  private docxAutoFitZoom: number | null = null;
+  private docxResizeObserver: ResizeObserver | null = null;
 
   readonly docType = computed<UniversalFileDocumentType>(() => {
     const f = this._file();
@@ -1116,7 +1433,7 @@ export class NxtDocumentViewerComponent implements OnDestroy {
   readonly zoomPercent = computed<number>(() => Math.round(this.zoomLevel() * 100));
 
   readonly canvasTransform = computed<string>(() => {
-    return `scale(${this.zoomLevel()}) rotate(${this.rotation()}deg)`;
+    return `scale(${this.zoomLevel()})`;
   });
 
   readonly currentSlideData = computed<DocumentSlideMetadata | null>(() => {
@@ -1151,7 +1468,15 @@ export class NxtDocumentViewerComponent implements OnDestroy {
       const canvas = this.pdfCanvas();
       const ready = this.pdfReady();
       this.currentPage();
+      this.rotation();
       if (canvas && ready) void this.renderCurrentPdfPage();
+    });
+
+    effect(() => {
+      const host = this.docxHost()?.nativeElement;
+      const styleHost = this.docxStyleHost()?.nativeElement;
+      const data = this.docxPayload();
+      if (host && styleHost && data) void this.renderDocx(data, host, styleHost);
     });
   }
 
@@ -1189,6 +1514,11 @@ export class NxtDocumentViewerComponent implements OnDestroy {
           if (pdfTargetUrl) {
             void this.initPdfViewer(pdfTargetUrl);
           }
+        } else if (session.manifest.documentType === 'word') {
+          const docxTargetUrl = session.manifest.pdfUrl || this.file.url;
+          if (docxTargetUrl) {
+            void this.initDocxViewer(docxTargetUrl);
+          }
         }
 
         this.analytics?.trackEvent(APP_EVENTS.DOCUMENT_PREVIEW_OPENED, {
@@ -1201,6 +1531,9 @@ export class NxtDocumentViewerComponent implements OnDestroy {
         // Direct PDF fallback: existing files with a valid URL can be displayed immediately
         void this.initPdfViewer(this.file.url);
         this.mode.set('preview');
+      } else if (this.docType() === 'word' && this.file.url) {
+        void this.initDocxViewer(this.file.url);
+        this.mode.set('preview');
       } else {
         this.fallbackReason.set(session.reason ?? 'unavailable');
         this.mode.set('fallback');
@@ -1208,6 +1541,9 @@ export class NxtDocumentViewerComponent implements OnDestroy {
     } catch (err) {
       if (this.docType() === 'pdf' && this.file.url) {
         void this.initPdfViewer(this.file.url);
+        this.mode.set('preview');
+      } else if (this.docType() === 'word' && this.file.url) {
+        void this.initDocxViewer(this.file.url);
         this.mode.set('preview');
       } else {
         this.logger.error('Failed to load document preview', err, { fileId });
@@ -1262,7 +1598,165 @@ export class NxtDocumentViewerComponent implements OnDestroy {
     }
   }
 
+  private isDocxFile(): boolean {
+    const f = this._file();
+    return (
+      f.mimeType.toLowerCase().includes('wordprocessingml.document') ||
+      f.name.toLowerCase().endsWith('.docx')
+    );
+  }
+
+  private async initDocxViewer(docxUrl: string): Promise<void> {
+    if (!this.isBrowser) return;
+
+    if (!this.isDocxFile()) {
+      this.fallbackReason.set('unsupported_word_format');
+      this.mode.set('fallback');
+      return;
+    }
+
+    this.docxRenderToken += 1;
+    this.docxPayload.set(null);
+    this.docxRendering.set(true);
+    try {
+      const response = await fetch(docxUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch document (${response.status})`);
+      }
+      const data = await response.arrayBuffer();
+      if (data.byteLength > MAX_DOCX_PREVIEW_BYTES) {
+        this.docxRendering.set(false);
+        this.fallbackReason.set('document_too_large');
+        this.mode.set('fallback');
+        return;
+      }
+      this.docxPayload.set(data);
+    } catch (err) {
+      this.docxRendering.set(false);
+      this.logger.warn('DOCX fetch failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.fallbackReason.set('docx_render_failed');
+      this.mode.set('fallback');
+    }
+  }
+
+  private async renderDocx(
+    data: ArrayBuffer,
+    host: HTMLElement,
+    styleHost: HTMLElement
+  ): Promise<void> {
+    const token = ++this.docxRenderToken;
+    try {
+      const { renderAsync } = await import('docx-preview');
+      if (token !== this.docxRenderToken) return;
+
+      await renderAsync(data, host, styleHost, {
+        className: 'nxt1-docx',
+        inWrapper: true,
+        breakPages: true,
+        ignoreLastRenderedPageBreak: false,
+        // Embedded HTML renders as a same-origin iframe; never allow it for untrusted files.
+        renderAltChunks: false,
+        renderComments: false,
+        renderChanges: false,
+        useBase64URL: true,
+      });
+      if (token !== this.docxRenderToken) return;
+
+      this.sanitizeDocxLinks(host);
+      this.fitDocxToViewport(host);
+      this.docxRendering.set(false);
+    } catch (err) {
+      if (token !== this.docxRenderToken) return;
+      this.docxRendering.set(false);
+      this.logger.warn('DOCX render failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      this.fallbackReason.set('docx_render_failed');
+      this.mode.set('fallback');
+    }
+  }
+
+  private sanitizeDocxLinks(host: HTMLElement): void {
+    for (const anchor of Array.from(host.querySelectorAll('a'))) {
+      const href = anchor.getAttribute('href');
+      if (!href || href.startsWith('#')) continue;
+
+      let protocol = '';
+      try {
+        protocol = new URL(href, 'https://invalid.local').protocol;
+      } catch {
+        // Unparseable hrefs are dropped below.
+      }
+
+      if (!DOCX_SAFE_LINK_PROTOCOLS.has(protocol)) {
+        anchor.removeAttribute('href');
+        continue;
+      }
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener noreferrer');
+    }
+  }
+
+  private fitDocxToViewport(host: HTMLElement): void {
+    const viewport = this.docxViewport()?.nativeElement;
+    const page = host.querySelector<HTMLElement>('section');
+    if (!viewport || !page) return;
+
+    // Page width is declared in pt (96/72 px); avoids reading a CSS-zoomed layout width.
+    const declared = page.style.width;
+    const pageWidthPx = declared.endsWith('pt')
+      ? (parseFloat(declared) * 96) / 72
+      : parseFloat(declared);
+    if (!Number.isFinite(pageWidthPx) || pageWidthPx <= 0) return;
+
+    const fit = (viewport.clientWidth - DOCX_FIT_PADDING_PX) / pageWidthPx;
+    const stepped = Math.floor(fit * 20) / 20;
+    const autoFit = Math.min(1, Math.max(0.5, stepped));
+    this.docxAutoFitZoom = autoFit;
+    if (this.zoomLevel() === (this.docxAutoFitZoom ?? 1.0)) {
+      this.zoomLevel.set(autoFit);
+    }
+
+    this.observeDocxResize(viewport, host);
+  }
+
+  private observeDocxResize(viewport: HTMLElement, host: HTMLElement): void {
+    this.docxResizeObserver?.disconnect();
+    if (typeof ResizeObserver !== 'function') return;
+
+    this.docxResizeObserver = new ResizeObserver(() => {
+      if (this.docType() !== 'word' || this.mode() !== 'preview') return;
+      if (this.docxAutoFitZoom !== null && this.zoomLevel() !== this.docxAutoFitZoom) return;
+      this.refitDocx(host);
+    });
+    this.docxResizeObserver.observe(viewport);
+  }
+
+  private refitDocx(host: HTMLElement): void {
+    const viewport = this.docxViewport()?.nativeElement;
+    const page = host.querySelector<HTMLElement>('section');
+    if (!viewport || !page) return;
+
+    const declared = page.style.width;
+    const pageWidthPx = declared.endsWith('pt')
+      ? (parseFloat(declared) * 96) / 72
+      : parseFloat(declared);
+    if (!Number.isFinite(pageWidthPx) || pageWidthPx <= 0) return;
+
+    const fit = (viewport.clientWidth - DOCX_FIT_PADDING_PX) / pageWidthPx;
+    const stepped = Math.floor(fit * 20) / 20;
+    this.docxAutoFitZoom = Math.min(1, Math.max(0.5, stepped));
+    this.zoomLevel.set(this.docxAutoFitZoom);
+  }
+
   ngOnDestroy(): void {
+    this.docxRenderToken += 1;
+    this.docxResizeObserver?.disconnect();
+    this.docxResizeObserver = null;
+    this.docxAutoFitZoom = null;
+    this.docxPayload.set(null);
     this.pdfReady.set(false);
     void this.pdfLoadingTask?.destroy().catch(() => undefined);
     this.pdfLoadingTask = null;
@@ -1285,7 +1779,10 @@ export class NxtDocumentViewerComponent implements OnDestroy {
     try {
       const pdf = this.pdfDocInstance as {
         getPage(num: number): Promise<{
-          getViewport(options: { scale: number }): { width: number; height: number };
+          getViewport(options: { scale: number; rotation?: number }): {
+            width: number;
+            height: number;
+          };
           render(params: { canvasContext: CanvasRenderingContext2D; viewport: unknown }): {
             promise: Promise<void>;
           };
@@ -1293,7 +1790,7 @@ export class NxtDocumentViewerComponent implements OnDestroy {
       };
 
       const page = await pdf.getPage(this.currentPage());
-      const viewport = page.getViewport({ scale: 1.5 });
+      const viewport = page.getViewport({ scale: 1.5, rotation: this.rotation() });
       const context = canvas.getContext('2d');
       if (!context) return;
 
@@ -1478,20 +1975,150 @@ export class NxtDocumentViewerComponent implements OnDestroy {
     this.rotation.update((r) => (r + 90) % 360);
   }
 
-  protected toggleFullscreen(): void {
-    this.isFullscreen.update((f) => !f);
+  protected askAgentButtonLabel(): string {
+    return 'Ask Agent X';
   }
 
-  protected askAgentButtonLabel(): string {
-    switch (this.docType()) {
-      case 'presentation':
-        return `Ask Agent (Slide ${this.currentSlide()})`;
-      case 'spreadsheet':
-        return 'Ask Agent';
-      case 'pdf':
-      default:
-        return `Ask Agent (Page ${this.currentPage()})`;
+  protected toggleAskAgentDropdown(): void {
+    this.askAgentDropdownOpen.update((open) => !open);
+    if (this.askAgentDropdownOpen() && this.selectedAskAgentIndices().size === 0) {
+      this.prefillCurrentAnchor();
     }
+  }
+
+  protected closeAskAgentDropdown(): void {
+    this.askAgentDropdownOpen.set(false);
+  }
+
+  protected toggleAskAgentIndex(index: number): void {
+    this.selectedAskAgentIndices.update((current) => {
+      const next = new Set(current);
+      if (next.has(index)) {
+        next.delete(index);
+      } else {
+        next.add(index);
+      }
+      return next;
+    });
+  }
+
+  protected toggleAllPages(): void {
+    if (this.isAllPagesSelected()) {
+      this.selectedAskAgentIndices.set(new Set());
+    } else {
+      this.selectedAskAgentIndices.set(new Set(this.pageNumbers()));
+    }
+  }
+
+  protected toggleAllSlides(): void {
+    if (this.isAllSlidesSelected()) {
+      this.selectedAskAgentIndices.set(new Set());
+    } else {
+      this.selectedAskAgentIndices.set(new Set(this.slideNumbers()));
+    }
+  }
+
+  protected isAllPagesSelected(): boolean {
+    return this.totalPages() > 0 && this.selectedAskAgentIndices().size === this.totalPages();
+  }
+
+  protected isAllSlidesSelected(): boolean {
+    return this.totalSlides() > 0 && this.selectedAskAgentIndices().size === this.totalSlides();
+  }
+
+  protected pageNumbers(): readonly number[] {
+    return Array.from({ length: this.totalPages() }, (_, i) => i + 1);
+  }
+
+  protected slideNumbers(): readonly number[] {
+    return Array.from({ length: this.totalSlides() }, (_, i) => i + 1);
+  }
+
+  private prefillCurrentAnchor(): void {
+    if (this.docType() === 'pdf') {
+      this.selectedAskAgentIndices.set(new Set([this.currentPage()]));
+    } else if (this.docType() === 'presentation') {
+      this.selectedAskAgentIndices.set(new Set([this.currentSlide()]));
+    }
+  }
+
+  protected confirmAskAgentSelection(): void {
+    const indices = Array.from(this.selectedAskAgentIndices()).sort((a, b) => a - b);
+    if (indices.length === 0) return;
+
+    const isAllSelected =
+      this.docType() === 'presentation' ? this.isAllSlidesSelected() : this.isAllPagesSelected();
+
+    const f = this.file;
+    const anchors: DocumentPreviewAnchor[] = indices.map((index) => {
+      if (this.docType() === 'presentation') {
+        return {
+          documentFileId: f.id,
+          anchorType: 'slide',
+          slideNumber: index,
+          label: `Slide ${index}`,
+        };
+      }
+      return {
+        documentFileId: f.id,
+        anchorType: 'page',
+        pageNumber: index,
+        label: `Page ${index}`,
+      };
+    });
+
+    this.askAgentRequested.emit({ anchors, isAllSelected });
+    this.closeAskAgentDropdown();
+
+    const anchorType = this.docType() === 'presentation' ? 'slide' : 'page';
+    this.analytics?.trackEvent(APP_EVENTS.DOCUMENT_ASK_AGENT, {
+      document_id: f.id,
+      anchor_type: anchorType,
+      anchor_label:
+        indices.length === 1
+          ? (anchors[0]?.label ?? '')
+          : `${indices.length} ${anchorType === 'slide' ? 'slides' : 'pages'}`,
+      anchor_count: indices.length,
+    });
+  }
+
+  protected confirmAskAgentSheet(): void {
+    const f = this.file;
+    const sheet = this.currentSheet();
+    const anchor: DocumentPreviewAnchor = {
+      documentFileId: f.id,
+      anchorType: 'sheet',
+      sheetId: sheet?.sheetId,
+      sheetName: sheet?.name,
+      label: sheet ? `Sheet: ${sheet.name}` : 'Spreadsheet',
+    };
+    this.askAgentRequested.emit({ anchors: [anchor], isAllSelected: false });
+    this.closeAskAgentDropdown();
+
+    this.analytics?.trackEvent(APP_EVENTS.DOCUMENT_ASK_AGENT, {
+      document_id: f.id,
+      anchor_type: 'sheet',
+      anchor_label: anchor.label ?? '',
+      anchor_count: 1,
+    });
+  }
+
+  protected confirmAskAgentDocument(): void {
+    const f = this.file;
+    const anchor: DocumentPreviewAnchor = {
+      documentFileId: f.id,
+      anchorType: 'document',
+      label: 'Entire document',
+    };
+    this.askAgentRequested.emit({ anchors: [anchor], isAllSelected: true });
+    this.closeAskAgentDropdown();
+
+    this.analytics?.trackEvent(APP_EVENTS.DOCUMENT_ASK_AGENT, {
+      document_id: f.id,
+      anchor_type: 'document',
+      anchor_label: anchor.label ?? '',
+      anchor_count: 1,
+    });
   }
 
   protected onAskAgentForCurrentAnchor(): void {
@@ -1523,12 +2150,13 @@ export class NxtDocumentViewerComponent implements OnDestroy {
       };
     }
 
-    this.askAgentRequested.emit(anchor);
+    this.askAgentRequested.emit({ anchors: [anchor], isAllSelected: false });
 
     this.analytics?.trackEvent(APP_EVENTS.DOCUMENT_ASK_AGENT, {
       document_id: f.id,
       anchor_type: anchor.anchorType,
       anchor_label: anchor.label || '',
+      anchor_count: 1,
     });
   }
 
@@ -1545,12 +2173,13 @@ export class NxtDocumentViewerComponent implements OnDestroy {
       label: sel.rangeA1,
     };
 
-    this.askAgentRequested.emit(anchor);
+    this.askAgentRequested.emit({ anchors: [anchor], isAllSelected: false });
 
     this.analytics?.trackEvent(APP_EVENTS.DOCUMENT_ASK_AGENT, {
       document_id: this.file.id,
       anchor_type: 'cell_range',
       anchor_label: sel.rangeA1,
+      anchor_count: 1,
     });
   }
 
@@ -1588,6 +2217,15 @@ export class NxtDocumentViewerComponent implements OnDestroy {
 
   protected fallbackMessage(): string {
     const reason = this.fallbackReason();
+    if (reason === 'unsupported_word_format') {
+      return 'In-app preview supports modern Word (.docx) files. Download this older format to open it in Word.';
+    }
+    if (reason === 'document_too_large') {
+      return 'This document is too large to preview in the app. Download it to view the full file.';
+    }
+    if (reason === 'docx_render_failed') {
+      return 'This Word document could not be rendered. Download it to open it in Word.';
+    }
     if (reason) {
       return `Document preview is currently unavailable (${reason}). Download or open externally to review.`;
     }

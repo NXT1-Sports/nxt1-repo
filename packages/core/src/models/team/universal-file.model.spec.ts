@@ -164,6 +164,13 @@ describe('document preview type resolution and anchoring', () => {
         rangeA1: 'A1:D20',
       })
     ).toBe('Offense!A1:D20');
+
+    expect(
+      formatDocumentAnchorLabel({
+        documentFileId: 'file-1',
+        anchorType: 'document',
+      })
+    ).toBe('Entire document');
   });
 
   it('constructs well-formed AgentXSelectedContext document anchors', () => {

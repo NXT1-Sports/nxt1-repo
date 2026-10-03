@@ -1636,6 +1636,10 @@ export const DOCUMENT_VIEWER_TEST_IDS = {
   SHEET_TABS: 'document-viewer-sheet-tabs',
   RANGE_STATS: 'document-viewer-range-stats',
   ASK_AGENT_BTN: 'document-viewer-ask-agent-btn',
+  ASK_AGENT_DROPDOWN: 'document-viewer-ask-agent-dropdown',
+  ASK_AGENT_ALL_PAGES: 'document-viewer-ask-agent-all-pages',
+  ASK_AGENT_PAGE_CHECKBOX: 'document-viewer-ask-agent-page-checkbox',
+  ASK_AGENT_CONFIRM: 'document-viewer-ask-agent-confirm',
   OPEN_ORIGINAL_BTN: 'document-viewer-open-original-btn',
   DOWNLOAD_BTN: 'document-viewer-download-btn',
 } as const;
