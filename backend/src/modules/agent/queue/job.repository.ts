@@ -90,9 +90,7 @@ function buildTerminalProgress(params: {
 }
 
 export function ttlFromNow(days: number): FirebaseFirestore.Timestamp {
-  const ttl = new Date();
-  ttl.setDate(ttl.getDate() + days);
-  return Timestamp.fromDate(ttl);
+  return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
 }
 
 export function serializedByteLength(obj: unknown): number {
