@@ -106,11 +106,48 @@ function compareSlidePaths(left: string, right: string): number {
   return leftNumber - rightNumber;
 }
 
-export async function extractPptxDocumentContent(buffer: Buffer): Promise<PptxDocumentContent> {
-  const zip = await JSZip.loadAsync(buffer);
-  const slideXmlPaths = Object.keys(zip.files)
+/**
+ * Slide paths in presentation order (`p:sldIdLst`), which is what PowerPoint shows; slide file
+ * names are not guaranteed to follow it once a deck has been reordered. Falls back to file order.
+ */
+async function resolveOrderedSlidePaths(zip: JSZip): Promise<string[]> {
+  const presentationXml = await zip.file('ppt/presentation.xml')?.async('string');
+  const relationshipsXml = await zip.file('ppt/_rels/presentation.xml.rels')?.async('string');
+  if (presentationXml && relationshipsXml) {
+    const targetsById = new Map<string, string>();
+    for (const match of relationshipsXml.matchAll(/<Relationship\b([^>]+?)\/?>/g)) {
+      const attributes = match[1];
+      if (!/Type="[^"]*\/slide"/i.test(attributes)) continue;
+      const id = attributes.match(/\bId="([^"]+)"/)?.[1];
+      const target = attributes.match(/\bTarget="([^"]+)"/)?.[1];
+      if (!id || !target) continue;
+      targetsById.set(
+        id,
+        target.startsWith('/')
+          ? target.slice(1)
+          : pathPosix.normalize(pathPosix.join('ppt', target))
+      );
+    }
+
+    const ordered: string[] = [];
+    const sldIdList =
+      presentationXml.match(/<p:sldIdLst\b[^>]*>([\s\S]*?)<\/p:sldIdLst>/)?.[1] ?? '';
+    for (const match of sldIdList.matchAll(/<p:sldId\b([^>]*?)\/?>/g)) {
+      const relId = match[1].match(/\br:id="([^"]+)"/)?.[1];
+      const target = relId ? targetsById.get(relId) : undefined;
+      if (target && zip.file(target)) ordered.push(target);
+    }
+    if (ordered.length > 0) return ordered;
+  }
+
+  return Object.keys(zip.files)
     .filter((filePath) => /^ppt\/slides\/slide\d+\.xml$/i.test(filePath))
     .sort(compareSlidePaths);
+}
+
+export async function extractPptxDocumentContent(buffer: Buffer): Promise<PptxDocumentContent> {
+  const zip = await JSZip.loadAsync(buffer);
+  const slideXmlPaths = await resolveOrderedSlidePaths(zip);
 
   const slides: PptxSlideContent[] = [];
 
@@ -121,7 +158,8 @@ export async function extractPptxDocumentContent(buffer: Buffer): Promise<PptxDo
     }
 
     const slideXml = await slideFile.async('string');
-    const slideNumber = Number.parseInt(slideXmlPath.match(/slide(\d+)\.xml$/i)?.[1] ?? '0', 10);
+    // Numbered by position so "slide N" matches what PowerPoint (and the preview) shows.
+    const slideNumber = slides.length + 1;
     const relationshipsPath = pathPosix.join(
       pathPosix.dirname(slideXmlPath),
       '_rels',

@@ -33,6 +33,7 @@ import {
   getUniversalFilmReviewPayload,
   getUniversalPrimaryClassification,
   isUniversalBinaryFilePayload,
+  resolveUniversalFileDocumentType,
   TeamFilmReviewSourceBreakdownPatchError,
   UNIVERSAL_FILES_COLLECTION,
 } from '@nxt1/core';
@@ -93,6 +94,10 @@ import {
   updateFilmReviewDrawing,
 } from '../../services/team/film-review-annotation-sidecar.service.js';
 import { DocumentPreviewService } from '../../modules/document-preview/index.js';
+import {
+  DocumentPreviewRequestError,
+  DocumentPreviewUnavailableError,
+} from '../../modules/document-preview/document-preview.service.js';
 import {
   buildAttachmentContentDisposition,
   ensureFileNameExtension,
@@ -3720,12 +3725,26 @@ router.post('/files/:fileId/preview-sessions', appGuard, async (req: Request, re
       }
     }
 
-    const manifest = await DocumentPreviewService.getPreviewManifest({
-      file: universalFile,
-      fileId,
-      bucket,
-      pdfUrl,
-    });
+    let manifest: Awaited<ReturnType<typeof DocumentPreviewService.getPreviewManifest>>;
+    try {
+      manifest = await DocumentPreviewService.getPreviewManifest({
+        file: universalFile,
+        fileId,
+        bucket,
+        pdfUrl,
+      });
+    } catch (err) {
+      if (!(err instanceof DocumentPreviewUnavailableError)) throw err;
+      res.json({
+        success: true,
+        data: {
+          available: false,
+          reason: err.reason,
+          ...(preview ? { preview } : {}),
+        },
+      });
+      return;
+    }
     const responseManifest = {
       ...manifest,
       documentId: fileId,
@@ -3893,12 +3912,74 @@ router.get(
         fileData
       );
 
+      // Same gating as preview-sessions so the range endpoint can't bypass it.
+      const sessionsEnabled = await getFeatureFlagsService(db).isEnabled(
+        'agent.files.preview.sessions.enabled'
+      );
+      if (!sessionsEnabled) {
+        res.status(403).json({
+          success: false,
+          error: 'Document preview is disabled',
+          reason: 'feature_disabled',
+        });
+        return;
+      }
+      if (
+        universalFile.payloadKind !== 'native' ||
+        !isUniversalBinaryFilePayload(universalFile.payload)
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: 'File is not a spreadsheet', reason: 'unsupported' });
+        return;
+      }
+      if (universalFile.status !== 'ready') {
+        res
+          .status(409)
+          .json({ success: false, error: 'File is not ready', reason: 'source_not_ready' });
+        return;
+      }
+      const rangePayload = getUniversalBinaryFilePayload(universalFile.payload);
+      if (
+        resolveUniversalFileDocumentType(
+          rangePayload?.mimeType,
+          universalFile.title,
+          rangePayload?.kind
+        ) !== 'spreadsheet'
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: 'File is not a spreadsheet', reason: 'unsupported' });
+        return;
+      }
+
+      const parseRangeParam = (name: string): number | undefined | null => {
+        const raw = req.query[name];
+        if (raw === undefined || raw === '') return undefined;
+        if (typeof raw !== 'string' || !/^\d+$/.test(raw.trim())) return null;
+        const parsed = Number(raw.trim());
+        return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null;
+      };
+      const rangeParams = {
+        startRow: parseRangeParam('startRow'),
+        endRow: parseRangeParam('endRow'),
+        startCol: parseRangeParam('startCol'),
+        endCol: parseRangeParam('endCol'),
+      };
+      const invalidParam = Object.entries(rangeParams).find(([, value]) => value === null)?.[0];
+      if (invalidParam) {
+        res
+          .status(400)
+          .json({ success: false, error: `${invalidParam} must be a positive integer` });
+        return;
+      }
+      const { startRow, endRow, startCol, endCol } = rangeParams as Record<
+        keyof typeof rangeParams,
+        number | undefined
+      >;
+
       const bucket = req.firebase!.storage.bucket();
       const sheetId = typeof req.query['sheetId'] === 'string' ? req.query['sheetId'] : undefined;
-      const startRow = req.query['startRow'] ? Number(req.query['startRow']) : undefined;
-      const endRow = req.query['endRow'] ? Number(req.query['endRow']) : undefined;
-      const startCol = req.query['startCol'] ? Number(req.query['startCol']) : undefined;
-      const endCol = req.query['endCol'] ? Number(req.query['endCol']) : undefined;
 
       const rangeData = await DocumentPreviewService.getSpreadsheetRange({
         file: universalFile,
@@ -3912,12 +3993,206 @@ router.get(
 
       res.json({ success: true, data: rangeData });
     } catch (err) {
+      if (err instanceof DocumentPreviewRequestError) {
+        res.status(err.statusCode).json({ success: false, error: err.message });
+        return;
+      }
+      if (err instanceof DocumentPreviewUnavailableError) {
+        res.status(err.reason === 'file_too_large' ? 413 : 422).json({
+          success: false,
+          error: 'Spreadsheet preview is unavailable',
+          reason: err.reason,
+        });
+        return;
+      }
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Failed to get spreadsheet range data', {
         error: error.message,
         stack: error.stack,
       });
-      res.status(500).json({ success: false, error: error.message });
+      res.status(500).json({ success: false, error: 'Failed to get spreadsheet range data' });
+    }
+  }
+);
+
+// Excel's hard limits: 1,048,576 rows, 16,384 columns, width ≤ 255 chars, height ≤ 409 pt.
+const SpreadsheetCellEditsBodySchema = z
+  .object({
+    sheetId: z.string().trim().max(200).optional(),
+    edits: z
+      .array(
+        z.object({
+          row: z.number().int().min(1).max(1_048_576),
+          col: z.number().int().min(1).max(16_384),
+          value: z.string().max(32_767),
+        })
+      )
+      .max(500)
+      .default([]),
+    columnWidths: z
+      .array(
+        z.object({
+          col: z.number().int().min(1).max(16_384),
+          width: z.number().min(0).max(255),
+        })
+      )
+      .max(200)
+      .optional(),
+    rowHeights: z
+      .array(
+        z.object({
+          row: z.number().int().min(1).max(1_048_576),
+          height: z.number().min(0).max(409),
+        })
+      )
+      .max(500)
+      .optional(),
+  })
+  .refine(
+    (body) => body.edits.length > 0 || !!body.columnWidths?.length || !!body.rowHeights?.length,
+    { message: 'Nothing to update' }
+  );
+
+router.patch(
+  '/files/:fileId/preview/spreadsheet-cells',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const fileId = typeof req.params['fileId'] === 'string' ? req.params['fileId'].trim() : '';
+      if (!fileId) {
+        res.status(400).json({ success: false, error: 'fileId is required' });
+        return;
+      }
+
+      const auth = getAuthUser(req);
+      if (!auth) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const parsedBody = SpreadsheetCellEditsBodySchema.safeParse(req.body ?? {});
+      if (!parsedBody.success) {
+        res
+          .status(400)
+          .json({ success: false, error: 'Invalid request body', issues: parsedBody.error.issues });
+        return;
+      }
+
+      const db = req.firebase?.db;
+      if (!db) {
+        res.status(500).json({ success: false, error: 'Firestore unavailable' });
+        return;
+      }
+
+      const fileRef = db.collection(UNIVERSAL_FILES_COLLECTION).doc(fileId);
+      const fileDoc = await fileRef.get();
+      if (!fileDoc.exists) {
+        res.status(404).json({ success: false, error: 'File not found' });
+        return;
+      }
+
+      const fileData = fileDoc.data() as Record<string, unknown>;
+      const teamId = normalizeOptionalString(fileData['teamId']) ?? null;
+      const canWrite = await canWriteAccessControlledRecord({
+        db,
+        authUid: auth.uid,
+        teamId: teamId ?? '',
+        data: fileData,
+        acl: getUniversalFileAcl(fileData),
+        grantedAccessKeys: await resolveGrantedFileAccessKeys(db, auth.uid),
+      });
+      if (!canWrite) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      const sessionsEnabled = await getFeatureFlagsService(db).isEnabled(
+        'agent.files.preview.sessions.enabled'
+      );
+      if (!sessionsEnabled) {
+        res.status(403).json({
+          success: false,
+          error: 'Document preview is disabled',
+          reason: 'feature_disabled',
+        });
+        return;
+      }
+
+      const universalFile = toUniversalFileDoc(fileDoc.id, teamId, fileData);
+      const binaryPayload = getUniversalBinaryFilePayload(universalFile.payload);
+      if (
+        universalFile.payloadKind !== 'native' ||
+        !binaryPayload ||
+        resolveUniversalFileDocumentType(
+          binaryPayload.mimeType,
+          universalFile.title,
+          binaryPayload.kind
+        ) !== 'spreadsheet'
+      ) {
+        res
+          .status(400)
+          .json({ success: false, error: 'File is not a spreadsheet', reason: 'unsupported' });
+        return;
+      }
+      if (universalFile.status !== 'ready') {
+        res
+          .status(409)
+          .json({ success: false, error: 'File is not ready', reason: 'source_not_ready' });
+        return;
+      }
+
+      const { cells, sizeBytes, saved } = await DocumentPreviewService.updateSpreadsheetCells({
+        file: universalFile,
+        bucket: req.firebase!.storage.bucket(),
+        sheetId: parsedBody.data.sheetId,
+        edits: parsedBody.data.edits,
+        columnWidths: parsedBody.data.columnWidths,
+        rowHeights: parsedBody.data.rowHeights,
+      });
+      if (!saved) {
+        res.json({ success: true, data: { cells, updatedAt: universalFile.updatedAt } });
+        return;
+      }
+
+      // Bumping updatedAt also invalidates the cached preview manifest for this file.
+      const updatedAt = new Date().toISOString();
+      const payload = fileData['payload'] as Record<string, unknown> | undefined;
+      const sizeField =
+        payload && typeof payload['asset'] === 'object'
+          ? 'payload.asset.sizeBytes'
+          : 'payload.sizeBytes';
+      await fileRef.update({
+        [sizeField]: sizeBytes,
+        updatedByUserId: auth.uid,
+        updatedAt,
+      });
+
+      const updatedSnapshot = await fileRef.get();
+      scheduleUniversalFileSemanticSync({
+        db,
+        document: toUniversalFileDoc(fileId, teamId, updatedSnapshot.data() ?? { updatedAt }),
+      });
+
+      res.json({ success: true, data: { cells, updatedAt } });
+    } catch (err) {
+      if (err instanceof DocumentPreviewRequestError) {
+        res.status(err.statusCode).json({ success: false, error: err.message });
+        return;
+      }
+      if (err instanceof DocumentPreviewUnavailableError) {
+        res.status(err.reason === 'file_too_large' ? 413 : 422).json({
+          success: false,
+          error: err.message,
+          reason: err.reason,
+        });
+        return;
+      }
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to update spreadsheet cells', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to save spreadsheet changes' });
     }
   }
 );

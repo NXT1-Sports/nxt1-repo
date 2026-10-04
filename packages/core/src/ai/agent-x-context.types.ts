@@ -516,7 +516,12 @@ export function buildDocumentAnchorSelectedContext(options: {
   const label = formatDocumentAnchorLabel(anchor);
   const title = `${file.name} — ${label}`;
 
-  const anchorId = `doc-anchor:${file.id}:${anchor.anchorType}:${anchor.pageNumber ?? anchor.slideNumber ?? anchor.sheetId ?? 'root'}`;
+  // Cell ranges on the same sheet must stay distinct contexts, so the range joins the key.
+  const anchorKey =
+    anchor.pageNumber ??
+    anchor.slideNumber ??
+    (anchor.rangeA1 ? `${anchor.sheetId ?? ''}:${anchor.rangeA1}` : anchor.sheetId);
+  const anchorId = `doc-anchor:${file.id}:${anchor.anchorType}:${anchorKey ?? 'root'}`;
 
   return {
     id: anchorId,
@@ -536,7 +541,7 @@ export function buildDocumentAnchorSelectedContext(options: {
       },
       {
         type: 'team_file_document_anchor',
-        id: `${file.id}:${anchor.anchorType}:${anchor.pageNumber ?? anchor.slideNumber ?? anchor.sheetId ?? '0'}`,
+        id: `${file.id}:${anchor.anchorType}:${anchorKey ?? '0'}`,
         label,
       },
     ],
