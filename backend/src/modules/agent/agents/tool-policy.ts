@@ -3,6 +3,17 @@ import { isToolDisabled } from '../config/agent-app-config.js';
 
 type CoordinatorAgentId = Exclude<AgentIdentifier, 'router'>;
 
+/**
+ * Artifact generators (the output delivery lanes). Semantic tool narrowing must never
+ * drop these: if a coordinator's policy allows them, they are always exposed so the
+ * default lane (`render_html_pdf`) is reachable regardless of embedding scores.
+ */
+export const OUTPUT_ARTIFACT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'render_html_pdf',
+  'dynamic_export',
+  'execute_python_code',
+]);
+
 type ToolPattern = string;
 
 export type ToolCapabilityRiskLevel = 'low' | 'medium' | 'high';

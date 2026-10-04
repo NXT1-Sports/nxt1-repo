@@ -35,7 +35,6 @@ import type {
   AgentJobPayload,
   AgentToolCallRecord,
   AgentJobUpdate,
-  AgentXMessagePart,
   AgentOperationResult,
   AgentYieldState,
   AgentXRichCard,
@@ -572,51 +571,6 @@ function isPrimaryGeneratedFileDeliverableAttachment(
   }
 
   return isGeneratedExportAttachment(attachment) && attachment.type !== 'image';
-}
-
-function buildMissingGeneratedFileLinks(
-  content: string,
-  attachments: readonly AgentXAttachment[]
-): readonly string[] {
-  return attachments
-    .filter((attachment) => isPrimaryGeneratedFileDeliverableAttachment(attachment))
-    .filter((attachment) => {
-      const url = attachment.url?.trim();
-      return !!url && !content.includes(url);
-    })
-    .map(
-      (attachment) => `- [${attachment.name?.trim() || 'Download file'}](${attachment.url.trim()})`
-    );
-}
-
-function appendGeneratedFileLinksToContent(content: string, links: readonly string[]): string {
-  if (links.length === 0) return content;
-  const prefix = content.trim().length > 0 ? `${content}\n\n` : '';
-  return `${prefix}Download:\n${links.join('\n')}`;
-}
-
-function appendGeneratedFileLinksToParts(
-  parts: readonly AgentXMessagePart[],
-  links: readonly string[]
-): readonly AgentXMessagePart[] {
-  if (parts.length === 0 || links.length === 0) return parts;
-
-  const nextParts = [...parts];
-  const linksBlock = `Download:\n${links.join('\n')}`;
-
-  for (let index = nextParts.length - 1; index >= 0; index -= 1) {
-    const part = nextParts[index];
-    if (part.type !== 'text') continue;
-    const prefix = part.content.trimEnd().length > 0 ? `${part.content.trimEnd()}\n\n` : '';
-    nextParts[index] = {
-      type: 'text',
-      content: `${prefix}${linksBlock}`,
-    };
-    return nextParts;
-  }
-
-  nextParts.push({ type: 'text', content: linksBlock });
-  return nextParts;
 }
 
 function inferGeneratedArtifactRelationships(params: {
@@ -4345,15 +4299,13 @@ export class AgentWorker {
     if (threadId && this.chatService) {
       try {
         // Normalize persisted prose: remove model-emitted raw storage/diagrams.net URLs
-        // and then append canonical links from structured tool result data.
+        // and then append canonical image/video embeds from structured tool result data.
         const baseAssistantContent = sanitizeStorageUrlsFromText(persistedAssistantContentForDone, {
           normalizeWhitespace: false,
         })
           .replace(/https:\/\/app\.diagrams\.net\/#R[^\s)\]]+/gi, '')
           .replace(/\n{3,}/g, '\n\n')
           .trim();
-
-        // Ensure generated export/document links are delivered in the same final
 
         if (marketingDeliverables.length > 0 && job.data.environment === 'production') {
           try {
@@ -4395,26 +4347,16 @@ export class AgentWorker {
             }
           );
         }
-        // assistant message even if the LLM forgets to include them in prose.
-        const missingGeneratedFileLinks = buildMissingGeneratedFileLinks(
-          baseAssistantContent,
-          attachmentsFromResultData
-        );
-        const persistedAssistantContentWithDocs = appendGeneratedFileLinksToContent(
-          baseAssistantContent,
-          missingGeneratedFileLinks
-        );
+        // Generated files (PDF/XLSX/DOCX/etc.) are persisted as structured attachments and
+        // surface in the Files panel and preview, so no trailing "Download:" block is
+        // appended to the prose.
         const persistedAssistantContentWithImages = appendGeneratedImageMarkdown(
-          persistedAssistantContentWithDocs,
+          baseAssistantContent,
           attachmentsFromResultData
         );
         const persistedAssistantContentForStorage = appendGeneratedVideoLinks(
           persistedAssistantContentWithImages,
           attachmentsFromResultData
-        );
-        const persistedAssistantPartsForStorage = appendGeneratedFileLinksToParts(
-          persistedStreamSnapshot.parts,
-          missingGeneratedFileLinks
         );
 
         const addMessageParams = {
@@ -4438,8 +4380,8 @@ export class AgentWorker {
           ...(persistedStreamSnapshot.steps.length > 0
             ? { steps: persistedStreamSnapshot.steps }
             : {}),
-          ...(persistedAssistantPartsForStorage.length > 0
-            ? { parts: persistedAssistantPartsForStorage }
+          ...(persistedStreamSnapshot.parts.length > 0
+            ? { parts: persistedStreamSnapshot.parts }
             : {}),
           ...(attachmentsFromResultData.length > 0
             ? { attachments: attachmentsFromResultData }

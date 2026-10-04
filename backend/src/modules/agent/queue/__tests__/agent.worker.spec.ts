@@ -1223,7 +1223,7 @@ describe('AgentWorker', () => {
     );
   });
 
-  it('promotes standalone rendered PDF exports to Files and appends only the deliverable link', async () => {
+  it('promotes standalone rendered PDF exports to Files without appending a download block to the reply', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-standalone-render-html-pdf-123' },
       intent: 'build me a printable self scout pdf',
@@ -1319,15 +1319,18 @@ describe('AgentWorker', () => {
       content: string;
       parts?: Array<{ type: string; content?: string }>;
     };
-    expect(persistedMessage.content).toContain(pdfUrl);
+    expect(persistedMessage.content).toBe('Your self-scout PDF is ready.');
     expect(persistedMessage.content).not.toContain(sourceUrl);
     expect(persistedMessage.parts).toEqual([
-      {
-        type: 'text',
-        content:
-          'Your self-scout PDF is ready.\n\nDownload:\n- [Falcons_Self_Scout.pdf](' + pdfUrl + ')',
-      },
+      { type: 'text', content: 'Your self-scout PDF is ready.' },
     ]);
+    expect(persistedMessage).toEqual(
+      expect.objectContaining({
+        attachments: expect.arrayContaining([
+          expect.objectContaining({ url: pdfUrl, name: 'Falcons_Self_Scout.pdf' }),
+        ]),
+      })
+    );
   });
 
   it('does not append stale older export links when the current rendered PDF is already in the reply', async () => {

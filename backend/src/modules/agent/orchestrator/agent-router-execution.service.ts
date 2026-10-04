@@ -20,7 +20,11 @@ import type { SkillRegistry } from '../skills/skill-registry.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
 import { logger } from '../../../utils/logger.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
-import { isToolAllowedByPatterns, getEffectiveAgentToolPolicy } from '../agents/tool-policy.js';
+import {
+  isToolAllowedByPatterns,
+  getEffectiveAgentToolPolicy,
+  OUTPUT_ARTIFACT_TOOL_NAMES,
+} from '../agents/tool-policy.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 
 export type AgentExecutionMutableTask = Omit<
@@ -821,6 +825,17 @@ export class AgentRouterExecutionService {
                   if (fallbackForcedTool) {
                     finalTools.set(fallbackForcedTool.name, {
                       ...fallbackForcedTool,
+                      semanticScore: SAFETY_BUFFER_THRESHOLD,
+                    });
+                  }
+                }
+
+                // Output lanes are a routing decision, not a semantic one: keep every
+                // policy-allowed artifact generator so render_html_pdf is never dropped.
+                for (const tool of toolDefs) {
+                  if (OUTPUT_ARTIFACT_TOOL_NAMES.has(tool.name) && !finalTools.has(tool.name)) {
+                    finalTools.set(tool.name, {
+                      ...tool,
                       semanticScore: SAFETY_BUFFER_THRESHOLD,
                     });
                   }

@@ -241,8 +241,8 @@ const FILM_REPORT_DELIVERY_OPTIONS: readonly z.infer<typeof askUserOptionSchema>
   },
   {
     id: 'editable_docx',
-    title: 'Editable Word DOCX',
-    description: 'Editable branded document for Word, review, and handoff.',
+    title: 'Word DOCX',
+    description: 'Branded Word document for review and handoff.',
     formatTag: 'DOCX',
     icon: 'document',
   },
@@ -262,7 +262,7 @@ const FILM_REPORT_DELIVERY_OPTIONS: readonly z.infer<typeof askUserOptionSchema>
   },
   {
     id: 'editable_pptx',
-    title: 'Editable PPTX',
+    title: 'PowerPoint PPTX',
     description: 'PowerPoint deck you can revise after export.',
     formatTag: 'PPTX',
     icon: 'slides',
@@ -378,9 +378,18 @@ function normalizeFilmReportDeliveryOptions(
   options: readonly ReturnType<typeof normalizeAskUserOption>[] | undefined
 ): readonly ReturnType<typeof normalizeAskUserOption>[] {
   const incomingById = new Map((options ?? []).map((option) => [option.id, option]));
+  // Canonical title/description/formatTag/icon always win. Merging the LLM's
+  // labels over them let e.g. `gamma_deck` render as a generic "Deck" with a
+  // PPTX tag, which looked like a duplicate of the PPTX option. Only
+  // availability flags may come from the incoming option.
   return FILM_REPORT_DELIVERY_OPTIONS.map((option, index) => {
     const normalized = normalizeAskUserOption(option, index);
-    return { ...normalized, ...(incomingById.get(normalized.id) ?? {}) };
+    const incoming = incomingById.get(normalized.id);
+    return {
+      ...normalized,
+      ...(incoming?.disabled !== undefined ? { disabled: incoming.disabled } : {}),
+      ...(incoming?.disabledReason ? { disabledReason: incoming.disabledReason } : {}),
+    };
   });
 }
 
@@ -536,7 +545,7 @@ export class AskUserTool extends BaseTool {
     '  Then call: ask_user({ question: "Program Intake", steps: [{ id: "focus_area", question: "Which area is your top priority right now?", inputMode: "single_select", options: [{ label: "Game prep & film breakdown", value: "film_prep" }, { label: "Recruiting & target lists", value: "recruiting" }, { label: "Playbook & practice scripts", value: "playbook" }, { label: "Branding & social graphics", value: "graphics" }] }, { id: "biggest_challenge", question: "What is your biggest operational bottleneck?", inputMode: "text", customPlaceholder: "e.g. staff coordination, recruiting outreach..." }] })\n\n' +
     'Example (selection card):\n' +
     '  Assistant message: "I can package this a few ways. Pick the output that fits how you want to use it."\n' +
-    '  Then call: ask_user({ question: "How would you like this delivered?", inputMode: "single_select", allowCustomText: true, options: [{ id: "pdf", title: "Printable PDF", description: "Best for sharing or printing.", formatTag: "PDF" }, { id: "docx", title: "Editable Word DOCX", description: "Editable branded document for Word.", formatTag: "DOCX" }, { id: "gamma_pdf", title: "Gamma PDF", description: "Narrative Gamma-styled PDF with richer layout.", formatTag: "GAMMA" }, { id: "gamma_deck", title: "Gamma Deck", description: "Interactive meeting deck or presentation.", formatTag: "GAMMA" }, { id: "csv", title: "CSV", description: "Flat raw data for import or spreadsheet work.", formatTag: "CSV" }] })\n\n' +
+    '  Then call: ask_user({ question: "How would you like this delivered?", inputMode: "single_select", allowCustomText: true, options: [{ id: "pdf", title: "Printable PDF", description: "Best for sharing or printing.", formatTag: "PDF" }, { id: "docx", title: "Word DOCX", description: "Branded document for Word.", formatTag: "DOCX" }, { id: "gamma_pdf", title: "Gamma PDF", description: "Narrative Gamma-styled PDF with richer layout.", formatTag: "GAMMA" }, { id: "gamma_deck", title: "Gamma Deck", description: "Interactive meeting deck or presentation.", formatTag: "GAMMA" }, { id: "csv", title: "CSV", description: "Flat raw data for import or spreadsheet work.", formatTag: "CSV" }] })\n\n' +
     'Example (normal multiple choice):\n' +
     '  ask_user({ question: "Is the ODK keyed to our team or the opponent?", inputMode: "single_select", options: [{ label: "ODK is keyed to our team (O = our offense, D = our defense)", value: "keyed_to_our_team" }, { label: "ODK is keyed to the opponent (O = opponent offense, D = opponent defense)", value: "keyed_to_opponent" }, { label: "Mixed / selected rows include both teams", value: "mixed" }] })\n\n' +
     'Example (multi-step flow):\n' +

@@ -3772,7 +3772,8 @@ function buildOutputIntentFromAskUserReply(userResponse: string): AgentOutputInt
   }
   if (/\b(?:docx|word document|editable word)\b/.test(normalized)) lanes.add('word_document');
   if (/\bgamma\s+(?:deck|slides?|pptx)\b/.test(normalized)) lanes.add('presentation');
-  if (/\bgamma\s+pdf\b/.test(normalized)) lanes.add('gamma_pdf');
+  // Any other Gamma choice ("Gamma PDF", "Gamma-styled report") is the Gamma PDF lane.
+  if (/\bgamma\b(?!\s+(?:deck|slides?|pptx)\b)/.test(normalized)) lanes.add('gamma_pdf');
   if (/\b(?:pptx|powerpoint|slide deck)\b/.test(normalized)) lanes.add('presentation');
   if (/\b(?:xlsx|excel workbook|spreadsheet workbook)\b/.test(normalized)) lanes.add('xlsx');
   if (/\bcsv\b/.test(normalized)) lanes.add('csv');

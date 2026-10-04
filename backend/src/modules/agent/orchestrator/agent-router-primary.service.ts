@@ -720,16 +720,20 @@ function formatDispatchResult(payload: {
   const coordinatorArtifacts: Record<string, unknown> = {};
   const coordinatorToolCallRecords: AgentToolCallRecord[] = [];
   for (const [, rawResult] of taskResults) {
+    // taskResults holds AgentOperationResult, whose records live on `data`. Without them the
+    // worker only sees the bare artifact handoff (no fileName/mimeType) and indexes the
+    // deliverable as an extensionless "export" that Files cannot preview.
     const r = rawResult as
       | {
           artifacts?: Record<string, unknown>;
+          data?: { toolCallRecords?: readonly AgentToolCallRecord[] };
           result?: { data?: { toolCallRecords?: readonly AgentToolCallRecord[] } };
         }
       | undefined;
     if (r?.artifacts && typeof r.artifacts === 'object') {
       Object.assign(coordinatorArtifacts, r.artifacts);
     }
-    const nestedToolCallRecords = r?.result?.data?.toolCallRecords;
+    const nestedToolCallRecords = r?.data?.toolCallRecords ?? r?.result?.data?.toolCallRecords;
     if (Array.isArray(nestedToolCallRecords)) {
       coordinatorToolCallRecords.push(...nestedToolCallRecords);
     }

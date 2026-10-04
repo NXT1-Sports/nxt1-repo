@@ -66,7 +66,8 @@ describe('AgentRouterFinalizationService', () => {
     });
 
     expect(aggregated.summary).toContain('Deliverables:');
-    expect(aggregated.summary).toContain('https://cdn.example.com/playsheet.pdf');
+    // Documents reach the user as attachments/Files entries, not as listed links.
+    expect(aggregated.summary).not.toContain('https://cdn.example.com/playsheet.pdf');
     expect(aggregated.summary).toContain('https://cdn.example.com/diagram-1.png');
     expect(aggregated.summary).toContain('https://cdn.example.com/diagram-2.png');
     expect(aggregated.summary).toContain('https://cdn.example.com/chart-1.png');
@@ -129,7 +130,7 @@ describe('AgentRouterFinalizationService', () => {
     expect(aggregated.summary).not.toContain('![John Keller - Agent X Analytics]');
   });
 
-  it('replaces malformed multiline file and video links with structured deliverables', () => {
+  it('strips malformed multiline file and video links and lists only media deliverables', () => {
     const { service } = createService();
     const pdfUrl =
       'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/exports/report.pdf?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=pdf';
@@ -158,10 +159,43 @@ describe('AgentRouterFinalizationService', () => {
 
     expect(aggregated.summary).toContain('Files ready.');
     expect(aggregated.summary).toContain('Deliverables:');
-    expect(aggregated.summary).toContain(`[report.pdf](${pdfUrl})`);
+    expect(aggregated.summary).not.toContain(pdfUrl);
     expect(aggregated.summary).toContain(`[▶ clip.mp4](${videoUrl})`);
     expect(aggregated.summary).not.toContain('[Report]');
     expect(aggregated.summary).not.toContain('[View Video]');
+  });
+
+  it('never appends a Deliverables list when every deliverable is a document', () => {
+    const { service } = createService();
+    const exportUrl =
+      'https://api.example.com/api/v1/agent-x/media-proxy/export/Scout%20Report.pdf?path=Users%2Fu%2Fthreads%2Ft%2Fexports%2F1-ab.pdf&mime=application%2Fpdf&exp=1&sig=ab';
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([
+        [
+          'task-1',
+          {
+            summary: 'Your scout report is ready.',
+            data: {
+              downloadUrl: exportUrl,
+              attachments: [
+                { url: exportUrl, name: 'Scout Report.pdf', mimeType: 'application/pdf' },
+              ],
+            },
+          },
+        ],
+      ]),
+      mutableTasks: [],
+      scopedIntent: 'Build a scout report PDF',
+    });
+
+    expect(aggregated.summary).toContain('Your scout report is ready.');
+    expect(aggregated.summary).not.toContain('Deliverables:');
+    expect(aggregated.summary).not.toContain(exportUrl);
   });
 
   it('attaches video thumbnails as poster fragments in deliverable links', () => {

@@ -52,7 +52,7 @@ import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import { isToolAllowedByPatterns } from './tool-policy.js';
-import { getEffectiveAgentToolPolicy } from './tool-policy.js';
+import { getEffectiveAgentToolPolicy, OUTPUT_ARTIFACT_TOOL_NAMES } from './tool-policy.js';
 import {
   containsInternalProtocolMarkup,
   sanitizeAgentOutputText,
@@ -65,6 +65,7 @@ import {
   formatVideoAttachmentLabel,
 } from '../utils/format-prompt-attachments.js';
 import { getAgentExportFormatDisplayName } from '@nxt1/core/ai';
+import { isGeneratedDocumentLink } from '../utils/deliverable-links.js';
 
 const AGENT_X_LAB_LABEL = AGENT_X_WORKSPACE_TERMS.workspaceTitle;
 const AGENT_X_FILES_ALIAS = AGENT_X_WORKSPACE_TERMS.filesAlias;
@@ -472,11 +473,6 @@ const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_
 const EMAIL_CONNECTION_REQUIRED_MESSAGE =
   'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
 const DOCUMENT_URL_REDIRECT_TOOLS = new Set(['scrape_webpage', 'open_live_view']);
-const OUTPUT_ARTIFACT_TOOL_NAMES = new Set([
-  'render_html_pdf',
-  'dynamic_export',
-  'execute_python_code',
-]);
 const documentUrlClassifier = new UrlClassifierService();
 
 interface ToolSessionAttachment {
@@ -536,6 +532,35 @@ function hasPrintablePdfOutputGuard(messages?: readonly LLMMessage[]): boolean {
       message.content.includes('Do not call `dynamic_export`')
     );
   });
+}
+
+const GAMMA_REQUEST_PATTERN = /\bgamma\b/i;
+const GAMMA_REQUEST_USER_TURN_LOOKBACK = 3;
+
+/**
+ * dynamic_export PDFs render through Gamma, so Gamma is opt-in and every other PDF
+ * goes through render_html_pdf. Opt-in only counts what the user actually chose or
+ * typed — a gamma_pdf lane, the raw [Request], or their last few turns — never the
+ * enriched context dump (file names, thread titles, memories).
+ */
+export function isGammaPdfRequested(
+  messages: readonly LLMMessage[],
+  context: AgentSessionContext
+): boolean {
+  if (context.outputIntent?.lanes.includes('gamma_pdf')) return true;
+
+  const requestMarker = '[Request]\n';
+  const typedRequestMentionsGamma = messages.some((message) => {
+    if (message.role !== 'user' || typeof message.content !== 'string') return false;
+    const requestIndex = message.content.lastIndexOf(requestMarker);
+    return requestIndex >= 0 && GAMMA_REQUEST_PATTERN.test(message.content.slice(requestIndex));
+  });
+  if (typedRequestMentionsGamma) return true;
+
+  return (context.conversationHistory ?? [])
+    .filter((message) => message.role === 'user')
+    .slice(-GAMMA_REQUEST_USER_TURN_LOOKBACK)
+    .some((message) => GAMMA_REQUEST_PATTERN.test(message.content));
 }
 
 function isDynamicPdfExportCall(toolName: string, input: Record<string, unknown>): boolean {
@@ -599,6 +624,8 @@ export interface ToolSessionContext {
   readonly appBaseUrl?: string;
   readonly selectedContexts?: readonly AgentXSelectedContext[];
   readonly outputIntent?: AgentOutputIntent;
+  /** True only when the user opted into Gamma; otherwise dynamic_export PDFs are blocked. */
+  readonly gammaPdfRequested?: boolean;
   readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
@@ -1157,7 +1184,8 @@ export abstract class BaseAgent {
       effectiveRouting,
       onStreamEvent,
       approvalGate,
-      requiresComputeFirst
+      requiresComputeFirst,
+      new Set(historyMessages)
     );
   }
 
@@ -1337,13 +1365,13 @@ export abstract class BaseAgent {
       messages.push(outputIntentInstruction);
     }
 
+    // ask_user and prompt_output_selection are resolved by the user's reply itself
+    // (in any shape: free text, options, or multi-step `steps`). Telling the model to
+    // "call the pending tool" for them makes it re-ask questions already answered.
     if (
       yieldState.reason === 'needs_input' &&
       yieldState.pendingToolCall &&
-      !(
-        yieldState.pendingToolCall.toolName === 'ask_user' &&
-        Array.isArray(yieldState.pendingToolCall.toolInput['options'])
-      ) &&
+      yieldState.pendingToolCall.toolName !== 'ask_user' &&
       yieldState.pendingToolCall.toolName !== 'prompt_output_selection'
     ) {
       const pendingToolMessage = this.buildPendingInputResumeMessage(yieldState.pendingToolCall);
@@ -1365,6 +1393,7 @@ export abstract class BaseAgent {
       ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
       ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(context.outputIntent ? { outputIntent: context.outputIntent } : {}),
+      ...(isGammaPdfRequested(messages, context) ? { gammaPdfRequested: true } : {}),
       ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
@@ -1577,8 +1606,16 @@ export abstract class BaseAgent {
     routing: ModelRoutingConfig,
     onStreamEvent?: OnStreamEvent,
     approvalGate?: ApprovalGateService,
-    requiresComputeFirst: boolean = false
+    requiresComputeFirst: boolean = false,
+    priorTurnMessages: ReadonlySet<LLMMessage> = new Set()
   ): Promise<AgentOperationResult> {
+    // Replayed thread history stays in `messages` for LLM context, but its tool results
+    // belong to earlier operations. Result data and tool call records must only reflect
+    // this turn, otherwise prior-turn files get re-attached to the new reply. Pruning
+    // keeps original message objects, so identity filtering stays valid after compaction.
+    const currentTurnMessages = (): LLMMessage[] =>
+      priorTurnMessages.size > 0 ? messages.filter((msg) => !priorTurnMessages.has(msg)) : messages;
+
     // ── ReAct Loop ────────────────────────────────────────────────────────
     const toolExecutionMeta = new Map<
       string,
@@ -1801,7 +1838,7 @@ export abstract class BaseAgent {
         // Extract structured data from all completed tool call observations
         // so callers (e.g. agent-activity.service) can read imageUrl, storagePath, etc.
         const extractedToolData: Record<string, unknown> = {};
-        for (const msg of messages) {
+        for (const msg of currentTurnMessages()) {
           if (msg.role === 'tool' && typeof msg.content === 'string') {
             try {
               const parsed = JSON.parse(msg.content) as Record<string, unknown>;
@@ -1825,7 +1862,10 @@ export abstract class BaseAgent {
         }
 
         // Build persistent tool call records from the conversation history
-        const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
+        const toolCallRecords = this.extractToolCallRecords(
+          currentTurnMessages(),
+          toolExecutionMeta
+        );
 
         // Synthesize a summary from tool observations when the LLM returns empty content
         let summary = sanitizeAgentOutputText(result.content ?? '');
@@ -2081,6 +2121,7 @@ export abstract class BaseAgent {
         ...(context.videoAttachments?.length ? { videoAttachments: context.videoAttachments } : {}),
         ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
         ...(context.outputIntent ? { outputIntent: context.outputIntent } : {}),
+        ...(isGammaPdfRequested(messages, context) ? { gammaPdfRequested: true } : {}),
         ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         ...(this.shouldEnforceExactToolSurface() ? { exactAllowedToolNames } : {}),
@@ -2457,10 +2498,13 @@ export abstract class BaseAgent {
         this.hasSynthesizableCoordinatorDelegationObservation(toolCallsForIteration, messages);
 
       if (shouldExitAfterDelegation || shouldSynthesizeAfterCoordinatorDelegation) {
-        const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
+        const toolCallRecords = this.extractToolCallRecords(
+          currentTurnMessages(),
+          toolExecutionMeta
+        );
         const evidenceTrace = this.buildEvidenceTrace('', toolCallRecords, requiresComputeFirst);
         const extractedToolData: Record<string, unknown> = {};
-        for (const msg of messages) {
+        for (const msg of currentTurnMessages()) {
           if (msg.role === 'tool' && typeof msg.content === 'string') {
             try {
               const parsed = JSON.parse(msg.content) as Record<string, unknown>;
@@ -2534,7 +2578,7 @@ export abstract class BaseAgent {
         reason: circuitBreakerTrippedMessage,
       });
 
-      const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
+      const toolCallRecords = this.extractToolCallRecords(currentTurnMessages(), toolExecutionMeta);
       return {
         summary: sanitizeAgentOutputText(
           `I stopped this operation because a requested action cannot be completed: ${circuitBreakerTrippedMessage}`
@@ -2562,7 +2606,7 @@ export abstract class BaseAgent {
 
     // Exhausted iterations — still extract any tool results that completed successfully
     const extractedToolData: Record<string, unknown> = {};
-    for (const msg of messages) {
+    for (const msg of currentTurnMessages()) {
       if (msg.role === 'tool' && typeof msg.content === 'string') {
         try {
           const parsed = JSON.parse(msg.content) as Record<string, unknown>;
@@ -2580,7 +2624,7 @@ export abstract class BaseAgent {
     for (const entry of artifactLedger) {
       Object.assign(extractedToolData, sanitizeAgentPayload(entry.artifacts));
     }
-    const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
+    const toolCallRecords = this.extractToolCallRecords(currentTurnMessages(), toolExecutionMeta);
     const evidenceTrace = this.buildEvidenceTrace(
       'The agent reached its maximum iteration limit.',
       toolCallRecords,
@@ -3536,10 +3580,15 @@ export abstract class BaseAgent {
   }
 
   private normalizeDeliverableLinks(summary: string, data: Record<string, unknown>): string {
+    // Repair malformed export links the model wrote even when nothing is appended. Only touch
+    // summaries that contain one: cleanup trims, and synthesized summaries rely on a leading
+    // separator after already-streamed content.
+    const cleaned = /media-proxy\/export/i.test(summary)
+      ? this.stripMalformedExportMarkdown(summary)
+      : summary;
     const links = this.collectDeliverableLinks(data);
-    if (links.length === 0) return summary;
+    if (links.length === 0) return cleaned;
 
-    const cleaned = this.stripMalformedExportMarkdown(summary);
     const missingLinks = links.filter((link) => !cleaned.includes(link.url));
     if (missingLinks.length === 0) return cleaned;
 
@@ -3554,9 +3603,11 @@ export abstract class BaseAgent {
     const seen = new Set<string>();
     const links: AgentDeliverableLink[] = [];
 
-    const add = (url: unknown, name?: unknown): void => {
+    const add = (url: unknown, name?: unknown, mimeType?: string): void => {
       if (typeof url !== 'string' || !/^https?:\/\//i.test(url.trim())) return;
       const normalizedUrl = url.trim();
+      // Documents are delivered as attachments + Files entries, never as a trailing link list.
+      if (isGeneratedDocumentLink(normalizedUrl, mimeType)) return;
       if (seen.has(normalizedUrl)) return;
       seen.add(normalizedUrl);
       links.push({
@@ -3578,7 +3629,7 @@ export abstract class BaseAgent {
       const isSourceArtifact = artifactRole === 'source' || /^text\/html/i.test(mimeType);
       for (const key of DELIVERABLE_URL_KEYS) {
         if (key in record && !isSourceArtifact)
-          add(record[key], record['name'] ?? record['fileName']);
+          add(record[key], record['name'] ?? record['fileName'], mimeType);
       }
 
       for (const key of DELIVERABLE_COLLECTION_KEYS) {
@@ -4029,15 +4080,18 @@ export abstract class BaseAgent {
       });
     }
 
-    if (isDynamicPdfExportCall(toolName, input) && hasPrintablePdfOutputGuard(currentMessages)) {
-      logger.warn('[BaseAgent] Blocked dynamic_export PDF for printable PDF output lane', {
+    if (
+      isDynamicPdfExportCall(toolName, input) &&
+      (hasPrintablePdfOutputGuard(currentMessages) || !sessionContext?.gammaPdfRequested)
+    ) {
+      logger.warn('[BaseAgent] Blocked dynamic_export PDF without explicit Gamma opt-in', {
         agentId: this.id,
         operationId: sessionContext?.operationId,
       });
       return JSON.stringify({
         success: false,
         error:
-          'The user selected Printable PDF, so dynamic_export with format "pdf" is the wrong delivery lane.',
+          'dynamic_export with format "pdf" renders through Gamma, which is only used when the user explicitly chooses Gamma. PDFs default to render_html_pdf.',
         errorCode: 'AGENT_WRONG_EXPORT_LANE',
         guidance:
           'Call render_html_pdf with complete HTML/CSS and layoutIntent="best_fit_operational". Do not retry dynamic_export for this printable PDF request.',
