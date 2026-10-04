@@ -10,7 +10,8 @@
       "https://api.nxt1sports.com",
       "http://localhost:4200",
       "http://localhost:3000",
-      "capacitor://localhost"
+      "capacitor://localhost",
+      "https://localhost"
     ],
     "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
     "responseHeader": [
