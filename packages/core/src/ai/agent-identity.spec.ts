@@ -159,6 +159,25 @@ describe('extractMediaAttachmentsFromResultData', () => {
     );
   });
 
+  it('names a bare coordinator downloadUrl handoff from its signed export path', () => {
+    const downloadUrl =
+      'http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/Georgetown%20Scout%20Report.pdf?path=Users%2Fu%2Fthreads%2Ft%2Fexports%2F1-ab.pdf&mime=application%2Fpdf&exp=1&sig=ab';
+    const attachments = extractMediaAttachmentsFromResultData({
+      coordinator_artifacts: {
+        downloadUrl,
+        storagePath: 'Users/u/threads/t/exports/1-ab.pdf',
+      },
+    });
+
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        url: downloadUrl,
+        name: 'Georgetown Scout Report.pdf',
+        mimeType: 'application/pdf',
+      }),
+    ]);
+  });
+
   it('merges export relationship metadata from duplicate attachment URLs', () => {
     const downloadUrl =
       'http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/practice-script.xlsx';

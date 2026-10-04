@@ -12,6 +12,10 @@ import {
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import {
+  buildAttachmentContentDisposition,
+  buildExportFileName,
+} from '../../../../utils/export-multipart-payload.js';
+import {
   BaseTool,
   type ToolExecutionContext,
   type ToolResult,
@@ -29,7 +33,14 @@ const RenderHtmlPdfInputSchema = z.object({
     .describe(
       'Complete HTML document with inline CSS. For exact_match, use print CSS with @page, a fixed-size page/sheet/canvas container, and coordinate/grid positioned elements rather than generic flowing text. For best_fit_operational, normal document flow, tables, flexbox, and grid layouts are allowed as long as the result is still a printable PDF.'
     ),
-  fileName: z.string().trim().min(1).optional(),
+  fileName: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      'Descriptive, human-readable file name for the PDF the user will see in chat and Files, e.g. "Georgetown Opponent Scout Report". Always provide it.'
+    ),
   title: z.string().trim().min(1).optional(),
   pageSize: z.enum(['LETTER', 'LEGAL', 'TABLOID', 'A4']).optional(),
   orientation: z.enum(['portrait', 'landscape']).optional(),
@@ -104,11 +115,13 @@ export class RenderHtmlPdfTool extends BaseTool {
     const pageSize: HtmlPdfPageSize = input.pageSize ?? 'LETTER';
     const orientation: HtmlPdfOrientation = input.orientation ?? 'landscape';
     const artifactGroupId = input.artifactGroupId ?? context?.operationId ?? undefined;
-    const safeName = this.sanitizeFileName(input.fileName ?? input.title ?? 'html-pdf-export');
+    const requestedName = [input.fileName, input.title, this.inferNameFromHtml(input.html)].find(
+      (candidate) => !!candidate && buildExportFileName(candidate, 'pdf', '') !== '.pdf'
+    );
 
     return {
       ...input,
-      fileName: safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`,
+      fileName: buildExportFileName(requestedName ?? 'document', 'pdf', 'document'),
       pageSize,
       orientation,
       artifactGroupId,
@@ -137,7 +150,7 @@ export class RenderHtmlPdfTool extends BaseTool {
     const bucket = this.resolveStorage(context).bucket();
     const file = bucket.file(storagePath);
     const sourceFile = bucket.file(sourceStoragePath);
-    const sourceFileName = input.fileName.replace(/\.pdf$/i, '.html');
+    const sourceFileName = buildExportFileName(input.fileName, 'html', 'document');
 
     context?.emitStage?.('uploading_assets', {
       icon: 'upload',
@@ -152,7 +165,7 @@ export class RenderHtmlPdfTool extends BaseTool {
         validation: false,
         metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
-          contentDisposition: `attachment; filename="${input.fileName}"`,
+          contentDisposition: buildAttachmentContentDisposition(input.fileName),
           metadata: { firebaseStorageDownloadTokens: randomUUID() },
         },
       }),
@@ -162,7 +175,7 @@ export class RenderHtmlPdfTool extends BaseTool {
         validation: false,
         metadata: {
           cacheControl: 'private, max-age=0, no-cache',
-          contentDisposition: `attachment; filename="${sourceFileName}"`,
+          contentDisposition: buildAttachmentContentDisposition(sourceFileName),
           metadata: { firebaseStorageDownloadTokens: randomUUID() },
         },
       }),
@@ -249,13 +262,22 @@ export class RenderHtmlPdfTool extends BaseTool {
     };
   }
 
-  private sanitizeFileName(fileName: string): string {
-    return (
-      fileName
-        .replace(/[^\w\s\-().]/g, '')
-        .replace(/\.{2,}/g, '.')
-        .trim() || 'rendered-layout.pdf'
-    );
+  /** Falls back to the document's own <title> or first <h1> so files never get a generic name. */
+  private inferNameFromHtml(html: string): string | undefined {
+    for (const pattern of [/<title[^>]*>([\s\S]*?)<\/title>/i, /<h1[^>]*>([\s\S]*?)<\/h1>/i]) {
+      const text = pattern
+        .exec(html)?.[1]
+        ?.replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/&#?\w+;/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 100)
+        .trim();
+      if (text) return text;
+    }
+    return undefined;
   }
 
   private resolveStorage(context?: ToolExecutionContext): Storage {

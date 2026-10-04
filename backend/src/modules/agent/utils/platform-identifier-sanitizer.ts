@@ -1,6 +1,12 @@
 const REDACTED_TOKEN = '[redacted]';
 const REDACTED_ROUTE = '[redacted-route]';
 const PRESERVED_PUBLIC_URL_TOKEN = '__NXT1_PUBLIC_URL__';
+const SIGNED_EXPORT_URL_RE = /https?:\/\/[^\s"'<>)\]]+\/media-proxy\/export\/[^\s"'<>)\]]+/gi;
+const SIGNED_EXPORT_MARKDOWN_LINK_RE =
+  /\[[^\]\n]*\]\(https?:\/\/[^\s"'<>)]+\/media-proxy\/export\/[^\s"'<>)]+\)/gi;
+/** Payload keys whose values are user-facing file names or storage locations, not identifiers. */
+const FILE_REFERENCE_KEYS = new Set(['fileName', 'name', 'storagePath']);
+const FILE_LIKE_VALUE_RE = /\.[A-Za-z0-9]{2,5}$/;
 const INTERNAL_PROTOCOL_TAIL_CHARS = 32;
 const INTERNAL_PROTOCOL_MARKERS = [
   '<｜DSML｜',
@@ -131,14 +137,17 @@ function preservePublicAppUrls(value: string): {
   readonly urls: readonly string[];
 } {
   const urls: string[] = [];
-  const text = value.replace(
-    /https?:\/\/[^\s"')\]]+\/(?:profile|team)\/[A-Za-z0-9/_-]+/gi,
-    (match) => {
-      const token = `${PRESERVED_PUBLIC_URL_TOKEN}${urls.length}__`;
-      urls.push(match);
-      return token;
-    }
-  );
+  const preserve = (match: string): string => {
+    const token = `${PRESERVED_PUBLIC_URL_TOKEN}${urls.length}__`;
+    urls.push(match);
+    return token;
+  };
+  const text = value
+    // Signed export links (and their markdown labels) are HMAC-bound to the exact file name;
+    // redacting "team-roster.pdf" -> "[redacted].pdf" would 403 the download.
+    .replace(SIGNED_EXPORT_MARKDOWN_LINK_RE, preserve)
+    .replace(SIGNED_EXPORT_URL_RE, preserve)
+    .replace(/https?:\/\/[^\s"')\]]+\/(?:profile|team)\/[A-Za-z0-9/_-]+/gi, preserve);
 
   return { text, urls };
 }
@@ -272,9 +281,14 @@ export function sanitizeAgentOutputText(value: string): string {
   );
 }
 
+function sanitizePayloadString(value: string): string {
+  const preserved = preservePublicAppUrls(value);
+  return restorePreservedPublicAppUrls(sanitizeStringInternal(preserved.text), preserved.urls);
+}
+
 export function sanitizeAgentPayload<T>(value: T): T {
   if (typeof value === 'string') {
-    return sanitizeStringInternal(value) as T;
+    return sanitizePayloadString(value) as T;
   }
 
   if (Array.isArray(value)) {
@@ -286,7 +300,13 @@ export function sanitizeAgentPayload<T>(value: T): T {
       .filter(([key]) => !isSensitiveKey(key))
       // Strip undefined values — Firestore rejects `undefined` at any nesting level.
       .filter(([, val]) => val !== undefined)
-      .map(([key, entry]) => [key, sanitizeAgentPayload(entry)]);
+      .map(([key, entry]) => [
+        key,
+        // File names/paths ("team-roster.pdf") must reach storage and the UI unchanged.
+        FILE_REFERENCE_KEYS.has(key) && typeof entry === 'string' && FILE_LIKE_VALUE_RE.test(entry)
+          ? entry
+          : sanitizeAgentPayload(entry),
+      ]);
     return Object.fromEntries(sanitizedEntries) as T;
   }
 

@@ -98,6 +98,29 @@ describe('team files index service', () => {
     expect(payload.payload.kind).toBe('pdf');
   });
 
+  it('recovers mime type and kind from the extension when an export lost its mime type', async () => {
+    const { db, set } = createMockDb();
+
+    await upsertTeamFileFromAttachment({
+      db,
+      userId: 'user-1',
+      origin: 'agent_chat_output',
+      attachment: {
+        id: 'attachment-export',
+        url: 'https://api.example.com/agent-x/media-proxy/export/Scout%20Report.pdf',
+        storagePath: 'Users/user-1/threads/t/exports/1-ab.pdf',
+        name: 'Scout Report.pdf',
+        mimeType: 'application/octet-stream',
+        type: 'doc',
+        sizeBytes: 2048,
+      },
+    });
+
+    const payload = set.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload.payload.mimeType).toBe('application/pdf');
+    expect(payload.payload.kind).toBe('pdf');
+  });
+
   it('classifies uploaded PowerPoint decks as pptx files in Universal Files', async () => {
     const { db, set } = createMockDb();
 

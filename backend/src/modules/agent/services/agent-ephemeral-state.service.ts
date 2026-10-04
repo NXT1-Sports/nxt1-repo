@@ -132,14 +132,14 @@ export class AgentEphemeralStateService {
   }
 
   private static normalizeExportDownloadFileName(fileName: string): string {
-    const withoutControlChars = Array.from(fileName.trim())
+    const withoutControlChars = Array.from(fileName)
       .filter((char) => {
         const codePoint = char.codePointAt(0) ?? 0;
         return !((codePoint >= 0x00 && codePoint <= 0x1f) || codePoint === 0x7f);
       })
       .join('');
 
-    return withoutControlChars.replace(/[\\/]+/g, '-') || 'download';
+    return withoutControlChars.replace(/[\\/]+/g, '-').trim() || 'download';
   }
 
   private static async setUploadRecord(

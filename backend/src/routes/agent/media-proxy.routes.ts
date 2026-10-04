@@ -3,22 +3,24 @@ import path from 'node:path';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../../utils/logger.js';
-import { tryExtractMultipartExportPayload } from '../../utils/export-multipart-payload.js';
+import {
+  buildAttachmentContentDisposition,
+  tryExtractMultipartExportPayload,
+} from '../../utils/export-multipart-payload.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 
 export { tryExtractMultipartExportPayload };
 
 const router = Router();
 
-function buildContentDisposition(
-  fileName: string,
-  mode: 'attachment' | 'inline' = 'attachment'
-): string {
-  const encoded = encodeURIComponent(fileName).replace(
-    /[!'()*]/g,
-    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+function isInlineSafeMimeType(mimeType: string): boolean {
+  const normalized = mimeType.trim().toLowerCase();
+  return (
+    normalized === 'application/pdf' ||
+    (normalized.startsWith('image/') && normalized !== 'image/svg+xml') ||
+    normalized.startsWith('video/') ||
+    normalized.startsWith('audio/')
   );
-  return `${mode}; filename="${fileName}"; filename*=UTF-8''${encoded}`;
 }
 
 function normalizeExportRequestFileName(params: {
@@ -49,7 +51,10 @@ async function serveSignedExportDownload(req: Request, res: Response, requestPat
   } = req.query;
   const storagePath = typeof storagePathRaw === 'string' ? storagePathRaw.trim() : '';
   const mimeType = typeof mimeTypeRaw === 'string' ? mimeTypeRaw.trim() : '';
-  const disposition = dispositionRaw === 'inline' ? 'inline' : 'attachment';
+  // `disposition` is not covered by the signature, so only passive types may render inline.
+  // Inline HTML/SVG would execute agent-written markup on the API origin.
+  const disposition =
+    dispositionRaw === 'inline' && isInlineSafeMimeType(mimeType) ? 'inline' : 'attachment';
 
   if (!storagePath || !mimeType) {
     res.status(400).json({ success: false, error: 'Missing export download parameters' });
@@ -92,7 +97,8 @@ async function serveSignedExportDownload(req: Request, res: Response, requestPat
   }
 
   res.setHeader('Content-Type', mimeType);
-  res.setHeader('Content-Disposition', buildContentDisposition(fileName, disposition));
+  res.setHeader('Content-Disposition', buildAttachmentContentDisposition(fileName, disposition));
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'private, no-store, max-age=0');
 
   // Helmet's global middleware sets `X-Frame-Options: SAMEORIGIN` and
