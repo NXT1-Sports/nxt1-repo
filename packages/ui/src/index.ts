@@ -971,6 +971,14 @@ export {
   type DownloadZipResult,
 } from './services/archive';
 
+export {
+  NxtFileSaveService,
+  blobToBase64,
+  downloadBlobInBrowser,
+  type FileSaveOutcome,
+  type SaveBlobOptions,
+} from './services/file-save';
+
 // ============================================
 // INFRASTRUCTURE - Error Handling
 // ============================================

@@ -702,6 +702,42 @@ describe('AgentXOperationChatComponent composer reply routing', () => {
     expect(component.isAwaitingComposerReply()).toBe(true);
   });
 
+  it('treats pending output-selection cards as composer-reply targets so the composer stays usable', () => {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as PendingComposerReplyHelper;
+
+    const outputSelectionMessage: OperationMessage = {
+      id: 'output-selection-msg-1',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-10-03T12:00:00.000Z'),
+      operationId: 'op-film-delivery',
+      yieldState: {
+        reason: 'needs_input',
+        promptToUser: 'How should I deliver the report?',
+        pendingToolCall: {
+          toolName: 'ask_user',
+          toolInput: {
+            question: 'How should I deliver the report?',
+            options: [{ id: 'gamma_deck', title: 'Gamma Deck', formatTag: 'GAMMA' }],
+          },
+        },
+      },
+    };
+
+    component.messages = () => [outputSelectionMessage];
+    component.activeYieldState = signal(null);
+    component.yieldResolved = signal(false);
+
+    expect(component.pendingComposerReplyTarget()).toEqual({
+      kind: 'ask_user',
+      messageId: 'output-selection-msg-1',
+      operationId: 'op-film-delivery',
+    });
+    expect(component.isAwaitingComposerReply()).toBe(true);
+  });
+
   it('does not treat expired active approval yields as composer-reply targets', () => {
     const component = Object.create(
       AgentXOperationChatComponent.prototype
@@ -1013,5 +1049,66 @@ describe('shouldShowApprovedExecutionPlanDockFromMessages', () => {
     ];
 
     expect(shouldShowApprovedExecutionPlanDockFromMessages(messages)).toBe(false);
+  });
+});
+
+type DocumentRoutingHelper = {
+  openDocumentsInPanel: boolean;
+  documentPreviewSheet: { shouldUseSheet: () => boolean; open: (url: string) => Promise<void> };
+  documentRequested: { emit: (url: string) => void };
+  routesDocuments(): boolean;
+  routeDocument(url: string): boolean;
+};
+
+describe('AgentXOperationChatComponent document routing', () => {
+  const url = 'https://api.nxt1sports.com/agent-x/media-proxy/export/report.pdf?sig=abc';
+
+  function createHelper(options: { useSheet: boolean; openDocumentsInPanel: boolean }) {
+    const component = Object.create(
+      AgentXOperationChatComponent.prototype
+    ) as DocumentRoutingHelper;
+    const open = vi.fn(async () => undefined);
+    const emit = vi.fn();
+    component.openDocumentsInPanel = options.openDocumentsInPanel;
+    component.documentPreviewSheet = { shouldUseSheet: () => options.useSheet, open };
+    component.documentRequested = { emit };
+    return { component, open, emit };
+  }
+
+  it('opens the preview sheet on native / phone width, even inside the desktop web shell', () => {
+    const { component, open, emit } = createHelper({ useSheet: true, openDocumentsInPanel: true });
+
+    expect(component.routesDocuments()).toBe(true);
+    expect(component.routeDocument(url)).toBe(true);
+    expect(open).toHaveBeenCalledWith(url);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('intercepts documents on mobile hosts that never enable the Files panel', () => {
+    const { component, open } = createHelper({ useSheet: true, openDocumentsInPanel: false });
+
+    expect(component.routesDocuments()).toBe(true);
+    expect(component.routeDocument(url)).toBe(true);
+    expect(open).toHaveBeenCalledWith(url);
+  });
+
+  it('hands documents to the desktop Files panel host', () => {
+    const { component, open, emit } = createHelper({ useSheet: false, openDocumentsInPanel: true });
+
+    expect(component.routeDocument(url)).toBe(true);
+    expect(emit).toHaveBeenCalledWith(url);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('leaves documents unhandled when no preview surface applies', () => {
+    const { component, open, emit } = createHelper({
+      useSheet: false,
+      openDocumentsInPanel: false,
+    });
+
+    expect(component.routesDocuments()).toBe(false);
+    expect(component.routeDocument(url)).toBe(false);
+    expect(open).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
   });
 });

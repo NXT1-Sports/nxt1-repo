@@ -1630,8 +1630,6 @@ export const DOCUMENT_VIEWER_TEST_IDS = {
   THUMBNAILS_TOGGLE: 'document-viewer-thumbnails-toggle',
   SLIDE_STAGE: 'document-viewer-slide-stage',
   SLIDE_THUMB_STRIP: 'document-viewer-slide-thumb-strip',
-  SPEAKER_NOTES_DRAWER: 'document-viewer-speaker-notes-drawer',
-  SPEAKER_NOTES_TOGGLE: 'document-viewer-speaker-notes-toggle',
   GRID_CONTAINER: 'document-viewer-grid-container',
   SHEET_TABS: 'document-viewer-sheet-tabs',
   RANGE_STATS: 'document-viewer-range-stats',

@@ -86,6 +86,7 @@ type FilesPanelTestAccess = {
   canManageFileSharing: (file: AgentXLibraryFile) => boolean;
   canManageFolderSharing: (folder: AgentXLibraryFolderTreeNode) => boolean;
   openFile: (file: AgentXLibraryFile) => Promise<void>;
+  openDeliverable: (url: string) => Promise<boolean>;
   buildFileDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext;
   buildFileSummaryDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
   buildFileNotesDragContext: (file: AgentXLibraryFile) => AgentXSelectedContext | null;
@@ -178,6 +179,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
   const shareFile = vi.fn<AgentXFilesService['shareFile']>();
   const shareFolder = vi.fn<AgentXFilesService['shareFolder']>();
   const refreshFile = vi.fn<AgentXFilesService['refreshFile']>();
+  const resolveDeliverable = vi.fn<AgentXFilesService['resolveDeliverable']>();
   const downloadFileContent = vi.fn<AgentXFilesService['downloadFileContent']>();
   const updateFileTextContent = vi.fn<AgentXFilesService['updateFileTextContent']>();
   const getLinkedFilmReviewId = vi.fn<AgentXFilesService['getLinkedFilmReviewId']>();
@@ -421,6 +423,7 @@ describe('AgentXFilesPanelInnerComponent', () => {
             shareFile,
             shareFolder,
             refreshFile,
+            resolveDeliverable,
             downloadFileContent,
             updateFileTextContent,
             getLinkedFilmReviewId,
@@ -2564,6 +2567,69 @@ describe('AgentXFilesPanelInnerComponent', () => {
     expect(askAgentPromptSpy).toHaveBeenCalledWith(
       expect.stringContaining('Review Page 7 in "Spring Playbook.pdf"')
     );
+  });
+
+  it('reports non-previewable chat deliverables so the shell can fall back to download', async () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const openFileSpy = vi.spyOn(componentAccess, 'openFile').mockResolvedValue();
+
+    resolveDeliverable.mockResolvedValueOnce({
+      ...file,
+      id: 'zip-1',
+      name: 'export',
+      kind: 'doc',
+      mimeType: 'application/octet-stream',
+    } as AgentXLibraryFile);
+    await expect(componentAccess.openDeliverable('https://example.com/x')).resolves.toBe(false);
+    expect(openFileSpy).not.toHaveBeenCalled();
+
+    const pdf = {
+      ...file,
+      id: 'pdf-1',
+      name: 'Scout Report.pdf',
+      kind: 'pdf',
+      mimeType: 'application/pdf',
+    } as AgentXLibraryFile;
+    resolveDeliverable.mockResolvedValueOnce(pdf);
+    await expect(componentAccess.openDeliverable('https://example.com/y')).resolves.toBe(true);
+    expect(openFileSpy).toHaveBeenCalledWith(pdf);
+
+    // Clicking the same link while that file is already on screen must not reload it.
+    openFileSpy.mockClear();
+    (componentAccess.viewerMode as WritableSignal<'library' | 'video' | 'generic'>).set('generic');
+    selectedFileIdState.set('pdf-1');
+    resolveDeliverable.mockResolvedValueOnce(pdf);
+    await expect(componentAccess.openDeliverable('https://example.com/y')).resolves.toBe(true);
+    expect(openFileSpy).not.toHaveBeenCalled();
+  });
+
+  it('omits generated SVG list thumbnails from document anchor context (backend rejects them)', () => {
+    const component = TestBed.runInInjectionContext(() => new AgentXFilesPanelInnerComponent());
+    const componentAccess = component as unknown as FilesPanelTestAccess;
+    const agentXService = TestBed.inject(AgentXService);
+
+    const docxFile = {
+      ...file,
+      id: 'docx-file-1',
+      name: 'test-docx.docx',
+      kind: 'doc',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    } as AgentXLibraryFile;
+    expect(componentAccess.thumbnailUrlForListItem(docxFile)).toMatch(/^data:image\/svg\+xml/);
+
+    componentAccess.onDocumentAskAgentRequested(
+      {
+        anchors: [
+          { documentFileId: 'docx-file-1', anchorType: 'document', label: 'Entire document' },
+        ],
+        isAllSelected: true,
+      },
+      docxFile
+    );
+
+    const [contexts] = vi.mocked(agentXService.queueSelectedContexts).mock.calls.at(-1)!;
+    expect(contexts[0]).not.toHaveProperty('media');
   });
 
   it('uses a concise "entire document" prompt when all pages are selected', () => {

@@ -41,7 +41,7 @@ import {
               />
               <path
                 d="M8 3.5C8 5.7 10.3 8 12.5 8C10.3 8 8 10.3 8 12.5C8 10.3 5.7 8 3.5 8C5.7 8 8 5.7 8 3.5Z"
-                fill="#ffffff"
+                class="tool-sparkle-icon__core"
               />
             </svg>
           } @else if (allFailed()) {
@@ -210,7 +210,7 @@ import {
                         />
                         <path
                           d="M8 3.5C8 5.7 10.3 8 12.5 8C10.3 8 8 10.3 8 12.5C8 10.3 5.7 8 3.5 8C5.7 8 8 5.7 8 3.5Z"
-                          fill="#ffffff"
+                          class="tool-sparkle-icon__core"
                         />
                       </svg>
                     }
@@ -319,7 +319,7 @@ import {
                             />
                             <path
                               d="M8 3.5C8 5.7 10.3 8 12.5 8C10.3 8 8 10.3 8 12.5C8 10.3 5.7 8 3.5 8C5.7 8 8 5.7 8 3.5Z"
-                              fill="#ffffff"
+                              class="tool-sparkle-icon__core"
                             />
                           </svg>
                         }
@@ -447,7 +447,7 @@ import {
         flex-direction: column;
         gap: 4px;
         padding: 6px 0 2px 20px;
-        border-left: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        border-left: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
         margin-left: 7px;
         animation: stepsReveal 0.2s ease-out;
       }
@@ -473,7 +473,7 @@ import {
         -webkit-mask-size: 100% 100%;
         mask-size: 100% 100%;
         scrollbar-width: thin;
-        scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+        scrollbar-color: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.22)) transparent;
       }
 
       .tool-steps__list--scrollable::-webkit-scrollbar {
@@ -481,12 +481,12 @@ import {
       }
 
       .tool-steps__list--scrollable::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
+        background: var(--nxt1-color-border-default, rgba(255, 255, 255, 0.2));
         border-radius: 999px;
       }
 
       .tool-steps__list--scrollable::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.3);
+        background: var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.3));
       }
 
       .tool-step {
@@ -546,16 +546,28 @@ import {
         animation: toolSparkleSpin 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
 
+      .tool-sparkle-icon__core {
+        fill: var(--nxt1-color-text-primary, #ffffff);
+      }
+
       /* ── Shimmer: sweeping highlight across active text ── */
 
       .tool-shimmer {
+        /* Base blends brand primary toward the theme's text color so it stays
+           legible on light and dark surfaces; highlight sweeps in text-primary. */
+        --tool-shimmer-base: color-mix(
+          in srgb,
+          var(--nxt1-color-primary, #ccff00) 70%,
+          var(--nxt1-color-text-primary, #ffffff)
+        );
+        --tool-shimmer-highlight: var(--nxt1-color-text-primary, #ffffff);
         background-image: linear-gradient(
           100deg,
-          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 55%, transparent) 0%,
-          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 55%, transparent) 42%,
-          #ffffff 50%,
-          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 55%, transparent) 58%,
-          color-mix(in srgb, var(--nxt1-color-primary, #ccff00) 55%, transparent) 100%
+          var(--tool-shimmer-base) 0%,
+          var(--tool-shimmer-base) 42%,
+          var(--tool-shimmer-highlight) 50%,
+          var(--tool-shimmer-base) 58%,
+          var(--tool-shimmer-base) 100%
         );
         background-size: 200% 100%;
         background-repeat: repeat-x;
@@ -580,7 +592,7 @@ import {
         height: 16px;
         border-radius: 4px;
         object-fit: contain;
-        background: rgba(255, 255, 255, 0.92);
+        background: var(--nxt1-color-neutral-light-0, #ffffff);
         padding: 1px;
       }
 
@@ -606,7 +618,7 @@ import {
         align-items: center;
         justify-content: center;
         border-radius: 50%;
-        color: #fff;
+        color: var(--nxt1-color-neutral-light-0, #ffffff);
         animation: stepCheckIn 0.3s ease-out;
       }
 
@@ -758,7 +770,7 @@ import {
           background-image: none;
           background-clip: border-box;
           -webkit-background-clip: border-box;
-          color: var(--nxt1-color-primary, #ccff00);
+          color: var(--tool-shimmer-base);
           -webkit-text-fill-color: currentColor;
         }
 

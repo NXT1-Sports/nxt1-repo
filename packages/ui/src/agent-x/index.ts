@@ -76,6 +76,11 @@ export {
 export { AgentXDashboardSkeletonComponent } from './components/shared/agent-x-dashboard-skeleton.component';
 export { AgentXDiagramsPanelComponent } from './components/shared/agent-x-diagrams-panel.component';
 export { AgentXFilesPanelComponent } from './components/shared/agent-x-files-panel-shell.component';
+export {
+  AgentXDocumentPreviewSheetComponent,
+  AGENT_X_DOCUMENT_PREVIEW_SHEET_TEST_IDS,
+} from './components/shared/agent-x-document-preview-sheet.component';
+export { AgentXDocumentPreviewSheetService } from './services/agent-x-document-preview-sheet.service';
 export { AgentXFilmReviewPanelComponent } from './components/shared/agent-x-film-review-panel.component';
 export { AgentXShareMemberPickerComponent } from './components/shared/agent-x-share-member-picker.component';
 export { AgentXControlPanelComponent } from './components/shell/agent-x-control-panel.component';

@@ -134,6 +134,7 @@ import {
 import { AgentXFilmReviewService } from '../services/agent-x-film-review.service';
 import type { AgentXLibraryFile } from '../services/agent-x-files.service';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
+import { openDeliverableFallback } from '../utils/document-file.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
 /**
@@ -6180,13 +6181,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       if (!panel?.isReady()) return;
       untracked(() => {
         this.pendingDocumentUrl.set(null);
-        void panel.openDeliverable(url).catch((error: unknown) => {
-          // Signed download URLs contain credentials; never include them in logs.
-          this.logger.error('Failed to open Agent X document in Files');
-          this.toast.error(
-            error instanceof Error ? error.message : 'Failed to open document in Files'
-          );
-        });
+        // Any preview failure (not indexed yet, no inline preview, load error) falls back to the
+        // plain download the link performed before in-panel previews existed.
+        void panel
+          .openDeliverable(url)
+          .then((opened) => {
+            if (!opened) this.downloadDeliverableFallback(url);
+          })
+          .catch(() => {
+            // Signed download URLs contain credentials; never include them in logs.
+            this.logger.warn('Agent X document preview failed; falling back to download');
+            this.downloadDeliverableFallback(url);
+          });
       });
     });
 
@@ -7315,8 +7321,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   protected async onDocumentRequested(url: string): Promise<void> {
-    await this.openFilesPanelFromUpload({ preserveChat: true });
+    try {
+      // Re-running the open flow would reset the user's panel width and sibling panels, but
+      // Files only renders while no expanded side panel covers it.
+      if (!this.showFilesModal() || this.expandedSidePanel()) {
+        await this.openFilesPanelFromUpload({ preserveChat: true });
+      }
+    } catch {
+      this.downloadDeliverableFallback(url);
+      return;
+    }
     this.pendingDocumentUrl.set(url);
+  }
+
+  private downloadDeliverableFallback(url: string): void {
+    openDeliverableFallback(url, this.browser);
   }
 
   protected async onFilmTimestampSeekRequested(request: FilmTimestampSeekRequest): Promise<void> {

@@ -149,3 +149,11 @@ export {
   type DownloadZipOptions,
   type DownloadZipResult,
 } from './archive';
+
+export {
+  NxtFileSaveService,
+  blobToBase64,
+  downloadBlobInBrowser,
+  type FileSaveOutcome,
+  type SaveBlobOptions,
+} from './file-save';

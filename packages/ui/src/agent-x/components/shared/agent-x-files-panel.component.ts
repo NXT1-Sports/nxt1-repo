@@ -29,7 +29,6 @@ import {
   type TeamFileFolderDoc,
   type TeamFilmReviewDoc,
   type TeamFilmReviewSourceVideo,
-  isDocumentPreviewSupported,
   formatDocumentAnchorLabel,
   type DocumentPreviewAnchor,
 } from '@nxt1/core';
@@ -101,6 +100,13 @@ import {
 import { AgentXJobService, isEnqueueFailure } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
 import { createInlineVideoThumbnail } from '../../utils/video-thumbnail.util';
+import {
+  isDocumentPreviewableFile,
+  isPdfDocumentFile,
+  isPresentationDocumentFile,
+  isSpreadsheetDocumentFile,
+  resolveDownloadFileName,
+} from '../../utils/document-file.utils';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 
@@ -269,6 +275,9 @@ type DataTransferItemWithWebKitEntry = DataTransferItem & {
   webkitGetAsEntry?: () => WebKitFileSystemEntry | null;
 };
 
+/** Mirrors the backend's ATTACHMENT_THUMBNAIL_URL_RE (backend/src/dtos/agent-x.dto.ts). */
+const SENDABLE_CONTEXT_THUMBNAIL_URL_RE =
+  /^(https:\/\/\S+|data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=]+)$/i;
 const FILES_PANEL_FILE_TAB_PREFIX = 'file:';
 const FILES_PANEL_REVIEW_TAB_PREFIX = 'review:';
 const TEAM_FILES_UNASSIGNED_FOLDER_ID = 'team-files-unassigned-folder';
@@ -8293,9 +8302,34 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     await this.transitionToFilmReview(viewerFile.id, matchedReviewId, teamId);
   }
 
-  public async openDeliverable(url: string): Promise<void> {
-    const file = await this.filesService.resolveDeliverable(url);
-    await this.openFile(file);
+  private deliverableRequestSeq = 0;
+
+  /**
+   * Opens a chat deliverable in the preview. Resolves `false` without opening a tab when the
+   * file has no inline preview, so the caller can fall back to a plain download.
+   */
+  public async openDeliverable(url: string): Promise<boolean> {
+    // Rapid clicks: only the most recent request may open a tab (a slow, uncached lookup must
+    // not replace a newer selection). Superseded requests report handled so nothing downloads.
+    const requestSeq = ++this.deliverableRequestSeq;
+    let file: AgentXLibraryFile;
+    try {
+      file = await this.filesService.resolveDeliverable(url);
+    } catch (error) {
+      if (requestSeq !== this.deliverableRequestSeq) return true;
+      throw error;
+    }
+    if (requestSeq !== this.deliverableRequestSeq) return true;
+    const previewable =
+      this.isDocumentPreviewableFile(file) || this.isImageFile(file) || this.isVideoFile(file);
+    if (!previewable) return false;
+
+    // Already on screen: keep the current viewer (scroll, zoom, page) instead of reloading it.
+    const alreadyShowing =
+      this.viewerMode() !== 'library' &&
+      this.selectedTabId() === this.buildPanelTabId('file', file.id);
+    if (!alreadyShowing) await this.openFile(file);
+    return true;
   }
 
   private getInlineFilmReviewId(file: AgentXLibraryFile): string | null {
@@ -8622,8 +8656,16 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
       return;
     }
 
-    if (this.isTextDocument(file)) {
+    // Binary files (e.g. a CSV export with saved notes) must download their real bytes; only
+    // text-only documents with no stored binary are written out from inline text.
+    if (this.isTextDocument(file) && !file.storagePath) {
       this.downloadInlineTextFile(file);
+      return;
+    }
+
+    // The /download route needs a stored binary; streamed videos (Cloudflare) have none.
+    if (!file.storagePath) {
+      await this.openViewerFileInTab(file, 'download');
       return;
     }
 
@@ -8646,29 +8688,11 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = this.resolveDownloadFileName(file);
+    link.download = resolveDownloadFileName(file);
     document.body.appendChild(link);
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  private resolveDownloadFileName(file: Pick<AgentXLibraryFile, 'name' | 'mimeType'>): string {
-    const extensionByMimeType: Readonly<Record<string, string>> = {
-      'application/pdf': '.pdf',
-      'application/msword': '.doc',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
-      'application/vnd.ms-excel': '.xls',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
-      'application/vnd.ms-powerpoint': '.ppt',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation': '.pptx',
-      'text/csv': '.csv',
-    };
-    const name = file.name.trim();
-    const extension = /\.[A-Za-z0-9]{1,5}$/.test(name)
-      ? ''
-      : (extensionByMimeType[file.mimeType.trim().toLowerCase()] ?? '');
-    return `${name}${extension}`.replace(/[\\/:*?"<>|]/g, '_');
   }
 
   private downloadInlineTextFile(
@@ -8875,53 +8899,46 @@ export class AgentXFilesPanelInnerComponent implements OnInit, OnChanges, OnDest
   }
 
   protected isPdfFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
-    return file.kind === 'pdf' || file.mimeType === 'application/pdf';
+    return isPdfDocumentFile(file);
   }
 
   protected isSpreadsheetFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
-    const normalizedMimeType = file.mimeType.trim().toLowerCase();
-    return (
-      file.kind === 'csv' ||
-      normalizedMimeType === 'text/csv' ||
-      normalizedMimeType.includes('spreadsheet') ||
-      normalizedMimeType.includes('excel')
-    );
+    return isSpreadsheetDocumentFile(file);
   }
 
   protected isPresentationFile(file: Pick<AgentXLibraryFile, 'mimeType' | 'kind'>): boolean {
-    const normalizedMimeType = file.mimeType.trim().toLowerCase();
-    return (
-      file.kind === 'pptx' ||
-      normalizedMimeType.includes('presentationml.presentation') ||
-      normalizedMimeType.includes('powerpoint')
-    );
+    return isPresentationDocumentFile(file);
   }
 
   protected isDocumentPreviewableFile(
     file: Pick<AgentXLibraryFile, 'mimeType' | 'kind' | 'name'>
   ): boolean {
-    return (
-      isDocumentPreviewSupported(file.mimeType, file.name) ||
-      this.isPdfFile(file) ||
-      this.isSpreadsheetFile(file) ||
-      this.isPresentationFile(file)
-    );
+    return isDocumentPreviewableFile(file);
   }
 
   protected onDocumentAskAgentRequested(
     selection: DocumentAskAgentSelection,
     file: AgentXLibraryFile
   ): void {
-    const { anchors, isAllSelected } = selection;
+    const { anchors, isAllSelected, excerpts } = selection;
     if (anchors.length === 0) {
       return;
     }
 
-    const selectedContexts = anchors.map((anchor) =>
+    // The list thumbnail may be a generated SVG or a local blob: preview, which the chat
+    // endpoint rejects; only forward thumbnails the backend will accept.
+    const listThumbnailUrl = this.thumbnailUrlForListItem(file)?.trim();
+    const thumbnailUrl =
+      listThumbnailUrl && SENDABLE_CONTEXT_THUMBNAIL_URL_RE.test(listThumbnailUrl)
+        ? listThumbnailUrl
+        : undefined;
+
+    const selectedContexts = anchors.map((anchor, index) =>
       buildDocumentAnchorSelectedContext({
         file: { id: file.id, name: file.name },
         anchor,
-        thumbnailUrl: this.thumbnailUrlForListItem(file) ?? undefined,
+        excerpt: excerpts?.[index],
+        thumbnailUrl,
       })
     );
 

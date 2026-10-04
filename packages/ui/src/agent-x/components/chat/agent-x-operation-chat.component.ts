@@ -106,6 +106,7 @@ import {
   AgentXOperationEventService,
   type OperationEventSubscription,
 } from '../../services/agent-x-operation-event.service';
+import { AgentXDocumentPreviewSheetService } from '../../services/agent-x-document-preview-sheet.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import { NxtInlineVideoPreviewDirective } from '../../../components/video-preview';
 import { NxtDragDropDirective } from '../../../services/gesture';
@@ -616,8 +617,8 @@ export function normalizeExecutionPlanItemsForActiveResume(
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
-                  [openDocumentsInPanel]="openDocumentsInPanel"
-                  (documentRequested)="documentRequested.emit($event)"
+                  [openDocumentsInPanel]="routesDocuments()"
+                  (documentRequested)="routeDocument($event)"
                   (timestampClicked)="onBubbleTimestampClicked($event, idx)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (askUserReplySubmitted)="yieldFacade.onAskUserReply($event)"
@@ -2423,6 +2424,7 @@ export function normalizeExecutionPlanItemsForActiveResume(
 })
 export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly modalCtrl = inject(ModalController);
+  private readonly documentPreviewSheet = inject(AgentXDocumentPreviewSheetService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private readonly cdr = inject(ChangeDetectorRef);
@@ -2554,7 +2556,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** When true, renders as a desktop-embedded panel instead of a dismissible sheet. */
   @Input() embedded = false;
 
-  /** When true, export documents open in the host's Files panel instead of the media viewer. */
+  /**
+   * When true, export documents open in the host's Files panel instead of the media viewer.
+   * Native apps and phone-width screens always use the document preview sheet instead.
+   */
   @Input() openDocumentsInPanel = false;
 
   /** When true, coordinator chips emit to the parent instead of auto-sending as chat text. */
@@ -3115,6 +3120,28 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted with an export download URL when a document should open in the Files panel. */
   readonly documentRequested = output<string>();
 
+  /** Whether generated deliverables are intercepted (preview sheet or host Files panel). */
+  protected routesDocuments(): boolean {
+    return this.openDocumentsInPanel || this.documentPreviewSheet.shouldUseSheet();
+  }
+
+  /**
+   * Routes a generated deliverable to its preview surface. Phone-width and native screens get the
+   * bottom sheet (even inside the web shell); desktop hosts get the Files panel. Returns false
+   * when nothing handled it so the caller keeps its default (media viewer / browser).
+   */
+  protected routeDocument(url: string): boolean {
+    if (this.documentPreviewSheet.shouldUseSheet()) {
+      void this.documentPreviewSheet.open(url);
+      return true;
+    }
+    if (this.openDocumentsInPanel) {
+      this.documentRequested.emit(url);
+      return true;
+    }
+    return false;
+  }
+
   /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
   readonly filmTimestampSeekRequested = output<FilmTimestampSeekRequest>();
 
@@ -3339,11 +3366,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       openFilmReviewLibrary: () => {
         this.filmReviewLibraryRequested.emit();
       },
-      openDocumentInPanel: (url) => {
-        if (!this.openDocumentsInPanel) return false;
-        this.documentRequested.emit(url);
-        return true;
-      },
+      openDocumentInPanel: (url) => this.routeDocument(url),
       emitConnectedAccountsSave: (request) => {
         this.connectedAccountsSave.emit(request);
       },
@@ -4806,7 +4829,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // returns null (no user reply found after its index in the timeline).
     return this.messages().some(
       (msg, idx) =>
-        this.isAskUserYield(msg) && this.resolveExternalCardStateForMessage(msg, idx) === null
+        this.isComposerAnswerableInputYield(msg) &&
+        this.resolveExternalCardStateForMessage(msg, idx) === null
     );
   }
 
@@ -4820,7 +4844,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const msg = allMessages[index];
 
       if (
-        this.isAskUserYield(msg) &&
+        this.isComposerAnswerableInputYield(msg) &&
         this.resolveExternalCardStateForMessage(msg, index) === null
       ) {
         return {
@@ -4931,6 +4955,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME &&
       msg.yieldState?.pendingToolCall?.toolName !== 'execute_saved_plan'
     );
+  }
+
+  /**
+   * Any pending input checkpoint the composer can answer with free text —
+   * plain ask_user questions and structured option/step cards alike. Without
+   * the output-selection case the composer stayed locked on the stop spinner
+   * while an option card was waiting for the user.
+   */
+  private isComposerAnswerableInputYield(msg: OperationMessage): boolean {
+    return this.isAskUserYield(msg) || this.isOutputSelectionYield(msg);
   }
 
   private isOutputSelectionYield(msg: OperationMessage): boolean {
