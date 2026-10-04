@@ -226,8 +226,9 @@ describe('NxtMarkdownComponent', () => {
     }
   );
 
-  it('opens a regular document URL in the panel when enabled', async () => {
-    const url = 'https://cdn.nxt1.test/report.docx';
+  it('opens a generated export link in the panel when enabled', async () => {
+    const url =
+      'https://api.nxt1.test/api/v1/agent-x/media-proxy/export/Report.docx?path=Users%2Fu%2Fthreads%2Ft%2Fexports%2F1-ab.docx&mime=application%2Fvnd.openxmlformats-officedocument.wordprocessingml.document&exp=1&sig=ab';
     const requested = vi.fn();
     component.documentRequested.subscribe(requested);
     Object.defineProperty(component, 'openDocumentsInPanel', { value: () => true });
@@ -237,6 +238,21 @@ describe('NxtMarkdownComponent', () => {
     nativeEl.querySelector<HTMLAnchorElement>('.md a')!.click();
     expect(requested).toHaveBeenCalledWith(url);
     expect(TestBed.inject(NxtBrowserService).openLink).not.toHaveBeenCalled();
+  });
+
+  it('opens ordinary external document links directly even when the panel is enabled', async () => {
+    const url = 'https://cdn.nxt1.test/report.docx';
+    const requested = vi.fn();
+    component.documentRequested.subscribe(requested);
+    Object.defineProperty(component, 'openDocumentsInPanel', { value: () => true });
+    setContent(`[Word report](${url})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    nativeEl.querySelector<HTMLAnchorElement>('.md a')!.click();
+    expect(requested).not.toHaveBeenCalled();
+    expect(TestBed.inject(NxtBrowserService).openLink).toHaveBeenCalledWith(
+      expect.objectContaining({ url })
+    );
   });
 
   it('preserves external document navigation outside the preview-panel context', async () => {

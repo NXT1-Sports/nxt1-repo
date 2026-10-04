@@ -9,6 +9,7 @@ import { isCapacitor } from '@nxt1/core';
 import JSZip from 'jszip';
 import { ZipReader, BlobReader, Uint8ArrayWriter } from '@zip.js/zip.js';
 import { NxtLoggingService } from '../logging/logging.service';
+import { NxtFileSaveService, downloadBlobInBrowser } from '../file-save/file-save.service';
 
 export type ArchiveDownloadSource =
   | {
@@ -71,6 +72,7 @@ export interface ExtractZipResult {
 export class NxtArchiveService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly logger = inject(NxtLoggingService).child('NxtArchiveService');
+  private readonly fileSave = inject(NxtFileSaveService);
 
   private get isBrowser(): boolean {
     return isPlatformBrowser(this.platformId);
@@ -266,63 +268,15 @@ export class NxtArchiveService {
   }
 
   private downloadBlob(blob: Blob, fileName: string): void {
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = objectUrl;
-    anchor.download = fileName;
-    anchor.rel = 'noopener';
-    anchor.style.display = 'none';
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-
-    globalThis.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    downloadBlobInBrowser(blob, fileName);
   }
 
   private async shareNativeZip(blob: Blob, fileName: string): Promise<void> {
-    const { Filesystem, Directory } = await import('@capacitor/filesystem');
-    const { Share } = await import('@capacitor/share');
-
-    const base64Data = await this.blobToBase64(blob);
     const cacheFileName = fileName.endsWith('.zip') ? fileName : `${fileName}.zip`;
-
-    const tempResult = await Filesystem.writeFile({
-      path: cacheFileName,
-      data: base64Data,
-      directory: Directory.Cache,
-    });
-
-    try {
-      await Share.share({
-        title: 'NXT1 ZIP export',
-        text: 'Share or save your ZIP export',
-        files: [tempResult.uri],
-        dialogTitle: 'Share ZIP export',
-      });
-    } finally {
-      await Filesystem.deleteFile({
-        path: cacheFileName,
-        directory: Directory.Cache,
-      }).catch(() => {
-        /* noop */
-      });
-    }
-  }
-
-  private async blobToBase64(blob: Blob): Promise<string> {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result !== 'string') {
-          reject(new Error('Failed to encode ZIP data'));
-          return;
-        }
-
-        resolve(result.split(',')[1] ?? result);
-      };
-      reader.onerror = () => reject(new Error('Failed to encode ZIP data'));
-      reader.readAsDataURL(blob);
+    await this.fileSave.saveBlob(blob, cacheFileName, {
+      title: 'NXT1 ZIP export',
+      text: 'Share or save your ZIP export',
+      dialogTitle: 'Share ZIP export',
     });
   }
 

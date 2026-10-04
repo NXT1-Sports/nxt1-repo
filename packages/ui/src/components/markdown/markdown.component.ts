@@ -1435,11 +1435,9 @@ export class NxtMarkdownComponent {
           return;
         }
 
-        if (
-          this.openDocumentsInPanel() &&
-          (inferStreamingArtifactTypeFromUrl(href) === 'doc' ||
-            /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|json|md|odt|ods|odp)(?:[?#%]|$)/i.test(href))
-        ) {
+        // Only generated deliverables go to the Files panel; ordinary web links that merely end in
+        // a document extension (a school's brochure.pdf, a README.md) open directly.
+        if (this.openDocumentsInPanel() && inferStreamingArtifactTypeFromUrl(href) === 'doc') {
           e.preventDefault();
           this.documentRequested.emit(href);
           return;

@@ -941,8 +941,15 @@ export class AgentXOperationChatAttachmentsFacade {
     options?: { readonly messageId?: string }
   ): void {
     const requested = attachments[index];
+    // Only agent-generated deliverables are indexed in Files; user uploads keep the media viewer
+    // (and its "Add to Files" action) because they would never resolve in the panel.
+    const isGeneratedDeliverable =
+      !!requested &&
+      (/\/media-proxy\/export\//i.test(requested.url ?? '') ||
+        /\/exports\//i.test(requested.storagePath ?? ''));
     if (
       requested &&
+      isGeneratedDeliverable &&
       requested.type !== 'image' &&
       requested.type !== 'video' &&
       requested.url &&

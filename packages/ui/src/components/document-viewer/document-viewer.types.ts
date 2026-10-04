@@ -37,4 +37,6 @@ export type DocumentZoomMode = 'fit_width' | 'fit_page' | 'custom';
 export interface DocumentAskAgentSelection {
   readonly anchors: readonly DocumentPreviewAnchor[];
   readonly isAllSelected: boolean;
+  /** Optional text per anchor (index-aligned), e.g. the selected cell values, shown to the agent. */
+  readonly excerpts?: readonly (string | undefined)[];
 }

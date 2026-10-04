@@ -122,10 +122,10 @@ export class AgentXFilesPanelComponent {
     return !!this.innerPanel();
   }
 
-  public async openDeliverable(url: string): Promise<void> {
+  public async openDeliverable(url: string): Promise<boolean> {
     const panel = this.innerPanel();
     if (!panel) throw new Error('The Files viewer is not ready. Please try again.');
-    await panel.openDeliverable(url);
+    return panel.openDeliverable(url);
   }
 
   public getReviewDisplayTitle(file: Pick<AgentXLibraryFile, 'name'>): string {
