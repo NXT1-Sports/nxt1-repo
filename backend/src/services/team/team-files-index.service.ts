@@ -11,6 +11,7 @@ import {
 import type { Firestore } from 'firebase-admin/firestore';
 import { FieldValue } from 'firebase-admin/firestore';
 import { createOwnerPrivateAccessLists } from './file-access-keys.service.js';
+import { resolveFileMimeType } from '../../utils/export-multipart-payload.js';
 
 type TeamFileAcl = NonNullable<TeamFileFolderDoc['acl']>;
 
@@ -158,7 +159,7 @@ export async function attachExportAssetToUniversalDocument(
   };
   const resolvedKind = inferAttachmentFileKind(params.attachment);
   const asset = {
-    mimeType: params.attachment.mimeType,
+    mimeType: resolveFileMimeType(params.attachment.name, params.attachment.mimeType),
     kind: resolvedKind,
     origin: params.origin,
     sizeBytes: params.attachment.sizeBytes,
@@ -227,6 +228,13 @@ function buildUniversalFilePayload(params: {
   readonly sourceOperationId?: string;
   readonly createdAt?: FirebaseFirestore.FieldValue;
 }): Record<string, unknown> {
+  params = {
+    ...params,
+    attachment: {
+      ...params.attachment,
+      mimeType: resolveFileMimeType(params.attachment.name, params.attachment.mimeType),
+    },
+  };
   const normalizedName = params.attachment.name.trim();
   const status = resolveTeamFileStatus(params.attachment);
   const thumbnailUrl =
@@ -371,8 +379,12 @@ function inferAttachmentFileKind(attachment: AgentXAttachment): TeamFileKind {
   if (attachment.type === 'csv') return 'csv';
   if (attachment.type === 'app') return 'app';
 
-  const normalizedMimeType = attachment.mimeType.trim().toLowerCase();
+  const normalizedMimeType = resolveFileMimeType(attachment.name, attachment.mimeType)
+    .trim()
+    .toLowerCase();
   const normalizedName = attachment.name.trim().toLowerCase();
+  if (normalizedMimeType === 'application/pdf') return 'pdf';
+  if (normalizedMimeType === 'text/csv') return 'csv';
   if (
     normalizedMimeType ===
       'application/vnd.openxmlformats-officedocument.presentationml.presentation' ||

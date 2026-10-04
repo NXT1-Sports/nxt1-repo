@@ -8,6 +8,10 @@ import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { AgentEphemeralStateService } from '../../services/agent-ephemeral-state.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
+import {
+  buildAttachmentContentDisposition,
+  buildExportFileName,
+} from '../../../../utils/export-multipart-payload.js';
 
 const EXPORT_DOWNLOAD_URL_TTL_MS_NO_EXPIRE = 100 * 365 * 24 * 60 * 60 * 1000;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -30,7 +34,14 @@ const ARTIFACT_TYPES: Readonly<
   },
   json: { mimeType: 'application/json', type: 'doc' },
   pdf: { mimeType: 'application/pdf', type: 'doc' },
+  pptx: {
+    mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    type: 'doc',
+  },
+  md: { mimeType: 'text/markdown', type: 'doc' },
   png: { mimeType: 'image/png', type: 'image' },
+  webp: { mimeType: 'image/webp', type: 'image' },
+  gif: { mimeType: 'image/gif', type: 'image' },
   jpg: { mimeType: 'image/jpeg', type: 'image' },
   jpeg: { mimeType: 'image/jpeg', type: 'image' },
   txt: { mimeType: 'text/plain', type: 'doc' },
@@ -102,7 +113,7 @@ interface PythonSandboxClient {
   readonly files: {
     makeDir(path: string): Promise<boolean>;
     write(path: string, data: string | ArrayBuffer): Promise<unknown>;
-    list(path: string): Promise<PythonSandboxFileEntry[]>;
+    list(path: string, opts?: { readonly depth?: number }): Promise<PythonSandboxFileEntry[]>;
     read(path: string, opts: { readonly format: 'bytes' }): Promise<Uint8Array>;
   };
   runCode(
@@ -148,17 +159,6 @@ function jsonLength(value: unknown): number {
 
 function truncateText(value: string, maxChars = MAX_OUTPUT_CHARS): string {
   return value.length > maxChars ? `${value.slice(0, maxChars)}\n[truncated]` : value;
-}
-
-function sanitizeFileName(value: string): string {
-  return (
-    value
-      .trim()
-      .replace(/[^a-zA-Z0-9._ -]/g, '-')
-      .replace(/\s+/g, ' ')
-      .replace(/-+/g, '-')
-      .slice(0, 120) || 'artifact'
-  );
 }
 
 function getExtension(fileName: string): string | null {
@@ -339,14 +339,19 @@ export class ExecutePythonCodeTool extends BaseTool {
         icon: 'upload',
         phase: 'upload_python_artifacts',
       });
-      const artifacts = await this.uploadGeneratedArtifacts(sandbox, uploadContext);
+      const skippedFiles: { name: string; reason: string }[] = [];
+      const artifacts = await this.uploadGeneratedArtifacts(sandbox, uploadContext, skippedFiles);
+      const skippedNote =
+        skippedFiles.length > 0
+          ? ` Not delivered: ${skippedFiles.map((file) => `${file.name} (${file.reason})`).join(', ')}.`
+          : '';
 
       return {
         success: true,
         markdown:
-          artifacts.length > 0
+          (artifacts.length > 0
             ? `Python analysis completed and generated ${artifacts.length} artifact${artifacts.length === 1 ? '' : 's'}.`
-            : 'Python analysis completed.',
+            : 'Python analysis completed.') + skippedNote,
         data: {
           stdout,
           stderr,
@@ -354,6 +359,7 @@ export class ExecutePythonCodeTool extends BaseTool {
           dataSources: normalized.summaries,
           artifactCount: artifacts.length,
           artifacts,
+          ...(skippedFiles.length > 0 ? { skippedFiles } : {}),
           attachments: artifacts,
         },
       };
@@ -373,11 +379,13 @@ export class ExecutePythonCodeTool extends BaseTool {
 
   private async uploadGeneratedArtifacts(
     sandbox: PythonSandboxClient,
-    context: ToolExecutionContext & { readonly threadId: string }
+    context: ToolExecutionContext & { readonly threadId: string },
+    skipped: { name: string; reason: string }[]
   ): Promise<UploadedArtifact[]> {
-    const entries = await sandbox.files.list(OUTPUT_DIR);
+    // Scripts often write into subfolders (outputs/charts/...), so look a few levels deep.
+    const entries = await sandbox.files.list(OUTPUT_DIR, { depth: 4 });
     const files = entries.filter((entry) => entry.type === 'file');
-    const uploadable = files
+    const supported = files
       .map((entry) => ({ entry, extension: getExtension(entry.name) }))
       .filter(
         (
@@ -386,8 +394,17 @@ export class ExecutePythonCodeTool extends BaseTool {
           readonly entry: PythonSandboxFileEntry;
           readonly extension: keyof typeof ARTIFACT_TYPES;
         } => Boolean(item.extension && ARTIFACT_TYPES[item.extension])
-      )
-      .slice(0, MAX_ARTIFACTS);
+      );
+    const uploadable = supported.slice(0, MAX_ARTIFACTS);
+    // Tell the model what was not delivered instead of silently dropping files.
+    skipped.push(
+      ...files
+        .filter((entry) => !supported.some((item) => item.entry === entry))
+        .map((entry) => ({ name: entry.name, reason: 'unsupported file type' })),
+      ...supported
+        .slice(MAX_ARTIFACTS)
+        .map((item) => ({ name: item.entry.name, reason: `limit of ${MAX_ARTIFACTS} files` }))
+    );
     const uploaded: UploadedArtifact[] = [];
 
     for (const [index, item] of uploadable.entries()) {
@@ -401,7 +418,7 @@ export class ExecutePythonCodeTool extends BaseTool {
       }
 
       const artifactType = ARTIFACT_TYPES[item.extension];
-      const safeName = sanitizeFileName(item.entry.name);
+      const safeName = buildExportFileName(item.entry.name, item.extension, 'artifact');
       const timestamp = Date.now();
       const hash = createHash('md5').update(buffer).digest('hex').slice(0, 8);
       const storagePath = `Users/${context.userId}/threads/${context.threadId}/exports/${timestamp}-${index}-${hash}.${item.extension}`;
@@ -415,7 +432,7 @@ export class ExecutePythonCodeTool extends BaseTool {
         validation: false,
         metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
-          contentDisposition: `attachment; filename="${safeName}"`,
+          contentDisposition: buildAttachmentContentDisposition(safeName),
           metadata: {
             firebaseStorageDownloadTokens: downloadToken,
           },

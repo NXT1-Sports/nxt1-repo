@@ -103,6 +103,32 @@ function isAbsoluteHttpUrl(value: string | undefined): boolean {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
 
+/**
+ * Signed export links carry the real file name as `/media-proxy/export/<fileName>`. Used when a
+ * result only kept the bare `downloadUrl` (e.g. coordinator artifact handoff) so the deliverable
+ * keeps its name and extension instead of a generic "export".
+ */
+function readSignedExportFileName(url: string): string | undefined {
+  try {
+    const segment = /\/media-proxy\/export\/([^/?#]+)/.exec(new URL(url).pathname)?.[1];
+    const name = segment ? decodeURIComponent(segment).trim() : '';
+    return /\.[a-z0-9]{2,5}$/i.test(name) ? name : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Signed export links also carry their MIME type as the `mime` query parameter. */
+function readSignedExportMimeType(url: string): string | undefined {
+  try {
+    const parsed = new URL(url);
+    if (!/\/media-proxy\/export\//.test(parsed.pathname)) return undefined;
+    return parsed.searchParams.get('mime')?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function firstAbsoluteHttpUrl(...values: unknown[]): string | undefined {
   for (const value of values) {
     const normalized = readNonEmptyString(value);
@@ -818,8 +844,12 @@ export function extractMediaAttachmentsFromResultData(
     // downloadUrl: generated export file (PDF, CSV) from DynamicExportTool
     if (typeof record['downloadUrl'] === 'string') {
       const exportUrl = record['downloadUrl'];
-      const exportName = typeof record['fileName'] === 'string' ? record['fileName'] : 'export';
-      const mimeType = readNonEmptyString(record['mimeType']) ?? '';
+      const exportName =
+        typeof record['fileName'] === 'string'
+          ? record['fileName']
+          : (readSignedExportFileName(exportUrl) ?? 'export');
+      const mimeType =
+        readNonEmptyString(record['mimeType']) ?? readSignedExportMimeType(exportUrl) ?? '';
       const exportType: 'image' | 'video' | 'doc' = mimeType.startsWith('image/')
         ? 'image'
         : mimeType.startsWith('video/')

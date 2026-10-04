@@ -71,6 +71,18 @@ const MIME_EXTENSIONS: Readonly<Record<string, string>> = {
   'text/csv': '.csv',
 };
 
+/**
+ * Returns the real MIME type for a file whose type was lost upstream (empty or generic
+ * octet-stream), inferred from its extension; otherwise returns the given type unchanged.
+ */
+export function resolveFileMimeType(fileName: string, mimeType: string | undefined): string {
+  const normalized = (mimeType ?? '').trim();
+  if (normalized && normalized.toLowerCase() !== 'application/octet-stream') return normalized;
+  const extension = /\.[A-Za-z0-9]{1,5}$/.exec(fileName.trim())?.[0]?.toLowerCase();
+  const inferred = Object.entries(MIME_EXTENSIONS).find(([, ext]) => ext === extension)?.[0];
+  return inferred ?? (normalized || 'application/octet-stream');
+}
+
 /** Appends the extension implied by the MIME type when the title has none (Google keys off it). */
 export function ensureFileNameExtension(fileName: string, mimeType: string): string {
   const trimmed = fileName.trim();
@@ -79,8 +91,35 @@ export function ensureFileNameExtension(fileName: string, mimeType: string): str
   return extension ? `${trimmed}${extension}` : trimmed;
 }
 
+const KNOWN_EXPORT_EXTENSION_RE =
+  /\.(?:pdf|csv|tsv|xlsx|xls|pptx|ppt|docx|doc|html?|txt|md|json|png|jpe?g|webp|gif|svg)$/i;
+const MAX_EXPORT_BASE_NAME_CHARS = 100;
+
+/**
+ * Builds a user-facing export file name: keeps Unicode letters (accents, CJK), strips path and
+ * header-unsafe characters, drops any trailing document extension (so "Roster.pdf" exported as
+ * xlsx is not "Roster.pdf.xlsx"), truncates the base only, then appends the real extension.
+ */
+export function buildExportFileName(raw: string, extension: string, fallbackBase: string): string {
+  const base = raw
+    .normalize('NFC')
+    .replace(/[\p{Cc}\\/:*?"<>|]/gu, ' ')
+    .replace(/\.{2,}/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(KNOWN_EXPORT_EXTENSION_RE, '')
+    .replace(/^[.\s]+|[.\s]+$/g, '');
+  const truncated = Array.from(base).slice(0, MAX_EXPORT_BASE_NAME_CHARS).join('').trim();
+  // A name with no letters or digits ("###") is not meaningful; use the fallback.
+  const usable = /[\p{L}\p{N}]/u.test(truncated) ? truncated : '';
+  return `${usable || fallbackBase}.${extension.replace(/^\./, '').toLowerCase()}`;
+}
+
 /** Builds a Content-Disposition value that is safe for non-ASCII and quote characters. */
-export function buildAttachmentContentDisposition(fileName: string): string {
+export function buildAttachmentContentDisposition(
+  fileName: string,
+  mode: 'attachment' | 'inline' = 'attachment'
+): string {
   const asciiFallback =
     fileName
       .replace(/[^\x20-\x7e]/g, '_')
@@ -90,5 +129,5 @@ export function buildAttachmentContentDisposition(fileName: string): string {
     /[!'()*]/g,
     (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
   );
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+  return `${mode}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
 }

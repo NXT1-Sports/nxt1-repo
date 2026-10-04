@@ -54,6 +54,31 @@ describe('platform identifier sanitizer', () => {
     expect(sanitized).not.toContain('[redacted]');
   });
 
+  it('keeps signed export links and file names intact so downloads stay valid', () => {
+    const url =
+      'https://api.nxt1sports.com/api/v1/agent-x/media-proxy/export/team-roster.pdf?path=Users%2Fu%2Fthreads%2Ft%2Fexports%2F1-ab.pdf&mime=application%2Fpdf&exp=1&sig=ab12';
+    const payload = sanitizeAgentPayload({
+      fileName: 'team-roster.pdf',
+      downloadUrl: url,
+      attachments: [
+        { name: 'Post-Game Report.pdf', url, storagePath: 'Users/u/threads/t/exports/1-ab.pdf' },
+      ],
+      note: 'see team-abc123',
+    });
+
+    expect(payload).toEqual({
+      fileName: 'team-roster.pdf',
+      downloadUrl: url,
+      attachments: [
+        { name: 'Post-Game Report.pdf', url, storagePath: 'Users/u/threads/t/exports/1-ab.pdf' },
+      ],
+      note: 'see [redacted]',
+    });
+    expect(sanitizeAgentOutputText(`Download: [team-roster.pdf](${url})`)).toBe(
+      `Download: [team-roster.pdf](${url})`
+    );
+  });
+
   it('preserves absolute public team and profile URLs', () => {
     const sanitized = sanitizeAgentOutputText(
       'Team URL: http://localhost:4200/team/crown-point-basketball-mens/2P49TB and athlete URL: http://localhost:4200/profile/football/huy-toan-nguyen/469697'

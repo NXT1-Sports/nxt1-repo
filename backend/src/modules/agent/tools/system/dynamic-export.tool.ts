@@ -44,6 +44,10 @@ import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 import { AgentEphemeralStateService } from '../../services/agent-ephemeral-state.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
+import {
+  buildAttachmentContentDisposition,
+  buildExportFileName,
+} from '../../../../utils/export-multipart-payload.js';
 import { z } from 'zod';
 
 const EXPORT_DOWNLOAD_URL_TTL_MS_NO_EXPIRE = 100 * 365 * 24 * 60 * 60 * 1000;
@@ -85,11 +89,11 @@ export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
   readonly description =
     'Generates a downloadable PDF, CSV, XLSX, PPTX, or DOCX document from structured data when no more specialized artifact path is a better fit. ' +
-    'Use this tool primarily for Gamma-backed PPTX decks and flexible multi-section reports, for CSV flat-table exports, and as the fallback path for PDF/XLSX when render_html_pdf or execute_python_code/native spreadsheet/document tools are not the right choice. ' +
+    'Use this tool primarily for Gamma-backed PPTX decks and flexible multi-section reports, for CSV flat-table exports, and as the XLSX fallback when execute_python_code/native spreadsheet tools are not the right choice. format "pdf" renders through Gamma and is rejected unless the user explicitly chose Gamma; every other PDF must use render_html_pdf. ' +
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
     'branding, and cloud hosting.\n\n' +
     'HOW TO FORMAT LIKE A PRO:\n' +
-    '- ROUTING FIRST: Do NOT use this as the default for every export. Use `render_html_pdf` first for printable/share-ready operational PDFs such as scouting reports, tendency reports, callsheets, wristbands, practice scripts, depth charts, staff sheets, one-pagers, or any sample-matched printable layout. Use `execute_python_code` only when the user explicitly asks for editable spreadsheets, XLSX, Excel, workbooks, or workbook-style artifacts. Use this tool for Gamma-style PDFs only when the user selected/requested a Gamma PDF, for PPTX decks/packets, for CSV flat-table exports, and as the PDF/XLSX fallback only when those dedicated paths are unavailable or not appropriate.\n' +
+    '- ROUTING FIRST: Do NOT use this as the default for every export. Use `render_html_pdf` first for printable/share-ready operational PDFs such as scouting reports, tendency reports, callsheets, wristbands, practice scripts, depth charts, staff sheets, one-pagers, or any sample-matched printable layout. Use `execute_python_code` only when the user explicitly asks for editable spreadsheets, XLSX, Excel, workbooks, or workbook-style artifacts. Use this tool for Gamma-style PDFs only when the user selected/requested a Gamma PDF, for PPTX decks/packets, for CSV flat-table exports, and as the XLSX fallback only when execute_python_code is unavailable. Never use format "pdf" as a fallback for render_html_pdf.\n' +
     '- NEVER use emojis in the data or titles. They break the PDF and Excel generators. Use text only.\n' +
     '- If this export represents a saved Files document, pass `relatedDocumentId` with the UniversalFiles document id so the PDF/XLSX/PPTX/CSV is attached back to that document in Files. When creating both a saved document and an export, create or update the Files document first whenever possible, then export with `relatedDocumentId`.\n' +
     '- For Practice Scripts/Schedules: Prefer render_html_pdf for printable/share-ready one-pagers and use execute_python_code only when the user explicitly asks for editable sheets. Use this tool only when the user wants a report/deck or the dedicated routes are not the chosen artifact path.\n' +
@@ -253,12 +257,9 @@ export class DynamicExportTool extends BaseTool {
     const requestedTitle = this.str(input, 'title');
     const fileName = this.str(input, 'fileName') ?? requestedTitle ?? 'export';
 
-    // Sanitize fileName to prevent path traversal
-    const safeName =
-      fileName
-        .replace(/[^\w\s\-().]/g, '')
-        .replace(/\.{2,}/g, '.') // collapse runs of dots (prevents traversal artefacts)
-        .trim() || 'export';
+    // Sanitize fileName (path traversal, header-unsafe chars) while keeping Unicode letters;
+    // `safeName` is the base without any extension — the real one is appended per format.
+    const safeName = buildExportFileName(fileName, 'x', 'export').replace(/\.x$/, '');
 
     // ── Extract optional structured data ──────────────────────────────
     const columns = this.parseColumns(input);
@@ -456,7 +457,7 @@ export class DynamicExportTool extends BaseTool {
         extension = 'pdf';
       }
 
-      const outputBaseName = safeName.replace(new RegExp(`\\.${extension}$`, 'i'), '') || 'export';
+      const outputBaseName = safeName;
 
       // ── Upload to Firebase Storage ────────────────────────────────
       emitStage?.('uploading_assets', {
@@ -488,7 +489,7 @@ export class DynamicExportTool extends BaseTool {
         validation: false,
         metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
-          contentDisposition: `attachment; filename="${outputBaseName}.${extension}"`,
+          contentDisposition: buildAttachmentContentDisposition(`${outputBaseName}.${extension}`),
           metadata: {
             firebaseStorageDownloadTokens: downloadToken,
           },

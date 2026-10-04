@@ -94,7 +94,7 @@ describe('RenderHtmlPdfTool', () => {
         contentType: 'application/pdf',
         resumable: false,
         metadata: expect.objectContaining({
-          contentDisposition: 'attachment; filename="Depth Chart.pdf"',
+          contentDisposition: expect.stringContaining('attachment; filename="Depth Chart.pdf"'),
         }),
       })
     );
@@ -105,7 +105,7 @@ describe('RenderHtmlPdfTool', () => {
         contentType: 'text/html; charset=utf-8',
         resumable: false,
         metadata: expect.objectContaining({
-          contentDisposition: 'attachment; filename="Depth Chart.html"',
+          contentDisposition: expect.stringContaining('attachment; filename="Depth Chart.html"'),
         }),
       })
     );
@@ -254,6 +254,35 @@ describe('RenderHtmlPdfTool', () => {
     expect(result.success).toBe(false);
     expect(result.isValidationError).toBe(true);
     expect(render).not.toHaveBeenCalled();
+  });
+
+  it('names the PDF from the HTML <title> when no fileName or title is given', async () => {
+    const result = await tool.execute(
+      {
+        html: '<!doctype html><html><head><title>Georgetown Opponent Scout Report</title></head><body><h1>Ignored</h1></body></html>',
+      },
+      context
+    );
+
+    expect(result).toMatchObject({
+      data: { fileName: 'Georgetown Opponent Scout Report.pdf' },
+    });
+  });
+
+  it('falls back to the first <h1>, then a neutral name, never a tool-internal label', async () => {
+    const fromHeading = await tool.execute(
+      {
+        html: '<html><head><title> </title></head><body><h1>Spring <em>Depth</em> Chart</h1></body></html>',
+      },
+      context
+    );
+    expect(fromHeading).toMatchObject({ data: { fileName: 'Spring Depth Chart.pdf' } });
+
+    const untitled = await tool.execute(
+      { html: '<html><body><p>No headings</p></body></html>' },
+      context
+    );
+    expect(untitled).toMatchObject({ data: { fileName: 'document.pdf' } });
   });
 
   it('exposes render_html_pdf to strategy coordinator registry definitions', () => {
