@@ -341,6 +341,42 @@ describe('AgentRouterPrimaryService', () => {
     expect(result.observation).not.toContain('Returned 7 field(s).');
   });
 
+  it('forwards coordinator tool-call records from AgentOperationResult.data', async () => {
+    const toolCallRecords = [
+      {
+        toolName: 'render_html_pdf',
+        status: 'success',
+        output: { fileName: 'Georgetown Scout Report.pdf', mimeType: 'application/pdf' },
+      },
+    ];
+    const service = createService(async () => ({
+      taskResults: new Map([
+        [
+          'strategy_coordinator_1',
+          {
+            summary: 'Your Georgetown opponent scout report is ready.',
+            data: { toolCallRecords },
+            artifacts: { downloadUrl: 'https://example.com/report.pdf' },
+          },
+        ],
+      ]),
+      mutableTasks: [
+        { id: 'strategy_coordinator_1', status: 'completed', description: 'Build scout PDF' },
+      ],
+    }));
+
+    const result = await service.runCoordinator('strategy_coordinator', 'Build scout PDF', {
+      operationId: 'op-records',
+      userId: 'user-1',
+      enrichedIntent: 'Scout report PDF',
+      sessionContext: createSessionContext(),
+      onStreamEvent: vi.fn(),
+    });
+
+    expect(result.coordinatorToolCallRecords).toEqual(toolCallRecords);
+    expect(result.coordinatorArtifacts).toEqual({ downloadUrl: 'https://example.com/report.pdf' });
+  });
+
   it('enriches coordinator payloads with organization context for brand handoffs', async () => {
     let capturedTask: { structuredPayload?: Record<string, unknown> } | undefined;
     const service = createService(

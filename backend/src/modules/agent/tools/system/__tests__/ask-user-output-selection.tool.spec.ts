@@ -349,7 +349,7 @@ describe('AskUserTool output selection mode', () => {
             expect.objectContaining({ id: 'printable_pdf', icon: 'pdf' }),
             expect.objectContaining({
               id: 'editable_docx',
-              title: 'Editable Word DOCX',
+              title: 'Word DOCX',
               formatTag: 'DOCX',
               icon: 'document',
             }),
@@ -357,7 +357,7 @@ describe('AskUserTool output selection mode', () => {
             expect.objectContaining({ id: 'gamma_deck', icon: 'sparkles' }),
             expect.objectContaining({
               id: 'editable_pptx',
-              title: 'Editable PPTX',
+              title: 'PowerPoint PPTX',
               formatTag: 'PPTX',
               icon: 'slides',
             }),
@@ -399,13 +399,69 @@ describe('AskUserTool output selection mode', () => {
       expect(error.payload.pendingToolCall?.toolInput['options']).toEqual([
         expect.objectContaining({ id: 'chat_summary', title: 'Chat Summary' }),
         expect.objectContaining({ id: 'printable_pdf', title: 'Printable PDF' }),
-        expect.objectContaining({ id: 'editable_docx', title: 'Editable Word DOCX' }),
+        expect.objectContaining({ id: 'editable_docx', title: 'Word DOCX' }),
         expect.objectContaining({ id: 'gamma_pdf', title: 'Gamma PDF' }),
         expect.objectContaining({ id: 'gamma_deck', title: 'Gamma Deck' }),
-        expect.objectContaining({ id: 'editable_pptx', title: 'Editable PPTX' }),
+        expect.objectContaining({ id: 'editable_pptx', title: 'PowerPoint PPTX' }),
         expect.objectContaining({ id: 'xlsx_workbook', title: 'XLSX Workbook' }),
         expect.objectContaining({ id: 'csv', title: 'CSV' }),
       ]);
+    }
+  });
+
+  it('keeps canonical film delivery labels when the LLM relabels canonical ids', async () => {
+    const tool = new AskUserTool();
+    const input = {
+      question: 'How should I deliver the report?',
+      category: 'film_review',
+      inputMode: 'single_select',
+      options: [
+        {
+          id: 'chat_summary',
+          title: 'Chat',
+          description: 'Fastest, in-conversation',
+          badge: 'CHAT',
+        },
+        { id: 'printable_pdf', title: 'PDF', description: 'Share-ready one-pager', badge: 'PDF' },
+        {
+          id: 'gamma_deck',
+          title: 'Deck',
+          description: 'Presentation-style report',
+          formatTag: 'PPTX',
+          icon: 'slides',
+          badge: 'DECK',
+        },
+      ],
+      [ASK_USER_CONTEXT_KEY]: {
+        agentId: 'performance_coordinator',
+        messages: [{ role: 'user', content: 'analyze this film breakdown' }],
+        toolCallId: 'call_ask_user_relabel',
+      },
+    };
+
+    try {
+      await tool.execute(input);
+      throw new Error('Expected tool to yield');
+    } catch (error) {
+      expect(isAgentYield(error)).toBe(true);
+      if (!isAgentYield(error)) return;
+      const options = error.payload.pendingToolCall?.toolInput['options'] as Array<
+        Record<string, unknown>
+      >;
+      const gammaDeck = options.find((option) => option['id'] === 'gamma_deck');
+      expect(gammaDeck).toMatchObject({
+        title: 'Gamma Deck',
+        formatTag: 'GAMMA',
+        icon: 'sparkles',
+      });
+      expect(gammaDeck).not.toHaveProperty('badge');
+      expect(options.find((option) => option['id'] === 'chat_summary')).toMatchObject({
+        title: 'Chat Summary',
+      });
+      expect(options.find((option) => option['id'] === 'printable_pdf')).toMatchObject({
+        title: 'Printable PDF',
+      });
+      expect(options.filter((option) => option['formatTag'] === 'PPTX')).toHaveLength(1);
     }
   });
 

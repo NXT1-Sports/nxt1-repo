@@ -463,6 +463,88 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).not.toContain('mutate_low_confidence');
   });
 
+  it('always exposes policy-allowed artifact generators even when they score low semantically', async () => {
+    const artifactDef = (name: string): AgentToolDefinition => ({
+      name,
+      description: name,
+      parameters: {},
+      allowedAgents: ['*'],
+      isMutation: false,
+      category: 'automation',
+      entityGroup: 'platform_tools',
+    });
+    const baseDefs: AgentToolDefinition[] = [
+      artifactDef('read_safe_tool'),
+      artifactDef('render_html_pdf'),
+      artifactDef('dynamic_export'),
+    ];
+    // Context-dump noise ("slides") would otherwise force dynamic_export only.
+    const scoredDefs: MatchedToolDefinition[] = [
+      { ...baseDefs[0], semanticScore: 0.88 },
+      { ...baseDefs[1], semanticScore: 0.01 },
+      { ...baseDefs[2], semanticScore: 0.01 },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue(scoredDefs),
+    } as unknown as ToolRegistry;
+    const llm = { embed: vi.fn().mockResolvedValue([0.1]) } as unknown as OpenRouterService;
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'strategy_coordinator' as AgentIdentifier,
+      name: 'Strategy',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (_i: string, _c: AgentSessionContext, defs: readonly AgentToolDefinition[]) => {
+            capturedToolDefs.push([...defs]);
+            return { summary: 'ok', data: {}, suggestions: [] } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    await service.executePlan({
+      operationId: 'op-artifacts',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't1',
+            assignedAgent: 'strategy_coordinator',
+            description: 'Build the callsheet',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'create me a callsheet',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'coach',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      } as AgentToolAccessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['strategy_coordinator', fakeAgent]]),
+      buildTaskIntent: () =>
+        '[Recent Threads]\n- Opponent Briefing Slides\n\nObjective: Handle this strategy artifact request',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('render_html_pdf');
+    expect(usedToolNames).toContain('dynamic_export');
+  });
+
   it('suppresses planner card emission when emitPlannerCards is false', async () => {
     const toolRegistry = {
       getDefinitions: vi.fn().mockReturnValue([]),
@@ -1012,7 +1094,7 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('render_pdf_pages');
     expect(usedToolNames).toContain('create_universal_team_document');
     expect(usedToolNames).toContain('render_html_pdf');
-    expect(usedToolNames).not.toContain('dynamic_export');
+    // dynamic_export stays exposed for PPTX/CSV; its PDF mode is gated on Gamma opt-in in BaseAgent.
   });
 
   it('marks explicit failed coordinator results as failed tasks', async () => {

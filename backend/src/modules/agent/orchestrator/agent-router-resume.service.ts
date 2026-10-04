@@ -25,6 +25,7 @@ import type { ToolRegistry } from '../tools/tool-registry.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
 import { computeForcedToolInclusions } from './agent-router-execution.service.js';
+import { OUTPUT_ARTIFACT_TOOL_NAMES } from '../agents/tool-policy.js';
 
 type RouterContextDeps = Pick<
   AgentRouterContextService,
@@ -449,6 +450,9 @@ export class AgentRouterResumeService {
             if (fallbackForcedTool) {
               finalTools.set(fallbackForcedTool.name, fallbackForcedTool);
             }
+          }
+          for (const tool of toolDefs) {
+            if (OUTPUT_ARTIFACT_TOOL_NAMES.has(tool.name)) finalTools.set(tool.name, tool);
           }
           toolDefs = [...finalTools.values()];
         } catch {

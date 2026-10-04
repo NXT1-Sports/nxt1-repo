@@ -7,6 +7,7 @@ import type { AgentRouterContextService } from './agent-router-context.service.j
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
 import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../utils/logger.js';
+import { isGeneratedDocumentLink } from '../utils/deliverable-links.js';
 
 const DELIVERABLE_URL_KEYS = [
   'url',
@@ -346,7 +347,10 @@ function appendDeliverablesSection(summary: string, items: readonly DeliverableI
 
   const cleanedSummary = stripMalformedDeliverableMarkdown(summary, items);
   const enrichedSummary = enrichSummaryVideoPosters(cleanedSummary, items);
-  const missing = items.filter((item) => !enrichedSummary.includes(buildDisplayUrl(item)));
+  // Documents are delivered as attachments + Files entries; only media is listed here.
+  const missing = items.filter(
+    (item) => !isGeneratedDocumentLink(item.url) && !enrichedSummary.includes(buildDisplayUrl(item))
+  );
   if (missing.length === 0) return enrichedSummary;
 
   const prefix = enrichedSummary.trim().length > 0 ? `${enrichedSummary.trim()}\n\n` : '';

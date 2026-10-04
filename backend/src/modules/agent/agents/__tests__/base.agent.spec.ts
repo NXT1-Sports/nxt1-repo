@@ -7,7 +7,7 @@ import type {
   ModelRoutingConfig,
 } from '@nxt1/core';
 import { z } from 'zod';
-import { BaseAgent } from '../base.agent.js';
+import { BaseAgent, isGammaPdfRequested } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
 import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
@@ -1023,6 +1023,76 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it.each([
+    { label: 'blocks without Gamma opt-in', gammaPdfRequested: false, blocked: true },
+    { label: 'allows with Gamma opt-in', gammaPdfRequested: true, blocked: false },
+  ])('dynamic_export PDF $label', async ({ gammaPdfRequested, blocked }) => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDynamicExportTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_gamma_gate',
+        type: 'function',
+        function: {
+          name: 'dynamic_export',
+          arguments: JSON.stringify({ format: 'pdf', fileName: 'Callsheet.pdf', rows: [] }),
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['dynamic_export', 'render_html_pdf'], gammaPdfRequested }
+    );
+
+    const parsed = JSON.parse(observation) as { errorCode?: string };
+    if (blocked) {
+      expect(parsed).toEqual(
+        expect.objectContaining({
+          success: false,
+          errorCode: 'AGENT_WRONG_EXPORT_LANE',
+          data: expect.objectContaining({ requiredTool: 'render_html_pdf' }),
+        })
+      );
+    } else {
+      expect(parsed.errorCode).not.toBe('AGENT_WRONG_EXPORT_LANE');
+    }
+  });
+
+  it('only treats user-chosen or user-typed Gamma as an opt-in', () => {
+    const base: AgentSessionContext = {
+      sessionId: 'session-gamma-opt-in',
+      userId: 'user-1',
+      conversationHistory: [],
+      createdAt: '',
+      lastActiveAt: '',
+    };
+    const history = (content: string) => ({
+      ...base,
+      conversationHistory: [{ role: 'user' as const, content, timestamp: '' }],
+    });
+
+    // Context dump mentioning Gamma (file names, threads) is not an opt-in.
+    expect(
+      isGammaPdfRequested(
+        [{ role: 'user', content: '[Files]\n- Gamma Recruiting Deck\n\nObjective: callsheet' }],
+        base
+      )
+    ).toBe(false);
+    expect(isGammaPdfRequested([], history('create me a callsheet'))).toBe(false);
+
+    expect(
+      isGammaPdfRequested([{ role: 'user', content: 'x\n\n[Request]\nmake it a gamma pdf' }], base)
+    ).toBe(true);
+    expect(isGammaPdfRequested([], history('use gamma for this one'))).toBe(true);
+    expect(
+      isGammaPdfRequested([], {
+        ...base,
+        outputIntent: { lanes: ['gamma_pdf'], source: 'output_selection' },
+      })
+    ).toBe(true);
+  });
+
   it('exposes only render_html_pdf when typed output intent selects Printable PDF', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -1243,6 +1313,99 @@ describe('BaseAgent identifier scrubbing', () => {
           message.role === 'tool' &&
           message.tool_call_id === askUserCallId &&
           message.content === resolvedSelection
+      )
+    ).toBe(true);
+    expect(
+      capturedMessages.some((message) => String(message.content ?? '').includes('Resume context:'))
+    ).toBe(false);
+  });
+
+  it.each([
+    { name: 'free-text', toolInput: { question: 'Which team is ODK keyed to?' } },
+    {
+      name: 'single-select',
+      toolInput: {
+        question: 'Which team is ODK keyed to?',
+        inputMode: 'single_select',
+        options: [{ label: 'Our team', value: 'keyed_to_our_team' }],
+      },
+    },
+  ])('does not instruct the model to re-call a $name ask_user on resume', async ({ toolInput }) => {
+    const agent = new FakeAgent();
+    let capturedMessages: readonly LLMMessage[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages) => {
+        capturedMessages = messages;
+        return {
+          content: 'Building the self-scout.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.resumeExecution(
+      {
+        reason: 'needs_input',
+        messages: [{ role: 'user', content: 'Our team.' }],
+        pendingToolCall: { toolName: 'ask_user', toolInput, toolCallId: 'ask_user_odk' },
+      },
+      createMockContext(),
+      [],
+      llm as never,
+      new ToolRegistry()
+    );
+
+    expect(
+      capturedMessages.some((message) => String(message.content ?? '').includes('Resume context:'))
+    ).toBe(false);
+  });
+
+  it('still adds the resume instruction for non-ask_user pending tools', async () => {
+    const agent = new FakeAgent();
+    let capturedMessages: readonly LLMMessage[] = [];
+    const llm = {
+      complete: vi.fn().mockImplementation(async (messages) => {
+        capturedMessages = messages;
+        return {
+          content: 'Sending now.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.resumeExecution(
+      {
+        reason: 'needs_input',
+        messages: [{ role: 'user', content: 'Yes, send it.' }],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolInput: { to: 'coach@example.com' },
+          toolCallId: 'send_email_1',
+        },
+      },
+      createMockContext(),
+      [],
+      llm as never,
+      new ToolRegistry()
+    );
+
+    expect(
+      capturedMessages.some(
+        (message) =>
+          message.role === 'assistant' &&
+          String(message.content ?? '').includes(
+            'Resume context: A pending tool is available: send_email.'
+          )
       )
     ).toBe(true);
   });
@@ -3159,7 +3322,7 @@ describe('BaseAgent identifier scrubbing', () => {
       },
       registry,
       'viewer-1',
-      { allowedToolNames: ['dynamic_export'] }
+      { allowedToolNames: ['dynamic_export'], gammaPdfRequested: true }
     );
 
     expect(JSON.parse(result)).toEqual(
@@ -3173,7 +3336,7 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('strips malformed nested export links and appends clean deliverable links', () => {
+  it('strips malformed nested export links without appending document links', () => {
     const agent = new FakeAgent();
     const downloadUrl =
       'http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/scout-play-cards-falcons.pdf?path=Users%2Fseed_director_01%2Fthreads%2Fthread%2Fexports%2Ffile.pdf&mime=application%2Fpdf&exp=123&sig=abc';
@@ -3198,8 +3361,9 @@ describe('BaseAgent identifier scrubbing', () => {
       }
     );
 
-    expect(normalized).toContain('Deliverables:');
-    expect(normalized).toContain(`[scout-play-cards-falcons.pdf](${downloadUrl})`);
+    // Documents are delivered as attachments/Files entries, never as a trailing link list.
+    expect(normalized).not.toContain('Deliverables:');
+    expect(normalized).not.toContain(downloadUrl);
     expect(normalized).not.toContain('[http://localhost');
     expect(normalized).not.toContain('source.html');
   });
@@ -4551,6 +4715,89 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(systemContent).toContain('You are a test agent.');
     expect(systemContent).not.toContain('## Operator Additions');
     expect(systemContent).not.toContain('Operator note for');
+  });
+
+  it('scopes result data and tool call records to the current turn, not replayed history', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeReadTool());
+    const timestamp = new Date().toISOString();
+    const context = {
+      ...createMockContext(),
+      conversationHistory: [
+        { role: 'user' as const, content: 'create a test pdf', timestamp },
+        {
+          role: 'assistant' as const,
+          content: '',
+          toolCalls: [
+            {
+              id: 'call_prior_pdf',
+              type: 'function' as const,
+              function: { name: 'render_html_pdf', arguments: '{}' },
+            },
+          ],
+          timestamp,
+        },
+        {
+          role: 'tool' as const,
+          toolCallId: 'call_prior_pdf',
+          content: JSON.stringify({
+            success: true,
+            data: {
+              downloadUrl: 'https://cdn.example.com/test-pdf.pdf',
+              fileName: 'test-pdf.pdf',
+              artifactRole: 'export',
+            },
+          }),
+          timestamp,
+        },
+        { role: 'assistant' as const, content: 'Your PDF is ready.', timestamp },
+      ],
+    };
+
+    const llm = {
+      complete: vi
+        .fn()
+        .mockResolvedValueOnce({
+          content: 'Pulling your profile.',
+          toolCalls: [
+            {
+              id: 'call_current',
+              type: 'function',
+              function: { name: 'fake_read_tool', arguments: '{}' },
+            },
+          ],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'tool_calls',
+        })
+        .mockResolvedValueOnce({
+          content: 'Done.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        }),
+    };
+
+    const result = await agent.execute(
+      'now build a spreadsheet',
+      context,
+      [],
+      llm as never,
+      registry
+    );
+
+    expect(result.data).not.toHaveProperty('downloadUrl');
+    expect(result.data).not.toHaveProperty('fileName');
+    const toolCallRecords = (result.data?.['toolCallRecords'] ?? []) as Array<
+      Record<string, unknown>
+    >;
+    expect(toolCallRecords.map((record) => record['toolName'])).toEqual(['fake_read_tool']);
   });
 
   it('attaches evidenceTrace metadata for numeric tool-backed responses', async () => {
