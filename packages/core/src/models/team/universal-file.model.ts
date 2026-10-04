@@ -99,6 +99,20 @@ export interface DocumentSheetMetadata {
   readonly isProtected?: boolean;
 }
 
+/** Visual formatting carried from the source workbook so previews match Excel. Colors are `#rrggbb`. */
+export interface DocumentSpreadsheetCellStyle {
+  readonly backgroundColor?: string;
+  readonly fontColor?: string;
+  readonly isItalic?: boolean;
+  readonly isUnderline?: boolean;
+  readonly isStrike?: boolean;
+  readonly horizontalAlign?: 'left' | 'center' | 'right';
+  readonly verticalAlign?: 'top' | 'middle' | 'bottom';
+  readonly wrapText?: boolean;
+  /** Font size in points. */
+  readonly fontSize?: number;
+}
+
 /** Individual cell representation for virtualized spreadsheet preview grids. */
 export interface DocumentSpreadsheetCell {
   readonly row: number;
@@ -108,6 +122,10 @@ export interface DocumentSpreadsheetCell {
   readonly formula?: string;
   readonly isBold?: boolean;
   readonly isHeader?: boolean;
+  readonly style?: DocumentSpreadsheetCellStyle;
+  /** Set on the top-left cell of a merged range; covered cells are omitted. */
+  readonly rowSpan?: number;
+  readonly colSpan?: number;
 }
 
 /** Bounded chunk of cell data for viewport-based spreadsheet streaming. */
@@ -120,6 +138,10 @@ export interface DocumentSpreadsheetRangeData {
   readonly totalRows: number;
   readonly totalCols: number;
   readonly cells: readonly DocumentSpreadsheetCell[];
+  /** Column widths in Excel character units for `startCol..endCol`; null means default width. */
+  readonly columnWidths?: readonly (number | null)[];
+  /** Row heights in points for `startRow..endRow`; null means default height. */
+  readonly rowHeights?: readonly (number | null)[];
 }
 
 /** Complete versioned manifest for a pre-rendered or normalized document preview. */

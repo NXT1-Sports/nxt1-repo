@@ -201,6 +201,7 @@ export {
   type DocumentSlideMetadata,
   type DocumentSheetMetadata,
   type DocumentSpreadsheetCell,
+  type DocumentSpreadsheetCellStyle,
   type DocumentSpreadsheetRangeData,
   type DocumentPreviewManifest,
   type DocumentPreviewAnchorType,

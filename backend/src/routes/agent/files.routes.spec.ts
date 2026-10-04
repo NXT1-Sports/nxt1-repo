@@ -298,9 +298,28 @@ function createApp(
   return app;
 }
 
+const MINIMAL_PDF = Buffer.from(
+  '%PDF-1.4\n1 0 obj <</Type/Catalog/Pages 2 0 R>> endobj\n' +
+    '2 0 obj <</Type/Pages/Kids[3 0 R]/Count 1>> endobj\n' +
+    '3 0 obj <</Type/Page/Parent 2 0 R/MediaBox[0 0 10 10]>> endobj\n' +
+    'trailer <</Root 1 0 R>>\n%%EOF',
+  'latin1'
+);
+
+function createDownloadBucket(download: () => Promise<[Buffer]>): MockSignedUrlBucket {
+  return {
+    file: vi.fn().mockReturnValue({
+      download: vi.fn(download),
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/file']),
+    }),
+  };
+}
+
 describe('POST /api/v1/agent/files/:fileId/preview-sessions', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     resetFeatureFlagsService();
+    const { DocumentPreviewService } = await import('../../modules/document-preview/index.js');
+    DocumentPreviewService.clearManifestCache();
   });
 
   it('returns feature_disabled when the preview sessions feature flag is disabled', async () => {
@@ -380,12 +399,16 @@ describe('POST /api/v1/agent/files/:fileId/preview-sessions', () => {
       },
     });
 
-    const response = await request(createApp(db)).post(
-      '/api/v1/agent/files/document1/preview-sessions'
-    );
+    const response = await request(
+      createApp(
+        db,
+        createDownloadBucket(async () => [MINIMAL_PDF])
+      )
+    ).post('/api/v1/agent/files/document1/preview-sessions');
 
     expect(response.status, JSON.stringify(response.body)).toBe(200);
     expect(response.body.data.available).toBe(true);
+    expect(response.body.data.manifest.pageCount).toBe(1);
     expect(response.body.data.manifest).toMatchObject({
       documentId: 'document1',
       documentType: 'pdf',
@@ -396,6 +419,48 @@ describe('POST /api/v1/agent/files/:fileId/preview-sessions', () => {
       documentType: 'pdf',
       status: 'ready',
     });
+  });
+
+  it('reports available:false when the source file cannot be read', async () => {
+    const db = createMockFirestore({
+      UniversalFiles: {
+        sheetBroken: {
+          title: 'Roster.xlsx',
+          normalizedTitle: 'roster.xlsx',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              kind: 'csv',
+              origin: 'files_upload',
+              sizeBytes: 1024,
+              url: 'https://example.com/roster.xlsx',
+              storagePath: 'users/owner-1/roster.xlsx',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+        },
+      },
+    });
+
+    const response = await request(
+      createApp(
+        db,
+        createDownloadBucket(async () => {
+          throw new Error('storage unavailable');
+        })
+      )
+    ).post('/api/v1/agent/files/sheetBroken/preview-sessions');
+
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(response.body.data).toMatchObject({ available: false, reason: 'render_failed' });
+    expect(response.body.data.manifest).toBeUndefined();
   });
 
   it('rejects forbidden users attempting to negotiate a preview session', async () => {
@@ -596,6 +661,88 @@ describe('GET /api/v1/agent/files/:fileId/preview/spreadsheet-range', () => {
     expect(response.body.data.cells[0]).toMatchObject({ row: 1, col: 1, value: 'Name' });
   });
 
+  function seedRangeSheet(
+    overrides: Record<string, unknown> = {},
+    flags?: Record<string, boolean>
+  ) {
+    return createMockFirestore({
+      ...(flags ? { AppConfig: { featureFlags: { flags } } } : {}),
+      UniversalFiles: {
+        sheet1: {
+          title: 'Roster.csv',
+          normalizedTitle: 'roster.csv',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: 'text/csv',
+              kind: 'csv',
+              origin: 'files_upload',
+              sizeBytes: 20,
+              url: 'https://example.com/roster.csv',
+              storagePath: 'users/owner-1/roster.csv',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+          ...overrides,
+        },
+      },
+    });
+  }
+
+  const csvBucket = () => createDownloadBucket(async () => [Buffer.from('Name,Pos\nJohn,QB\n')]);
+
+  it.each([['startRow=abc'], ['endCol=1.5'], ['startCol=-1'], ['endRow=0']])(
+    'returns 400 for invalid range params (%s)',
+    async (query) => {
+      const response = await request(createApp(seedRangeSheet(), csvBucket())).get(
+        `/api/v1/agent/files/sheet1/preview/spreadsheet-range?${query}`
+      );
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+    }
+  );
+
+  it('clamps oversized ranges instead of failing', async () => {
+    const response = await request(createApp(seedRangeSheet(), csvBucket())).get(
+      '/api/v1/agent/files/sheet1/preview/spreadsheet-range?startRow=1&endRow=100000&startCol=1&endCol=100000'
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.cells).toHaveLength(4);
+  });
+
+  it('returns 404 for an unknown sheet without leaking internals', async () => {
+    const response = await request(createApp(seedRangeSheet(), csvBucket())).get(
+      '/api/v1/agent/files/sheet1/preview/spreadsheet-range?sheetId=nope'
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ success: false, error: 'Worksheet not found.' });
+  });
+
+  it('applies the preview feature flag and readiness guards', async () => {
+    resetFeatureFlagsService();
+    const disabled = await request(
+      createApp(seedRangeSheet({}, { 'agent.files.preview.sessions.enabled': false }), csvBucket())
+    ).get('/api/v1/agent/files/sheet1/preview/spreadsheet-range');
+    expect(disabled.status).toBe(403);
+    expect(disabled.body.reason).toBe('feature_disabled');
+
+    resetFeatureFlagsService();
+    const notReady = await request(
+      createApp(seedRangeSheet({ status: 'processing' }), csvBucket())
+    ).get('/api/v1/agent/files/sheet1/preview/spreadsheet-range');
+    expect(notReady.status).toBe(409);
+    expect(notReady.body.reason).toBe('source_not_ready');
+  });
+
   it('rejects unauthorized users requesting spreadsheet range', async () => {
     const db = createMockFirestore({
       UniversalFiles: {
@@ -630,6 +777,91 @@ describe('GET /api/v1/agent/files/:fileId/preview/spreadsheet-range', () => {
 
     expect(response.status).toBe(403);
     expect(response.body.success).toBe(false);
+  });
+});
+
+describe('PATCH /api/v1/agent/files/:fileId/preview/spreadsheet-cells', () => {
+  function seedEditableSheet(overrides: Record<string, unknown> = {}) {
+    return createMockFirestore({
+      UniversalFiles: {
+        sheet1: {
+          title: 'Roster.csv',
+          normalizedTitle: 'roster.csv',
+          type: 'file',
+          payloadKind: 'native',
+          status: 'ready',
+          ownerUserId: 'owner-1',
+          readAccessKeys: ['user:owner-1'],
+          writeAccessKeys: ['user:owner-1'],
+          payload: {
+            asset: {
+              mimeType: 'text/csv',
+              kind: 'csv',
+              origin: 'files_upload',
+              sizeBytes: 18,
+              url: 'https://example.com/roster.csv',
+              storagePath: 'users/owner-1/roster.csv',
+            },
+          },
+          createdAt: '2026-09-27T00:00:00.000Z',
+          updatedAt: '2026-09-27T00:00:00.000Z',
+          ...overrides,
+        },
+      },
+    });
+  }
+
+  function editableCsvBucket() {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const bucket = {
+      file: vi.fn().mockReturnValue({
+        download: vi.fn().mockResolvedValue([Buffer.from('Name,Pos\nJohn,QB\n')]),
+        getMetadata: vi.fn().mockResolvedValue([{ generation: '3', contentType: 'text/csv' }]),
+        save,
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/roster.csv']),
+      }),
+    };
+    return { bucket: bucket as unknown as MockSignedUrlBucket, save };
+  }
+
+  it('saves edited cells and bumps the file revision', async () => {
+    const db = seedEditableSheet();
+    const { bucket, save } = editableCsvBucket();
+
+    const response = await request(createApp(db, bucket))
+      .patch('/api/v1/agent/files/sheet1/preview/spreadsheet-cells')
+      .send({ edits: [{ row: 2, col: 2, value: 'WR' }] });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.cells).toEqual([
+      expect.objectContaining({ row: 2, col: 2, value: 'WR', formattedValue: 'WR' }),
+    ]);
+    const saved = (save.mock.calls[0]![0] as Buffer).toString('utf-8');
+    expect(saved).toBe('Name,Pos\nJohn,WR\n');
+    const record = db.getRecord('UniversalFiles/sheet1') as Record<string, unknown>;
+    expect(record['updatedByUserId']).toBe('owner-1');
+    expect(record['updatedAt']).not.toBe('2026-09-27T00:00:00.000Z');
+  });
+
+  it('rejects invalid edit payloads', async () => {
+    const { bucket } = editableCsvBucket();
+    const response = await request(createApp(seedEditableSheet(), bucket))
+      .patch('/api/v1/agent/files/sheet1/preview/spreadsheet-cells')
+      .send({ edits: [{ row: 0, col: 1, value: 'x' }] });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('forbids users who can only read the file', async () => {
+    const { bucket, save } = editableCsvBucket();
+    const response = await request(
+      createApp(seedEditableSheet({ writeAccessKeys: ['user:other-user'] }), bucket)
+    )
+      .patch('/api/v1/agent/files/sheet1/preview/spreadsheet-cells')
+      .send({ edits: [{ row: 1, col: 1, value: 'x' }] });
+
+    expect(response.status).toBe(403);
+    expect(save).not.toHaveBeenCalled();
   });
 });
 
