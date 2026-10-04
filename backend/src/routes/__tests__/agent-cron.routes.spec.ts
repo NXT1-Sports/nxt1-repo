@@ -82,6 +82,7 @@ vi.mock('../../modules/agent/memory/vector.service.js', () => ({
 
 vi.mock('../../config/runtime-environment.js', () => ({
   getRuntimeEnvironment: vi.fn().mockReturnValue('test'),
+  isLocalDevelopment: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('../../utils/firebase.js', () => ({ db: {} }));
